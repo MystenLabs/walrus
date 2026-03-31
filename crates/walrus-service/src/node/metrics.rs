@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use prometheus::{
+    Gauge,
     GaugeVec,
     Histogram,
     HistogramVec,
@@ -226,6 +227,24 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The last epoch for which garbage collection was started or finished"]
         garbage_collection_last_epoch: U64GaugeVec["status"],
+
+        #[help = "The total number of expired storage pool info entries deleted by GC"]
+        garbage_collection_expired_storage_pools_deleted_total: IntCounter[],
+
+        #[help = "The duration of storage pool GC in seconds"]
+        garbage_collection_storage_pools_duration_seconds: Gauge[],
+
+        #[help = "The total number of expired pooled blob objects deleted by GC"]
+        garbage_collection_expired_pooled_blob_objects_deleted_total: IntCounter[],
+
+        #[help = "The duration of regular blob object GC in seconds"]
+        garbage_collection_regular_blob_objects_duration_seconds: Gauge[],
+
+        #[help = "The duration of expired blob data deletion in seconds"]
+        garbage_collection_blob_data_deletion_duration_seconds: Gauge[],
+
+        #[help = "The duration of pooled blob object GC in seconds"]
+        garbage_collection_pooled_blob_objects_duration_seconds: Gauge[],
 
         #[help = "The number of blobs registered to be notified when the blob expires/gets \
         deleted/gets invalidated"]

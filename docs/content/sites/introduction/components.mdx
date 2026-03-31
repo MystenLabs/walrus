@@ -1,73 +1,108 @@
 ---
-title: Introduction to Walrus Sites
-description: "Introduction to Walrus Sites - decentralized websites using Sui and Walrus for hosting static web content."
-keywords: ["walrus sites", "decentralized websites", "sui blockchain", "static sites", "web hosting", "nft websites", "suins", "site builder", "dapp"]
+title: Walrus Sites Components
+description: "A Walrus Site consists of data stored as blobs on Walrus, a site object on Sui that maps resource paths to blob IDs, the site-builder CLI for publishing and updating, a ws-resources.json configuration file, and a portal that resolves and serves the site to browsers."
+keywords: ["walrus sites", "site-builder", "portal", "ws-resources", "sui object", "walrus blob", "suins", "static sites", "decentralized websites"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-662/sitesintroductioncomponents */}
+A Walrus Site is made up of 4 main components that work together: the site's files stored on Walrus, a [Sui object](https://docs.sui.io/guides/developer/objects/object-model) that indexes those files as resources, the [`site-builder` CLI](/docs/sites/getting-started/installing-the-site-builder) that publishes and updates the site, and a portal that serves the site to browsers.
 
+## Site files on Walrus
 
-*Walrus Sites* are "web"-sites that use Sui and Walrus as their underlying technology. They are a
-prime example of how Walrus can be used to build new and exciting decentralized applications. Anyone
-can build and deploy a Walrus Site and make it accessible to the world! Interestingly, this documentation
-is itself available as a Walrus Site at https://docs.wal.app/docs/sites/introduction/components (if you
-aren't there already).
+Your site's static assets (HTML, CSS, JavaScript, images, fonts, and so on) are stored as blobs on Walrus. When you deploy a site, the `site-builder` uploads your assets to Walrus by encoding multiple files into a single storage entity called a [quilt](/docs/system-overview/quilt), a unique feature designed to reduce upload cost and improve upload speed. Each file in the quilt is assigned a `QuiltPatchID`.
 
-At a high level, here are some of the most exciting features:
+## The Sui site object
 
-- Publishing a site does not require managing servers or complex configurations; just provide the
-  source files (produced by your favorite web framework), publish them to Walrus Sites using the
-  [`site-builder` tool](/docs/sites/introduction/technical-overview#the-site-builder), and you are done!
-- Sites can be linked to from ordinary Sui objects. This feature enables, for example, creating an
-  NFT collection in which *every single NFT* has a *personalized website dedicated to it*.
-- Walrus Sites are owned by addresses on Sui and can be exchanged, shared, and updated thanks to
-  Sui's flexible programming model. This means, among other things, that Walrus Sites can leverage
-  the [SuiNS](https://suins.io/) naming system to have human-readable names. No more messing around
-  with DNS!
-- Thanks to Walrus's decentralization and extremely high data availability, there is no risk of
-  having your site wiped for any reason.
-- Since they live on Walrus, these sites cannot have a backend in the traditional sense, and can
-  therefore be considered "static" sites. However, the developer can integrate with Sui-compatible
-  wallets and harness Sui's programmability to add backend functionality to Walrus Sites!
+Each Walrus Site corresponds to a single object on Sui, defined by the Move smart contract in the [`move/walrus_site`](https://github.com/MystenLabs/walrus-sites/tree/main/move/walrus_site) directory of the repository. Unlike storing a single blob directly on Walrus, a Walrus Site bundles all its files into a quilt and represents the entire site as one Sui object. At its core, a site object is a simple structure:
 
-## Show me
+```move
+struct Site has key, store {
+    id: UID,
+    name: String,
+}
+```
 
-To give you a very high-level view of how Walrus Sites work, let's look at an example: A simple
-NFT collection on Sui that has a frontend dApp to mint the NFTs hosted on Walrus Sites, and in
-which *each NFT* has a *specific, personalized Walrus Site*.
+Each resource in the site is attached to this object as a dynamic field of type `Resource`:
 
-You can check out the mint page at https://flatland.wal.app/. This site is served to your
-browser through the Walrus Site *portal* https://wal.app. While the portal's operation is
-explained in a [later section](/docs/sites/portals/deploy-locally), consider for now that there can be many portals (hosted
-by whoever wants to have their own, and even on `localhost`). Further, the only function of the
-portal is to retrieve the metadata (from Sui) and the resource files (from Walrus) that constitute
-the site.
+```move
+struct Resource has store, drop {
+    path: String,
+    blob_id: u256,
+    // ...headers and other metadata
+}
+```
 
-If you have a Sui wallet with some SUI, you can try and "mint a new Flatlander" from the site. This
-creates an NFT from the collection and shows you two links: one to the explorer, and one to the
-"Flatlander site". This latter site is a special Walrus Sites page that exists only for that NFT,
-and has special characteristics (the background color, the image, ...) that are based on the
-contents of the NFT.
+The `path` field corresponds to the resource's URL path (for example, `/index.html`), and `blob_id` is the Walrus identifier for the resource's content. The site object uses each file's `QuiltPatchID` to locate and retrieve it from the quilt. Together, the site object and its dynamic fields form an on-chain index that maps every resource path in your site to its content on Walrus. Because Walrus is a decentralized storage network, there is no single server that can take your content offline.
 
-The URL to this per-NFT site looks something like this:
-`https://flatland.wal.app/0x811285f7bbbaad302e23a3467ed8b8e56324ab31294c27d7392dac649b215716`.
-You'll notice that the domain remains `wal.app`, but the path is a long and random-looking
-string. This string is actually the [hexadecimal](https://simple.wikipedia.org/wiki/Hexadecimal)
-encoding of the object ID of the NFT, which is [0x811285f7b...][flatlander]. This path is unique to
-each NFT and is used to fetch the metadata and resource files for its corresponding page. The page
-is then rendered based on the characteristics of the NFT.
+Because the site object is a standard Sui object, it has a single owner. The wallet that deployed the site owns the object and is the only wallet that can update or destroy it. Ownership can also be transferred, meaning you can move a site to a different wallet if needed. For more detail on how Sui handles object ownership, see the [Sui object model](https://docs.sui.io/guides/developer/objects/object-model) documentation. You can also assign a [SuiNS](https://suins.io/) name to the object, giving your site a human-readable domain name.
 
-In summary:
+:::info
 
-- Walrus Sites are served through a portal; in this case, `https://wal.app`. There can be many
-  portals, and anyone can host one.
-- The subdomain on the URL points to a specific object on Sui that allows the browser to fetch and
-  render the site resources. This pointer should be a SuiNS name, such as `flatland` in
-  `https://flatland.wal.app`.
-- It is possible for each path to be mapped to a specific object on Sui that allows the browser to
-  fetch and render a page based on the characteristics of the NFT.
+Blobs are stored for a fixed number of epochs. On Mainnet, each epoch lasts 14 days. On Testnet, each epoch lasts 1 day. The maximum storage duration is 53 epochs.
 
-Curious to know how this magic is possible? Read the [technical overview](/docs/sites/introduction/technical-overview)! If you
-just want to get started trying Walrus Sites out, check the [tutorial](/docs/sites).
+:::
 
-[flatlander]: https://suiscan.xyz/mainnet/object/0x811285f7bbbaad302e23a3467ed8b8e56324ab31294c27d7392dac649b215716
+## The `site-builder` CLI
+
+The `site-builder` is a Rust CLI tool that creates and manages Walrus Sites. It takes your site's build output directory as input and handles uploading files to Walrus and writing the on-chain index to Sui.
+
+The primary command is [`deploy`](/docs/sites/getting-started/using-the-site-builder#deploy), which both publishes new sites and updates existing ones:
+
+```sh
+site-builder deploy --epochs <NUMBER> <DIRECTORY>
+```
+
+The `site-builder` requires a [`sites-config.yaml` configuration file](/docs/sites/getting-started/using-the-site-builder) that specifies the Sui package ID for the Walrus Sites contract and your network context.
+
+When you run `deploy` for the first time, it publishes a new site and writes the resulting Sui object ID to the `object_id` field in `ws-resources.json`. On subsequent runs, `deploy` reads that object ID and updates the existing site instead of creating a new one.
+
+## `ws-resources.json`
+
+[`ws-resources.json`](/docs/sites/configuration/site-configuration) is a configuration file the `site-builder` reads during deployment to control how your site is built and served. The file itself is not uploaded to Walrus and is not accessible to visitors.
+
+The file supports the following fields (see the [configuration reference](/docs/sites/configuration/site-configuration) for more details):
+ 
+```json
+{
+  // Written automatically after the first deploy; subsequent deploys update this site
+  "object_id": "0x...",
+ 
+  // Custom HTTP response headers per resource (cache control, content type, etc.)
+  "headers": {},
+ 
+  // Client-side routing rules for SPA frameworks like React or Angular
+  "routes": {
+    "/app/*": "/index.html"
+  },
+ 
+  // Site metadata stored in the Sui object and displayed in wallets
+  "metadata": {
+    "site_name": "My Site",
+    "description": "A site built on Walrus.",
+    "link": "https://example.wal.app"
+  },
+ 
+  // Path patterns to exclude from deployment
+  "ignore": []
+}
+```
+
+:::caution
+
+Walrus Sites does not support dynamic redirects. Redirect plugins used in frameworks like Docusaurus resolve routes at the server level, which Walrus Sites does not have. Use the `routes` field in `ws-resources.json` to simulate client-side routing instead.
+
+:::
+
+## Portals
+
+A [portal](/docs/sites/portals/mainnet-testnet) resolves and serves a Walrus Site to a visitor's browser. When a visitor navigates to a Walrus Site URL, the portal performs the following steps:
+
+1. Resolves the subdomain to a Sui object ID, either through a SuiNS name lookup or by decoding the Base36-encoded object ID directly from the subdomain.
+2. Reads the site object's [dynamic fields](https://docs.sui.io/concepts/dynamic-fields) from Sui to get the resource map.
+3. Fetches the resource from Walrus using the `blob_id` from that map.
+4. Returns the resource to the browser with the appropriate headers.
+
+This process repeats for every resource the browser requests, such as linked CSS files, scripts, and images.
+
+The public Mainnet portal operated by Mysten Labs is available at [https://wal.app](https://wal.app). Sites with a SuiNS name are accessible directly by name. For sites without one, use the Base36-encoded object ID as the subdomain, or run `site-builder convert` to find it.
+
+Anyone can host their own portal. For setup instructions, see [Deploy a Local Portal](/docs/sites/portals/deploy-locally).

@@ -228,6 +228,8 @@ pub struct GlobalDatabaseOptions {
     pub wal_ttl_seconds: Option<u64>,
     /// The size limit for the WAL in MB.
     pub wal_size_limit_mb: Option<u64>,
+    /// The maximum number of background jobs (compactions + flushes).
+    pub max_background_jobs: Option<i32>,
     /// Whether to enable statistics.
     pub enable_statistics: bool,
     /// If true, databases are opened using `OptimisticTransactionDB` instead of the standard DB.
@@ -244,7 +246,8 @@ impl Default for GlobalDatabaseOptions {
             keep_log_file_num: Some(50),
             wal_ttl_seconds: Some(60 * 60 * 24 * 2), // 2 days,
             wal_size_limit_mb: Some(10 * 1024),      // 10 GB,
-            enable_statistics: false,
+            max_background_jobs: Some(16),
+            enable_statistics: true,
             use_optimistic_transaction_db: true,
         }
     }
@@ -280,6 +283,10 @@ impl From<&GlobalDatabaseOptions> for Options {
 
         if let Some(wal_size_limit_mb) = value.wal_size_limit_mb {
             options.set_wal_size_limit_mb(wal_size_limit_mb);
+        }
+
+        if let Some(max_background_jobs) = value.max_background_jobs {
+            options.set_max_background_jobs(max_background_jobs);
         }
 
         if value.enable_statistics {
@@ -337,6 +344,8 @@ pub struct DatabaseConfig {
     pub(super) per_object_blob_info: Option<DatabaseTableOptions>,
     /// Per object pooled blob info database options.
     pub(super) per_object_pooled_blob_info: Option<DatabaseTableOptions>,
+    /// Storage pool info database options.
+    pub(super) storage_pool_info: Option<DatabaseTableOptions>,
     /// Event cursor database options.
     pub(super) event_cursor: Option<DatabaseTableOptions>,
     /// Shard database options.
@@ -449,6 +458,11 @@ impl DatabaseConfig {
         )
     }
 
+    /// Returns the storage pool info database option.
+    pub fn storage_pool_info(&self) -> DatabaseTableOptions {
+        Self::inherit_from_or_use_template(&self.storage_pool_info, self.standard())
+    }
+
     /// Returns the event cursor database option.
     pub fn event_cursor(&self) -> DatabaseTableOptions {
         Self::inherit_from_or_use_template(&self.event_cursor, self.standard())
@@ -533,6 +547,7 @@ impl Default for DatabaseConfig {
             blob_info: None,
             per_object_blob_info: None,
             per_object_pooled_blob_info: None,
+            storage_pool_info: None,
             event_cursor: None,
             shard: None,
             shard_status: None,
@@ -723,6 +738,11 @@ impl DatabaseTableOptionsFactory {
     /// Returns the per object pooled blob info database option with shared cache.
     pub fn per_object_pooled_blob_info(&self) -> Options {
         self.to_options(&self.config.per_object_pooled_blob_info(), false)
+    }
+
+    /// Returns the storage pool info database option.
+    pub fn storage_pool_info(&self) -> Options {
+        self.to_options(&self.config.storage_pool_info(), false)
     }
 
     /// Returns the event cursor database option with shared cache.
