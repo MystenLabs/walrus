@@ -372,6 +372,7 @@ impl StorageNodeConfig {
                 max_concurrent_blob_syncs: 10,
                 ..Default::default()
             },
+            db_config: DatabaseConfig::default_mainnet(),
             ..Default::default()
         }
     }
