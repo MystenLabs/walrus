@@ -830,11 +830,15 @@ public(package) fun create_storage_pool(
 }
 
 /// Creates a new `StoragePool` backed by an existing `Storage` reservation.
+/// The storage must have started (start_epoch <= current epoch) and not yet expired.
 public(package) fun create_storage_pool_with_storage(
     self: &SystemStateInnerV1,
     storage: Storage,
     ctx: &mut TxContext,
 ): StoragePool {
+    assert!(storage.size() > 0, EInvalidResourceSize);
+    assert!(storage.start_epoch() <= self.epoch(), EInvalidEpochsAhead);
+    assert!(storage.end_epoch() > self.epoch(), EInvalidEpochsAhead);
     let pool = storage_pool::create(storage, ctx);
 
     events::emit_storage_pool_created(
