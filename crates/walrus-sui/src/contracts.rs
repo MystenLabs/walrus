@@ -239,6 +239,7 @@ pub mod storage_pool {
 
     contract_ident!(struct storage_pool::StoragePool);
     contract_ident!(struct storage_pool::PooledBlob);
+    contract_ident!(fn storage_pool::merge_storage_pool);
 }
 
 /// Module for tags corresponding to the Move module `system_state_inner`.
