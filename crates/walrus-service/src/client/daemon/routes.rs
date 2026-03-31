@@ -1137,11 +1137,19 @@ pub(super) async fn put_blob<T: WalrusWriteClient>(
         content_type = "application/octet-stream",
         description = "Binary data of the unencoded blob to be stored in the bucket."),
     params(
-        ("blob_bucket_object_id" = ObjectIdSchema, Path, description = "The shared blob bucket object ID."),
+        (
+            "blob_bucket_object_id" = ObjectIdSchema,
+            Path,
+            description = "The shared blob bucket object ID."
+        ),
         BucketPublisherQuery
     ),
     responses(
-        (status = 200, description = "The blob was stored in the bucket successfully", body = BlobBucketStoreResult),
+        (
+            status = 200,
+            description = "The blob was stored in the bucket successfully",
+            body = BlobBucketStoreResult
+        ),
         (status = 400, description = "The request is malformed"),
         (status = 413, description = "The blob is too large"),
         StoreBlobError,

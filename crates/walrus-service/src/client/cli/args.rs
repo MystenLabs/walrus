@@ -1983,7 +1983,13 @@ mod tests {
 
     const STORE_STR_1: &str = r#"{"store": {"files": ["README.md"], "epochs": 1}}"#;
     const STORE_STR_MAX: &str = r#"{"store": {"files": ["README.md"], "epochs": "max"}}"#;
-    const STORE_IN_BUCKET_STR: &str = r#"{"storeInBucket": {"blobBucketObjectId": "0x1111111111111111111111111111111111111111111111111111111111111111", "blobBucketCapObjectId": "0x2222222222222222222222222222222222222222222222222222222222222222", "files": ["README.md"], "epochs": 1}}"#;
+    const STORE_IN_BUCKET_STR: &str = concat!(
+        r#"{"storeInBucket": {"blobBucketObjectId": "#,
+        r#""0x1111111111111111111111111111111111111111111111111111111111111111", "#,
+        r#""blobBucketCapObjectId": "#,
+        r#""0x2222222222222222222222222222222222222222222222222222222222222222", "#,
+        r#""files": ["README.md"], "epochs": 1}}"#,
+    );
     const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
     const DAEMON_STR: &str =
         r#"{"daemon": {"bindAddress": "127.0.0.1:12345", "subWalletsDir": "/some/path"}}"#;
