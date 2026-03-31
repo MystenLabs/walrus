@@ -292,7 +292,7 @@ STAKING_OBJECT=$(awk '/^staking_object:/ {print $2}' $CLIENT_CONFIG)
 Set the remaining variables and run the setup command:
 
 ```sh
-NODE_CAPACITY=   # for example, 3.14TB or 2.718TiB
+NODE_CAPACITY=   # for example, 3.14TiBor 2.718TiB
 NODE_NAME=""     # an arbitrary string identifying your node; include your entity name
 PUBLIC_PORT=9185 # change if you deviate from defaults or use a reverse proxy
 SUI_RPC_URL=     # URL of a Sui full node for the target network
