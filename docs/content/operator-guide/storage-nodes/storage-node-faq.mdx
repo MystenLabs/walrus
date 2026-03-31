@@ -33,7 +33,7 @@ Do not disable TLS. While the option exists, very few correct reverse-proxy conf
 
 If you set up certbot as described in the [Storage Node Setup guide](/docs/operator-guide/storage-node-setup#tls-setup), it reuses the same key when renewing (`--reuse-key`).
 
-If you ever must change the key, the node detects changes and updates on-chain information automatically. It checks for changes every 15 minutes and during startup. Other nodes might take some time to pick up the change, so only do this when necessary.
+If you ever must change the key, the node detects changes and updates onchain information automatically. It checks for changes every 15 minutes and during startup. Other nodes might take some time to pick up the change, so only do this when necessary.
 
 The same automatic update works for all other configuration changes, including voting parameters, commission rate, and protocol key.
 

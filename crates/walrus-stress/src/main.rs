@@ -299,7 +299,7 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
                     for &staked_wal_id in wal_staked.iter() {
                         // Request to withdraw our WAL.
                         contract_client
-                            .request_withdraw_stake(staked_wal_id)
+                            .request_withdraw_stake(&[staked_wal_id])
                             .await?;
                     }
                     tracing::info!(
@@ -329,7 +329,7 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
                     // Unstake any Wal we had staked.
                     for staked_wal_id in wal_staked_temp {
                         // Actually withdraw our WAL.
-                        contract_client.withdraw_stake(staked_wal_id).await?;
+                        contract_client.withdraw_stake(&[staked_wal_id]).await?;
                     }
 
                     // Re-read the current epoch to avoid a race condition.

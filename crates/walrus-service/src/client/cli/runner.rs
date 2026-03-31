@@ -70,7 +70,10 @@ use walrus_sdk::{
             SuiContractClient,
         },
         config::WalletConfig,
-        types::move_structs::{Authorized, BlobAttribute, EpochState},
+        types::{
+            StakedWal,
+            move_structs::{Authorized, BlobAttribute, EpochState, StakedWalState},
+        },
         utils::SuiNetwork,
     },
     uploader::TailHandling,
@@ -150,13 +153,18 @@ use crate::{
             InfoPriceOutput,
             InfoSizeOutput,
             InfoStorageOutput,
+            ListStakedWalOutput,
             ReadOutput,
             ReadQuiltOutput,
+            RequestWithdrawStakeDryRunOutput,
+            RequestWithdrawStakeListOutput,
+            RequestWithdrawStakeOutput,
             ServiceHealthInfoOutput,
             ShareBlobOutput,
             StakeOutput,
             StoreQuiltDryRunOutput,
             WalletOutput,
+            WithdrawStakeOutput,
         },
     },
     common::telemetry::TracingSubscriberBuilder,
@@ -391,6 +399,24 @@ impl ClientCommandRunner {
             CliCommands::Stake { node_ids, amounts } => {
                 self.stake_with_node_pools(node_ids, amounts).await
             }
+
+            CliCommands::RequestWithdrawStake {
+                node_id,
+                staked_wal_ids,
+                dry_run,
+            } => {
+                self.request_withdraw_stake(node_id, staked_wal_ids, dry_run)
+                    .await
+            }
+
+            CliCommands::WithdrawStake { staked_wal_ids } => {
+                self.withdraw_stake(staked_wal_ids).await
+            }
+
+            CliCommands::ListStakedWal {
+                staked_only,
+                withdrawing_only,
+            } => self.list_staked_wal(staked_only, withdrawing_only).await,
 
             CliCommands::GenerateSuiWallet {
                 path,
@@ -1896,6 +1922,101 @@ impl ClientCommandRunner {
         let client = get_contract_client(self.config?, self.wallet?, self.gas_budget).await?;
         let staked_wal = client.stake_with_node_pools(&node_ids_with_amounts).await?;
         StakeOutput { staked_wal }.print_output(self.json)
+    }
+
+    pub(crate) async fn request_withdraw_stake(
+        self,
+        node_id: ObjectID,
+        staked_wal_ids: Vec<ObjectID>,
+        dry_run: bool,
+    ) -> Result<()> {
+        let client = get_contract_client(self.config?, self.wallet?, self.gas_budget).await?;
+
+        // Get all StakedWal objects owned by the wallet that are staked with this node.
+        let staked_wals: Vec<StakedWal> = client
+            .sui_client()
+            .owned_staked_wals()
+            .await?
+            .into_iter()
+            .filter(|sw| sw.node_id == node_id && sw.state == StakedWalState::Staked)
+            .collect();
+
+        if staked_wals.is_empty() {
+            anyhow::bail!("no StakedWal objects in staked state found for node {node_id}");
+        }
+
+        // Determine which StakedWal objects to unstake.
+        let targets = if !staked_wal_ids.is_empty() {
+            // User specified which StakedWal objects to unstake.
+            staked_wal_ids
+                .iter()
+                .map(|id| {
+                    staked_wals
+                        .iter()
+                        .find(|sw| sw.id == *id)
+                        .cloned()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "StakedWal object {id} not found for node {node_id} in this wallet"
+                            )
+                        })
+                })
+                .collect::<Result<Vec<_>>>()?
+        } else if staked_wals.len() == 1 {
+            staked_wals
+        } else {
+            // Multiple StakedWal objects exist; list them so the user can pick.
+            return RequestWithdrawStakeListOutput { staked_wals }.print_output(self.json);
+        };
+
+        if dry_run {
+            return RequestWithdrawStakeDryRunOutput {
+                staked_wals: targets,
+            }
+            .print_output(self.json);
+        }
+
+        let ids: Vec<ObjectID> = targets.iter().map(|sw| sw.id).collect();
+        let tx_digest = client.sui_client().request_withdraw_stake(&ids).await?;
+        RequestWithdrawStakeOutput {
+            staked_wals: targets,
+            tx_digest,
+        }
+        .print_output(self.json)
+    }
+
+    pub(crate) async fn withdraw_stake(self, staked_wal_ids: Vec<ObjectID>) -> Result<()> {
+        let client = get_contract_client(self.config?, self.wallet?, self.gas_budget).await?;
+        let tx_digest = client.sui_client().withdraw_stake(&staked_wal_ids).await?;
+        WithdrawStakeOutput {
+            staked_wal_ids,
+            tx_digest,
+        }
+        .print_output(self.json)
+    }
+
+    pub(crate) async fn list_staked_wal(
+        self,
+        staked_only: bool,
+        withdrawing_only: bool,
+    ) -> Result<()> {
+        let client = get_contract_client(self.config?, self.wallet?, self.gas_budget).await?;
+        let staked_wals: Vec<StakedWal> = client
+            .sui_client()
+            .owned_staked_wals()
+            .await?
+            .into_iter()
+            .filter(|sw| {
+                if staked_only {
+                    matches!(sw.state, StakedWalState::Staked)
+                } else if withdrawing_only {
+                    matches!(sw.state, StakedWalState::Withdrawing(_))
+                } else {
+                    true
+                }
+            })
+            .collect();
+        ListStakedWalOutput { staked_wals }.print_output(self.json)
     }
 
     pub(crate) async fn generate_sui_wallet(

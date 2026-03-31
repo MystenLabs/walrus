@@ -771,20 +771,35 @@ impl SuiReadClient {
     where
         U: AssociatedContractStruct,
     {
+        let span = tracing::debug_span!(
+            "get_owned_objects",
+            contract_struct = %U::CONTRACT_STRUCT,
+        );
+
         let results = self
             .get_owned_object_data(owner, type_args, U::CONTRACT_STRUCT)
+            .instrument(span.clone())
             .await?;
 
-        Ok(results.filter_map(|object_data| {
+        Ok(results.filter_map(move |object_data| {
+            let _entered = span.enter();
             object_data.map_or_else(
                 |error| {
-                    tracing::warn!(?error, "failed to convert to local type");
+                    tracing::warn!(
+                        ?error,
+                        contract_struct = %U::CONTRACT_STRUCT,
+                        "failed to convert to local type",
+                    );
                     None
                 },
                 |object_data| match U::try_from_object_data(&object_data) {
                     Result::Ok(value) => Some(value),
                     Result::Err(error) => {
-                        tracing::warn!(?error, "failed to convert to local type");
+                        tracing::warn!(
+                            ?error,
+                            contract_struct = %U::CONTRACT_STRUCT,
+                            "failed to convert to local type",
+                        );
                         None
                     }
                 },

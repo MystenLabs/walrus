@@ -22,7 +22,7 @@ All blobs stored in Walrus are public and discoverable by all. Do not store secr
 
 When you run this command, the steps executed by the client are:
 
-1. Acquire a storage resource of appropriate size and duration on-chain, either directly from the Walrus system object or a secondary market. Storage resources can be split, merged, and transferred.
+1. Acquire a storage resource of appropriate size and duration onchain, either directly from the Walrus system object or a secondary market. Storage resources can be split, merged, and transferred.
 
 1. Apply erasure coding to the blob, then compute the blob ID from the encoded data. The blob ID is a `u256` value typically encoded as a URL-safe base64 string. You can perform the remaining steps yourself or delegate them to a publisher.
 
@@ -32,7 +32,7 @@ When you run this command, the steps executed by the client are:
 
 1. Each storage node receives its sliver, verifies it against the blob ID, and checks that a valid blob resource authorizes the store. If correct, it signs a statement confirming it holds the sliver. Collect these signatures and aggregate them into an availability certificate.
 
-1. Submit the availability certificate to the chain. Successful on-chain verification emits an availability event (the point of availability (PoA)) and triggers all storage nodes to download any missing shards. After the PoA, storage nodes sync and recover missing metadata and slivers without your involvement.
+1. Submit the availability certificate to the chain. Successful onchain verification emits an availability event (the point of availability (PoA)) and triggers all storage nodes to download any missing shards. After the PoA, storage nodes sync and recover missing metadata and slivers without your involvement.
 
 The certificate of availability is created from 2/3 of the returned shard signatures. The erasure code rate is below 1/3, meaning that reconstruction is possible even if only 1/3 of shards return the sliver for a read. Because at most 1/3 of the storage nodes can fail, this ensures reconstruction if you request slivers from all storage nodes. A publisher can mediate the full process by receiving a blob and driving the process to completion.
 
@@ -158,7 +158,7 @@ Attributes are associated with Sui object IDs rather than the blobs themselves o
 
 ## Inconsistency handling
 
-After the PoA, a correct storage node attempting to reconstruct a sliver might fail if blob encoding was incorrect. In this case, the node can extract an inconsistency proof for the blob ID. It then uses the proof to create an inconsistency certificate and uploads it on-chain.
+After the PoA, a correct storage node attempting to reconstruct a sliver might fail if blob encoding was incorrect. In this case, the node can extract an inconsistency proof for the blob ID. It then uses the proof to create an inconsistency certificate and uploads it onchain.
 
 Inconsistency handling uses the following process:
 
@@ -188,7 +188,7 @@ During an epoch, a correct storage node challenges all shards to provide symbols
 
 - The response to the challenge provides the sequence of shard contents for the blob IDs in a timely manner.
 
-- The challenger node uses thresholds to determine whether the challenge was passed and reports the result on-chain.
+- The challenger node uses thresholds to determine whether the challenge was passed and reports the result onchain.
 
 - The challenge and response communication is authenticated.
 

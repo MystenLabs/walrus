@@ -1860,7 +1860,7 @@ impl RetriableSuiClient {
                 .get_object_with_json_rpc(object_id, SuiObjectDataOptions::new().with_type())
                 .await?
                 .data
-                .context("no object data returned")?;
+                .context(format!("no object data returned, object_id={object_id}"))?;
             let object_ref = object_data.object_ref();
             Ok(object_ref)
         }
@@ -1879,7 +1879,7 @@ impl RetriableSuiClient {
                 .get_object_with_json_rpc(object_id, SuiObjectDataOptions::new().with_type())
                 .await?
                 .data
-                .context("no object data returned")?;
+                .context(format!("no object data returned, object_id={object_id}"))?;
             let ObjectType::Struct(object_type) = object_data.object_type()? else {
                 return Err(anyhow::anyhow!("object is not a struct").into());
             };
