@@ -305,8 +305,8 @@ async fn test_store_blobs_in_bucket_inner() -> TestResult {
                 failure_phase,
                 error_msg,
             } => panic!(
-                "unexpected bucket store error for blob {blob_id:?} in {failure_phase}: \
-                 {error_msg}"
+                "unexpected bucket store error for blob {blob_id:?} in {failure_phase}: {}",
+                error_msg
             ),
         }
     }
