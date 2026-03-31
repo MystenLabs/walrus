@@ -54,9 +54,13 @@ Important notes:
     algorithm used in Walrus is an adaptation of the Twin-Code framework presented by Rashmi et al.
     [1].
 - [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md): Storing blobs on
-    Walrus Mainnet incurs 2 separate costs: WAL for the storage operation. See WAL tokenomics and
-    the Walrus delegated proof of stake system for more details. SUI for executing transactions on
-    Sui Mainnet. See SUI tokenomics and SUI gas fee calculation for more details.
+    Walrus Mainnet incurs 2 separate costs: WAL for the storage operation. You pay per storage unit
+    per epoch. In other words, the cost scales with blob size and epoch. Run walrus info to see
+    current pricing, including the price per encoded storage unit and the additional write fee.
+- [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md): This page
+    describes the practical limits and constraints you should consider when designing applications
+    on Walrus. For current values, run walrus info. Walrus supports blobs up to approximately 13.6
+    GB. Check the current limit with walrus info under "Maximum blob size.
 - [View System Info](https://docs.wal.app/docs/system-overview/view-system-info.md): The Walrus
     system object contains metadata about available and used storage and the price of storage per
     KB in FROST. These values are determined by 2/3 agreement between storage nodes for each
@@ -322,6 +326,13 @@ Important notes:
 - [Data Security](https://docs.wal.app/docs/data-security.md): Walrus provides decentralized
     storage for application and user data. All data stored on Walrus is public and can be accessed
     by anyone.
+
+## Large Uploads
+
+- [Large Uploads](https://docs.wal.app/docs/large-uploads.md): The maximum blob size on Walrus is
+    approximately 13.6 GB. Uploading large data sets or individual blobs larger than 1 GB require
+    certain workarounds and planning for optimal performance and efficiency. After you plan your
+    upload strategy, estimate the storage costs for your data.
 
 ## Optional
 
