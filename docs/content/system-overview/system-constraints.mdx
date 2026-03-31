@@ -24,7 +24,7 @@ For example, encoding a 5 GB blob requires 10 to 15 GB of available RAM.
 
 If the system runs out of memory during encoding, the operation fails with an error such as `Out of memory` or `Failed to allocate buffer`. Split large blobs into smaller chunks to reduce memory requirements, or run the CLI on a machine with more RAM.
 
-Aggregators should be provisioned with enough memory to handle the largest blobs they are expected to reconstruct.
+Aggregator operators should provison aggregators with enough memory to handle the largest blobs they are expected to reconstruct.
 
 ## Rate limiting
 
@@ -42,19 +42,17 @@ Upload and download times are proportional to blob size and network speed. Walru
 
 To reduce upload latency:
 
-- Use a publisher to offload encoding. The client uploads the raw blob once, and the publisher handles encoding and sliver distribution.
-
 - Compress data before uploading if your use case allows it. Compression reduces the stored size, which reduces both storage cost and upload time.
 
-- Show progress indicators in your application for large uploads.
-
 For downloads, aggregators cache frequently accessed blobs. If your application serves the same blobs to many users, place an aggregator with caching closer to your users to reduce latency.
+
+If you are using a machine with limited resources, consider using a publisher to offload encoding. The client uploads the raw blob once, and the publisher handles encoding and sliver distribution.
 
 ## Epoch transitions
 
 Storage node shard assignments change every epoch. During transitions, nodes migrate data to new shard owners. This process is automatic but can briefly affect retrieval latency. In rare cases, some slivers might be temporarily unavailable until migration completes.
 
-Applications should implement retry logic to handle transient failures during epoch transitions. Avoid assuming instant retrieval at all times.
+Applications should implement retry logic to handle transient failures during epoch transitions.
 
 ## Byzantine fault tolerance assumptions
 

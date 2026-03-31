@@ -99,10 +99,13 @@ const sidebars = {
     'large-uploads',
     'data-security',
     'tusky-migration-guide',
-    'troubleshooting/index',
     {
       type: 'category',
       label: 'Troubleshooting',
+      link: {
+        type: "doc",
+        id:'troubleshooting/index',
+      },
       collapsed: true,
       items: [
 

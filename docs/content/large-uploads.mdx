@@ -8,7 +8,7 @@ The maximum blob size on Walrus is approximately 13.6 GB. Uploading large data s
 
 ## Estimate storage duration and costs
 
-After you plan your upload strategy, estimate the storage costs for your data. When you use the Walrus cost calculator or `walrus info`, calculate storage duration in months rather than epochs. An epoch on Mainnet is 14 days. Convert epoch counts to months using the current network epoch duration to avoid incorrect projections.
+After you plan your upload strategy, estimate the storage costs for your data. When you use the Walrus [cost calculator](https://costcalculator.wal.app/) or `walrus info`, calculate storage duration in months rather than epochs. An epoch on Mainnet is 14 days. Convert epoch counts to months using the current network epoch duration to avoid incorrect projections.
 
 - Validate cost assumptions against the current output of `walrus info`, which shows the price per encoded storage unit and the write fee.
 
@@ -21,8 +21,6 @@ Uploading files larger than 1 GB might require adjustments to client configurati
 - Test uploads with representative dataset sizes before running production workloads.
 
 - Use batching or chunking strategies for datasets that approach or exceed the maximum blob size (approximately 13.6 GB).
-
-- Consider memory allocators optimized for long-running workloads.
 
 - Monitor upload throughput and adjust client parameters based on observed performance.
 
