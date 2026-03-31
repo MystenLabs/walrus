@@ -5,7 +5,7 @@
 
 use super::*;
 
-pub(super) struct OwnedStoreBackend<'a> {
+pub(in crate::node_client) struct OwnedStoreBackend<'a> {
     client: &'a WalrusNodeClient<SuiContractClient>,
 }
 
@@ -16,6 +16,8 @@ impl<'a> OwnedStoreBackend<'a> {
 }
 
 impl StoreBackend for OwnedStoreBackend<'_> {
+    type FinalResult = BlobStoreResult;
+
     fn kind(&self) -> StoreBackendKind {
         StoreBackendKind::Owned
     }
@@ -24,7 +26,7 @@ impl StoreBackend for OwnedStoreBackend<'_> {
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlobUnfinished<EncodedBlob>>,
         store_args: &'a StoreArgs,
-    ) -> Pin<Box<dyn Future<Output = ClientResult<Vec<WalrusStoreBlobFinished>>> + Send + 'a>> {
+    ) -> StoreBackendFuture<'a, Self::FinalResult> {
         Box::pin(async move {
             self.client
                 .reserve_and_store_encoded_blobs(encoded_blobs, store_args)

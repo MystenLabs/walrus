@@ -18,6 +18,27 @@ pub struct BlobBucketHandle {
     pub storage_pool_id: ObjectID,
 }
 
+/// Snapshot of the storage pool backing a blob bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlobBucketStoragePoolStatus {
+    /// The object ID of the backing storage pool.
+    pub storage_pool_id: ObjectID,
+    /// The epoch at which the backing storage pool expires.
+    pub end_epoch: Epoch,
+    /// The reserved encoded capacity in bytes.
+    pub reserved_encoded_capacity_bytes: u64,
+    /// The used encoded capacity in bytes.
+    pub used_encoded_bytes: u64,
+}
+
+impl BlobBucketStoragePoolStatus {
+    /// Returns the currently available encoded capacity in bytes.
+    pub fn available_encoded_capacity_bytes(&self) -> u64 {
+        self.reserved_encoded_capacity_bytes
+            .saturating_sub(self.used_encoded_bytes)
+    }
+}
+
 impl SuiContractClient {
     /// Creates a shared blob bucket and returns its object ID, cap ID, and backing storage pool ID.
     pub async fn create_blob_bucket(
@@ -96,7 +117,7 @@ impl SuiContractClient {
         &self,
         blob_bucket_object_id: ObjectID,
         pooled_blobs_with_certificates: &[(&PooledBlob, ConfirmationCertificate)],
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<Vec<PooledBlob>> {
         let blob_bucket_package_id = self
             .read_client()
             .blob_bucket_package_id(blob_bucket_object_id)
@@ -291,6 +312,26 @@ impl SuiContractClient {
             result => result,
         }
     }
+
+    /// Returns the current status of the storage pool backing the specified blob bucket.
+    pub async fn blob_bucket_storage_pool_status(
+        &self,
+        blob_bucket_object_id: ObjectID,
+    ) -> SuiClientResult<BlobBucketStoragePoolStatus> {
+        let storage_pool_inner = self
+            .read_client()
+            .get_blob_bucket_storage_pool_inner(blob_bucket_object_id)
+            .await?;
+        Ok(BlobBucketStoragePoolStatus {
+            storage_pool_id: self
+                .read_client()
+                .get_blob_bucket_storage_pool_id(blob_bucket_object_id)
+                .await?,
+            end_epoch: storage_pool_inner.end_epoch,
+            reserved_encoded_capacity_bytes: storage_pool_inner.reserved_encoded_capacity_bytes,
+            used_encoded_bytes: storage_pool_inner.used_encoded_bytes,
+        })
+    }
 }
 
 impl SuiContractClientInner {
@@ -403,11 +444,16 @@ impl SuiContractClientInner {
         blob_bucket_package_id: ObjectID,
         blob_bucket_object_id: ObjectID,
         pooled_blobs_with_certificates: &[(&PooledBlob, ConfirmationCertificate)],
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<Vec<PooledBlob>> {
         if pooled_blobs_with_certificates.is_empty() {
-            return Ok(());
+            return Ok(vec![]);
         }
 
+        let pooled_blob_object_ids = pooled_blobs_with_certificates
+            .iter()
+            .map(|(pooled_blob, _)| pooled_blob.id)
+            .collect::<Vec<_>>();
+        let expected_num_blobs = pooled_blob_object_ids.len();
         let mut pt_builder = self.transaction_builder();
         for (pooled_blob, certificate) in pooled_blobs_with_certificates {
             pt_builder
@@ -430,7 +476,17 @@ impl SuiContractClientInner {
             return Err(anyhow!("could not certify pooled blobs: {:?}", res.errors).into());
         }
 
-        Ok(())
+        let pooled_blobs = self
+            .retriable_sui_client()
+            .get_sui_objects(&pooled_blob_object_ids)
+            .await?;
+        ensure!(
+            pooled_blobs.len() == expected_num_blobs,
+            "unexpected number of pooled blob objects after certification: {} expected {}",
+            pooled_blobs.len(),
+            expected_num_blobs
+        );
+        Ok(pooled_blobs)
     }
 
     /// Deletes a pooled blob from the specified bucket.
