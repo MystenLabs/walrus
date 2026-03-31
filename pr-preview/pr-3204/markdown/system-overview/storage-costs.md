@@ -130,11 +130,7 @@ Use Quilt when you are storing many small files such as JSON metadata, thumbnail
 
 Trade-offs to consider:
 
-- Retrieving a single item from a Quilt requires fetching the entire Quilt (unless you implement an index or manifest).
-
 - Quilt adds complexity to your application's storage and retrieval logic.
-
-- Quilt is best suited for collections of related files that are accessed together.
 
 For details, see [Batch Storage with Quilt](/docs/system-overview/quilt).
 
