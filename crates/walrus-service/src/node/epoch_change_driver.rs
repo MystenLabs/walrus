@@ -77,6 +77,7 @@ impl EpochChangeDriver {
                 end_voting_future: None,
                 epoch_change_start_future: None,
                 subsidies_future: None,
+                post_epoch_change_subsidies_future: None,
             }))),
             system_parameters,
             contract_service,
@@ -122,8 +123,16 @@ impl EpochChangeDriver {
         let next_epoch = NonZero::new(epoch + 1).expect("incremented value is non-zero");
 
         match state {
-            EpochState::EpochChangeSync(_) => (),
-            EpochState::EpochChangeDone(_) => self.schedule_voting_end(next_epoch),
+            EpochState::EpochChangeSync(_) => {
+                // Epoch change is in progress; schedule post-epoch-change subsidies in case
+                // they haven't been paid yet.
+                self.schedule_post_epoch_change_subsidies();
+            }
+            EpochState::EpochChangeDone(_) => {
+                self.schedule_voting_end(next_epoch);
+                // Also schedule post-epoch-change subsidies in case they weren't paid.
+                self.schedule_post_epoch_change_subsidies();
+            }
             EpochState::NextParamsSelected(_) => {
                 self.schedule_initiate_epoch_change(next_epoch);
                 self.schedule_process_subsidies();
@@ -291,6 +300,46 @@ impl EpochChangeDriver {
         inner.wake();
     }
 
+    /// Schedules a call to process subsidies after epoch change that will be dispatched by
+    /// [`run()`][Self::run] if subsidies are configured in the contract service.
+    ///
+    /// This distributes usage-independent subsidies for the epoch that just ended. These can
+    /// only be paid after the on-chain epoch has advanced, so this is called after observing
+    /// an epoch change event.
+    ///
+    /// Subsequent calls to this method cancel any earlier scheduled calls.
+    #[tracing::instrument(skip_all)]
+    pub fn schedule_post_epoch_change_subsidies(&self) {
+        if !self.contract_service.is_subsidies_object_configured() {
+            tracing::debug!(
+                "subsidies are not configured in the contract, \
+                skipping post-epoch-change subsidies call"
+            );
+            return;
+        }
+
+        let mut inner = self.inner.lock().expect("thread did not panic with lock");
+
+        if inner.post_epoch_change_subsidies_future.is_some() {
+            tracing::debug!("replacing post-epoch-change subsidies future");
+            inner.post_epoch_change_subsidies_future = None;
+        }
+
+        let post_subsidies_future = ScheduledEpochOperation::new(
+            PostEpochChangeSubsidiesOperation,
+            self.system_parameters.epoch_duration,
+            self.contract_service.clone(),
+            self.utc_now_fn.clone(),
+            &mut inner.rng,
+        )
+        .wait_then_call();
+
+        inner.post_epoch_change_subsidies_future = Some(post_subsidies_future.boxed());
+
+        tracing::debug!("scheduled post-epoch-change process subsidies");
+        inner.wake();
+    }
+
     #[cfg(test)]
     /// Returns true if there is currently a scheduled call to end voting.
     pub fn is_voting_end_scheduled(&self) -> bool {
@@ -326,8 +375,10 @@ struct EpochChangeDriverInner<'pin> {
     end_voting_future: Option<(Epoch, BoxFuture<'pin, ()>)>,
     /// An optional future that will start epoch change for a given epoch.
     epoch_change_start_future: Option<(Epoch, BoxFuture<'pin, ()>)>,
-    /// An optional future that will process subsidies.
+    /// An optional future that will process subsidies before epoch change.
     subsidies_future: Option<BoxFuture<'pin, ()>>,
+    /// An optional future that will process subsidies after epoch change.
+    post_epoch_change_subsidies_future: Option<BoxFuture<'pin, ()>>,
 }
 
 impl EpochChangeDriverInner<'_> {
@@ -382,6 +433,15 @@ impl Future for EpochChangeDriverInner<'_> {
             {
                 tracing::trace!("subsidies future completed");
                 this.subsidies_future = None;
+            }
+        });
+
+        tracing::info_span!("scheduled_post_epoch_change_subsidies").in_scope(|| {
+            if let Some(subsidies) = this.post_epoch_change_subsidies_future.as_mut()
+                && let Poll::Ready(()) = subsidies.poll_unpin(cx)
+            {
+                tracing::trace!("post-epoch-change subsidies future completed");
+                this.post_epoch_change_subsidies_future = None;
             }
         });
 
@@ -714,6 +774,63 @@ impl EpochOperation for SubsidiesOperation {
             anyhow::anyhow!("call to initiate subsidy distribution panicked: {:?}", e)
         })??;
         tracing::debug!("successfully initiated subsidy distribution");
+        Ok(())
+    }
+}
+
+/// Operation that calls process_subsidies after epoch change to distribute usage-independent
+/// subsidies for the epoch that just ended.
+///
+/// Usage-independent subsidies (`process_fixed_rate_subsidies`) pay the committee for epoch N-1
+/// based on the on-chain epoch. Before epoch change the on-chain epoch is N, so only epoch N-1
+/// can be paid. After epoch change to N+1, epoch N can be paid.
+struct PostEpochChangeSubsidiesOperation;
+
+impl EpochOperation for PostEpochChangeSubsidiesOperation {
+    fn time_until_ready(
+        &self,
+        _utc_now: DateTime<Utc>,
+        _current_epoch: Epoch,
+        _state: EpochState,
+    ) -> Option<Duration> {
+        // Fire immediately; jitter is added by ScheduledEpochOperation.
+        Some(Duration::ZERO)
+    }
+
+    async fn invoke(&self, contract: Arc<dyn SystemContractService>) -> Result<(), anyhow::Error> {
+        let current_epoch = contract.current_epoch();
+        if current_epoch == 0 {
+            tracing::debug!("no usage-independent subsidies to pay in genesis epoch");
+            return Ok(());
+        }
+
+        let latest = contract.latest_subsidized_epoch().await?;
+        let epoch_to_be_paid = current_epoch - 1;
+        if latest >= epoch_to_be_paid {
+            tracing::debug!(
+                latest_subsidized_epoch = latest,
+                epoch_to_be_paid,
+                "usage-independent subsidies already paid for this epoch"
+            );
+            return Ok(());
+        }
+
+        tracing::info!(epoch_to_be_paid, "processing subsidies after epoch change");
+        // Move transaction execution to a separate task so that it cannot be cancelled when
+        // invoke() is cancelled. Otherwise, cancelling inflight transaction may cause object
+        // conflicts.
+        tokio::spawn({
+            let contract = contract.clone();
+            async move { contract.process_subsidies().await }
+        })
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "call to process subsidies after epoch change panicked: {:?}",
+                e
+            )
+        })??;
+        tracing::debug!("successfully processed subsidies after epoch change");
         Ok(())
     }
 }
@@ -1097,6 +1214,130 @@ mod tests {
                 "scheduled call should have completed"
             );
             // Drop the driver to ensure that all conditions of the mock service have been met.
+            drop(driver);
+
+            Ok(())
+        }
+    }
+
+    mod post_epoch_change_subsidies {
+        use super::*;
+
+        #[tokio::test(start_paused = true)]
+        async fn calls_process_subsidies_when_not_yet_paid() -> TestResult {
+            let mut service = MockSystemContractService::new();
+
+            service
+                .expect_is_subsidies_object_configured()
+                .returning(|| true);
+            // On-chain epoch is 2; latest_subsidized_epoch is 0 (epoch 1 not yet paid).
+            service
+                .expect_get_epoch_and_state()
+                .returning(|| Ok((2, EpochState::EpochChangeSync(0))));
+            service.expect_current_epoch().returning(|| 2);
+            service.expect_latest_subsidized_epoch().returning(|| Ok(0));
+            service
+                .expect_process_subsidies()
+                .once()
+                .returning(|| Ok(()));
+
+            let driver = driver_under_test(service, /*seed=*/ 10, UtcInstant::now());
+            driver.schedule_post_epoch_change_subsidies();
+
+            let _ = tokio::time::timeout(MAX_SCHEDULE_JITTER * 2, driver.run()).await;
+            drop(driver);
+
+            Ok(())
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn skips_when_already_paid() -> TestResult {
+            let mut service = MockSystemContractService::new();
+
+            service
+                .expect_is_subsidies_object_configured()
+                .returning(|| true);
+            // On-chain epoch is 2; latest_subsidized_epoch is 1 (already paid).
+            service
+                .expect_get_epoch_and_state()
+                .returning(|| Ok((2, EpochState::EpochChangeSync(0))));
+            service.expect_current_epoch().returning(|| 2);
+            service.expect_latest_subsidized_epoch().returning(|| Ok(1));
+            // process_subsidies should NOT be called.
+            service.expect_process_subsidies().never();
+
+            let driver = driver_under_test(service, /*seed=*/ 11, UtcInstant::now());
+            driver.schedule_post_epoch_change_subsidies();
+
+            let _ = tokio::time::timeout(MAX_SCHEDULE_JITTER * 2, driver.run()).await;
+            drop(driver);
+
+            Ok(())
+        }
+
+        /// Tests restart behavior: when a node restarts during EpochChangeSync,
+        /// schedule_relevant_calls_for_current_epoch should schedule post-epoch-change
+        /// subsidies if they haven't been paid yet.
+        #[tokio::test(start_paused = true)]
+        async fn restart_during_epoch_change_sync_schedules_subsidies() -> TestResult {
+            let mut service = MockSystemContractService::new();
+
+            service
+                .expect_is_subsidies_object_configured()
+                .returning(|| true);
+            // Node restarted during EpochChangeSync in epoch 2.
+            service
+                .expect_get_epoch_and_state()
+                .returning(|| Ok((2, EpochState::EpochChangeSync(0))));
+            service.expect_current_epoch().returning(|| 2);
+            service.expect_latest_subsidized_epoch().returning(|| Ok(0));
+            service
+                .expect_process_subsidies()
+                .once()
+                .returning(|| Ok(()));
+
+            let driver = driver_under_test(service, /*seed=*/ 12, UtcInstant::now());
+
+            // Simulate restart: schedule_relevant_calls_for_current_epoch is called on startup.
+            driver.schedule_relevant_calls_for_current_epoch().await?;
+
+            let _ = tokio::time::timeout(MAX_SCHEDULE_JITTER * 2, driver.run()).await;
+            drop(driver);
+
+            Ok(())
+        }
+
+        /// Tests restart behavior: when a node restarts during EpochChangeDone,
+        /// schedule_relevant_calls_for_current_epoch should schedule both voting end
+        /// and post-epoch-change subsidies.
+        #[tokio::test(start_paused = true)]
+        async fn restart_during_epoch_change_done_schedules_subsidies() -> TestResult {
+            let start = UtcInstant::now();
+            let mut service = MockSystemContractService::new();
+
+            service
+                .expect_is_subsidies_object_configured()
+                .returning(|| true);
+            // Node restarted during EpochChangeDone in epoch 2.
+            service
+                .expect_get_epoch_and_state()
+                .returning(move || Ok((2, EpochState::EpochChangeDone(start.utc))));
+            service.expect_current_epoch().returning(|| 2);
+            service.expect_latest_subsidized_epoch().returning(|| Ok(0));
+            service
+                .expect_process_subsidies()
+                .once()
+                .returning(|| Ok(()));
+            // Voting end will also be scheduled and called.
+            service.expect_end_voting().once().returning(|| Ok(()));
+            service
+                .expect_sync_node_params()
+                .returning(|_config, _node_cap_id, _wal_price| Ok(()));
+
+            let driver = driver_under_test(service, /*seed=*/ 13, start);
+            driver.schedule_relevant_calls_for_current_epoch().await?;
+
+            let _ = tokio::time::timeout(EPOCH_DURATION + MAX_SCHEDULE_JITTER, driver.run()).await;
             drop(driver);
 
             Ok(())

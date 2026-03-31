@@ -1049,16 +1049,6 @@ impl StorageNode {
             .expect("current_epoch should be some")
     }
 
-    /// Waits until the storage node has reached the given epoch and finished all
-    /// `StartEpochChangeFinisher` background tasks (such as shard removal and subsidy processing).
-    pub async fn wait_for_epoch_change_finished(&self, epoch: Epoch) -> Epoch {
-        let reached = self.wait_for_epoch(epoch).await;
-        self.start_epoch_change_finisher
-            .wait_until_previous_task_done()
-            .await;
-        reached
-    }
-
     /// Continues the event stream from the last committed event.
     ///
     /// This function is used to continue the event stream from the last committed event. It also
@@ -1904,6 +1894,11 @@ impl StorageNode {
         self.inner
             .latest_event_epoch_sender
             .send(Some(event.epoch))?;
+
+        // Schedule post-epoch-change subsidies to distribute usage-independent subsidies
+        // for the epoch that just ended.
+        self.epoch_change_driver
+            .schedule_post_epoch_change_subsidies();
 
         self.start_garbage_collection_task(event.epoch).await?;
 
@@ -9481,6 +9476,9 @@ mod tests {
         contract_service
             .expect_get_epoch_and_state()
             .returning(move || Ok((0, EpochState::EpochChangeDone(Utc::now()))));
+        contract_service
+            .expect_is_subsidies_object_configured()
+            .returning(|| false);
         contract_service
             .expect_last_certified_event_blob()
             .returning(|| Ok(None));

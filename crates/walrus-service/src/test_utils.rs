@@ -1861,6 +1861,10 @@ impl SystemContractService for StubContractService {
         Err(anyhow::anyhow!("stub service does not store the last walrus subsidies call").into())
     }
 
+    async fn latest_subsidized_epoch(&self) -> Result<u32, SuiClientError> {
+        Err(anyhow::anyhow!("stub service does not store the latest subsidized epoch").into())
+    }
+
     async fn flush_cache(&self) {
         // No-op
     }
@@ -2019,17 +2023,6 @@ impl<T: StorageNodeHandleTrait> TestCluster<T> {
             .nodes
             .iter()
             .map(|handle| handle.storage_node().wait_for_epoch(epoch))
-            .collect();
-        waits.for_each(|_| std::future::ready(())).await;
-    }
-
-    /// Waits for all nodes to reach the given epoch and finish all `StartEpochChangeFinisher`
-    /// background tasks (such as shard removal and subsidy processing).
-    pub async fn wait_for_nodes_to_finish_epoch_change(&self, epoch: Epoch) {
-        let waits: FuturesUnordered<_> = self
-            .nodes
-            .iter()
-            .map(|handle| handle.storage_node().wait_for_epoch_change_finished(epoch))
             .collect();
         waits.for_each(|_| std::future::ready(())).await;
     }
@@ -2668,6 +2661,10 @@ where
 
     async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
         self.as_ref().inner.last_walrus_subsidies_call().await
+    }
+
+    async fn latest_subsidized_epoch(&self) -> Result<u32, SuiClientError> {
+        self.as_ref().inner.latest_subsidized_epoch().await
     }
 
     async fn flush_cache(&self) {
