@@ -7,7 +7,7 @@ module blob_bucket::blob_bucket;
 use blob_bucket::blob_bucket_inner_v1::{Self, BlobBucketInnerV1};
 use sui::{coin::Coin, dynamic_field as df};
 use wal::wal::WAL;
-use walrus::system::System;
+use walrus::{storage_pool::StoragePool, system::System};
 
 const VERSION: u64 = 1;
 
@@ -141,6 +141,11 @@ public fun extend_storage_pool(
 ) {
     check_cap(self, cap);
     self.inner_mut().extend_storage_pool(system, extended_epochs, payment);
+}
+
+public fun merge_storage_pool(self: &mut BlobBucket, cap: &BlobBucketCap, other: StoragePool) {
+    check_cap(self, cap);
+    self.inner_mut().merge_storage_pool(other);
 }
 
 public fun storage_pool_id(self: &BlobBucket): ID {

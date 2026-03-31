@@ -684,6 +684,132 @@ fun create_storage_pool_exceeds_system_capacity() {
     abort
 }
 
+// === Merge storage pool tests ===
+
+#[test]
+fun merge_storage_pool_happy_path() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool_a = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    let pool_b = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    assert_eq!(pool_a.reserved_encoded_capacity_bytes(), capacity);
+
+    // Merge pool_b into pool_a.
+    pool_a.merge_storage_pool(pool_b);
+
+    assert_eq!(pool_a.reserved_encoded_capacity_bytes(), capacity * 2);
+    assert_eq!(pool_a.used_encoded_bytes(), 0);
+    assert_eq!(pool_a.blob_count(), 0);
+
+    fake_coin.burn_for_testing();
+    pool_a.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test]
+fun merge_storage_pool_into_non_empty_target() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool_a = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    let pool_b = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Register a blob in pool_a.
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool_a, blob_id, SIZE, false, ctx);
+    let used = pool_a.used_encoded_bytes();
+
+    // Merge pool_b into pool_a (which has blobs).
+    pool_a.merge_storage_pool(pool_b);
+
+    assert_eq!(pool_a.reserved_encoded_capacity_bytes(), capacity * 2);
+    assert_eq!(pool_a.used_encoded_bytes(), used);
+    assert_eq!(pool_a.blob_count(), 1);
+
+    fake_coin.burn_for_testing();
+    pool_a.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = storage_pool::EIncompatibleEndEpoch)]
+fun merge_storage_pool_different_end_epoch() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool_a = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    let pool_b = system.create_storage_pool(capacity, 5, &mut fake_coin, ctx);
+
+    // Different end_epoch should fail.
+    pool_a.merge_storage_pool(pool_b);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = storage_pool::EPoolNotEmpty)]
+fun merge_storage_pool_non_empty_source() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool_a = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    let mut pool_b = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Register a blob in pool_b.
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool_b, blob_id, SIZE, false, ctx);
+
+    // Merging a non-empty pool should fail.
+    pool_a.merge_storage_pool(pool_b);
+
+    abort
+}
+
+#[test]
+fun merge_storage_pool_after_deleting_blobs() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool_a = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    let mut pool_b = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Register deletable blobs in both pools.
+    let blob_id_a = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool_a, blob_id_a, SIZE, true, ctx);
+    let blob_id_b = blob::derive_blob_id(0x222, RS2, SIZE);
+    register_blob_in_pool_with_root(&mut system, &mut pool_b, 0x222, SIZE, true, ctx);
+
+    assert_eq!(pool_a.blob_count(), 1);
+    assert_eq!(pool_b.blob_count(), 1);
+
+    // Delete the blob from pool_b to empty it.
+    system.delete_pooled_blob(&mut pool_b, blob_id_b);
+    assert_eq!(pool_b.blob_count(), 0);
+    assert_eq!(pool_b.used_encoded_bytes(), 0);
+
+    // Now merge the emptied pool_b into pool_a.
+    let used_a = pool_a.used_encoded_bytes();
+    pool_a.merge_storage_pool(pool_b);
+
+    assert_eq!(pool_a.reserved_encoded_capacity_bytes(), capacity * 2);
+    assert_eq!(pool_a.used_encoded_bytes(), used_a);
+    assert_eq!(pool_a.blob_count(), 1);
+
+    fake_coin.burn_for_testing();
+    pool_a.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
 // === Full lifecycle test ===
 
 #[test]

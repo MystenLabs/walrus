@@ -103,6 +103,10 @@ public(package) fun increase_storage_pool_capacity(
     );
 }
 
+public(package) fun merge_storage_pool(self: &mut BlobBucketInnerV1, other: StoragePool) {
+    self.storage_pool.merge_storage_pool(other);
+}
+
 public(package) fun storage_pool_id(self: &BlobBucketInnerV1): ID {
     object::id(storage_pool(self))
 }

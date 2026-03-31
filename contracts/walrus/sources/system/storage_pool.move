@@ -38,6 +38,8 @@ const EInvalidBlobSize: u64 = 8;
 const EInvalidBlobCount: u64 = 9;
 /// The pool object version is unsupported.
 const EWrongVersion: u64 = 10;
+/// The end epochs of the two storage pools do not match.
+const EIncompatibleEndEpoch: u64 = 11;
 
 /// Version of the pool outer object.
 const VERSION: u64 = 1;
@@ -221,6 +223,27 @@ public(package) fun remove_blob(self: &mut StoragePool, blob_id: u256, n_shards:
 /// Borrows a blob mutably from the pool's object table.
 public(package) fun borrow_blob_mut(self: &mut StoragePool, blob_id: u256): &mut PooledBlob {
     self.inner_mut().blobs.borrow_mut(blob_id)
+}
+
+/// Merges an empty storage pool into this pool. Both pools must have the same `end_epoch`.
+/// The consumed pool's `reserved_encoded_capacity_bytes` is added to this pool's capacity.
+/// The consumed pool is destroyed.
+public fun merge_storage_pool(self: &mut StoragePool, other: StoragePool) {
+    let StoragePool { mut id, version } = other;
+    let StoragePoolInnerV1 {
+        end_epoch,
+        reserved_encoded_capacity_bytes,
+        blobs,
+        blob_count,
+        ..,
+    } = dynamic_field::remove(&mut id, version);
+    assert!(blob_count == 0, EPoolNotEmpty);
+    assert!(end_epoch == self.inner().end_epoch, EIncompatibleEndEpoch);
+    blobs.destroy_empty();
+    id.delete();
+    let inner = self.inner_mut();
+    inner.reserved_encoded_capacity_bytes =
+        inner.reserved_encoded_capacity_bytes + reserved_encoded_capacity_bytes;
 }
 
 // TODO(WAL-1160): decide whether we want to expose this destructor.
