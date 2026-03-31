@@ -465,16 +465,16 @@ export default function LandingPage() {
         <hr className="divider" />
         <div className="section-head scroll-reveal"><span className="mono-label">02</span><h2>When to use Walrus</h2></div>
         <div className="usecase-grid">
-          <div className="uc-card scroll-reveal"><h4>Independently verifiable</h4><p>You need to prove where data came from, confirm it has not been altered, or anchor workflows to specific dataset versions.</p><ul><li>AI model artifacts &amp; agent memory</li><li>Execution logs for exchanges</li><li>On-chain governance data</li><li>Audit trails for financial systems</li></ul></div>
+          <div className="uc-card scroll-reveal"><h4>Independently verifiable</h4><p>You need to prove where data came from, confirm it has not been altered, or anchor workflows to specific dataset versions.</p><ul><li>AI model artifacts &amp; agent memory</li><li>Execution logs for exchanges</li><li>Onchain governance data</li><li>Audit trails for financial systems</li></ul></div>
           <div className="uc-card scroll-reveal"><h4>Highly available under failure</h4><p>Your system cannot tolerate downtime, partial node failure, or data loss.</p><ul><li>Market infrastructure</li><li>Autonomous agents coordinating state</li><li>Financial protocols with real risk</li></ul></div>
-          <div className="uc-card scroll-reveal"><h4>Programmable at the data layer</h4><p>You need smart contracts to manage, verify, or automate around stored data.</p><ul><li>Versioned datasets in AI workflows</li><li>Contract-controlled storage lifetimes</li><li>On-chain verification of off-chain artifacts</li></ul></div>
+          <div className="uc-card scroll-reveal"><h4>Programmable at the data layer</h4><p>You need smart contracts to manage, verify, or automate around stored data.</p><ul><li>Versioned datasets in AI workflows</li><li>Contract-controlled storage lifetimes</li><li>Onchain verification of offchain artifacts</li></ul></div>
           <div className="uc-card scroll-reveal"><h4>Cost-efficient at scale</h4><p>You require strong durability and Byzantine fault tolerance without full-replication overhead.</p></div>
         </div>
 
         <hr className="divider" />
         <div className="section-head scroll-reveal"><span className="mono-label">03</span><h2>When not to use Walrus</h2></div>
         <p>Walrus is not optimized for:</p>
-        <ul><li>Small, ephemeral application state better suited for direct on-chain storage</li>
+        <ul><li>Small, ephemeral application state better suited for direct onchain storage</li>
         <li>Ultra-low-latency in-memory databases</li>
         <li>Pure archival storage without verification requirements</li>
         </ul>
