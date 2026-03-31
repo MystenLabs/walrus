@@ -66,6 +66,14 @@ impl WalrusStoreEncodedBlobApi for BucketBlobPendingCertify {
 }
 
 impl BucketBlobPendingCertify {
+    /// Replaces the pooled blob with the post-certification version fetched from Sui.
+    pub fn with_updated_pooled_blob(self, pooled_blob: PooledBlob) -> Self {
+        Self {
+            pooled_blob,
+            certificate: self.certificate,
+        }
+    }
+
     /// Converts the pooled blob to the bucket store result after successful certification.
     pub fn with_certify_result(self) -> BlobBucketStoreResult {
         BlobBucketStoreResult::NewlyCreated {

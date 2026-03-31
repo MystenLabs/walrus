@@ -18,6 +18,7 @@ use std::{
     path::PathBuf,
     str::FromStr,
     sync::Arc,
+    thread,
     time::Duration,
 };
 
@@ -218,6 +219,15 @@ where
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_blobs_in_bucket() -> TestResult {
+    run_with_large_stack(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(test_store_blobs_in_bucket_inner())
+    })
+}
+
+async fn test_store_blobs_in_bucket_inner() -> TestResult {
     walrus_test_utils::init_tracing();
 
     let (_sui_cluster_handle, _cluster, client, system_context, _) =
@@ -300,6 +310,23 @@ async fn test_store_blobs_in_bucket() -> TestResult {
     }
 
     Ok(())
+}
+
+fn run_with_large_stack<T>(f: impl FnOnce() -> TestResult<T> + Send + 'static) -> TestResult<T>
+where
+    T: Send + 'static,
+{
+    // This bucket e2e path drives a deep Sui/Move setup and can overflow the default test-thread
+    // stack on CI runners.
+    let thread = thread::Builder::new()
+        .name("large-stack-e2e-test".to_string())
+        .stack_size(64 * 1024 * 1024)
+        .spawn(f)?;
+    thread
+        .join()
+        .map_err(|panic| -> Box<dyn std::error::Error + Send + Sync> {
+            format!("large-stack test thread panicked: {panic:?}").into()
+        })?
 }
 
 async_param_test! {
