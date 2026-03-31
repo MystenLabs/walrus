@@ -92,6 +92,10 @@ workspace = true
 [target.'cfg(msim)'.dependencies]
 sui-simulator.workspace = true
 
+[[test]]
+name = "test_walrus_sui"
+required-features = ["test-utils"]
+
 [[bench]]
 name = "gas_cost_bench"
 harness = false
