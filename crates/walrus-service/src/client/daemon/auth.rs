@@ -739,8 +739,12 @@ mod tests {
             (
                 RequestHeadersAndData::new(
                     &format!(
-                        "/v1/blob-buckets/{BLOB_BUCKET_OBJECT_ID}/blobs?\
-                         blob_bucket_cap_object_id={BLOB_BUCKET_CAP_OBJECT_ID}&epochs=100"
+                        concat!(
+                            "/v1/blob-buckets/{blob_bucket_object_id}/blobs?",
+                            "blob_bucket_cap_object_id={blob_bucket_cap_object_id}&epochs=100"
+                        ),
+                        blob_bucket_object_id = BLOB_BUCKET_OBJECT_ID,
+                        blob_bucket_cap_object_id = BLOB_BUCKET_CAP_OBJECT_ID,
                     ),
                     correct_auth_header(token.clone()),
                     None,
@@ -750,8 +754,12 @@ mod tests {
             (
                 RequestHeadersAndData::new(
                     &format!(
-                        "/v1/blob-buckets/{BLOB_BUCKET_OBJECT_ID}/blobs?\
-                         blob_bucket_cap_object_id={BLOB_BUCKET_CAP_OBJECT_ID}&epochs=1"
+                        concat!(
+                            "/v1/blob-buckets/{blob_bucket_object_id}/blobs?",
+                            "blob_bucket_cap_object_id={blob_bucket_cap_object_id}&epochs=1"
+                        ),
+                        blob_bucket_object_id = BLOB_BUCKET_OBJECT_ID,
+                        blob_bucket_cap_object_id = BLOB_BUCKET_CAP_OBJECT_ID,
                     ),
                     correct_auth_header(token),
                     None,
