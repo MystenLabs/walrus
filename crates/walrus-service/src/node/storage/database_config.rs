@@ -568,6 +568,26 @@ impl Default for DatabaseConfig {
 }
 
 impl DatabaseConfig {
+    /// Returns the default configuration for the mainnet network.
+    ///
+    /// Disables blob garbage collection and raises compaction byte limits for
+    /// `optimized_for_blobs` and `shard` column families.
+    // TODO(WAL-1201): turn on blob GC once compaction impact is reduced and proper compaction
+    // config is determined.
+    pub fn default_mainnet() -> Self {
+        let gc_disabled_options = DatabaseTableOptions {
+            enable_blob_garbage_collection: Some(false),
+            soft_pending_compaction_bytes_limit: Some(256 << 30), // 256 GiB
+            hard_pending_compaction_bytes_limit: Some(512 << 30), // 512 GiB
+            ..Default::default()
+        };
+        Self {
+            optimized_for_blobs: gc_disabled_options.clone(),
+            shard: Some(gc_disabled_options),
+            ..Default::default()
+        }
+    }
+
     /// Provides a config tailored for tests.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn default_for_test() -> Self {
@@ -1250,6 +1270,86 @@ mod tests {
         // Factory should not have created a shared cache from the config, even if the config is
         // set.
         assert!(factory.shared_shard_storage_block_cache.is_none());
+
+        Ok(())
+    }
+
+    // TODO(WAL-1201): remove this test after GC config is determined.
+    #[test]
+    fn test_gc_mainnet_config() -> TestResult {
+        let default_config = DatabaseConfig::default();
+        let mainnet_config = DatabaseConfig::default_mainnet();
+
+        // Mainnet overrides: blob GC disabled, compaction limits raised.
+        assert_eq!(
+            default_config
+                .optimized_for_blobs()
+                .enable_blob_garbage_collection,
+            Some(true),
+            "default enables blob GC"
+        );
+        assert_eq!(
+            mainnet_config
+                .optimized_for_blobs()
+                .enable_blob_garbage_collection,
+            Some(false),
+            "mainnet disables blob GC for optimized_for_blobs"
+        );
+        assert_eq!(
+            mainnet_config
+                .optimized_for_blobs()
+                .soft_pending_compaction_bytes_limit,
+            Some(256 << 30)
+        );
+        assert_eq!(
+            mainnet_config
+                .optimized_for_blobs()
+                .hard_pending_compaction_bytes_limit,
+            Some(512 << 30)
+        );
+        assert_eq!(
+            mainnet_config.shard().enable_blob_garbage_collection,
+            Some(false)
+        );
+        assert_eq!(
+            mainnet_config.shard().soft_pending_compaction_bytes_limit,
+            Some(256 << 30)
+        );
+        assert_eq!(
+            mainnet_config.shard().hard_pending_compaction_bytes_limit,
+            Some(512 << 30)
+        );
+
+        // Unrelated fields still inherit from base templates.
+        assert_eq!(
+            mainnet_config.optimized_for_blobs().enable_blob_files,
+            default_config.optimized_for_blobs().enable_blob_files,
+        );
+
+        // User overrides take precedence over mainnet defaults.
+        let config: DatabaseConfig = serde_yaml::from_str(indoc! {"
+            optimized_for_blobs:
+                enable_blob_garbage_collection: true
+                soft_pending_compaction_bytes_limit: 100
+            shard:
+                hard_pending_compaction_bytes_limit: 200
+        "})?;
+
+        // User-specified values win over template defaults.
+        assert_eq!(
+            config.optimized_for_blobs().enable_blob_garbage_collection,
+            Some(true)
+        );
+        assert_eq!(
+            config
+                .optimized_for_blobs()
+                .soft_pending_compaction_bytes_limit,
+            Some(100)
+        );
+        assert_eq!(
+            config.shard().hard_pending_compaction_bytes_limit,
+            Some(200)
+        );
 
         Ok(())
     }
