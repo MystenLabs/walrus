@@ -407,7 +407,8 @@ impl<'a> BlobBucketStoreBackend<'a> {
             })
             .collect::<Vec<_>>();
 
-        self.client
+        let mut certified_pooled_blobs = self
+            .client
             .sui_client
             .certify_blobs_in_bucket(
                 self.blob_bucket.bucket_object_id,
@@ -417,7 +418,10 @@ impl<'a> BlobBucketStoreBackend<'a> {
             .map_err(|error| {
                 tracing::warn!(%error, "failure occurred while certifying pooled blobs on Sui");
                 ClientError::from(ClientErrorKind::CertificationFailed(error))
-            })?;
+            })?
+            .into_iter()
+            .map(|pooled_blob| (pooled_blob.id, pooled_blob))
+            .collect::<HashMap<_, _>>();
 
         let sui_cert_timer_duration = start.elapsed();
         tracing::info!(
@@ -426,7 +430,27 @@ impl<'a> BlobBucketStoreBackend<'a> {
         );
         store_args.maybe_observe_upload_certificate(sui_cert_timer_duration);
 
-        Ok(blobs_to_certify
+        let updated_blobs = blobs_to_certify
+            .into_iter()
+            .map(|blob| {
+                let pooled_blob_id = blob.state.pooled_blob.id;
+                let certified_pooled_blob = certified_pooled_blobs
+                    .remove(&pooled_blob_id)
+                    .ok_or_else(|| {
+                        ClientError::store_blob_internal(format!(
+                            "missing certified pooled blob for object {pooled_blob_id}"
+                        ))
+                    })?;
+                Ok(blob.map_infallible(
+                    |bucket_blob| {
+                        bucket_blob.with_updated_pooled_blob(certified_pooled_blob.clone())
+                    },
+                    "with_updated_bucket_pooled_blob",
+                ))
+            })
+            .collect::<ClientResult<Vec<_>>>()?;
+
+        Ok(updated_blobs
             .into_iter()
             .map(|blob| {
                 blob.map_infallible(

@@ -117,7 +117,7 @@ impl SuiContractClient {
         &self,
         blob_bucket_object_id: ObjectID,
         pooled_blobs_with_certificates: &[(&PooledBlob, ConfirmationCertificate)],
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<Vec<PooledBlob>> {
         let blob_bucket_package_id = self
             .read_client()
             .blob_bucket_package_id(blob_bucket_object_id)
@@ -444,11 +444,16 @@ impl SuiContractClientInner {
         blob_bucket_package_id: ObjectID,
         blob_bucket_object_id: ObjectID,
         pooled_blobs_with_certificates: &[(&PooledBlob, ConfirmationCertificate)],
-    ) -> SuiClientResult<()> {
+    ) -> SuiClientResult<Vec<PooledBlob>> {
         if pooled_blobs_with_certificates.is_empty() {
-            return Ok(());
+            return Ok(vec![]);
         }
 
+        let pooled_blob_object_ids = pooled_blobs_with_certificates
+            .iter()
+            .map(|(pooled_blob, _)| pooled_blob.id)
+            .collect::<Vec<_>>();
+        let expected_num_blobs = pooled_blob_object_ids.len();
         let mut pt_builder = self.transaction_builder();
         for (pooled_blob, certificate) in pooled_blobs_with_certificates {
             pt_builder
@@ -471,7 +476,17 @@ impl SuiContractClientInner {
             return Err(anyhow!("could not certify pooled blobs: {:?}", res.errors).into());
         }
 
-        Ok(())
+        let pooled_blobs = self
+            .retriable_sui_client()
+            .get_sui_objects(&pooled_blob_object_ids)
+            .await?;
+        ensure!(
+            pooled_blobs.len() == expected_num_blobs,
+            "unexpected number of pooled blob objects after certification: {} expected {}",
+            pooled_blobs.len(),
+            expected_num_blobs
+        );
+        Ok(pooled_blobs)
     }
 
     /// Deletes a pooled blob from the specified bucket.
