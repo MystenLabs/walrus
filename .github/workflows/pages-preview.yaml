@@ -110,6 +110,9 @@ jobs:
         with:
           node-version: 22
 
+      - name: Wait for pages to propogate 
+        run: sleep 60
+
       - name: Run afdocs check
         id: afdocs
         run: |
