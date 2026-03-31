@@ -48,6 +48,7 @@ use walrus_sdk::{
         NodeCommunicationFactory,
         StoreArgs,
         StoreBlobsApi as _,
+        StoreBlobsInBucketApi as _,
         WalrusNodeClient,
         WalrusNodeClientCreatedInBackground,
         quilt_client::{
@@ -63,6 +64,7 @@ use walrus_sdk::{
     store_optimizations::StoreOptimizations,
     sui::{
         client::{
+            BlobBucketHandle,
             BlobPersistence,
             ExpirySelectionPolicy,
             PostStoreAction,
@@ -85,6 +87,7 @@ use super::{
         AggregatorArgs,
         BlobIdentifiers,
         BlobIdentity,
+        BucketStoreOptions,
         BurnSelection,
         CliCommands,
         DaemonArgs,
@@ -331,6 +334,21 @@ impl ClientCommandRunner {
                 files,
                 common_options,
             } => self.store(files, common_options.try_into()?).await,
+
+            CliCommands::StoreInBucket {
+                blob_bucket_object_id,
+                blob_bucket_cap_object_id,
+                files,
+                bucket_options,
+            } => {
+                self.store_in_bucket(
+                    files,
+                    blob_bucket_object_id,
+                    blob_bucket_cap_object_id,
+                    bucket_options.try_into()?,
+                )
+                .await
+            }
 
             CliCommands::StoreQuilt {
                 paths,
@@ -1045,6 +1063,177 @@ impl ClientCommandRunner {
             tracing::info!(
                 duration = ?start_timer.elapsed(),
                 "finished storing blobs ({}/{})",
+                results.len(),
+                blobs_len
+            );
+        }
+
+        results.print_output(self.json)
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn store_in_bucket(
+        self,
+        files: Vec<PathBuf>,
+        blob_bucket_object_id: ObjectID,
+        blob_bucket_cap_object_id: ObjectID,
+        StoreInBucketOptions {
+            epoch_arg,
+            persistence,
+            encoding_type,
+            upload_relay,
+            confirmation,
+        }: StoreInBucketOptions,
+    ) -> Result<()> {
+        epoch_arg.exactly_one_is_some()?;
+        if encoding_type.is_some_and(|encoding| !encoding.is_supported()) {
+            anyhow::bail!(ClientErrorKind::UnsupportedEncodingType(
+                encoding_type.expect("just checked that option is Some")
+            ));
+        }
+
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+
+        let config = self.config?;
+        let wallet = self.wallet?;
+        let active_address = wallet.active_address();
+        let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
+            get_contract_client(config.clone(), wallet, self.gas_budget),
+            config.contract_config.n_shards,
+        );
+        let epochs_ahead = get_epochs_ahead(
+            &epoch_arg,
+            config.contract_config.max_epochs_ahead,
+            &mut client_created_in_bg,
+        )
+        .await?;
+
+        let file_count = files.len();
+        tracing::info!(
+            bucket_object_id = %blob_bucket_object_id,
+            "storing {} file{} into blob bucket",
+            file_count,
+            if file_count == 1 { "" } else { "s" }
+        );
+        let start_timer = std::time::Instant::now();
+
+        let blobs = tracing::info_span!("read_blobs").in_scope(|| {
+            files
+                .into_iter()
+                .map(|file| read_blob_from_file(&file).map(|blob| (file, blob)))
+                .collect::<Result<Vec<(PathBuf, Vec<u8>)>>>()
+        })?;
+
+        if blobs.len() > 1 {
+            let max_total_blob_size = config.communication_config.max_total_blob_size;
+            let total_blob_size = blobs.iter().map(|(_, blob)| blob.len()).sum::<usize>();
+            if total_blob_size > max_total_blob_size {
+                anyhow::bail!(
+                    "total size of all blobs ({total_blob_size}) exceeds the maximum limit of \
+                    {max_total_blob_size}; you can change this limit in the client config"
+                );
+            }
+        }
+
+        let base_store_args = StoreArgs::new(
+            encoding_type,
+            epochs_ahead,
+            StoreOptimizations::none(),
+            persistence,
+            PostStoreAction::Keep,
+        )
+        .with_tail_handling(config.communication_config.tail_handling);
+
+        let mut store_args = base_store_args;
+        let mut tail_handle_collector: Option<Arc<TokioMutex<Vec<tokio::task::JoinHandle<()>>>>> =
+            None;
+        if matches!(
+            config.communication_config.tail_handling,
+            TailHandling::Detached
+        ) {
+            let collector = Arc::new(TokioMutex::new(Vec::new()));
+            store_args = store_args
+                .with_tail_handling(TailHandling::Detached)
+                .with_tail_handle_collector(collector.clone());
+            tail_handle_collector = Some(collector);
+        }
+
+        if let Some(upload_relay) = upload_relay {
+            let n_shards = client_created_in_bg.encoding_config().await?.n_shards();
+            let upload_relay_client = UploadRelayClient::new(
+                active_address,
+                n_shards,
+                upload_relay,
+                self.gas_budget,
+                config.backoff_config().clone(),
+            )
+            .await?;
+            store_args = store_args.with_upload_relay_client(upload_relay_client);
+
+            let total_tip = store_args.compute_total_tip_amount(
+                n_shards,
+                &blobs
+                    .iter()
+                    .map(|blob| blob.1.len().try_into().expect("32 or 64-bit arch"))
+                    .collect::<Vec<_>>(),
+            )?;
+
+            if confirmation.is_required() {
+                ask_for_tip_confirmation(total_tip)?;
+            }
+        }
+
+        let (paths, blob_bytes): (Vec<_>, Vec<_>) = blobs.into_iter().unzip();
+        let blobs_len = blob_bytes.len();
+        let client = client_created_in_bg.client().await?;
+        let storage_pool_status = client
+            .sui_client()
+            .blob_bucket_storage_pool_status(blob_bucket_object_id)
+            .await?;
+        let blob_bucket = BlobBucketHandle {
+            bucket_object_id: blob_bucket_object_id,
+            cap_object_id: blob_bucket_cap_object_id,
+            storage_pool_id: storage_pool_status.storage_pool_id,
+        };
+        let results = client
+            .reserve_and_store_blobs_in_bucket(blob_bytes, blob_bucket, &store_args)
+            .await?;
+
+        if let Some(collector) = tail_handle_collector {
+            let mut handles_guard = collector.lock().await;
+            let mut handles = Vec::new();
+            std::mem::swap(&mut *handles_guard, &mut handles);
+            drop(handles_guard);
+            for handle in handles {
+                if let Err(err) = handle.await {
+                    tracing::warn!(?err, "tail upload task failed");
+                }
+            }
+        }
+
+        let results = results
+            .into_iter()
+            .zip(paths)
+            .map(|(blob_store_result, path)| blob_store_result.with_path(path))
+            .collect::<Vec<_>>();
+
+        if results.len() != blobs_len {
+            let not_stored = results
+                .iter()
+                .filter(|blob| blob.blob_store_result.is_not_stored())
+                .map(|blob| blob.path.clone())
+                .collect::<Vec<_>>();
+            tracing::warn!(
+                "some blobs ({}) are not stored in bucket",
+                not_stored
+                    .into_iter()
+                    .map(|path| path.display().to_string())
+                    .join(", ")
+            );
+        } else {
+            tracing::info!(
+                duration = ?start_timer.elapsed(),
+                "finished storing blobs in bucket ({}/{})",
                 results.len(),
                 blobs_len
             );
@@ -2102,6 +2291,14 @@ struct StoreOptions {
     internal_run: bool,
 }
 
+struct StoreInBucketOptions {
+    epoch_arg: EpochArg,
+    persistence: BlobPersistence,
+    encoding_type: Option<EncodingType>,
+    upload_relay: Option<Url>,
+    confirmation: UserConfirmation,
+}
+
 impl TryFrom<CommonStoreOptions> for StoreOptions {
     type Error = anyhow::Error;
 
@@ -2135,6 +2332,29 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             confirmation: skip_tip_confirmation.into(),
             child_process_uploads,
             internal_run,
+        })
+    }
+}
+
+impl TryFrom<BucketStoreOptions> for StoreInBucketOptions {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        BucketStoreOptions {
+            epoch_arg,
+            deletable,
+            permanent,
+            encoding_type,
+            upload_relay,
+            skip_tip_confirmation,
+        }: BucketStoreOptions,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            epoch_arg,
+            persistence: BlobPersistence::from_deletable_and_permanent(deletable, permanent)?,
+            encoding_type,
+            upload_relay,
+            confirmation: skip_tip_confirmation.into(),
         })
     }
 }

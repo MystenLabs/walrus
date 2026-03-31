@@ -31,7 +31,7 @@ use walrus_sdk::{
         byte_range_read_client::ReadByteRangeResult,
         metrics::ClientMetrics,
         refresh::CommitteesRefresherHandle,
-        responses::{BlobStoreResult, QuiltStoreResult},
+        responses::{BlobBucketStoreResult, BlobStoreResult, QuiltStoreResult},
     },
     store_optimizations::StoreOptimizations,
 };
@@ -169,6 +169,37 @@ impl ClientMultiplexer {
 
         Ok(result)
     }
+
+    /// Submits a bucket write request to the client pool.
+    #[tracing::instrument(err, skip_all)]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn submit_write_in_bucket(
+        &self,
+        blob: Vec<u8>,
+        blob_bucket_object_id: ObjectID,
+        blob_bucket_cap_object_id: ObjectID,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        persistence: BlobPersistence,
+        metrics: Option<Arc<ClientMetrics>>,
+    ) -> ClientResult<BlobBucketStoreResult> {
+        let client = self.client_pool.next_client();
+        tracing::debug!("submitting bucket write request to client in pool");
+
+        let result = client
+            .write_blob_in_bucket(
+                blob,
+                blob_bucket_object_id,
+                blob_bucket_cap_object_id,
+                encoding_type,
+                epochs_ahead,
+                persistence,
+                metrics,
+            )
+            .await?;
+
+        Ok(result)
+    }
 }
 
 impl WalrusReadClient for ClientMultiplexer {
@@ -260,6 +291,29 @@ impl WalrusWriteClient for ClientMultiplexer {
             store_optimizations,
             persistence,
             post_store,
+            metrics,
+        )
+        .await
+    }
+
+    async fn write_blob_in_bucket(
+        &self,
+        blob: Vec<u8>,
+        blob_bucket_object_id: ObjectID,
+        blob_bucket_cap_object_id: ObjectID,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        persistence: BlobPersistence,
+        metrics: Option<Arc<ClientMetrics>>,
+    ) -> ClientResult<BlobBucketStoreResult> {
+        let metrics = metrics.or_else(|| Some(self.metrics.clone()));
+        self.submit_write_in_bucket(
+            blob,
+            blob_bucket_object_id,
+            blob_bucket_cap_object_id,
+            encoding_type,
+            epochs_ahead,
+            persistence,
             metrics,
         )
         .await

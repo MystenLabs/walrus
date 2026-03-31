@@ -32,6 +32,7 @@ use futures::Stream;
 use openapi::{AggregatorApiDoc, DaemonApiDoc, PublisherApiDoc};
 use reqwest::StatusCode;
 use routes::{
+    BLOB_BUCKET_PUT_ENDPOINT,
     BLOB_BYTE_RANGE_GET_ENDPOINT,
     BLOB_CONCAT_ENDPOINT,
     BLOB_GET_ENDPOINT,
@@ -74,16 +75,17 @@ use walrus_sdk::{
     node_client::{
         StoreArgs,
         StoreBlobsApi as _,
+        StoreBlobsInBucketApi as _,
         WalrusNodeClient,
         byte_range_read_client::ReadByteRangeResult,
         metrics::ClientMetrics,
-        responses::{BlobStoreResult, QuiltStoreResult},
+        responses::{BlobBucketStoreResult, BlobStoreResult, QuiltStoreResult},
         streaming::start_streaming_blob,
     },
     store_optimizations::StoreOptimizations,
 };
 use walrus_sui::{
-    client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
+    client::{BlobBucketHandle, BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
     types::move_structs::BlobWithAttribute,
 };
 use walrus_utils::metrics::Registry;
@@ -92,7 +94,7 @@ use crate::{
     client::{
         cli::{AggregatorArgs, PublisherArgs},
         config::AuthConfig,
-        daemon::auth::verify_jwt_claim,
+        daemon::auth::{verify_jwt_claim, verify_jwt_claim_for_bucket},
     },
     common::telemetry::{MakeHttpSpan, MetricsMiddlewareState, metrics_middleware},
 };
@@ -177,6 +179,19 @@ pub trait WalrusWriteClient: WalrusReadClient {
         post_store: PostStoreAction,
         metrics: Option<Arc<ClientMetrics>>,
     ) -> impl Future<Output = ClientResult<BlobStoreResult>> + Send;
+
+    /// Writes a blob into an existing blob bucket.
+    #[allow(clippy::too_many_arguments)]
+    fn write_blob_in_bucket(
+        &self,
+        blob: Vec<u8>,
+        blob_bucket_object_id: ObjectID,
+        blob_bucket_cap_object_id: ObjectID,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        persistence: BlobPersistence,
+        metrics: Option<Arc<ClientMetrics>>,
+    ) -> impl Future<Output = ClientResult<BlobBucketStoreResult>> + Send;
 
     /// Constructs a quilt from blobs.
     fn construct_quilt<V: QuiltVersion>(
@@ -322,6 +337,49 @@ impl WalrusWriteClient for WalrusNodeClient<SuiContractClient> {
             .into_iter()
             .next()
             .expect("there is only one blob, as store was called with one blob"))
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn write_blob_in_bucket(
+        &self,
+        blob: Vec<u8>,
+        blob_bucket_object_id: ObjectID,
+        blob_bucket_cap_object_id: ObjectID,
+        encoding_type: Option<EncodingType>,
+        epochs_ahead: EpochCount,
+        persistence: BlobPersistence,
+        metrics: Option<Arc<ClientMetrics>>,
+    ) -> ClientResult<BlobBucketStoreResult> {
+        let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
+        let tail_mode = self.config().communication_config.tail_handling;
+        let mut store_args = StoreArgs::new(
+            encoding_type,
+            epochs_ahead,
+            StoreOptimizations::none(),
+            persistence,
+            PostStoreAction::Keep,
+        )
+        .with_tail_handling(tail_mode);
+        if let Some(metrics) = metrics {
+            store_args = store_args.with_metrics(metrics);
+        }
+        let storage_pool_status = self
+            .sui_client()
+            .blob_bucket_storage_pool_status(blob_bucket_object_id)
+            .await?;
+        let blob_bucket = BlobBucketHandle {
+            bucket_object_id: blob_bucket_object_id,
+            cap_object_id: blob_bucket_cap_object_id,
+            storage_pool_id: storage_pool_status.storage_pool_id,
+        };
+        let result = self
+            .reserve_and_store_blobs_in_bucket(vec![blob], blob_bucket, &store_args)
+            .await?;
+
+        Ok(result
+            .into_iter()
+            .next()
+            .expect("there is only one blob, as bucket store was called with one blob"))
     }
 
     async fn construct_quilt<V: QuiltVersion>(
@@ -657,12 +715,20 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
 
         if let Some(auth_config) = auth_config {
             // Create and run the cache to track the used JWT tokens.
-            let replay_suppression_cache = auth_config.replay_suppression_config.build_and_run();
+            let replay_suppression_cache =
+                Arc::new(auth_config.replay_suppression_config.build_and_run());
+            let auth_config = Arc::new(auth_config);
 
             let auth_layers = ServiceBuilder::new()
                 .layer(axum::middleware::from_fn_with_state(
-                    (Arc::new(auth_config), Arc::new(replay_suppression_cache)),
+                    (auth_config.clone(), replay_suppression_cache.clone()),
                     auth_layer,
+                ))
+                .layer(base_layers.clone());
+            let bucket_auth_layers = ServiceBuilder::new()
+                .layer(axum::middleware::from_fn_with_state(
+                    (auth_config, replay_suppression_cache),
+                    auth_layer_for_bucket,
                 ))
                 .layer(base_layers.clone());
 
@@ -671,6 +737,10 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 .route(
                     BLOB_PUT_ENDPOINT,
                     put(routes::put_blob).route_layer(auth_layers.clone()),
+                )
+                .route(
+                    BLOB_BUCKET_PUT_ENDPOINT,
+                    put(routes::put_blob_in_bucket).route_layer(bucket_auth_layers),
                 )
                 .route(
                     QUILT_PUT_ENDPOINT,
@@ -684,6 +754,10 @@ impl<T: WalrusWriteClient + Send + Sync + 'static> ClientDaemon<T> {
                 .route(
                     BLOB_PUT_ENDPOINT,
                     put(routes::put_blob).route_layer(base_layers.clone()),
+                )
+                .route(
+                    BLOB_BUCKET_PUT_ENDPOINT,
+                    put(routes::put_blob_in_bucket).route_layer(base_layers.clone()),
                 )
                 .route(
                     QUILT_PUT_ENDPOINT,
@@ -722,6 +796,30 @@ pub(crate) async fn auth_layer(
     } else {
         next.run(request).await
     }
+}
+
+pub(crate) async fn auth_layer_for_bucket(
+    State((auth_config, token_cache)): State<(Arc<AuthConfig>, Arc<CacheHandle<String>>)>,
+    query: Query<routes::BucketPublisherQuery>,
+    TypedHeader(bearer_header): TypedHeader<Authorization<Bearer>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    tracing::debug!(query = ?query.0, "authenticating a request to store a blob in bucket");
+
+    if let Err(error) = verify_jwt_claim_for_bucket(
+        query,
+        bearer_header,
+        &auth_config,
+        &token_cache,
+        request.body().size_hint(),
+    )
+    .await
+    {
+        return error.into_response();
+    }
+
+    next.run(request).await
 }
 
 /// Handles errors from Tower middleware layers for service endpoints.
@@ -928,6 +1026,19 @@ mod tests {
                 ),
                 end_epoch: 10,
             })
+        }
+
+        async fn write_blob_in_bucket(
+            &self,
+            _blob: Vec<u8>,
+            _blob_bucket_object_id: ObjectID,
+            _blob_bucket_cap_object_id: ObjectID,
+            _encoding_type: Option<EncodingType>,
+            _epochs_ahead: EpochCount,
+            _persistence: BlobPersistence,
+            _metrics: Option<Arc<ClientMetrics>>,
+        ) -> ClientResult<BlobBucketStoreResult> {
+            unimplemented!("not needed for rate limit tests")
         }
 
         async fn construct_quilt<V: walrus_core::encoding::quilt_encoding::QuiltVersion>(

@@ -10,6 +10,103 @@ info:
     identifier: Apache-2.0
   version: <VERSION>
 paths:
+  /v1/blob-buckets/{blob_bucket_object_id}/blobs:
+    put:
+      tags:
+      - routes
+      summary: Store a blob into an existing blob bucket.
+      description: Store a (potentially deletable) pooled blob in the specified bucket for 1 or more epochs.
+      operationId: put_blob_in_bucket
+      parameters:
+      - name: blob_bucket_object_id
+        in: path
+        description: The shared blob bucket object ID.
+        required: true
+        schema:
+          $ref: '#/components/schemas/ObjectID'
+      - name: blob_bucket_cap_object_id
+        in: query
+        description: The blob bucket capability object ID.
+        required: true
+        schema:
+          $ref: '#/components/schemas/ObjectID'
+        style: form
+      - name: encoding_type
+        in: query
+        description: The encoding type to use for the blob.
+        required: false
+        schema:
+          $ref: '#/components/schemas/EncodingType'
+        style: form
+      - name: epochs
+        in: query
+        description: |-
+          The number of epochs, ahead of the current one, for which to store the blob.
+
+          The default is 1 epoch.
+        required: false
+        schema:
+          $ref: '#/components/schemas/u32'
+        style: form
+      - name: deletable
+        in: query
+        description: |-
+          If true, the publisher creates a deletable pooled blob.
+
+          New blobs are created as deletable by default since v1.33, and this flag is no longer
+          required.
+        required: false
+        deprecated: true
+        schema:
+          type: boolean
+        style: form
+      - name: permanent
+        in: query
+        description: If true, the publisher creates a permanent pooled blob instead of a deletable one.
+        required: false
+        schema:
+          type: boolean
+        style: form
+      requestBody:
+        description: Binary data of the unencoded blob to be stored in the bucket.
+        content:
+          application/octet-stream:
+            schema:
+              $ref: '#/components/schemas/Binary'
+        required: true
+      responses:
+        '200':
+          description: The blob was stored in the bucket successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlobBucketStoreResult'
+        '400':
+          description: May be returned when (1) The blob cannot be defined as both deletable and permanent. (2) The request is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '413':
+          description: The blob is too large
+        '451':
+          description: The blob cannot be returned as it has been blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '504':
+          description: The service failed to store the blob to sufficient Walrus storage nodes before a timeout, please retry the operation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /v1/blobs:
     put:
       tags:
@@ -966,6 +1063,46 @@ components:
         storage:
           $ref: '#/components/schemas/StorageResource'
           description: The [`StorageResource`] used to store the blob.
+    BlobBucketStoreResult:
+      oneOf:
+      - type: object
+        description: The blob was newly created in the target bucket.
+        required:
+        - newlyCreated
+        properties:
+          newlyCreated:
+            type: object
+            description: The blob was newly created in the target bucket.
+            required:
+            - pooled_blob_object
+            properties:
+              pooled_blob_object:
+                $ref: '#/components/schemas/PooledBlob'
+                description: The pooled blob object created in the bucket.
+      - type: object
+        description: Operation failed.
+        required:
+        - error
+        properties:
+          error:
+            type: object
+            description: Operation failed.
+            required:
+            - failure_phase
+            - error_msg
+            properties:
+              blob_id:
+                oneOf:
+                - type: 'null'
+                - $ref: '#/components/schemas/BlobId'
+                  description: The blob ID.
+              error_msg:
+                type: string
+                description: The error message.
+              failure_phase:
+                type: string
+                description: The phase after the error occurred.
+      description: Result when attempting to store a blob into a blob bucket.
     BlobId:
       type: string
       format: byte
@@ -1175,6 +1312,44 @@ components:
       description: Sui object ID as a hexadecimal string
       examples:
       - 0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60
+    PooledBlob:
+      type: object
+      description: Sui object for a pooled blob in a storage pool.
+      required:
+      - id
+      - registeredEpoch
+      - blobId
+      - unencodedSize
+      - encodingType
+      - storagePoolId
+      - deletable
+      properties:
+        blobId:
+          $ref: '#/components/schemas/BlobId'
+          description: The blob ID.
+        certifiedEpoch:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/u32'
+            description: The epoch in which the blob was first certified, `None` if the blob is uncertified.
+        deletable:
+          type: boolean
+          description: Marks the blob as deletable.
+        encodingType:
+          $ref: '#/components/schemas/EncodingType'
+          description: The erasure coding type used for the blob.
+        id:
+          $ref: '#/components/schemas/ObjectID'
+        registeredEpoch:
+          $ref: '#/components/schemas/u32'
+          description: The epoch in which the blob has been registered.
+        storagePoolId:
+          $ref: '#/components/schemas/ObjectID'
+        unencodedSize:
+          type: integer
+          format: int64
+          description: The (unencoded) size of the blob.
+          minimum: 0
     QuiltPatchId:
       type: object
       description: |-

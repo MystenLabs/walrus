@@ -17,7 +17,7 @@ use walrus_proc_macros::RestApiError;
 
 use super::{
     cache::CacheHandle,
-    routes::{PublisherQuery, SendOrShare},
+    routes::{BucketPublisherQuery, PublisherQuery, SendOrShare},
 };
 use crate::{client::config::AuthConfig, common::api::RestApiError};
 
@@ -137,6 +137,37 @@ impl Claim {
         auth_config: &AuthConfig,
         body_size_hint: http_body::SizeHint,
     ) -> Result<(), PublisherAuthError> {
+        self.check_valid_upload_inner(
+            query.epochs,
+            query.send_or_share().and_then(|send_or_share| {
+                if let SendOrShare::SendObjectTo(address) = send_or_share {
+                    Some(address)
+                } else {
+                    None
+                }
+            }),
+            auth_config,
+            body_size_hint,
+        )
+    }
+
+    /// Checks that the bucket query matches the claim.
+    pub fn check_valid_bucket_upload(
+        &self,
+        query: &BucketPublisherQuery,
+        auth_config: &AuthConfig,
+        body_size_hint: http_body::SizeHint,
+    ) -> Result<(), PublisherAuthError> {
+        self.check_valid_upload_inner(query.epochs, None, auth_config, body_size_hint)
+    }
+
+    fn check_valid_upload_inner(
+        &self,
+        query_epochs: EpochCount,
+        query_send_object_to: Option<SuiAddress>,
+        auth_config: &AuthConfig,
+        body_size_hint: http_body::SizeHint,
+    ) -> Result<(), PublisherAuthError> {
         // The expiration check is always performed.
         if self.check_expiring_sec(auth_config) {
             return Err(PublisherAuthError::InvalidExpiration);
@@ -186,23 +217,17 @@ impl Claim {
             return Err(PublisherAuthError::InvalidSize);
         }
 
-        if let Err(error) = self.check_epochs(query.epochs) {
+        if let Err(error) = self.check_epochs(query_epochs) {
             tracing::debug!(
                 epochs = self.epochs,
                 max_epochs = self.max_epochs,
-                query_epochs = query.epochs,
+                query_epochs,
                 "upload with invalid number of epochs"
             );
             return Err(error);
         }
 
-        self.check_send_object_to(query.send_or_share().and_then(|send_or_share| {
-            if let SendOrShare::SendObjectTo(address) = send_or_share {
-                Some(address)
-            } else {
-                None
-            }
-        }))?;
+        self.check_send_object_to(query_send_object_to)?;
 
         Ok(())
     }
@@ -338,6 +363,58 @@ pub async fn verify_jwt_claim(
     }
 }
 
+pub async fn verify_jwt_claim_for_bucket(
+    query: Query<BucketPublisherQuery>,
+    bearer: Authorization<Bearer>,
+    auth_config: &AuthConfig,
+    token_cache: &CacheHandle<String>,
+    body_size_hint: http_body::SizeHint,
+) -> Result<(), Response<Body>> {
+    let token = bearer.token().trim();
+    let decode_result = if let Some(decoding_key) = auth_config.decoding_key.as_ref() {
+        let mut validation = auth_config
+            .algorithm
+            .map(Validation::new)
+            .unwrap_or_default();
+        if auth_config.expiring_sec > 0 {
+            validation.set_required_spec_claims(&["exp", "iat"]);
+        }
+        Claim::from_token(token, decoding_key, &validation)
+    } else {
+        Claim::from_token_insecure(token)
+    };
+
+    match decode_result {
+        Ok(claim) => {
+            let Some(expiration) = DateTime::from_timestamp(claim.exp, 0) else {
+                return Err(PublisherAuthError::InvalidTimestamp.to_response());
+            };
+
+            if let Err(error) = token_cache
+                .insert_if_not_present(claim.jti.clone(), expiration)
+                .await
+            {
+                return Err(PublisherAuthError::from(error).to_response());
+            }
+
+            if let Err(error) =
+                claim.check_valid_bucket_upload(&query.0, auth_config, body_size_hint)
+            {
+                let _ = token_cache
+                    .remove(claim.jti.clone())
+                    .await
+                    .inspect_err(|error| {
+                        tracing::warn!(?error, "there was an error while removing the token")
+                    });
+                return Err(error.to_response());
+            }
+
+            Ok(())
+        }
+        Err(error) => Err(error.to_response()),
+    }
+}
+
 /// Type representing the possible errors that can occur during the authentication process.
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[rest_api_error(domain = PUBLISHER_AUTH_DOMAIN)]
@@ -416,7 +493,7 @@ mod tests {
     use super::*;
     use crate::client::{
         config::AuthConfig,
-        daemon::{auth_layer, cache::CacheConfig},
+        daemon::{auth_layer, auth_layer_for_bucket, cache::CacheConfig},
     };
 
     // Fixtures and helpers for tests.
@@ -424,6 +501,10 @@ mod tests {
     const ADDRESS: [u8; SUI_ADDRESS_LENGTH] = [42; SUI_ADDRESS_LENGTH];
     const OTHER_ADDRESS: &str =
         "0x1111111111111111111111111111111111111111111111111111111111111111";
+    const BLOB_BUCKET_OBJECT_ID: &str =
+        "0x2222222222222222222222222222222222222222222222222222222222222222";
+    const BLOB_BUCKET_CAP_OBJECT_ID: &str =
+        "0x3333333333333333333333333333333333333333333333333333333333333333";
 
     const FAR_EXP: i64 = 33292598400; // 3025-01-01 00:00:00 UTC
 
@@ -470,6 +551,33 @@ mod tests {
 
         let router =
             Router::new().route("/v1/blobs", get(|| async {}).route_layer(publisher_layers));
+        (router, token, encode_key)
+    }
+
+    fn setup_bucket_router_and_token(
+        expiring_sec: i64,
+        verify_upload: bool,
+        use_secret: bool,
+        claim: Claim,
+    ) -> (Router, String, EncodingKey) {
+        let secret = Alphanumeric.sample_string(&mut rand::thread_rng(), 16);
+        let secret_to_use = use_secret.then_some(secret.as_str());
+        let auth_config = auth_config_for_tests(secret_to_use, None, expiring_sec, verify_upload);
+
+        let encode_key = EncodingKey::from_secret(secret.as_bytes());
+        let token = encode(&Header::default(), &claim, &encode_key).unwrap();
+
+        let token_cache = CacheConfig::default().build_and_run();
+
+        let publisher_layers = ServiceBuilder::new().layer(axum::middleware::from_fn_with_state(
+            (Arc::new(auth_config), Arc::new(token_cache)),
+            auth_layer_for_bucket,
+        ));
+
+        let router = Router::new().route(
+            "/v1/blob-buckets/{blob_bucket_object_id}/blobs",
+            get(|| async {}).route_layer(publisher_layers),
+        );
         (router, token, encode_key)
     }
 
@@ -601,6 +709,57 @@ mod tests {
                     &format!(
                         "/v1/blobs?epochs=1&send_object_to={}",
                         SuiAddress::from_bytes(ADDRESS).expect("valid address")
+                    ),
+                    correct_auth_header(token),
+                    None,
+                ),
+                StatusCode::OK,
+            ),
+        ];
+
+        execute_requests(&router, requests).await;
+    }
+
+    #[tokio::test]
+    async fn verify_bucket_upload() {
+        let (router, token, _) = setup_bucket_router_and_token(
+            0,
+            true,
+            true,
+            Claim {
+                jti: "test".to_string(),
+                iat: None,
+                exp: FAR_EXP,
+                epochs: Some(1),
+                ..Default::default()
+            },
+        );
+
+        let requests = vec![
+            (
+                RequestHeadersAndData::new(
+                    &format!(
+                        concat!(
+                            "/v1/blob-buckets/{blob_bucket_object_id}/blobs?",
+                            "blob_bucket_cap_object_id={blob_bucket_cap_object_id}&epochs=100"
+                        ),
+                        blob_bucket_object_id = BLOB_BUCKET_OBJECT_ID,
+                        blob_bucket_cap_object_id = BLOB_BUCKET_CAP_OBJECT_ID,
+                    ),
+                    correct_auth_header(token.clone()),
+                    None,
+                ),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                RequestHeadersAndData::new(
+                    &format!(
+                        concat!(
+                            "/v1/blob-buckets/{blob_bucket_object_id}/blobs?",
+                            "blob_bucket_cap_object_id={blob_bucket_cap_object_id}&epochs=1"
+                        ),
+                        blob_bucket_object_id = BLOB_BUCKET_OBJECT_ID,
+                        blob_bucket_cap_object_id = BLOB_BUCKET_CAP_OBJECT_ID,
                     ),
                     correct_auth_header(token),
                     None,

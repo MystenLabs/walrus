@@ -117,8 +117,10 @@ impl AssociatedContractStruct for BlobBucketCap {
 /// Sui object for a pooled blob in a storage pool.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "utoipa", derive(utoipa::ToSchema))]
 pub struct PooledBlob {
     /// Object ID of the Sui object.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
     pub id: ObjectID,
     /// The epoch in which the blob has been registered.
     pub registered_epoch: Epoch,
@@ -132,6 +134,7 @@ pub struct PooledBlob {
     /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
     pub certified_epoch: Option<Epoch>,
     /// The object ID of the backing storage pool.
+    #[cfg_attr(feature = "utoipa", schema(schema_with = object_id_schema))]
     pub storage_pool_id: ObjectID,
     /// Marks the blob as deletable.
     pub deletable: bool,

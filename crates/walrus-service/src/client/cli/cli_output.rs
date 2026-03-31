@@ -24,7 +24,13 @@ use walrus_sdk::{
     node_client::{
         client_types::{self, StoredQuiltPatch},
         resource::RegisterBlobOp,
-        responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
+        responses::{
+            BlobBucketStoreResult,
+            BlobBucketStoreResultWithPath,
+            BlobStoreResult,
+            BlobStoreResultWithPath,
+            QuiltStoreResult,
+        },
     },
 };
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts, EventProgress};
@@ -153,6 +159,27 @@ impl CliOutput for Vec<BlobStoreResultWithPath> {
     }
 }
 
+impl CliOutput for Vec<BlobBucketStoreResultWithPath> {
+    fn print_cli_output(&self) {
+        for result in self {
+            result.print_cli_output();
+        }
+
+        let stored_count = self
+            .iter()
+            .filter(|result| !result.blob_store_result.is_not_stored())
+            .count();
+        if stored_count > 0 {
+            println!(
+                "{} ({stored_count} stored)",
+                "Summary for Stored Bucket Blobs".bold().walrus_purple(),
+            );
+        } else {
+            println!("{}", "No bucket blobs were stored".bold().walrus_purple());
+        }
+    }
+}
+
 impl CliOutput for Vec<DryRunOutput> {
     fn print_cli_output(&self) {
         for result in self {
@@ -247,6 +274,54 @@ impl CliOutput for BlobStoreResultWithPath {
             } => {
                 println!(
                     "{} Storing blob failed during {}.\nPath: {}\nBlob ID: {}\nError: {}",
+                    error(),
+                    failure_phase,
+                    self.path.display(),
+                    blob_id.map_or("unknown".to_string(), |id| id.to_string()),
+                    error_msg,
+                )
+            }
+        }
+    }
+}
+
+impl CliOutput for BlobBucketStoreResultWithPath {
+    fn print_cli_output(&self) {
+        match &self.blob_store_result {
+            BlobBucketStoreResult::NewlyCreated { pooled_blob_object } => {
+                println!(
+                    "{} {} bucket blob stored successfully.\n\
+                    Path: {}\n\
+                    Blob ID: {}\n\
+                    Pooled blob object ID: {}\n\
+                    Storage pool ID: {}\n\
+                    Unencoded size: {}\n\
+                    Registered epoch: {}\n\
+                    Certified: {}\n\
+                    Encoding type: {}\n",
+                    success(),
+                    if pooled_blob_object.deletable {
+                        "Deletable"
+                    } else {
+                        "Permanent"
+                    },
+                    self.path.display(),
+                    pooled_blob_object.blob_id,
+                    pooled_blob_object.id,
+                    pooled_blob_object.storage_pool_id,
+                    HumanReadableBytes(pooled_blob_object.unencoded_size),
+                    pooled_blob_object.registered_epoch,
+                    pooled_blob_object.is_certified(),
+                    pooled_blob_object.encoding_type,
+                );
+            }
+            BlobBucketStoreResult::Error {
+                blob_id,
+                error_msg,
+                failure_phase,
+            } => {
+                println!(
+                    "{} Storing bucket blob failed during {}.\nPath: {}\nBlob ID: {}\nError: {}",
                     error(),
                     failure_phase,
                     self.path.display(),

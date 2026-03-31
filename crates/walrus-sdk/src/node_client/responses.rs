@@ -167,7 +167,7 @@ impl BlobStoreResult {
 
 /// Result when attempting to store a blob into a blob bucket.
 #[serde_as]
-#[derive(Debug, Clone, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, ToSchema, PartialEq)]
 #[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum BlobBucketStoreResult {
     /// The blob was newly created in the target bucket.
