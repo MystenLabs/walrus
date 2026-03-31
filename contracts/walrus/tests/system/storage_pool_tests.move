@@ -270,7 +270,7 @@ fun delete_pooled_blob_certified() {
     assert_eq!(pool.used_encoded_bytes(), 0);
     assert!(pool.used_encoded_bytes() < used_before);
 
-    pool.destroy();
+    pool.destroy().destroy();
     system.destroy_for_testing();
 }
 
@@ -289,7 +289,7 @@ fun delete_pooled_blob_uncertified() {
     assert_eq!(pool.blob_count(), 0);
     assert_eq!(pool.used_encoded_bytes(), 0);
 
-    pool.destroy();
+    pool.destroy().destroy();
     system.destroy_for_testing();
 }
 
@@ -567,7 +567,7 @@ fun destroy_empty_pool() {
     let pool = create_default_pool(&mut system, ctx);
 
     // An empty pool can be destroyed.
-    pool.destroy();
+    pool.destroy().destroy();
     system.destroy_for_testing();
 }
 
@@ -581,7 +581,7 @@ fun destroy_non_empty_pool() {
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, false, ctx);
 
     // Destroying a pool with blobs should fail.
-    pool.destroy();
+    pool.destroy().destroy();
 
     abort
 }
@@ -731,7 +731,7 @@ fun full_pooled_blob_lifecycle() {
     assert_eq!(pool.used_encoded_bytes(), 0);
 
     // 6. Destroy the empty pool.
-    pool.destroy();
+    pool.destroy().destroy();
 
     fake_coin.burn_for_testing();
     system.destroy_for_testing();

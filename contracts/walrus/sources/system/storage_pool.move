@@ -11,7 +11,8 @@ use walrus::{
     blob,
     encoding,
     events::{emit_pooled_blob_certified, emit_pooled_blob_deleted, emit_pooled_blob_registered},
-    messages::CertifiedBlobMessage
+    messages::CertifiedBlobMessage,
+    storage_resource::Storage
 };
 
 // Error codes
@@ -53,10 +54,8 @@ public struct StoragePool has key, store {
 
 /// Inner state for a pooled storage resource.
 public struct StoragePoolInnerV1 has store {
-    start_epoch: u32,
-    end_epoch: u32,
-    /// Total reserved capacity in encoded bytes.
-    reserved_encoded_capacity_bytes: u64,
+    /// The storage reservation backing this pool.
+    storage: Storage,
     /// Sum of all active blobs' encoded sizes.
     used_encoded_bytes: u64,
     /// Number of blobs in the table.
@@ -81,15 +80,15 @@ public struct PooledBlob has key, store {
 // === StoragePool accessors ===
 
 public fun start_epoch(self: &StoragePool): u32 {
-    self.inner().start_epoch
+    self.inner().storage.start_epoch()
 }
 
 public fun end_epoch(self: &StoragePool): u32 {
-    self.inner().end_epoch
+    self.inner().storage.end_epoch()
 }
 
 public fun reserved_encoded_capacity_bytes(self: &StoragePool): u64 {
-    self.inner().reserved_encoded_capacity_bytes
+    self.inner().storage.size()
 }
 
 public fun used_encoded_bytes(self: &StoragePool): u64 {
@@ -98,7 +97,12 @@ public fun used_encoded_bytes(self: &StoragePool): u64 {
 
 public fun available_encoded_bytes(self: &StoragePool): u64 {
     let inner = self.inner();
-    inner.reserved_encoded_capacity_bytes - inner.used_encoded_bytes
+    inner.storage.size() - inner.used_encoded_bytes
+}
+
+/// Returns a reference to the embedded storage reservation.
+public fun storage(self: &StoragePool): &Storage {
+    &self.inner().storage
 }
 
 public fun blob_count(self: &StoragePool): u64 {
@@ -120,21 +124,14 @@ public fun blob_object_id(self: &StoragePool, blob_id: u256): ID {
 
 // === StoragePool operations ===
 
-/// Creates a new `StoragePool`.
-public(package) fun create(
-    start_epoch: u32,
-    end_epoch: u32,
-    reserved_encoded_capacity_bytes: u64,
-    ctx: &mut TxContext,
-): StoragePool {
+/// Creates a new `StoragePool` backed by a `Storage` reservation.
+public(package) fun create(storage: Storage, ctx: &mut TxContext): StoragePool {
     let mut pool = StoragePool { id: object::new(ctx), version: VERSION };
     dynamic_field::add(
         &mut pool.id,
         VERSION,
         StoragePoolInnerV1 {
-            start_epoch,
-            end_epoch,
-            reserved_encoded_capacity_bytes,
+            storage,
             used_encoded_bytes: 0,
             blob_count: 0,
             blobs: object_table::new(ctx),
@@ -176,8 +173,7 @@ public fun object_id(self: &StoragePool): ID {
 
 /// Extends the end epoch by `extension_epochs`.
 public(package) fun extend_end_epoch(self: &mut StoragePool, extension_epochs: u32) {
-    let inner = self.inner_mut();
-    inner.end_epoch = inner.end_epoch + extension_epochs;
+    self.inner_mut().storage.extend_end_epoch(extension_epochs);
 }
 
 /// Increases the reserved capacity by `additional_capacity_bytes`.
@@ -185,9 +181,7 @@ public(package) fun increase_reserved_encoded_capacity(
     self: &mut StoragePool,
     additional_capacity_bytes: u64,
 ) {
-    let inner = self.inner_mut();
-    inner.reserved_encoded_capacity_bytes =
-        inner.reserved_encoded_capacity_bytes + additional_capacity_bytes;
+    self.inner_mut().storage.increase_size(additional_capacity_bytes);
 }
 
 /// Adds a blob to the pool's object table, and accounts for the space it occupies.
@@ -195,10 +189,7 @@ public(package) fun add_blob(self: &mut StoragePool, blob: PooledBlob, encoded_s
     let inner = self.inner_mut();
     inner.blob_count = inner.blob_count + 1;
     inner.used_encoded_bytes = inner.used_encoded_bytes + encoded_size;
-    assert!(
-        inner.used_encoded_bytes <= inner.reserved_encoded_capacity_bytes,
-        EInsufficientCapacity,
-    );
+    assert!(inner.used_encoded_bytes <= inner.storage.size(), EInsufficientCapacity);
     inner.blobs.add(blob.blob_id, blob);
 }
 
@@ -223,14 +214,18 @@ public(package) fun borrow_blob_mut(self: &mut StoragePool, blob_id: u256): &mut
     self.inner_mut().blobs.borrow_mut(blob_id)
 }
 
-// TODO(WAL-1160): decide whether we want to expose this destructor.
-/// Destroys the pool. Asserts the blobs table is empty and `blob_count == 0`.
-public fun destroy(self: StoragePool) {
+/// Destroys the pool and returns the embedded `Storage` reservation.
+/// Asserts the blobs table is empty and `blob_count == 0`.
+public fun destroy(self: StoragePool): Storage {
     let StoragePool { mut id, version } = self;
-    let StoragePoolInnerV1 { blobs, blob_count, .. } = dynamic_field::remove(&mut id, version);
+    let StoragePoolInnerV1 { storage, blobs, blob_count, .. } = dynamic_field::remove(
+        &mut id,
+        version,
+    );
     assert!(blob_count == 0, EPoolNotEmpty);
     blobs.destroy_empty();
     id.delete();
+    storage
 }
 
 // === PooledBlob operations ===
