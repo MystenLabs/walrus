@@ -131,6 +131,7 @@ impl Wallet {
             package_path,
             build_config.environment.clone(),
             &self.wallet_context,
+            false,
         )
         .await
     }
