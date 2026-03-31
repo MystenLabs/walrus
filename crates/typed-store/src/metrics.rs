@@ -49,9 +49,14 @@ const LATENCY_SEC_BUCKETS: &[f64] = &[
     0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1., 2.5, 5., 10.,
 ];
 
-// TODO: remove this after Rust rocksdb has the TOTAL_BLOB_FILES_SIZE property built-in.
+// TODO: remove these after Rust rocksdb has the blob file properties built-in.
 const ROCKSDB_PROPERTY_TOTAL_BLOB_FILES_SIZE: &CStr =
     unsafe { CStr::from_bytes_with_nul_unchecked("rocksdb.total-blob-file-size\0".as_bytes()) };
+const ROCKSDB_PROPERTY_LIVE_BLOB_FILE_SIZE: &CStr =
+    unsafe { CStr::from_bytes_with_nul_unchecked("rocksdb.live-blob-file-size\0".as_bytes()) };
+const ROCKSDB_PROPERTY_LIVE_BLOB_FILE_GARBAGE_SIZE: &CStr = unsafe {
+    CStr::from_bytes_with_nul_unchecked("rocksdb.live-blob-file-garbage-size\0".as_bytes())
+};
 
 #[derive(Debug, Clone)]
 /// A struct for sampling based on number of operations or duration.
@@ -115,6 +120,12 @@ pub struct ColumnFamilyMetrics {
     pub rocksdb_total_sst_files_size: IntGaugeVec,
     /// The storage size occupied by the blob files in the column family
     pub rocksdb_total_blob_files_size: IntGaugeVec,
+    /// The storage size occupied by live blob files in the column family
+    pub rocksdb_live_blob_file_size: IntGaugeVec,
+    /// The garbage size in live blob files in the column family
+    pub rocksdb_live_blob_file_garbage_size: IntGaugeVec,
+    /// The estimated size of live data in the column family
+    pub rocksdb_estimate_live_data_size: IntGaugeVec,
     /// Total number of files used in the column family
     pub rocksdb_total_num_files: IntGaugeVec,
     /// Number of level 0 files in the column family
@@ -177,6 +188,27 @@ impl ColumnFamilyMetrics {
             rocksdb_total_blob_files_size: register_int_gauge_vec_with_registry!(
                 "rocksdb_total_blob_files_size",
                 "The storage size occupied by the blob files in the column family",
+                &["cf_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_live_blob_file_size: register_int_gauge_vec_with_registry!(
+                "rocksdb_live_blob_file_size",
+                "The storage size occupied by live blob files in the column family",
+                &["cf_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_live_blob_file_garbage_size: register_int_gauge_vec_with_registry!(
+                "rocksdb_live_blob_file_garbage_size",
+                "The garbage size in live blob files in the column family",
+                &["cf_name"],
+                registry,
+            )
+            .unwrap(),
+            rocksdb_estimate_live_data_size: register_int_gauge_vec_with_registry!(
+                "rocksdb_estimate_live_data_size",
+                "The estimated size of live data in the column family",
                 &["cf_name"],
                 registry,
             )
@@ -1492,6 +1524,30 @@ fn report_cf_metrics(rocksdb: &Arc<RocksDB>, cf_name: &str, db_metrics: &Arc<DBM
         .with_label_values(&[cf_name])
         .set(
             get_int_property(rocksdb, &cf, ROCKSDB_PROPERTY_TOTAL_BLOB_FILES_SIZE)
+                .unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_live_blob_file_size
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, ROCKSDB_PROPERTY_LIVE_BLOB_FILE_SIZE)
+                .unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_live_blob_file_garbage_size
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, ROCKSDB_PROPERTY_LIVE_BLOB_FILE_GARBAGE_SIZE)
+                .unwrap_or(METRICS_ERROR),
+        );
+    db_metrics
+        .cf_metrics
+        .rocksdb_estimate_live_data_size
+        .with_label_values(&[cf_name])
+        .set(
+            get_int_property(rocksdb, &cf, properties::ESTIMATE_LIVE_DATA_SIZE)
                 .unwrap_or(METRICS_ERROR),
         );
     // 7 is the default number of levels in RocksDB. If we ever change the number.
