@@ -204,7 +204,7 @@ resilience to more widespread faults.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="the-replication-challenge">The Replication Challenge<a href="https://docs.wal.app/walrus/pr-preview/pr-3198/blog/01_announcing_walrus#the-replication-challenge" class="hash-link" aria-label="Direct link to The Replication Challenge" title="Direct link to The Replication Challenge" translate="no">​</a></h2>
 <p>Sui is the most advanced blockchain system in relation to storage on validators, with innovations
 such as a <a href="https://docs.sui.io/concepts/tokenomics/storage-fund" target="_blank" rel="noopener noreferrer" class="">storage fund</a> that future-proofs
-the cost of storing data on-chain. Nevertheless, Sui still requires complete data replication among
+the cost of storing data onchain. Nevertheless, Sui still requires complete data replication among
 all validators, resulting in a replication factor of 100x or more in today’s Sui Mainnet. While this
 is necessary for replicated computing and smart contracts acting on the state of the blockchain, it
 is inefficient for simply storing unstructured data blobs, such as music, video, blockchain history,

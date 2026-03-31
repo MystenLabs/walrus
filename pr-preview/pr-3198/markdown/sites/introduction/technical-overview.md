@@ -1,4 +1,4 @@
-A Walrus Site is a static web site published entirely on-chain, with no origin server. [Sui](https://docs.sui.io/) stores the site's ownership and resource index, and Walrus stores the resource files themselves. A portal bridges these systems and serves the site to the browser over standard HTTP.
+A Walrus Site is a static web site published entirely onchain, with no origin server. [Sui](https://docs.sui.io/) stores the site's ownership and resource index, and Walrus stores the resource files themselves. A portal bridges these systems and serves the site to the browser over standard HTTP.
 
 This page explains how those pieces fit together. For a description of each component in detail, see [Walrus Sites Components](/docs/sites/introduction/components).
 
@@ -8,9 +8,9 @@ When you run [`site-builder deploy`](/docs/sites/getting-started/using-the-site-
 
 First, it uploads your site's files to Walrus by batching all files into a single storage unit called a [Walrus quilt](/docs/system-overview/quilt). Walrus returns a `QuiltPatchID` for each file.
 
-Second, it writes a site object to Sui. This object acts as an on-chain index: it records the URL path of every resource in your site alongside the Walrus identifier needed to retrieve it. The wallet that signs this transaction becomes the owner of the site object and is the only wallet that can update or destroy it.
+Second, it writes a site object to Sui. This object acts as an onchain index: it records the URL path of every resource in your site alongside the Walrus identifier needed to retrieve it. The wallet that signs this transaction becomes the owner of the site object and is the only wallet that can update or destroy it.
 
-After publishing, your site exists entirely on-chain and in Walrus storage. No server is required to keep it available.
+After publishing, your site exists entirely onchain and in Walrus storage. No server is required to keep it available.
 
 ## Resolving and serving a site
 
@@ -44,4 +44,4 @@ The `wal.app` portal does not support Base36 domain resolution. To access a site
 
 ## Ownership and updates
 
-Because a Walrus Site is a standard Sui object, it participates in Sui's ownership model. The owner can transfer, share, or destroy the site object, and can assign it a SuiNS name. Updating a site re-uploads all resource files to Walrus as a new quilt and updates the on-chain index to point to the new content. The site's Sui object ID does not change between updates, so any SuiNS name or bookmark pointing to it remains valid.
+Because a Walrus Site is a standard Sui object, it participates in Sui's ownership model. The owner can transfer, share, or destroy the site object, and can assign it a SuiNS name. Updating a site re-uploads all resource files to Walrus as a new quilt and updates the onchain index to point to the new content. The site's Sui object ID does not change between updates, so any SuiNS name or bookmark pointing to it remains valid.

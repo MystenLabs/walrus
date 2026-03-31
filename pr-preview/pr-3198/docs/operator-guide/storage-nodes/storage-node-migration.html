@@ -19,8 +19,8 @@
 
 <script src="/google-tag.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3198/assets/css/styles.eac902f7.css">
-<script src="/walrus/pr-preview/pr-3198/assets/js/runtime~main.6d404f1f.js" defer="defer"></script>
-<script src="/walrus/pr-preview/pr-3198/assets/js/main.d8f48ba4.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3198/assets/js/runtime~main.3c86add3.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3198/assets/js/main.060399ad.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -71,7 +71,7 @@ guide (through the <a class="" href="/walrus/pr-preview/pr-3198/docs/operator-gu
 <p>Run the following command from a different machine:</p>
 <div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">curl https://PUBLIC_ADDRESS:9185/v1/health | jq</span><br></span></code></pre></div></div>
 <p>The response should show <code>&quot;nodeStatus&quot;: &quot;Active&quot;</code> and a <code>persisted</code> events count in the order of tens of millions.</p>
-<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-2-verify-the-on-chain-key">Step 2: Verify the on-chain key.<a href="#step-2-verify-the-on-chain-key" class="hash-link" aria-label="Direct link to Step 2: Verify the on-chain key." title="Direct link to Step 2: Verify the on-chain key." translate="no">​</a></h5>
+<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-2-verify-the-onchain-key">Step 2: Verify the onchain key.<a href="#step-2-verify-the-onchain-key" class="hash-link" aria-label="Direct link to Step 2: Verify the onchain key." title="Direct link to Step 2: Verify the onchain key." translate="no">​</a></h5>
 <div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">/opt/walrus/bin/walrus --config /opt/walrus/config/client_config.yaml health --node-id YOUR_NODE_ID</span><br></span></code></pre></div></div>
 <p>This performs the same authentication check that other nodes and the <!-- -->Walrus client<!-- --> use.</p>
 <h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-3-verify-the-event-count">Step 3: Verify the event count.<a href="#step-3-verify-the-event-count" class="hash-link" aria-label="Direct link to Step 3: Verify the event count." title="Direct link to Step 3: Verify the event count." translate="no">​</a></h5>

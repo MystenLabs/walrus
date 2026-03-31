@@ -10,7 +10,7 @@ When a visitor navigates to your domain, their request reaches your portal. The 
 
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
-- [x] A [deployed Walrus Site](/docs/sites/getting-started/publishing-your-first-site) with a known object ID (in base36)
+- [x] A [deployed Walrus Site](/docs/sites/getting-started/publishing-your-first-site) with a known object ID (in Base36)
 - [x] A custom domain registered through a domain registrar, such as [Cloudflare](https://www.cloudflare.com/products/registrar/)
 - [x] A server or hosting environment where you can run the Walrus Sites portal (with a public IP address), such as [DigitalOcean](https://www.digitalocean.com/products/droplets), [AWS EC2](https://aws.amazon.com/ec2/), or [GCP Compute Engine](https://cloud.google.com/products/compute)
 - [x] Access to your domain's DNS settings
@@ -18,9 +18,9 @@ When a visitor navigates to your domain, their request reaches your portal. The 
 </TabItem>
 </Tabs>
 
-## Get your Walrus Site object ID in base36
+## Get your Walrus Site object ID in Base36
 
-When serving a Walrus Site through a portal, the portal identifies your site by its object ID in base36 format. This is different from the standard hexadecimal object ID shown in most Sui tools.
+When serving a Walrus Site through a portal, the portal identifies your site by its object ID in Base36 format. This is different from the standard hexadecimal object ID shown in most Sui tools.
 
 If you deployed your site using the [`site-builder`](/docs/sites/getting-started/using-the-site-builder) CLI, the hexadecimal object ID is printed in the deployment output:
 
@@ -28,13 +28,13 @@ If you deployed your site using the [`site-builder`](/docs/sites/getting-started
 New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba786d7ac
 ```
 
-Convert the hex object ID to base36 using the `site-builder convert` command:
+Convert the hex object ID to Base36 using the `site-builder convert` command:
 
 ```sh
 $ site-builder convert 0xYOUR_HEX_OBJECT_ID
 ```
 
-Copy and save the base36 object ID. You need it when configuring your portal.
+Copy and save the Base36 object ID. You need it when configuring your portal.
 
 ## Configure your portal
 
@@ -85,11 +85,11 @@ aggregator_urls:
     metric: 100
 ```
 
-- `landing_page_oid_b36`: The base36 object ID of your Walrus Site. The portal uses this to identify which site to serve at your root domain.
+- `landing_page_oid_b36`: The Base36 object ID of your Walrus Site. The portal uses this to identify which site to serve at your root domain.
 - `bring_your_own_domain`: Set this to `true`. When enabled, the portal serves only the site specified by `landing_page_oid_b36` and rejects requests for any other subdomain with a 404 error.
 - `network`: Set to `mainnet` or `testnet` to match the network your site is deployed on.
 - `site_package`: The Sui object ID of the Walrus Sites package. The correct value for each network is already present in the example files.
-- `rpc_urls`: One or more Sui RPC nodes the portal uses to read on-chain data.
+- `rpc_urls`: One or more Sui RPC nodes the portal uses to read onchain data.
 - `aggregator_urls`: One or more Walrus aggregator nodes the portal uses to fetch site content.
 
 :::info
@@ -112,4 +112,4 @@ Once your portal is running and accessible at a public IP address, configure you
 
 ## Update the site content
 
-When you redeploy your Walrus Site and receive a new object ID, update the `landing_page_oid_b36` value in `portal-config.yaml` with the new base36 object ID and restart the portal. Your custom domain continues to work without any DNS changes because the domain still points to the same portal server.
+When you redeploy your Walrus Site and receive a new object ID, update the `landing_page_oid_b36` value in `portal-config.yaml` with the new Base36 object ID and restart the portal. Your custom domain continues to work without any DNS changes because the domain still points to the same portal server.

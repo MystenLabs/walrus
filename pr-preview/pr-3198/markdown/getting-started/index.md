@@ -1,4 +1,4 @@
-Walrus is a verifiable data platform for high-stakes systems like AI and on-chain finance, where data is stored as blobs.
+Walrus is a verifiable data platform for high-stakes systems like AI and onchain finance, where data is stored as blobs.
 
 Walrus uses an object storage architecture, where blobs are stored in a flat namespace rather than a hierarchy. There are no folders or directories. Each piece of data in an object storage model contains the data itself, metadata describing the data, and a unique identifier.
 

@@ -75,9 +75,9 @@ $ /opt/walrus/bin/walrus-node db-tool repair-db --db-path /opt/walrus/db
 
 If the repair is unsuccessful, restore from a backup. See the [Backup and Restore Guide](/docs/operator-guide/backup-restore-guide).
 
-## Update on-chain parameters
+## Update onchain parameters
 
-To modify node parameters (capacity, voting parameters, metadata, and others), edit the `/opt/walrus/config/walrus-node.yaml` file. The node automatically picks up changes and updates on-chain information. See the [Storage Node FAQ on TLS](/docs/operator-guide/storage-node-faq#tls) for details on how automatic configuration updates work.
+To modify node parameters (capacity, voting parameters, metadata, and others), edit the `/opt/walrus/config/walrus-node.yaml` file. The node automatically picks up changes and updates onchain information. See the [Storage Node FAQ on TLS](/docs/operator-guide/storage-node-faq#tls) for details on how automatic configuration updates work.
 
 Avoid changing the node name, keys, and network address unless necessary because this causes some friction in the network.
 
