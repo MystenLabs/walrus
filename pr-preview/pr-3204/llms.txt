@@ -55,8 +55,8 @@ Important notes:
     [1].
 - [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md): Storing blobs on
     Walrus Mainnet incurs 2 separate costs: WAL for the storage operation. You pay per storage unit
-    per epoch. The cost scales with blob size. Run walrus info to see current pricing, including
-    the price per encoded storage unit and the additional write fee.
+    per epoch. In other words, the cost scales with blob size and epoch. Run walrus info to see
+    current pricing, including the price per encoded storage unit and the additional write fee.
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md): This page
     describes the practical limits and constraints you should consider when designing applications
     on Walrus. For current values, run walrus info. Walrus supports blobs up to approximately 13.6
