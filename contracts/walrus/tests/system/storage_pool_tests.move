@@ -712,6 +712,219 @@ fun destroy_non_empty_pool() {
     abort
 }
 
+// === Storage-based pool operations tests ===
+
+#[test]
+fun increase_capacity_with_storage_happy_path() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Reserve additional Storage with the same end_epoch.
+    let extra_storage = system.reserve_space(capacity, 3, &mut fake_coin, ctx);
+    system.increase_storage_pool_capacity_with_storage(&mut pool, extra_storage);
+
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), capacity * 2);
+
+    fake_coin.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test]
+fun increase_capacity_with_storage_from_destroyed_pool() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool_a = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    let pool_b = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Destroy pool_b and use its Storage to increase pool_a's capacity.
+    let storage = pool_b.destroy();
+    system.increase_storage_pool_capacity_with_storage(&mut pool_a, storage);
+
+    assert_eq!(pool_a.reserved_encoded_capacity_bytes(), capacity * 2);
+
+    fake_coin.burn_for_testing();
+    pool_a.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test]
+fun increase_capacity_with_storage_from_deleted_blob() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Register and delete a blob to recover its Storage.
+    let storage = system.reserve_space(capacity, 3, &mut fake_coin, ctx);
+    let blob_id = default_blob_id();
+    let mut write_payment = test_utils::mint_frost(N_COINS, ctx);
+    let blob = system.register_blob(
+        storage,
+        blob_id,
+        ROOT_HASH,
+        SIZE,
+        RS2,
+        true,
+        &mut write_payment,
+        ctx,
+    );
+    let recovered = system.delete_blob(blob);
+
+    system.increase_storage_pool_capacity_with_storage(&mut pool, recovered);
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), capacity * 2);
+
+    fake_coin.burn_for_testing();
+    write_payment.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = storage_pool::EIncompatibleEndEpoch)]
+fun increase_capacity_with_storage_different_end_epoch() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    let storage = system.reserve_space(capacity, 5, &mut fake_coin, ctx);
+
+    // Different end_epoch should fail.
+    system.increase_storage_pool_capacity_with_storage(&mut pool, storage);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = storage_pool::EResourceBounds)]
+fun increase_capacity_with_storage_future_start() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Create a Storage with future start_epoch via split.
+    let mut storage = system.reserve_space(capacity, 3, &mut fake_coin, ctx);
+    let future_storage = storage.split_by_epoch(1, ctx);
+    // future_storage covers [1, 3), current epoch is 0.
+    system.increase_storage_pool_capacity_with_storage(&mut pool, future_storage);
+
+    abort
+}
+
+#[test]
+fun extend_with_storage_happy_path() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    assert_eq!(pool.end_epoch(), 3);
+
+    // Reserve Storage for the adjacent period [3, 5) with the same capacity.
+    let extension = system.reserve_space_for_epochs(capacity, 3, 5, &mut fake_coin, ctx);
+    system.extend_storage_pool_with_storage(&mut pool, extension);
+
+    assert_eq!(pool.end_epoch(), 5);
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), capacity);
+
+    fake_coin.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = storage_pool::EResourceBounds)]
+fun extend_with_storage_not_extending() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Storage that ends before the pool — not an extension.
+    let storage = system.reserve_space(capacity, 2, &mut fake_coin, ctx);
+    system.extend_storage_pool_with_storage(&mut pool, storage);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = walrus::storage_resource::EIncompatibleEpochs)]
+fun extend_with_storage_non_adjacent() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Storage starts at 4, not adjacent to pool's end_epoch 3.
+    let extension = system.reserve_space_for_epochs(capacity, 4, 6, &mut fake_coin, ctx);
+    system.extend_storage_pool_with_storage(&mut pool, extension);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = walrus::storage_resource::EIncompatibleAmount)]
+fun extend_with_storage_different_capacity() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Adjacent period but different capacity — fuse_periods requires same size.
+    let extension = system.reserve_space_for_epochs(capacity * 2, 3, 5, &mut fake_coin, ctx);
+    system.extend_storage_pool_with_storage(&mut pool, extension);
+
+    abort
+}
+
+#[test]
+fun destroy_pool_reuse_storage_for_blob() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    // Destroy pool and use the returned Storage to register a blob.
+    let storage = pool.destroy();
+    let blob_id = default_blob_id();
+    let mut write_payment = test_utils::mint_frost(N_COINS, ctx);
+    let blob = system.register_blob(
+        storage,
+        blob_id,
+        ROOT_HASH,
+        SIZE,
+        RS2,
+        false,
+        &mut write_payment,
+        ctx,
+    );
+
+    assert_eq!(blob.end_epoch(), 3);
+
+    fake_coin.burn_for_testing();
+    write_payment.burn_for_testing();
+    blob.burn();
+    system.destroy_for_testing();
+}
+
 // === Capacity accounting and reward distribution tests ===
 
 // Test that the capacity and rewards are accounted for the correct epochs when creating and
