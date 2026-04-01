@@ -75,7 +75,7 @@ A service-worker portal installs its own service worker in the browser to resolv
 Service workers cannot be loaded inside in-app browsers on iOS due to a limitation of the WebKit engine. As a result:
 
 - Walrus Sites accessed through a service-worker portal **cannot be used within Sui-compatible wallet apps on iOS**.
-- This means iOS wallet users cannot interact with on-chain features (wallet connection, transaction signing) from within a service-worker portal.
+- This means iOS wallet users cannot interact with onchain features (wallet connection, transaction signing) from within a service-worker portal.
 - Browsing a Walrus Site on iOS through a **standard browser** (Safari, Chrome, etc.) still works correctly.
 
 **Recommended mitigation:** If using a service-worker portal as your primary access point, redirect iOS wallet users to a server-side portal (for example, `https://wal.app`). This allows the wallet interaction to function correctly via the `<site_name>.wal.app` server-side endpoint.
