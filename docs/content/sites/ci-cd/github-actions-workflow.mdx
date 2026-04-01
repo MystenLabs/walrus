@@ -21,7 +21,7 @@ Create a GitHub Actions workflow to automatically deploy your Walrus Site whenev
 
 The Deploy Walrus Site action (`MystenLabs/walrus-sites-github-actions/deploy`) takes a directory of static files and uploads them to Walrus using [`site-builder`](/docs/sites/getting-started/using-the-site-builder). **It does not build your site**. You are responsible for producing the deployable output before calling the action.
 
-The action performs the following steps internally:
+The action performs the following steps:
 
 1. Downloads the `site-builder` binary for the selected version.
 2. Writes the Sui keystore to the runner environment.
