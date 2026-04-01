@@ -599,6 +599,11 @@ pub mod simtest_utils {
                         // Disable proxy and root certs from the OS for tests.
                         .no_proxy()
                         .tls_built_in_root_certs(false)
+                        .connect_timeout(Duration::from_secs(10))
+                        // Set a total request timeout to avoid hanging indefinitely
+                        // when a node is killed mid-request (msim does not clean up
+                        // client-side TCP connections on node kill).
+                        .timeout(Duration::from_secs(10))
                         .build_for_remote_ip(node_handle.rest_api_address)
                         .context("create node client failed")?;
                     client
