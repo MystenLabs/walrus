@@ -4,9 +4,10 @@
 //! Implements a fallback client for downloading checkpoints from a remote server.
 use std::{fmt::Debug, time::Duration};
 
+use prost::Message;
 use reqwest::Url;
-use sui_storage::blob::Blob;
-use sui_types::full_checkpoint_content::CheckpointData;
+use sui_rpc::proto::sui::rpc::v2 as proto;
+use sui_types::full_checkpoint_content::{Checkpoint, CheckpointData};
 use thiserror::Error;
 use url::ParseError;
 
@@ -48,13 +49,18 @@ impl FallbackClient {
         &self,
         sequence_number: u64,
     ) -> Result<CheckpointData, FallbackError> {
-        let url = self.base_url.join(&format!("{sequence_number}.chk"))?;
+        let url = self
+            .base_url
+            .join(&format!("{sequence_number}.binpb.zst"))?;
         tracing::debug!(%url, "downloading checkpoint from fallback bucket");
         let response = self.client.get(url).send().await?.error_for_status()?;
-        let bytes = response.bytes().await?;
-        let checkpoint = Blob::from_bytes::<CheckpointData>(&bytes)
+        let bytes = zstd::decode_all(&response.bytes().await?[..])
+            .map_err(|e| FallbackError::DeserializationError(e.to_string()))?;
+        let proto_checkpoint = proto::Checkpoint::decode(&bytes[..])
+            .map_err(|e| FallbackError::DeserializationError(e.to_string()))?;
+        let checkpoint = Checkpoint::try_from(&proto_checkpoint)
             .map_err(|e| FallbackError::DeserializationError(e.to_string()))?;
         tracing::debug!(sequence_number, "checkpoint download successful");
-        Ok(checkpoint)
+        Ok(CheckpointData::from(checkpoint))
     }
 }
