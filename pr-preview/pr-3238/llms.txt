@@ -112,6 +112,10 @@ Important notes:
 
 ## TypeScript SDK
 
+- [Direct Interaction](https://docs.wal.app/docs/typescript-sdk/direct-interaction.md): The Walrus
+    SDK interacts with the network through storage nodes, which act as both publishers (for writes)
+    and aggregators (for reads). When uploading without a relay, the SDK queries the system state
+    to get the current committee of storage nodes.
 - [Error Handling](https://docs.wal.app/docs/typescript-sdk/error-handling.md): The Walrus
     TypeScript SDK provides a structured error hierarchy. Errors that extend
     RetryableWalrusClientError indicate transient issues that might resolve on retry:
@@ -137,10 +141,8 @@ Important notes:
     provides several methods for writing blobs, ranging from high-level file storage to low-level
     byte access. It also provides methods for each individual step in the write process for more
     complex, customized implementations.
-- [Ts SDK](https://docs.wal.app/docs/typescript-sdk/ts-sdk.md): The Walrus SDK interacts with the
-    storage network through storage nodes, which act as both publishers (for writes) and
-    aggregators (for reads). When uploading without a relay, he SDK queries the system state to get
-    the current committee of storage nodes.
+- [Ts SDK](https://docs.wal.app/docs/typescript-sdk/ts-sdk.md): Mysten Labs has built and published
+    a Walrus TypeScript SDK that supports a wide variety of operations.
 - [Upload Relay](https://docs.wal.app/docs/typescript-sdk/upload-relay.md): To use an upload relay
     with the Walrus TypeScript SDK, configure it when creating the Walrus client: Public or
     community relays often charge a tip to offset bandwidth, compute, and hosting costs.

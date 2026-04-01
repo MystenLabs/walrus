@@ -1,0 +1,116 @@
+The Walrus SDK interacts with the network through storage nodes, which act as both publishers (for writes) and aggregators (for reads).
+
+When uploading without a relay, the SDK queries the system state to get the current committee of storage nodes. Each node is responsible for specific shards based on the committee structure. The SDK uploads slivers to multiple nodes in parallel.
+
+The SDK uses the `StorageNodeClient` (through helpers on `WalrusClient`) to communicate with nodes. The relevant methods are:
+
+- `writeMetadataToNode()`: Sends blob metadata to a specific node so it can verify and persist hashes ([`packages/walrus/src/client.ts`](https://github.com/MystenLabs/ts-sdks/blob/main/packages/walrus/src/client.ts)).
+
+- `writeSliversToNode()`: Streams the primary and secondary slivers for that node's shard set ([`client.ts`](https://github.com/MystenLabs/ts-sdks/blob/main/packages/walrus/src/client.ts)).
+
+- `getStorageConfirmationFromNode()`: Fetches the node's BLS confirmation after metadata and slivers are stored ([`client.ts`](https://github.com/MystenLabs/ts-sdks/blob/main/packages/walrus/src/client.ts)).
+
+- `getSliver()` and `getSlivers()`: Download slivers for reconstruction, implemented on top of `StorageNodeClient` ([`packages/walrus/src/storage-node/client.ts`](https://github.com/MystenLabs/ts-sdks/blob/main/packages/walrus/src/storage-node/client.ts)).
+
+Storage nodes provide confirmations that prove they stored the data. Each node signs a protocol message with its BLS key. The SDK collects confirmations from multiple nodes because a quorum of confirmations is required for certification. Once collected, the SDK aggregates confirmations into a certificate for onchain certification.
+
+## Failure handling
+
+To handle errors and failures, the SDK uploads blobs to nodes in parallel. Some failures are tolerated up to the validity threshold. If too many nodes fail, the upload fails with `NotEnoughBlobConfirmationsError`. The SDK aborts remaining operations when the failure threshold is exceeded.
+
+:::info
+
+The `getSlivers()` method calculates `minSymbols = Math.ceil(numShards / 2) + 1`, which is the minimum number of unique sliver pairs required to decode Reed-Solomon (RS2) blobs. It also tracks `NotFound` and `LegallyUnavailable` responses separately. If those errors exceed quorum weight, the client aborts early because the blob is either uncertified or legally blocked.
+
+:::
+
+### Storage node error types
+
+During reads, the Walrus TypeScript SDK surfaces specific [`StorageNodeClient` errors](https://github.com/MystenLabs/ts-sdks/blob/main/packages/walrus/src/storage-node/error.ts):
+
+- `NotFoundError`: The node does not have the blob or sliver. This typically means the blob is not yet certified or has expired.
+
+- `LegallyUnavailableError`: The node refuses to serve the blob due to compliance or blocking rules.
+
+- `UserAbortError`: The caller's `AbortSignal` cancelled the request. The SDK stops retrying and processes the cancellation immediately.
+
+## Encoding process
+
+When you upload data, the Walrus TypeScript SDK encodes it into slivers through first generating the slivers and blob metadata, then organizing the data by storage node.
+
+When you are not using an upload relay (the client writes directly to storage nodes), the Walrus TypeScript SDK uses WebAssembly (WASM) bindings to encode your data with Reed-Solomon (RS2). Using this path, the Walrus TypeScript SDK takes your raw data bytes, splits them into primary slivers, and generates secondary (parity) slivers for redundancy. It also creates metadata for the blob, including hashes and encoding information.
+
+```typescript
+// Direct-to-node path: writeBlob() calls encodeBlob() internally.
+const { blobId, blobObject } = await client.walrus.writeBlob({
+  blob: data,
+  deletable: true,
+  epochs: 3,
+  signer: keypair,
+});
+```
+
+:::tip
+
+When you configure an upload relay, `writeBlob()` only computes metadata locally and the relay performs the chunking. The rest of this section focuses on the no-relay path so you can see how chunk creation works under the hood.
+
+:::
+
+During direct encoding, the SDK produces:
+
+- **Blob ID:** Unique identifier for the encoded blob.
+
+- **Root hash:** Merkle root derived from the primary and secondary sliver hashes (returned alongside the metadata object, not inside it).
+
+- **Metadata:** Encoding type plus per-sliver-pair hashes (primary and secondary) and the original byte length.
+
+- **Sliver pairs:** Serialized primary and secondary slivers grouped per shard.
+
+The metadata object associated with the blob is the `BlobMetadataWithId` BCS struct defined in [`packages/walrus/src/utils/bcs.ts`](https://github.com/MystenLabs/ts-sdks/blob/main/packages/walrus/src/utils/bcs.ts). The `encodeBlob()` binding in [`packages/walrus/src/wasm.ts`](https://github.com/MystenLabs/ts-sdks/blob/main/packages/walrus/src/wasm.ts) wraps `BlobEncoder::encode_with_metadata` and returns it:
+
+```typescript
+{
+  blobId: string;
+  metadata: {
+    V1: {
+      encoding_type: 'RS2';
+      unencoded_length: number;
+      hashes: Array<{
+        primary_hash: { Digest: Uint8Array } | { Empty: null };
+        secondary_hash: { Digest: Uint8Array } | { Empty: null };
+      }>;
+    };
+  };
+}
+```
+
+After encoding, slivers are organized by storage node. Each node receives a set of slivers based on its shard indices, the blob metadata, and any information needed to verify the slivers.
+
+The SDK distributes slivers across nodes based on the committee structure, ensuring that each shard has data stored on multiple nodes, the system can tolerate node failures, and quorum requirements are met for certification.
+
+The implementation in `ts-sdks/packages/walrus/src/client.ts` groups slivers per committee member inside `encodeBlob()` and then calls `writeEncodedBlobToNodes()` (which writes metadata and slivers to each node) when no relay is configured.
+
+## Quilt encoding
+
+For multiple files, the SDK supports quilt encoding. Quilt encoding combines multiple files into a single encoded blob before chunking, maintains an index of file locations within the blob, preserves file identifiers and tags, and allows efficient retrieval of individual files.
+
+Use this when you want one blob ID (and certificate) to represent many logical files.
+
+```typescript
+const files = [
+  WalrusFile.from({
+    contents: new TextEncoder().encode('File 1 content'),
+    identifier: 'file1',
+    tags: { category: 'documents' },
+  }),
+  WalrusFile.from({
+    contents: new TextEncoder().encode('File 2 content'),
+    identifier: 'file2',
+  }),
+];
+
+const flow = client.walrus.writeFilesFlow({ files });
+await flow.encode();
+```
+
+Quilts add a batching and indexing layer before the same RS2 chunk-creation pipeline. The actual sliver generation and metadata are identical once the quilt payload is assembled.
