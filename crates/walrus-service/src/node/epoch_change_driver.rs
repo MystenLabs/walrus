@@ -712,6 +712,10 @@ impl EpochOperation for InitiateEpochChangeOperation {
 }
 
 /// Operation that calls the walrus subsidies contract if set.
+///
+/// This call is scheduled to be called before the epoch change. Although this call shares the same
+/// contract call with PostEpochChangeSubsidiesOperation, the main purpose of this call is
+/// to distribute usage-dependent subsidies for the epoch that is about to end.
 struct SubsidiesOperation {
     time_before_epoch_change: Duration,
     system_params: FixedSystemParameters,
@@ -753,9 +757,11 @@ impl EpochOperation for SubsidiesOperation {
     async fn invoke(&self, contract: Arc<dyn SystemContractService>) -> Result<(), anyhow::Error> {
         let last_subsidies_call = contract.last_walrus_subsidies_call().await?;
         let current_time = (self.time_fn)();
-        // If the last subsidies call was less than time_before_epoch_change ago, return without
-        // calling them again. We use the same duration here to avoid having to configure too
-        // many parameters.
+        // Use the timestamp of the last `process_subsidies` call to deduplicate. This is a
+        // coarse check that avoids redundant calls from multiple nodes: if any node (including
+        // via `PostEpochChangeSubsidiesOperation`) called `process_subsidies` recently, we skip.
+        // We reuse `time_before_epoch_change` as the deduplication window to avoid adding more
+        // configuration parameters.
         if current_time < last_subsidies_call + self.time_before_epoch_change {
             tracing::debug!("subsidies already called recently");
             return Ok(());
@@ -779,7 +785,9 @@ impl EpochOperation for SubsidiesOperation {
 }
 
 /// Operation that calls process_subsidies after epoch change to distribute usage-independent
-/// subsidies for the epoch that just ended.
+/// subsidies for the epoch that just ended. Although this call share the same contract call with
+/// SubsidiesOperation, the main purpose of this call is to distribute usage-independent subsidies
+/// for the epoch that just ended.
 ///
 /// Usage-independent subsidies (`process_fixed_rate_subsidies`) pay the committee for epoch N-1
 /// based on the on-chain epoch. Before epoch change the on-chain epoch is N, so only epoch N-1
@@ -804,6 +812,12 @@ impl EpochOperation for PostEpochChangeSubsidiesOperation {
             return Ok(());
         }
 
+        // Check `latest_epoch` on the subsidies object to determine if usage-independent
+        // subsidies have already been paid for the previous epoch. The on-chain
+        // `process_fixed_rate_subsidies` pays the committee for `current_epoch - 1` and updates
+        // `latest_epoch` to that value. If `latest_epoch >= current_epoch - 1`, the subsidies
+        // are already paid and we can skip. This avoids redundant transactions from multiple
+        // nodes that all schedule this operation after observing `EpochChangeStart`.
         let latest = contract.latest_subsidized_epoch().await?;
         let epoch_to_be_paid = current_epoch - 1;
         if latest >= epoch_to_be_paid {
