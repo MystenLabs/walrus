@@ -34,7 +34,7 @@ The action performs the following steps:
 
 ### Authentication inputs
 
-Choose exactly 1 of the following 3 authentication methods. Providing more than 1 causes the action to fail.
+Only choose 1 of the following authentication methods. Providing more than 1 causes the action to fail.
 
 - **Method 1 (recommended for CI/CD):** `SUI_ADDRESS` plus `SUI_KEYSTORE`. Both must be present together. `SUI_ADDRESS` is read from a repository variable; `SUI_KEYSTORE` is read from an encrypted secret.
 - **Method 2:** `SUI_BECH32_PRIVATE_KEY`. Pass the bech32-encoded private key (starting with `suiprivkey`) directly as a secret. No address input is needed.
