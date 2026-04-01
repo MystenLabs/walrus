@@ -16,7 +16,7 @@ Walrus Sites store all site resources (HTML, CSS, JS, images, fonts) as blobs on
 
 ## No secret values
 
-All content stored on Walrus Sites is fully public. Site files are stored as blobs on Walrus, and site metadata is stored on Sui. Because there is no private execution environment, developers **must not** embed secret values anywhere in a site's source files. This includes:
+All content stored on Walrus Sites is fully public. Site files are stored as blobs on Walrus, and site metadata is stored on Sui. Because there is no private execution environment, developers must not embed secret values anywhere in a site's source files. This includes:
 
 - API keys or tokens
 - Private keys or wallet seeds
@@ -25,58 +25,39 @@ All content stored on Walrus Sites is fully public. Site files are stored as blo
 
 Any backend-specific operations that require secrets (such as authentication flows or privileged API calls) must be handled through integration with Sui smart contracts and a [Sui-compatible wallet](https://docs.sui.io/guides/developer/wallets/what-is-a-wallet), keeping secrets out of the deployed site assets entirely.
 
-
-## Site expiry: epoch-based storage duration
-
-Walrus Sites are not permanently hosted. Storage is paid for in epochs, and a site becomes unavailable once its storage epoch expires unless it is explicitly renewed.
-
-| Network  | Epoch Duration | Maximum Epochs (`max_epochs_ahead`) |
-|----------|---------------|--------------------------------------|
-| Mainnet  | 14 days       | 53 epochs (~2 years)                 |
-| Testnet  | 1 day         | 53 epochs                            |
-
-- **Sites expire:** When the purchased epoch window ends, the site's blobs are no longer guaranteed to be available. Developers must proactively renew storage by running [`site-builder deploy`](/docs/sites/getting-started/using-the-site-builder) again with additional epochs.
-- **No automatic renewal:** There is no built-in mechanism to auto-renew storage. Operators are responsible for monitoring and extending epoch coverage.
-- **Testnet instability:** The Walrus Testnet may be wiped and redeployed at any time with no notice, which would invalidate all testnet blob IDs. Testnet sites should not be used for production.
-- **`wal.app` serves mainnet only:** The public portal at `https://wal.app` only serves sites deployed on Mainnet. To browse a Testnet site, you must run a [local portal](/docs/sites/portals/deploy-locally).
-
 ## Maximum redirect depth
 
 The number of consecutive redirects a Walrus Site can perform is capped by the [portal](/docs/sites/portals/mainnet-testnet). This prevents infinite redirect loops during site loading.
 
-- The public portal at `https://wal.app` enforces a **maximum redirect depth of 3**.
+- The public portal at `https://wal.app` enforces a maximum redirect depth of 3.
 - Other portals may configure this limit differently. Self-hosted portals can adjust the value as needed.
 
 Redirect chains deeper than the portal's limit will result in the site failing to load.
-
-## Reserved `/__wal__/` path
-
-The path prefix `/__wal__/*` is reserved by the portal for internal operations such as health checks. **Do not use any resource paths under `/__wal__/` in your site.** Resources served under this path will not be loaded correctly by the portal.
 
 ## Routing constraints in `ws-resources.json`
 
 The [`ws-resources.json` configuration file](/docs/sites/configuration/site-configuration) controls client-side routing, custom headers, and site metadata. It has several notable constraints:
 
-- **Wildcard position is fixed:** Route wildcards (`*`) may only appear at the **end** of a path pattern. `/path/*` is valid; `/path/*/to` and `*/path/*` are not.
+- **Wildcard position is fixed:** Route wildcards (`*`) may only appear at the end of a path pattern. `/path/*` is valid; `/path/*/to` and `*/path/*` are not.
 - **Route targets must exist:** Every route value must reference a resource that actually exists among the site's deployed files. The Walrus Sites smart contract will abort if you define a route pointing to a non-existent resource.
 - **No server-side redirect support:** The `routes` section implements client-side routing rules only. Framework-level redirect plugins that run server-side at request time will not function as expected.
 - **Header scope is per-resource:** Custom HTTP headers defined in the `headers` section apply to individual resource paths, not globally. Each path that needs custom headers must be explicitly configured.
 
 ## Service-worker portal limitations
 
-The following restrictions apply **only** to portals based on service workers (such as a self-hosted instance of the `worker` portal from the [`walrus-sites` repository](https://github.com/MystenLabs/walrus-sites)). If any of these features are required, use a server-side portal instead.
+The following restrictions apply only to portals based on service workers (such as a self-hosted instance of the `worker` portal from the [`walrus-sites` repository](https://github.com/MystenLabs/walrus-sites)). If any of these features are required, use a server-side portal instead.
 
 ### Service-worker portals cannot serve sites that use service workers
 
-A service-worker portal installs its own service worker in the browser to resolve site metadata from Sui and fetch content from Walrus. Because browsers allow only **one service worker per origin**, a Walrus Site accessed through a service-worker portal **cannot register its own service worker**. Attempting to install a site-level service worker from within such a portal results in a broken site experience for the user.
+A service-worker portal installs its own service worker in the browser to resolve site metadata from Sui and fetch content from Walrus. Because browsers allow only one service worker per origin, a Walrus Site accessed through a service-worker portal cannot register its own service worker. Attempting to install a site-level service worker from within such a portal results in a broken site experience for the user.
 
 ### iOS Sui mobile wallet compatibility
 
 Service workers cannot be loaded inside in-app browsers on iOS due to a limitation of the WebKit engine. As a result:
 
-- Walrus Sites accessed through a service-worker portal **cannot be used within Sui-compatible wallet apps on iOS**.
+- Walrus Sites accessed through a service-worker portal cannot be used within Sui-compatible wallet apps on iOS.
 - This means iOS wallet users cannot interact with onchain features (wallet connection, transaction signing) from within a service-worker portal.
-- Browsing a Walrus Site on iOS through a **standard browser** (Safari, Chrome, etc.) still works correctly.
+- Browsing a Walrus Site on iOS through a standard browser (Safari, Chrome, etc.) still works correctly.
 
 **Recommended mitigation:** If using a service-worker portal as your primary access point, redirect iOS wallet users to a server-side portal (for example, `https://wal.app`). This allows the wallet interaction to function correctly via the `<site_name>.wal.app` server-side endpoint.
 
@@ -87,26 +68,10 @@ Service-worker portals are fundamentally incompatible with Progressive Web Apps 
 1. The portal's own service worker must be registered for the site to work at all. This prevents the PWA manifest from being loaded correctly by the browser.
 2. There can only be one service worker registered per origin. Registering a PWA's service worker would overwrite the portal's service worker, breaking the site entirely.
 
-The server-side portal does not share these limitations. However, because Walrus Sites must be compatible with **both** portal types and must therefore target the more restrictive service-worker feature set, **PWAs cannot currently be deployed to Walrus Sites** while maintaining full portal compatibility.
+The server-side portal does not share these limitations. However, because Walrus Sites must be compatible with both portal types and must therefore target the more restrictive service-worker feature set, PWAs cannot currently be deployed to Walrus Sites while maintaining full portal compatibility.
 
 ## Domain and naming constraints
 
 - **SuiNS dependency for human-readable URLs:** Without a [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name), a site is only accessible via a Base36-encoded Sui object ID subdomain (e.g., `58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app`). This is because subdomains are case-insensitive (ruling out Base64/Base58) and limited to 63 characters (ruling out hex, which requires 64).
 - **No traditional DNS control:** Walrus Sites do not support custom DNS records or traditional domain name configuration. Human-readable names are exclusively managed through SuiNS.
 - **Subdomain isolation required:** Each site must be accessed through a unique subdomain of the portal domain to ensure security isolation between sites and correct wallet connection behavior in the browser. Shared-origin access is not supported.
-
-## Update behavior
-
-- **Full resource re-upload on update:** When a site is updated, all resources are deleted and re-uploaded as a [new quilt](/docs/system-overview/quilt), including files that have not changed. There is no differential patching of unchanged assets.
-- **Owner-only updates:** The wallet used to run `site-builder deploy` or `site-builder update` must own the Walrus Site object on Sui. Updates from a different wallet will fail.
-- **Irreversible destruction:** The `site-builder destroy` command permanently deletes both the Sui blockchain objects and the associated Walrus assets. This action cannot be undone.
-
-## Platform support for `site-builder`
-
-Pre-built binaries for the `site-builder` CLI tool are available for:
-
-- Ubuntu (x86-64 and generic)
-- macOS (Apple Silicon and Intel)
-- Windows (x86-64)
-
-Other operating systems and architectures are not officially supported via pre-built binaries. Building from source using the Rust toolchain is possible but not documented as a primary path. Most official documentation assumes a Unix-based environment; [Windows users may need to adapt directory paths and shell commands accordingly](/docs/sites/getting-started/installing-the-site-builder#windows).

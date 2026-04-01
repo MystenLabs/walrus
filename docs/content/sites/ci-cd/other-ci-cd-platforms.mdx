@@ -23,8 +23,8 @@ The official [Deploy Walrus Site action](https://github.com/MystenLabs/walrus-si
 Because there is no pre-built action for non-GitHub platforms, each pipeline must perform the same steps that the GitHub Action handles automatically:
 
 1. **Reconstruct the Sui configuration:** Write the keystore secret from the CI environment to disk so `site-builder` can read it.
-2. **Download `site-builder`:** Fetch the binary for the runner's architecture from the Mysten Labs GCS bucket.
-3. **Download `sites-config.yaml`:** Fetch the network configuration from the walrus-sites repository.
+2. **Download `site-builder`:** Fetch the binary for the runner's architecture from the [Mysten Labs GCS bucket](/docs/sites/getting-started/installing-the-site-builder#using-a-pre-built-binary).
+3. **Download `sites-config.yaml`:** Fetch the network configuration from the [walrus-sites repository](https://github.com/MystenLabs/walrus-sites).
 4. **Build the site:** Compile or bundle your site output (skip for repositories that already contain deployable static files).
 5. **Run `site-builder deploy`:** Upload the static output directory to Walrus.
 
@@ -37,9 +37,9 @@ Every platform stores secrets differently. In all cases, you need 2 values:
 
 | Platform | Secret location |
 |---|---|
-| GitLab | **Settings** → **CI/CD** → **Variables** (set visibility to **Masked**) |
-| CircleCI | **Project Settings** → **Environment Variables**, or a shared **Context** |
-| Bitbucket | **Repository settings** → **Repository variables** (enable **Secured**) |
+| GitLab | Settings → CI/CD → Variables (set visibility to **Masked**) |
+| CircleCI | Project Settings → Environment Variables, or a shared **Context** |
+| Bitbucket | Repository settings → Repository variables (enable **Secured**) |
 
 :::danger
 
@@ -117,22 +117,28 @@ In a CI/CD pipeline, the build output directory is recreated on every run, so `w
 
 If neither approach is in place, each pipeline run creates a new site object and incurs additional WAL storage costs.
 
-## GitLab CI/CD
-
+## Platform examples
+ 
+Store your credentials before adding the pipeline file. Then create the configuration file shown for your platform in your repository root.
+ 
+<div className="outlined-tabs">
+<Tabs>
+<TabItem label="GitLab CI/CD" value="gitlab">
+ 
 Store `SUI_KEYSTORE` and `SUI_ADDRESS` as masked CI/CD variables under **Settings** → **CI/CD** → **Variables**.
-
-Create `.gitlab-ci.yml` in your repository root:
-
+ 
+Create `.gitlab-ci.yml`:
+ 
 ```yaml
 stages:
   - build
   - deploy
-
+ 
 variables:
   WALRUS_NETWORK: mainnet
   EPOCHS: "5"
   DIST: dist
-
+ 
 build:
   stage: build
   image: node:lts
@@ -145,7 +151,7 @@ build:
     expire_in: 1 hour
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
+ 
 deploy-walrus:
   stage: deploy
   image: ubuntu:24.04
@@ -182,20 +188,21 @@ deploy-walrus:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 ```
-
+ 
 The `build` job produces a `dist/` artifact that GitLab makes available to the `deploy-walrus` job through the `needs` dependency. The `rules` key restricts both jobs to the default branch, preventing deployments from feature branches.
-
+ 
 For static sites with no build step, remove the `build` stage, remove the `needs` key from `deploy-walrus`, and point `DIST` at your static files directory.
-
-## CircleCI
-
+ 
+</TabItem>
+<TabItem label="CircleCI" value="circleci">
+ 
 Store `SUI_KEYSTORE` and `SUI_ADDRESS` as environment variables under **Project Settings** → **Environment Variables**, or in a shared [Context](https://circleci.com/docs/contexts/) if multiple projects share the same deployment address.
-
-Create `.circleci/config.yml` in your repository root:
-
+ 
+Create `.circleci/config.yml`:
+ 
 ```yaml
 version: 2.1
-
+ 
 jobs:
   build:
     docker:
@@ -219,7 +226,7 @@ jobs:
           root: .
           paths:
             - dist
-
+ 
   deploy:
     docker:
       - image: cimg/base:current
@@ -263,7 +270,7 @@ jobs:
       - run:
           name: Deploy to Walrus
           command: site-builder deploy --epochs "$EPOCHS" "$DIST"
-
+ 
 workflows:
   deploy-on-main:
     jobs:
@@ -278,20 +285,21 @@ workflows:
             branches:
               only: main
 ```
-
+ 
 The `persist_to_workspace` and `attach_workspace` steps transfer the build output between the `build` and `deploy` jobs, which run on separate containers. The `requires` key in the workflow ensures deployment runs only after a successful build.
-
+ 
 For static sites with no build step, remove the `build` job, replace `attach_workspace` with a `checkout` step in the `deploy` job, and remove `requires` from the workflow.
-
-## Bitbucket Pipelines
-
+ 
+</TabItem>
+<TabItem label="Bitbucket Pipelines" value="bitbucket">
+ 
 Store `SUI_KEYSTORE` and `SUI_ADDRESS` under **Repository settings** → **Repository variables** with **Secured** enabled.
-
-Create `bitbucket-pipelines.yml` in your repository root:
-
+ 
+Create `bitbucket-pipelines.yml`:
+ 
 ```yaml
 image: node:lts
-
+ 
 definitions:
   steps:
     - step: &build-step
@@ -303,7 +311,7 @@ definitions:
           - npm run build
         artifacts:
           - dist/**
-
+ 
     - step: &deploy-step
         name: Deploy to Walrus
         image: ubuntu:24.04
@@ -337,27 +345,31 @@ definitions:
               "https://raw.githubusercontent.com/MystenLabs/walrus-sites/refs/heads/${WALRUS_NETWORK}/sites-config.yaml" \
               -o ~/.config/walrus/sites-config.yaml
           - site-builder deploy --epochs "$EPOCHS" "$DIST"
-
+ 
 pipelines:
   branches:
     main:
       - step: *build-step
       - step: *deploy-step
 ```
-
+ 
 Bitbucket Pipelines passes `artifacts` declared in one step to the next step in the same pipeline automatically. The `dist/**` pattern makes the build output available to the deploy step without any additional workspace configuration.
-
+ 
 For static sites with no build step, remove `*build-step` from the `main` branch pipeline. Change the deploy step's `image` to one that includes `curl` and `ca-certificates`, or add the `apt-get` install line.
-
+ 
+</TabItem>
+</Tabs>
+</div>
+ 
 ## Adapting to any other platform
-
+ 
 Any CI/CD platform that provides Linux runners can deploy Walrus Sites using the same pattern. The following table maps the concepts from the 3 examples above to their equivalents on other platforms:
-
+ 
 | Concept | GitLab | CircleCI | Bitbucket | General approach |
 |---|---|---|---|---|
 | Secret storage | CI/CD Variables (Masked) | Environment Variables or Context | Repository variables (Secured) | Platform secret store |
 | File sharing between jobs | `artifacts` + `needs` | `persist_to_workspace` + `attach_workspace` | `artifacts` (automatic) | Platform artifact or cache mechanism |
 | Branch restriction | `rules` on `$CI_DEFAULT_BRANCH` | `filters` on branch name | `branches` key | Push trigger scoped to main branch |
 | Runner image | `image:` per job | `docker:` executor per job | `image:` per step | Any Ubuntu-based Linux image |
-
-The deploy script itself does not change between platforms. Copy the 5-step script from [the deploy script](#the-deploy-script) section and inline it into your platform's job definition using that platform's multiline script syntax.
+ 
+The deploy script itself does not change between platforms. Copy the 5-step script from [The deploy script](#the-deploy-script) section and inline it into your platform's job definition using that platform's multiline script syntax.
