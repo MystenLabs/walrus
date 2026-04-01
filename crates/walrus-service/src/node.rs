@@ -1895,6 +1895,11 @@ impl StorageNode {
             .latest_event_epoch_sender
             .send(Some(event.epoch))?;
 
+        // Schedule post-epoch-change subsidies to distribute usage-independent subsidies
+        // for the epoch that just ended.
+        self.epoch_change_driver
+            .schedule_post_epoch_change_subsidies();
+
         self.start_garbage_collection_task(event.epoch).await?;
 
         Ok(())
@@ -9471,6 +9476,9 @@ mod tests {
         contract_service
             .expect_get_epoch_and_state()
             .returning(move || Ok((0, EpochState::EpochChangeDone(Utc::now()))));
+        contract_service
+            .expect_is_subsidies_object_configured()
+            .returning(|| false);
         contract_service
             .expect_last_certified_event_blob()
             .returning(|| Ok(None));

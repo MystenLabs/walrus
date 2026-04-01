@@ -1486,6 +1486,66 @@ async fn test_walrus_subsidies_get_called_by_node() -> TestResult {
     Ok(())
 }
 
+/// Tests that the post-epoch-change `PostEpochChangeSubsidiesOperation` scheduled via the
+/// `EpochChangeDriver` pays usage-independent subsidies.
+///
+/// The pre-epoch-change subsidy call runs during epoch N and can only pay usage-independent
+/// subsidies for epoch N-1 (which was already paid). After epoch change to N+1, the
+/// `EpochChangeDriver` schedules `PostEpochChangeSubsidiesOperation` (with jitter), which
+/// calls `process_subsidies` to pay usage-independent subsidies for epoch N, advancing
+/// `latest_epoch`.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_walrus_subsidies_called_after_epoch_change_distribute_usage_independent_subsidy()
+-> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_epoch_duration(Duration::from_secs(20))
+        .build()
+        .await?;
+
+    let epoch = client.as_ref().sui_client().current_epoch().await?;
+
+    // Record the latest epoch for which usage-independent subsidies have been paid.
+    let latest_subsidized_epoch_before = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .get_walrus_subsidies_object(true)
+        .await?
+        .latest_subsidized_epoch()
+        .expect("should return some, subsidies were requested with inner");
+
+    // Wait for epoch change. The EpochChangeDriver schedules PostEpochChangeSubsidiesOperation
+    // with jitter after observing the EpochChangeStart event. We wait for the epoch to advance
+    // and then poll until latest_subsidized_epoch is updated (accounting for jitter delay).
+    cluster.wait_for_nodes_to_reach_epoch(epoch + 1).await;
+
+    // Poll until usage-independent subsidies are paid, with a timeout.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let latest = client
+            .as_ref()
+            .sui_client()
+            .read_client()
+            .get_walrus_subsidies_object(true)
+            .await?
+            .latest_subsidized_epoch()
+            .expect("should return some, subsidies were requested with inner");
+        if latest > latest_subsidized_epoch_before {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for usage-independent subsidies to be paid"
+        );
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    Ok(())
+}
+
 /// Tests that storing the same blob multiple times with possibly different end epochs,
 /// persistence, and force-store conditions always works.
 #[ignore = "ignore E2E tests by default"]

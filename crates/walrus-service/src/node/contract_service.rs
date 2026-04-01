@@ -99,6 +99,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
     /// Returns the time at which process_subsidies was last called on the walrus subsidies object.
     async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError>;
 
+    /// Returns the last epoch for which usage-independent subsidies were paid.
+    async fn latest_subsidized_epoch(&self) -> Result<u32, SuiClientError>;
+
     /// Certify an event blob to the contract.
     ///
     /// If `node_capability` is provided, it will be used to set the node capability object ID.
@@ -584,6 +587,14 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
         self.read_client.last_walrus_subsidies_call().await
+    }
+
+    async fn latest_subsidized_epoch(&self) -> Result<u32, SuiClientError> {
+        self.read_client
+            .get_walrus_subsidies_object(true)
+            .await?
+            .latest_subsidized_epoch()
+            .ok_or_else(|| anyhow::anyhow!("could not retrieve inner subsidies object").into())
     }
 
     async fn process_subsidies(&self) -> anyhow::Result<()> {

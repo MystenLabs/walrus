@@ -1861,6 +1861,10 @@ impl SystemContractService for StubContractService {
         Err(anyhow::anyhow!("stub service does not store the last walrus subsidies call").into())
     }
 
+    async fn latest_subsidized_epoch(&self) -> Result<u32, SuiClientError> {
+        Err(anyhow::anyhow!("stub service does not store the latest subsidized epoch").into())
+    }
+
     async fn flush_cache(&self) {
         // No-op
     }
@@ -2657,6 +2661,10 @@ where
 
     async fn last_walrus_subsidies_call(&self) -> Result<DateTime<Utc>, SuiClientError> {
         self.as_ref().inner.last_walrus_subsidies_call().await
+    }
+
+    async fn latest_subsidized_epoch(&self) -> Result<u32, SuiClientError> {
+        self.as_ref().inner.latest_subsidized_epoch().await
     }
 
     async fn flush_cache(&self) {
