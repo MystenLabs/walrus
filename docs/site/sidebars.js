@@ -49,6 +49,7 @@ const sidebars = {
         'system-overview/available-networks',
         'system-overview/storage-costs',
         'system-overview/public-aggregators-and-publishers',
+        'system-overview/relay',
         'system-overview/view-system-info',
         'system-overview/quilt',
       ],
