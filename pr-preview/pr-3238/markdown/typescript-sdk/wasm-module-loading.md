@@ -1,0 +1,84 @@
+Walrus TypeScript SDK requires WebAssembly (WASM) bindings to encode and decode blobs. When running in Node or Bun, and with some bundlers, this works without any additional configuration.
+
+In some cases you might need to manually specify where the SDK loads the WASM bindings from.
+
+## Load WASM in Vite
+
+In Vite, you can get the URL for the WASM bindings by importing the WASM file with a `?url` suffix, then pass it to the Walrus client:
+
+```typescript
+
+const client = new SuiGrpcClient({
+	network: 'testnet',
+	baseUrl: 'https://fullnode.testnet.sui.io:443',
+}).$extend(
+	walrus({
+		wasmUrl: walrusWasmUrl,
+	}),
+);
+```
+
+## Self-hosting or using a CDN
+
+If you are unable to get a URL for the WASM file in your bundler or build system, you can self-host the WASM bindings or load them from a CDN:
+
+```typescript
+const client = new SuiGrpcClient({
+	network: 'testnet',
+	baseUrl: 'https://fullnode.testnet.sui.io:443',
+}).$extend(
+	walrus({
+		wasmUrl: 'https://unpkg.com/@mysten/walrus-wasm@latest/web/walrus_wasm_bg.wasm',
+	}),
+);
+```
+
+## Configure Next.js API routes
+
+When using Walrus in Next.js API routes, you might need to tell Next.js to skip bundling for the Walrus packages. Add the following to your `next.config.ts`:
+
+```typescript
+// next.config.ts
+const nextConfig: NextConfig = {
+	serverExternalPackages: ['@mysten/walrus', '@mysten/walrus-wasm'],
+};
+```
+
+## WASM encoding internals
+
+The encoding is performed by WASM bindings in `wasm.ts`:
+
+```ts
+export interface EncodedBlob {
+  sliverPairs: SliverPair[];
+  blobId: string;
+  metadata: typeof BlobMetadataWithId.$inferInput;
+  rootHash: Uint8Array;
+}
+
+export async function getWasmBindings(url?: string) {
+  await init({ module_or_path: url });
+
+  function encodeBlob(
+    nShards: number,
+    bytes: Uint8Array,
+    encodingType: EncodingType = 'RS2',
+  ): EncodedBlob {
+    const encoder = new BlobEncoder(nShards);
+
+    if (encodingType !== 'RS2') {
+      throw new Error(`Unsupported encoding type: ${encodingType}`);
+    }
+
+    const [sliverPairs, metadata, rootHash] = encoder.encode_with_metadata(bytes);
+
+    return {
+      sliverPairs,
+      blobId: blobIdFromBytes(new Uint8Array(metadata.blob_id)),
+      metadata: metadata.metadata,
+      rootHash: new Uint8Array(rootHash.Digest),
+    };
+  }
+```
+
+The number of shards (and therefore the number of slivers) is determined by the current committee configuration, which the SDK fetches from the system state.

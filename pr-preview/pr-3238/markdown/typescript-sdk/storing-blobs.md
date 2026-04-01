@@ -1,0 +1,479 @@
+Walrus TypeScript SDK provides several methods for writing blobs, ranging from high-level file storage to low-level byte access. It also provides methods for each individual step in the write process for more complex, customized implementations.
+
+## Construct a `WalrusFile`
+
+You can construct a `WalrusFile` from a `Uint8Array`, blob, or string, which you can then store on Walrus:
+
+```typescript
+const file1 = WalrusFile.from({
+	contents: new Uint8Array([1, 2, 3]),
+	identifier: 'file1.bin',
+});
+const file2 = WalrusFile.from({
+	contents: new Blob([new Uint8Array([1, 2, 3])]),
+	identifier: 'file2.bin',
+});
+const file3 = WalrusFile.from({
+	contents: new TextEncoder().encode('Hello from the TS SDK!!!\n'),
+	identifier: 'README.md',
+	tags: {
+		'content-type': 'text/plain',
+	},
+});
+```
+
+## `writeFiles`
+
+Write files to the network using the `writeFiles` method. You must provide a `Signer` instance that signs and pays for the transaction and storage fees. The signer's address needs sufficient SUI to pay gas costs for registering the blob and certifying its availability. The `Signer` also needs sufficient WAL to pay storage fees for the blob for the specified number of epochs.
+
+Exact costs depend on the size of the blobs, the current gas price, and the current storage price.
+
+```typescript
+const results: {
+	id: string;
+	blobId: string;
+	blobObject: Blob.$inferType;
+}[] = await client.walrus.writeFiles({
+	files: [file1, file2, file3],
+	epochs: 3,
+	deletable: true,
+	signer: keypair,
+});
+```
+
+The provided files are written into a single quilt because current quilt encoding is less efficient for single files. Writing multiple files together is recommended when possible. Future versions of Walrus TypeScript SDK might introduce optimizations for splitting files into multiple quilts.
+
+## `writeBlob`
+
+You can also write raw blobs directly to the network using the `writeBlob` method. Specify how long the blob should be stored for and whether the blob should be deletable:
+
+```typescript
+const file = new TextEncoder().encode('Hello from the TS SDK!!!\n');
+const { blobId } = await client.walrus.writeBlob({
+	blob: file,
+	deletable: false,
+	epochs: 3,
+	signer: keypair,
+});
+```
+
+Both `writeBlob` and `writeFiles` support `onStep` and `resume` for resuming interrupted uploads:
+
+```typescript
+const { blobId } = await client.walrus.writeBlob({
+	blob: file,
+	deletable: true,
+	epochs: 3,
+	signer: keypair,
+	onStep: (step) => db.save(fileId, step),
+	resume: await db.load(fileId), // pass a previously saved step to resume
+});
+```
+
+## Write files in browser environments
+
+Some transactions to upload a blob are signed by a wallet in a browser, and some wallets use popups to prompt the user to sign. If the popups are not opened as a direct response to a user's interaction, the browser might block them.
+
+To avoid this, ensure that transactions to register and certify the blob are executed in separate event handlers using separate buttons for the user to click for each step. This approach ensures that each transaction signing step is separated into different user interactions, allowing wallet popups to work properly.
+
+The `client.writeFilesFlow` method returns an object with methods that break the write flow into smaller steps:
+
+- `encode`: Encodes the files and generates a blob ID.
+- `register`: Returns a transaction that registers the blob onchain.
+- `upload`: Uploads the data to the network's storage nodes.
+- `certify`: Returns a transaction that certifies the blob onchain.
+- `listFiles`: Returns a list of the created files.
+
+### Separate interaction example
+
+The following example demonstrates separate user interactions for each step:
+
+```typescript
+// Step 1: Create and encode the flow (can be done immediately when file is selected)
+const flow = client.walrus.writeFilesFlow({
+	files: [
+		WalrusFile.from({
+			contents: new Uint8Array(fileData),
+			identifier: 'my-file.txt',
+		}),
+	],
+});
+await flow.encode();
+// Step 2: Register the blob (triggered by user clicking a register button after the encode step)
+async function handleRegister() {
+	const registerTx = flow.register({
+		epochs: 3,
+		owner: currentAccount.address,
+		deletable: true,
+	});
+	const result = await signAndExecuteTransaction({ transaction: registerTx });
+	// Check transaction status
+	if (result.$kind === 'FailedTransaction') {
+		throw new Error(`Registration failed: ${result.FailedTransaction.status.error?.message}`);
+	}
+	// Step 3: Upload the data to storage nodes
+	// This can be done immediately after the register step, or as a separate step the user initiates
+	await flow.upload({ digest: result.Transaction.digest });
+}
+// Step 4: Certify the blob (triggered by user clicking a certify button after the blob is uploaded)
+async function handleCertify() {
+	const certifyTx = flow.certify();
+	const result = await signAndExecuteTransaction({ transaction: certifyTx });
+	// Check transaction status
+	if (result.$kind === 'FailedTransaction') {
+		throw new Error(`Certification failed: ${result.FailedTransaction.status.error?.message}`);
+	}
+	// Step 5: Get the new files
+	const files = await flow.listFiles();
+	console.log('Uploaded files', files);
+}
+```
+
+### Full pipeline example
+
+If you do not need separate user interactions for each step, you can use `run()` to execute the full pipeline as an async iterator. Each step yields a `WriteBlobStep` that you can persist for failure or interruption recovery:
+
+```typescript
+const flow = client.walrus.writeBlobFlow({ blob });
+for await (const step of flow.run({ signer, epochs: 3, deletable: true })) {
+	await db.save(fileId, step); // persist for crash recovery
+}
+```
+
+The flow also provides `executeRegister` and `executeCertify` methods that handle signing and return typed step results:
+
+```typescript
+const flow = client.walrus.writeBlobFlow({ blob });
+const enc = await flow.encode();
+const reg = await flow.executeRegister({ signer, epochs: 3, deletable: true, owner: address });
+const up = await flow.upload({ digest: reg.txDigest });
+const cert = await flow.executeCertify({ signer });
+```
+
+## Resume uploads
+
+To resume an upload after a failure or interruption, pass a saved `WriteBlobStep` to `resume`. The flow skips completed steps, validates the blob ID, and only uploads slivers that are not already stored:
+
+```typescript
+const saved = await db.load(fileId);
+const flow = client.walrus.writeBlobFlow({ blob, resume: saved });
+for await (const step of flow.run({ signer, epochs: 3, deletable: true })) {
+	await db.save(fileId, step);
+}
+```
+
+## Use an upload relay
+
+Writing blobs directly from a client requires many requests to write data to all storage nodes. An [upload relay](/docs/system-overview/relay) offloads these writes to a server, reducing complexity for the client.
+
+To use an upload relay, add the `uploadRelay` option to your client:
+
+```typescript
+const client = new SuiGrpcClient({
+	network: 'testnet',
+	baseUrl: 'https://fullnode.testnet.sui.io:443',
+}).$extend(
+	walrus({
+		uploadRelay: {
+			host: 'https://upload-relay.testnet.walrus.space',
+			sendTip: {
+				max: 1_000,
+			},
+		},
+	}),
+);
+```
+
+The `host` option is required and specifies the URL for the upload relay you are using.
+
+The following code shows the relay path in `writeBlob()`. The SDK computes metadata locally, registers the blob onchain (including the relay tip payment), and then sends a single request to the upload relay, which fans out to nodes and returns a certificate:
+
+<summary>Relay upload path in writeBlob</summary>
+
+```ts
+        } else {
+            // When a relay is configured, we only compute metadata locally and stream the blob to the relay.
+            const metadata = await this.computeBlobMetadata({
+                bytes: blob,
+            });
+            const blobId = metadata.blobId;
+
+            // Register the blob on-chain (same as direct uploads) but include the relay tip payment.
+            const transaction = new Transaction();
+
+            transaction.add(
+                this.sendUploadRelayTip({
+                    size: blob.length,
+                    blobDigest: metadata.blobDigest,
+                    nonce: metadata.nonce,
+                }),
+            );
+
+            const registerResult = await this.executeRegisterBlobTransaction({
+                signer,
+                transaction,
+                size: blob.length,
+                epochs,
+                blobId: metadata.blobId,
+                rootHash: metadata.rootHash,
+                deletable,
+                owner: owner ?? signer.toSuiAddress(),
+                attributes,
+            });
+
+            await this.#suiClient.core.waitForTransaction({
+                digest: registerResult.digest,
+            });
+
+            // Send a single request to the upload relay; it fans out to nodes and returns a certificate.
+            const result = await this.writeBlobToUploadRelay({
+                blobId,
+                blob,
+                nonce: metadata.nonce,
+                txDigest: registerResult.digest,
+                signal,
+                deletable,
+                blobObjectId: registerResult.blob.id.id,
+                encodingType: metadata.metadata.encodingType as EncodingType,
+            });
+
+            const certificate = result.certificate;
+            const blobObjectId = registerResult.blob.id.id;
+
+            // Use the relay-provided certificate to finalize on-chain certification.
+            await this.executeCertifyBlobTransaction({
+                signer,
+                blobId,
+                blobObjectId,
+                certificate,
+                deletable,
+            });
+
+            return {
+                blobId,
+                blobObject: await this.#objectLoader.load(blobObjectId, Blob),
+            };
+        }
+```
+
+Upload relays might require a tip (additional gas fee) to cover the cost of writing the blob. You can configure a maximum tip (paid in MIST) and `WalrusClient` automatically determines the required tip for your upload relay. Alternatively, you can manually configure the tip.
+
+You can find the tip required by an upload relay using the [`tip-config` endpoint](https://upload-relay.testnet.walrus.space/v1/tip-config).
+
+## Retry uploads
+
+Walrus ships with a reusable helper for retrying uploads in `ts-sdks/packages/walrus/src/utils/retry.ts`. This helper is not exported from the public bundle.
+
+```ts
+export async function retry<T>(
+  fn: () => Promise<T>,
+  options: {
+    condition?: (error: Error) => boolean;
+    count?: number;
+    delay?: number;
+    jitter?: number;
+  },
+): Promise<T> {
+  let remaining = options.count ?? 3;
+
+  while (remaining > 0) {
+    try {
+      remaining -= 1;
+      return await fn();
+    } catch (error) {
+      if (remaining <= 0 || (options.condition && !options.condition(error as Error))) {
+        throw error;
+      }
+
+      if (options.delay) {
+        await new Promise((resolve) =>
+          setTimeout(
+            resolve,
+            (options.delay ?? 1000) + (options.jitter ? Math.random() * options.jitter : 0),
+          ),
+        );
+      }
+    }
+  }
+
+  throw new Error('Retry count exceeded');
+}
+```
+
+### Basic upload retry
+
+The following example wraps `client.walrus.writeBlob()` with the retry helper and increases the retry count:
+
+```ts
+const result = await retry(
+  () =>
+    client.walrus.writeBlob({
+      blob,
+      deletable: true,
+      epochs: 3,
+      signer: keypair,
+    }),
+  {
+    count: 5,
+    delay: 1000,
+    jitter: 500,
+  },
+);
+```
+
+### Conditional retries
+
+You can configure conditional retries for certain error types. For example, the following only retries errors that extend `RetryableWalrusClientError`:
+
+```ts
+return retry(
+  () =>
+    client.walrus.writeBlob({
+      blob,
+      deletable: true,
+      epochs: 3,
+      signer: keypair,
+    }),
+  {
+    count: 5,
+    delay: 1000,
+    condition: (error) => error instanceof RetryableWalrusClientError,
+  },
+);
+```
+
+### Exponential backoff
+
+Use exponential backoff when you need to give storage nodes time to recover:
+
+```ts
+const delay = Math.pow(2, attempt) * 1000;
+await new Promise((resolve) => setTimeout(resolve, delay));
+```
+
+### Adaptive retry strategy
+
+You can combine error classification with adaptive delays for longer waits on confirmation failures and faster retries for metadata issues:
+
+```ts
+if (!(error instanceof RetryableWalrusClientError)) {
+  throw error;
+}
+
+const delay =
+  error instanceof NotEnoughBlobConfirmationsError ? 2000 * attempt : 1000 * attempt;
+await new Promise((resolve) => setTimeout(resolve, delay));
+```
+
+### Download retries
+
+Download retries use the same helper:
+
+```ts
+return retry(
+  () => client.walrus.readBlob({ blobId }),
+  {
+    count: 3,
+    delay: 1000,
+    condition: (error) =>
+      error instanceof NotEnoughSliversReceivedError ||
+      error instanceof NoBlobMetadataReceivedError,
+  },
+);
+```
+
+## Full client example
+
+The following example uploads a blob using both the direct workflow and the upload relay:
+
+<summary>Complete direct upload and upload relay example</summary>
+
+```typescript
+
+// Simple Blob Upload
+async function uploadBlob() {
+  const network = 'testnet';
+  const url = getFullnodeUrl(network);
+  validateTestnetConfig(network, url);
+  
+  const client = new SuiClient({
+    url,
+    network,
+  }).$extend(walrus());
+
+  const keypair = await getFundedKeypair();
+  
+  // Your data as bytes
+  const data = new TextEncoder().encode('Hello, Walrus!'+ Date.now());
+  
+  const { blobId, blobObject } = await client.walrus.writeBlob({
+    blob: data,
+    deletable: true,
+    epochs: 3,
+    signer: keypair,
+  });
+  
+  console.log('Uploaded blob:', blobId);
+  console.log('Blob object:', blobObject);
+  
+  return { blobId, blobObject };
+}
+
+// Upload with Relay
+async function uploadWithRelay() {
+  const network = 'testnet';
+  const url = getFullnodeUrl(network);
+  validateTestnetConfig(network, url);
+  
+  const client = new SuiClient({
+    url,
+    network,
+  }).$extend(
+    walrus({
+      uploadRelay: {
+        host: 'https://upload-relay.testnet.walrus.space',
+        sendTip: {
+          max: 1_000, // Maximum tip in MIST
+        },
+      },
+    }),
+  );
+
+  const keypair = await getFundedKeypair();
+  
+  const data = new TextEncoder().encode('Hello, Walrus with Relay!'+Date.now());
+  
+  // Same API, but uses relay internally
+  const { blobId, blobObject } = await client.walrus.writeBlob({
+    blob: data,
+    deletable: true,
+    epochs: 3,
+    signer: keypair,
+  });
+  
+  return { blobId, blobObject };
+}
+
+// Main execution
+async function main() {
+  try {
+    console.log('=== Testing Simple Blob Upload ===');
+    await uploadBlob();
+    
+    console.log('\n=== Testing Upload with Relay ===');
+    await uploadWithRelay();
+    
+    console.log('\n✅ All upload examples completed successfully!');
+  } catch (error) {
+    console.error('❌ Error running upload examples:', error);
+    throw error;
+  }
+}
+
+// Run if executed directly
+if (isMainModule(import.meta.url)) {
+  main().catch(console.error);
+}
+
+export { uploadBlob, uploadWithRelay };
+```
