@@ -238,17 +238,6 @@ public(package) fun increase_capacity_with_storage(
     other.destroy();
 }
 
-/// Extends the pool's lifetime by absorbing a `Storage` object whose epoch range starts
-/// where the pool's current range ends. The Storage must have the same capacity as the pool.
-///
-/// We check that the incoming Storage has a later `end_epoch` than the pool before calling
-/// `fuse_periods`, because `fuse_periods` also accepts the reverse direction (extending
-/// `start_epoch` backwards), which would not actually extend the pool's lifetime.
-public(package) fun extend_with_storage(self: &mut StoragePool, other: Storage) {
-    assert!(other.end_epoch() > self.inner().storage.end_epoch(), EResourceBounds);
-    self.inner_mut().storage.fuse_periods(other);
-}
-
 /// Destroys the pool and returns the embedded `Storage` reservation.
 /// Asserts the blobs table is empty and `blob_count == 0`.
 public fun destroy(self: StoragePool): Storage {

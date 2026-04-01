@@ -289,15 +289,6 @@ public fun increase_storage_pool_capacity(
         )
 }
 
-/// Extends the pool's lifetime by absorbing a `Storage` object.
-public fun extend_storage_pool_with_storage(
-    self: &System,
-    storage_pool: &mut StoragePool,
-    storage: Storage,
-) {
-    self.inner().extend_storage_pool_with_storage(storage_pool, storage)
-}
-
 /// Increases the pool's capacity by absorbing an existing `Storage` object.
 public fun increase_storage_pool_capacity_with_storage(
     self: &System,

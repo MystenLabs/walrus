@@ -963,22 +963,6 @@ public(package) fun increase_storage_pool_capacity(
     storage_pool.increase_reserved_encoded_capacity(additional_encoded_capacity_bytes);
 }
 
-/// Extends the pool's lifetime by absorbing a `Storage` object.
-public(package) fun extend_storage_pool_with_storage(
-    self: &SystemStateInnerV1,
-    storage_pool: &mut StoragePool,
-    storage: Storage,
-) {
-    assert!(storage_pool.end_epoch() > self.epoch(), EInvalidEpochsAhead);
-    storage_pool.extend_with_storage(storage);
-
-    events::emit_storage_pool_extended(
-        self.epoch(),
-        storage_pool.object_id(),
-        storage_pool.end_epoch(),
-    );
-}
-
 /// Increases the pool's capacity by absorbing an existing `Storage` object.
 public(package) fun increase_storage_pool_capacity_with_storage(
     self: &SystemStateInnerV1,
