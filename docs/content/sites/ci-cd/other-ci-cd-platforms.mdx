@@ -32,7 +32,7 @@ Because there is no pre-built action for non-GitHub platforms, each pipeline mus
 
 Every platform stores secrets differently. In all cases, you need 2 values:
 
-- `SUI_KEYSTORE`: the `base64WithFlag` private key string wrapped as a JSON array: `["AXXXXXXXXXX..."]`. Store this as a masked or protected secret. Never expose it in logs.
+- `SUI_KEYSTORE`: The `base64WithFlag` private key string wrapped as a JSON array: `["AXXXXXXXXXX..."]`. Store this as a masked or protected secret. Never expose it in logs.
 - `SUI_ADDRESS`: the corresponding Sui address. This is not sensitive, but masking it is acceptable.
 
 | Platform | Secret location |
