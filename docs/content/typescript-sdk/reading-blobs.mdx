@@ -1,6 +1,220 @@
 ---
 title: Reading Blobs
-draft: true
+description: Read blobs and quilts from the Walrus network using the Walrus TypeScript SDK.
+keywords: [ walrus, typescript, sdk, read, blob, quilt, getFiles, getBlob, readBlob, WalrusFile, slivers ]
 ---
 
-https://linear.app/mysten-labs/issue/DOCS-650/typescript-sdkreading-blobs
+Walrus TypeScript SDK provides several methods for reading blobs, ranging from high-level file retrieval to low-level byte access. It also provides methods for each individual step in the read process for more complex, customized implementations.
+
+## `getFiles`
+
+The `getFiles` method accepts both blob IDs and quilt IDs and returns a `WalrusFile`. Use `getFiles` when reading files in batches, because the client is more efficient when loading multiple files from the same quilt.
+
+```typescript
+const [file1, file2] = await client.walrus.getFiles({ ids: [anyBlobId, orQuiltId] });
+```
+
+A `WalrusFile` works like a `Response` object from the fetch API:
+
+```typescript
+// get contents as a Uint8Array
+const bytes = await file1.bytes();
+// Parse the contents as a `utf-8` string
+const text = await file1.text();
+// Parse the contents as JSON
+const json = await file2.json();
+```
+
+A `WalrusFile` might also have identifier and tags properties if the file was stored in a quilt:
+
+```typescript
+const identifier: string | null = await file1.getIdentifier();
+const tags: Record<string, string> = await file1.getTags();
+```
+
+## `getBlob`
+
+The `getBlob` method returns a `WalrusBlob` instead of a `WalrusFile`, and is designed for exploring a blob or quilt's contents:
+
+```typescript
+const blob = await client.walrus.getBlob({ blobId });
+```
+
+If the blob is a quilt, you can read the files it contains:
+
+```typescript
+// Get all files:
+const files = await blob.files();
+// Get files by identifier
+const [readme] = await blob.files({ identifiers: ['README.md'] });
+// Get files by tag
+const textFiles = await blob.files({ tags: [{ 'content-type': 'text/plain' }] });
+// Get files by quilt id
+const filesById = await blob.files({ ids: [quiltID] });
+```
+
+## `readBlob`
+
+The `readBlob` method is the lowest-level method. It takes a blob ID and returns a raw `Uint8Array` of the blob's content. Use this for workflows that require low-level access and raw bytes. It fetches slivers from storage nodes, reconstructs the data, and verifies the hash.
+
+```typescript
+const blob = await client.walrus.readBlob({ blobId });
+```
+
+## Full client example
+
+The following example uses `readBlob` in a comprehensive client that validates the environment, downloads a blob, handles errors, and uploads a blob:
+
+<details>
+<summary>Complete read and write example</summary>
+
+```typescript
+import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import {
+  walrus,
+  BlobNotCertifiedError,
+  NotEnoughSliversReceivedError,
+  BlobBlockedError,
+  blobIdFromInt,
+} from '@mysten/walrus';
+import { validateTestnetConfig } from '../utils/validateTestnet.js';
+import { getFundedKeypair } from '../utils/getFundedKeypair.js';
+import { isMainModule } from '../utils/isMainModule.js';
+
+// Validate environment is testnet before creating client
+const network = 'testnet';
+const url = getFullnodeUrl(network);
+validateTestnetConfig(network, url);
+
+const client = new SuiClient({
+  url,
+  network,
+}).$extend(walrus());
+
+// Simple Blob Download
+async function downloadBlob(blobId: string) {
+  const blobBytes = await client.walrus.readBlob({ blobId });
+  
+  // Convert to text
+  const text = new TextDecoder().decode(blobBytes);
+  console.log('Blob content:', text);
+  
+  // Or use as Blob for file operations
+  const blob = new Blob([blobBytes]);
+  
+  return blobBytes;
+}
+
+// Download with Error Handling
+async function downloadWithErrorHandling(blobId: string) {
+  try {
+    const blobBytes = await client.walrus.readBlob({ blobId });
+    return blobBytes;
+  } catch (error: any) {
+    if (error instanceof BlobNotCertifiedError) {
+      console.error('Blob is not certified or does not exist');
+    } else if (error instanceof NotEnoughSliversReceivedError) {
+      console.error('Could not retrieve enough slivers to reconstruct blob');
+      // Retry logic here
+    } else if (error instanceof BlobBlockedError) {
+      console.error('Blob is blocked by storage nodes');
+    } else {
+      console.error('Unexpected error:', error);
+    }
+    throw error;
+  }
+}
+
+// Upload a test blob (used when no blob ID is provided)
+async function uploadTestBlob(): Promise<{ blobId: string; content: string }> {
+  console.log('No blob ID provided. Uploading a test blob first...\n');
+  
+  const keypair = await getFundedKeypair();
+  const content = `Download Example Test - ${Date.now()}`;
+  const data = new TextEncoder().encode(content);
+  
+  console.log('Uploading test blob...');
+  const { blobId } = await client.walrus.writeBlob({
+    blob: data,
+    deletable: true,
+    epochs: 1,
+    signer: keypair,
+  });
+  
+  console.log(`✅ Uploaded test blob: ${blobId}\n`);
+  
+  // Wait a moment for the blob to be available
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  return { blobId, content };
+}
+
+// Main execution
+async function main() {
+  try {
+    // Accept either an on-chain numeric blob ID (decimal string) or the short Walrus blob ID.
+    // If you pass a decimal string, we convert it to the Walrus blobId string using blobIdFromInt().
+    // If you omit the argument, we upload a test blob first and then download it.
+    const arg = process.argv[2];
+    
+    let blobId: string;
+    let expectedContent: string | undefined;
+    
+    if (arg) {
+      // User provided a blob ID
+      const isNumeric = /^\d+$/.test(arg);
+      blobId = isNumeric ? blobIdFromInt(BigInt(arg)) : arg;
+      
+      console.log(
+        `=== Downloading blob (input format: ${
+          isNumeric ? 'on-chain numeric' : 'Walrus blobId'
+        }, normalized: ${blobId}) ===`,
+      );
+    } else {
+      // No blob ID provided - upload first
+      const uploadResult = await uploadTestBlob();
+      blobId = uploadResult.blobId;
+      expectedContent = uploadResult.content;
+      
+      console.log(`=== Downloading the uploaded blob: ${blobId} ===`);
+    }
+    
+    const downloadedBytes = await downloadBlob(blobId);
+    
+    // Verify content if we uploaded it ourselves
+    if (expectedContent) {
+      const downloadedContent = new TextDecoder().decode(downloadedBytes);
+      if (downloadedContent === expectedContent) {
+        console.log('\n✅ Content verification successful! Downloaded content matches uploaded content.');
+      } else {
+        console.error('\n❌ Content mismatch!');
+        console.error(`Expected: ${expectedContent}`);
+        console.error(`Got: ${downloadedContent}`);
+        throw new Error('Content verification failed');
+      }
+    }
+    
+    console.log('\n✅ Download example completed successfully!');
+  } catch (error) {
+    console.error('❌ Error running download example:', error);
+    throw error;
+  }
+}
+
+// Run if executed directly
+if (isMainModule(import.meta.url)) {
+  main().catch(console.error);
+}
+
+export { downloadBlob, downloadWithErrorHandling };
+```
+
+</details>
+
+You can find more examples for using the TypeScript SDK in the [Walrus TypeScript GitHub repo](https://github.com/MystenLabs/ts-sdks/tree/main/packages/walrus/examples).
+
+## Fetch limitations
+
+Some nodes might be slow to respond. In a Node environment, the default `connectTimeout` is 10 seconds.
+
+In a `bun` environment, the abort signal stops requests from responding, but they still wait for completion before their promises reject.

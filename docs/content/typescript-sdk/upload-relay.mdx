@@ -1,0 +1,108 @@
+---
+title: Using an Upload Relay
+description: Configure the TypeScript SDK to use an upload relay.
+keywords: [ walrus, typescript, sdk, relay, upload, tip, configuration, browser ]
+---
+
+To use an upload relay with the Walrus TypeScript SDK, configure it when creating the Walrus client:
+
+```typescript
+import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { walrus } from '@mysten/walrus/client';
+
+const client = new SuiClient({
+  url: getFullnodeUrl('testnet'),
+  network: 'testnet',
+}).$extend(
+  walrus({
+    uploadRelay: {
+      host: 'https://upload-relay.testnet.walrus.space',
+      sendTip: {
+        max: 1_000, // Maximum tip in MIST
+      },
+    },
+  }),
+);
+```
+
+Public or community relays often charge a tip to offset bandwidth, compute, and hosting costs. When a tip is required, the relay exposes `/v1/tip-config` so the TypeScript SDK can discover the amount:
+
+- **Free service:** `tip_config` is `no_tip`. Clients only pay onchain storage fees.
+
+- **Paid service:** `tip_config` advertises how much the relay expects before it forwards your blob.
+
+Your client must provide the `nonce` and `tx_id` from the payment transaction. Without this payment, the relay rejects the upload request.
+
+Paid relays only accept uploads that include the advertised tip, so your request is prioritized and not throttled once the payment is verified. The payment transaction encodes `blob_digest`, `nonce`, and `unencoded_length`. The relay checks the provided `tx_id` and `nonce` pair before streaming data, preventing freeloading or replay attempts.
+
+You can configure automatic tip calculation so the TypeScript SDK queries the relay, verifies the amount is at or below your cap, and includes the payment in the registration transaction:
+
+```typescript
+uploadRelay: {
+  host: 'https://upload-relay.testnet.walrus.space',
+  sendTip: {
+    max: 1_000, // Maximum tip in MIST
+  },
+}
+```
+
+You can also manually configure the tip:
+
+```typescript
+uploadRelay: {
+  host: 'https://upload-relay.testnet.walrus.space',
+  sendTip: {
+    type: 'const',
+    value: 500, // Fixed tip amount
+  },
+}
+```
+
+With the manual configuration, you set a specific tip amount that mirrors what the relay reports:
+
+- `type: 'const'`: Covers relays that charge a flat SUI amount per blob.
+
+- `type: 'linear'`: Models relays that scale the price with unencoded blob size (base per-byte).
+
+If the relay advertises `no_tip`, omit the `sendTip` block entirely. The TypeScript SDK skips payment and still streams the blob to the relay.
+
+## Browser upload example
+
+The following example shows a browser upload function that relies on the relay to handle all node communication:
+
+```typescript
+// Web app example with relay
+async function uploadUserFile(file: File) {
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  
+  const { blobId, blobObject } = await client.walrus.writeBlob({
+    blob: fileBytes,
+    deletable: true,
+    epochs: 3,
+    signer: keypair,
+  });
+  
+  return { blobId, blobObject };
+}
+```
+
+## Configuring without a relay
+
+To use direct node communication, do not configure the relay. Optionally, configure `storageNodeClientOptions` to customize timeout and fetch behavior:
+
+```typescript
+import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { walrus } from '@mysten/walrus/client';
+
+const client = new SuiClient({
+  url: getFullnodeUrl('testnet'),
+  network: 'testnet',
+}).$extend(
+  walrus({
+    // No uploadRelay configuration
+    storageNodeClientOptions: {
+      timeout: 60_000,
+    },
+  }),
+);
+```
