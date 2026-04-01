@@ -4,7 +4,7 @@ description: Configuration, memory planning, and pipeline design patterns for up
 keywords: [large data, large upload, workaround, large dataset, chunking, ingestion pipeline]
 ---
 
-The maximum blob size on Walrus is approximately 13.6 GB. Uploading large data sets or individual blobs larger than 1 GB require certain workarounds and planning for optimal performance and efficiency.
+The maximum blob size on Walrus is approximately 13.6 GiB. Uploading large data sets or individual blobs larger than 1 GiB require certain workarounds and planning for optimal performance and efficiency.
 
 ## Estimate storage duration and costs
 
@@ -16,11 +16,11 @@ After you plan your upload strategy, estimate the storage costs for your data. W
 
 ## Tune uploads for large blobs
 
-Uploading files larger than 1 GB might require adjustments to client configuration and upload parameters to avoid stalled transfers.
+Uploading files larger than 1 GiB might require adjustments to client configuration and upload parameters to avoid stalled transfers.
 
 - Test uploads with representative dataset sizes before running production workloads.
 
-- Use batching or chunking strategies for datasets that approach or exceed the maximum blob size (approximately 13.6 GB).
+- Use batching or chunking strategies for datasets that approach or exceed the maximum blob size (approximately 13.6 GiB).
 
 - Monitor upload throughput and adjust client parameters based on observed performance.
 
@@ -60,7 +60,7 @@ Very high ingestion rates can temporarily reduce throughput if recovery processe
 
 - Batch uploads where possible to reduce the number of individual transactions.
 
-- For very large migrations (TB or more), coordinate with the Walrus team through the [Walrus Discord](https://discord.gg/walrusprotocol) to plan the ingestion schedule.
+- For very large migrations (TiBor more), coordinate with the Walrus team through the [Walrus Discord](https://discord.gg/walrusprotocol) to plan the ingestion schedule.
 
 ## Manage memory for concurrent uploads
 
