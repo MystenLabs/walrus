@@ -1,1 +1,0 @@
-Mysten Labs has built and published a [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus) that supports a wide variety of operations.
