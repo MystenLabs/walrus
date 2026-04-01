@@ -39,6 +39,8 @@ const EInvalidBlobSize: u64 = 8;
 const EInvalidBlobCount: u64 = 9;
 /// The pool object version is unsupported.
 const EWrongVersion: u64 = 10;
+/// The end epochs do not match.
+const EIncompatibleEndEpoch: u64 = 11;
 
 /// Version of the pool outer object.
 const VERSION: u64 = 1;
@@ -212,6 +214,39 @@ public(package) fun remove_blob(self: &mut StoragePool, blob_id: u256, n_shards:
 /// Borrows a blob mutably from the pool's object table.
 public(package) fun borrow_blob_mut(self: &mut StoragePool, blob_id: u256): &mut PooledBlob {
     self.inner_mut().blobs.borrow_mut(blob_id)
+}
+
+/// Increases the pool's capacity by absorbing a `Storage` object with the same `end_epoch`.
+/// The incoming Storage must have started (not future). It is destroyed and its capacity
+/// is added to the pool.
+///
+/// Unlike `fuse_amount` on `Storage` (which requires both `start_epoch` and `end_epoch` to
+/// match), this only requires matching `end_epoch`. A pool's `start_epoch` is informational
+/// (it records when the pool was created) and has no operational significance, so requiring
+/// an exact match would unnecessarily prevent merging Storage objects created at different
+/// times. Instead, we only check that the incoming Storage has already started
+/// (`start_epoch <= current_epoch`) to ensure its capacity was accounted for in the system.
+public(package) fun increase_capacity_with_storage(
+    self: &mut StoragePool,
+    other: Storage,
+    current_epoch: u32,
+) {
+    let inner = self.inner_mut();
+    assert!(other.start_epoch() <= current_epoch, EResourceBounds);
+    assert!(other.end_epoch() == inner.storage.end_epoch(), EIncompatibleEndEpoch);
+    inner.storage.increase_size(other.size());
+    other.destroy();
+}
+
+/// Extends the pool's lifetime by absorbing a `Storage` object whose epoch range starts
+/// where the pool's current range ends. The Storage must have the same capacity as the pool.
+///
+/// We check that the incoming Storage has a later `end_epoch` than the pool before calling
+/// `fuse_periods`, because `fuse_periods` also accepts the reverse direction (extending
+/// `start_epoch` backwards), which would not actually extend the pool's lifetime.
+public(package) fun extend_with_storage(self: &mut StoragePool, other: Storage) {
+    assert!(other.end_epoch() > self.inner().storage.end_epoch(), EResourceBounds);
+    self.inner_mut().storage.fuse_periods(other);
 }
 
 /// Destroys the pool and returns the embedded `Storage` reservation.
