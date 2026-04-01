@@ -1193,34 +1193,44 @@ impl Storage {
         };
 
         let sliver_count = request.sliver_count();
-        let mut fetched_blobs = Vec::with_capacity(sliver_count);
-        let mut last_fetched_blob_id = None;
-        while fetched_blobs.len() < sliver_count {
-            let remaining_count = sliver_count - fetched_blobs.len();
+        let starting_blob_id = request.starting_blob_id();
+        let sliver_type = request.sliver_type();
+        let blob_info = self.blob_info.clone();
 
-            // Set starting point - either the initial request start or after last fetched blob
-            let starting_blob_id_bound =
-                last_fetched_blob_id.map_or(Included(request.starting_blob_id()), Excluded);
+        let fetched_blobs = tokio::task::spawn_blocking(move || {
+            let mut fetched_blobs = Vec::with_capacity(sliver_count);
+            let mut last_fetched_blob_id = None;
+            while fetched_blobs.len() < sliver_count {
+                let remaining_count = sliver_count - fetched_blobs.len();
 
-            // Scan certified slivers to fetch.
-            let blobs_to_fetch = self
-                .blob_info
-                .certified_blob_info_iter_before_epoch(current_epoch, starting_blob_id_bound)
-                .take(remaining_count)
-                .map_ok(|(blob_id, _)| blob_id)
-                .collect::<Result<Vec<_>, TypedStoreError>>()?;
+                // Set starting point: initial request start or after last fetched blob.
+                let starting_blob_id_bound =
+                    last_fetched_blob_id.map_or(Included(starting_blob_id), Excluded);
 
-            if blobs_to_fetch.is_empty() {
-                // No more blobs to fetch.
-                break;
+                // Scan certified slivers to fetch.
+                let blobs_to_fetch = blob_info
+                    .certified_blob_info_iter_before_epoch(
+                        current_epoch,
+                        starting_blob_id_bound,
+                    )
+                    .take(remaining_count)
+                    .map_ok(|(blob_id, _)| blob_id)
+                    .collect::<Result<Vec<_>, TypedStoreError>>()?;
+
+                if blobs_to_fetch.is_empty() {
+                    break;
+                }
+
+                // Update last fetched ID for next iteration.
+                last_fetched_blob_id = blobs_to_fetch.last().cloned();
+
+                let mut slivers = shard.fetch_slivers(sliver_type, &blobs_to_fetch)?;
+                fetched_blobs.append(&mut slivers);
             }
-
-            // Update last fetched ID for next iteration
-            last_fetched_blob_id = blobs_to_fetch.last().cloned();
-
-            let mut slivers = shard.fetch_slivers(request.sliver_type(), &blobs_to_fetch)?;
-            fetched_blobs.append(&mut slivers);
-        }
+            Ok::<_, TypedStoreError>(fetched_blobs)
+        })
+        .await
+        .expect("spawn_blocking task panicked")?;
 
         Ok(fetched_blobs.into())
     }

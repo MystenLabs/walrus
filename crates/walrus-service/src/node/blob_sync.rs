@@ -836,7 +836,14 @@ impl BlobSynchronizer {
     async fn recover_metadata(
         self: Arc<Self>,
     ) -> Result<(bool, VerifiedBlobMetadataWithId), TypedStoreError> {
-        if let Some(metadata) = self.storage().get_metadata(&self.blob_id)? {
+        let existing = {
+            let storage = self.storage().clone();
+            let blob_id = self.blob_id;
+            tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+                .await
+                .expect("spawn_blocking task panicked")?
+        };
+        if let Some(metadata) = existing {
             tracing::debug!("not syncing metadata: already stored");
             return Ok((false, metadata));
         }
