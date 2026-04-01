@@ -2,9 +2,15 @@
 
 Storing blobs on Walrus Mainnet incurs 2 separate costs:
 
-- **WAL** for the storage operation. See [WAL tokenomics](https://www.walrus.xyz/wal-token) and the [Walrus delegated proof of stake system](/walrus.pdf) for more details.
+- **WAL** for the storage operation. You pay per storage unit per epoch. In other words, the cost scales with blob size and epoch. Run `walrus info` to see current pricing, including the price per encoded storage unit and the additional write fee. See [WAL tokenomics](https://www.walrus.xyz/wal-token) and the [Walrus delegated proof of stake system](/walrus.pdf) for more details.
 
-- **SUI** for executing transactions on Sui Mainnet. See [SUI tokenomics](https://docs.sui.io/concepts/tokenomics) and [SUI gas fee calculation](https://docs.sui.io/concepts/tokenomics/gas-in-sui) for more details.
+- **SUI** for executing transactions on Sui Mainnet. Each operation that interacts with the Sui blockchain (registering a blob, posting a certificate, extending storage) incurs a gas fee in SUI. See [SUI tokenomics](https://docs.sui.io/concepts/tokenomics) and [SUI gas fee calculation](https://docs.sui.io/concepts/tokenomics/gas-in-sui) for more details.
+
+:::tip
+
+Walrus uses erasure coding with approximately 5x expansion. The storage cost shown by `walrus info` accounts for this. You do not need to calculate the expansion yourself.
+
+:::
 
 :::caution
 
@@ -119,6 +125,14 @@ You can acquire storage resources through 3 methods:
 #### Reducing costs for small blobs with Quilt
 
 [Walrus Quilt](/docs/system-overview/quilt) is a batch storage tool that amortizes metadata costs across multiple blobs stored together. It can also significantly reduce Sui computation and storage costs.
+
+Use Quilt when you are storing many small files such as JSON metadata, thumbnails, or configuration files. The savings come from amortizing a single transaction fee and storage reservation across all items in the batch.
+
+Trade-offs to consider:
+
+- Quilt adds complexity to your application's storage and retrieval logic.
+
+For details, see [Batch Storage with Quilt](/docs/system-overview/quilt).
 
 #### Buy storage resources in bulk
 
