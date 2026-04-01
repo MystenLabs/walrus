@@ -55,10 +55,6 @@ pub(crate) struct PerObjectPooledBlobInfoV1 {
     pub storage_pool_id: ObjectID,
     /// The ID of the last blob event related to this object.
     pub event: EventID,
-    // TODO(WAL-1186): this field is not used. When blob is deleted, the node directly deletes the
-    // entry from the table. Removing this field.
-    /// Whether the blob has been deleted.
-    pub deleted: bool,
 }
 
 impl ToBytes for PerObjectPooledBlobInfoV1 {}
@@ -144,7 +140,6 @@ impl Mergeable for PerObjectPooledBlobInfoV1 {
             certified_epoch: None,
             storage_pool_id,
             event: status_event,
-            deleted: false,
         })
     }
 }
