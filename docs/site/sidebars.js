@@ -104,6 +104,7 @@ const sidebars = {
             'typescript-sdk/storing-blobs',
             'typescript-sdk/reading-blobs',
             'typescript-sdk/upload-relay',
+            'typescript-sdk/direct-interaction',
             'typescript-sdk/verification',
             'typescript-sdk/wasm-module-loading',
             'typescript-sdk/fetch-methods',
