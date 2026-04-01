@@ -893,6 +893,42 @@ fun extend_with_storage_different_capacity() {
     abort
 }
 
+#[test, expected_failure(abort_code = system_state_inner::EInvalidEpochsAhead)]
+fun extend_with_storage_expired_pool() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 1, &mut fake_coin, ctx);
+
+    advance_epoch(&mut system);
+    // Pool has expired (end_epoch 1 <= current epoch 1).
+
+    let extension = system.reserve_space_for_epochs(capacity, 1, 3, &mut fake_coin, ctx);
+    system.extend_storage_pool_with_storage(&mut pool, extension);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = system_state_inner::EInvalidEpochsAhead)]
+fun increase_capacity_with_storage_expired_pool() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 1, &mut fake_coin, ctx);
+
+    advance_epoch(&mut system);
+    // Pool has expired (end_epoch 1 <= current epoch 1).
+
+    let storage = system.reserve_space(capacity, 1, &mut fake_coin, ctx);
+    system.increase_storage_pool_capacity_with_storage(&mut pool, storage);
+
+    abort
+}
+
 #[test]
 fun destroy_pool_reuse_storage_for_blob() {
     let ctx = &mut tx_context::dummy();

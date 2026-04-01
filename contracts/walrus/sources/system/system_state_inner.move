@@ -969,6 +969,7 @@ public(package) fun extend_storage_pool_with_storage(
     storage_pool: &mut StoragePool,
     storage: Storage,
 ) {
+    assert!(storage_pool.end_epoch() > self.epoch(), EInvalidEpochsAhead);
     storage_pool.extend_with_storage(storage);
 
     events::emit_storage_pool_extended(
@@ -984,6 +985,7 @@ public(package) fun increase_storage_pool_capacity_with_storage(
     storage_pool: &mut StoragePool,
     storage: Storage,
 ) {
+    assert!(storage_pool.end_epoch() > self.epoch(), EInvalidEpochsAhead);
     storage_pool.increase_capacity_with_storage(storage, self.epoch());
 }
 
