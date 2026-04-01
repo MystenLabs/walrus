@@ -213,6 +213,7 @@ const GRPC_MIGRATION_LEVEL_GET_BALANCE: GrpcMigrationLevel = GrpcMigrationLevel(
 const GRPC_MIGRATION_LEVEL_TRANSACTION_READS: GrpcMigrationLevel = GrpcMigrationLevel(5);
 const GRPC_MIGRATION_LEVEL_SERVICE_INFO: GrpcMigrationLevel = GrpcMigrationLevel(6);
 const GRPC_MIGRATION_LEVEL_TRANSACTION_WRITES: GrpcMigrationLevel = GrpcMigrationLevel(7);
+const GRPC_MIGRATION_LEVEL_MOVE_MODULES: GrpcMigrationLevel = GrpcMigrationLevel(8);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -1768,6 +1769,18 @@ impl RetriableSuiClient {
     /// in the `StakedWal` Move struct.
     #[tracing::instrument(err, skip(self))]
     pub async fn wal_type_from_package(&self, package_id: ObjectID) -> SuiClientResult<String> {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_MOVE_MODULES {
+            self.wal_type_from_package_grpc(package_id).await
+        } else {
+            self.wal_type_from_package_json_rpc(package_id).await
+        }
+    }
+
+    /// JSON-RPC implementation of `wal_type_from_package`.
+    async fn wal_type_from_package_json_rpc(
+        &self,
+        package_id: ObjectID,
+    ) -> SuiClientResult<String> {
         let normalized_move_modules = self
             .get_normalized_move_modules_by_package(package_id)
             .await?;
@@ -1813,6 +1826,24 @@ impl RetriableSuiClient {
 
         tracing::debug!(?wal_type, "WAL type");
         Ok(wal_type)
+    }
+
+    /// gRPC implementation of `wal_type_from_package`.
+    async fn wal_type_from_package_grpc(&self, package_id: ObjectID) -> SuiClientResult<String> {
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || {
+                    let client = client.clone();
+                    async move { client.get_wal_type_from_package_grpc(package_id).await }
+                },
+                self.metrics.clone(),
+                method,
+            )
+        };
+        self.failover_sui_client
+            .with_failover(request, None, "wal_type_from_package")
+            .await
     }
 
     /// If the `gas_budget` is passed in, this returns the gas budget and the current gas price.
