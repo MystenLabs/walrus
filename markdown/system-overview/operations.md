@@ -44,7 +44,7 @@ These steps are also performed by a publisher that accepts and publishes blobs t
 
 #### Maximum blob size
 
-The maximum blob size can be queried through the [`walrus info`](/docs/walrus-client/storing-blobs#walrus-system-information) CLI command. The maximum blob size is currently 13.3&nbsp;GB. You can store larger blobs by splitting them into smaller chunks.
+The maximum blob size can be queried through the [`walrus info`](/docs/walrus-client/storing-blobs#walrus-system-information) CLI command. The maximum blob size is currently 13.3&nbsp;GiB. You can store larger blobs by splitting them into smaller chunks.
 
 Blobs are stored for the number of epochs specified at the time they are stored. Walrus storage nodes ensure the blob is available through the number of epochs specified. Mainnet uses an epoch duration of 2 weeks.
 

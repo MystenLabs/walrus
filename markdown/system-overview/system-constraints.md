@@ -2,7 +2,7 @@ This page describes the practical limits and constraints you should consider whe
 
 ## Blob size
 
-Walrus supports blobs up to approximately 13.6 GB. Check the current limit with `walrus info` under "Maximum blob size."
+Walrus supports blobs up to approximately 13.6 GiB. Check the current limit with `walrus info` under "Maximum blob size."
 
 If your data exceeds this limit, learn more about [best practices for large data uploads](/docs/large-uploads).
 
@@ -14,7 +14,7 @@ Encoding and decoding blobs requires significant memory.
 
 - **Decoding (retrieval):** Requires approximately 1.5-2x the blob size in available RAM.
 
-For example, encoding a 5 GB blob requires 10 to 15 GB of available RAM.
+For example, encoding a 5 GiB blob requires 10 to 15 GiB of available RAM.
 
 If the system runs out of memory during encoding, the operation fails with an error such as `Out of memory` or `Failed to allocate buffer`. Split large blobs into smaller chunks to reduce memory requirements, or run the CLI on a machine with more RAM.
 
@@ -32,7 +32,7 @@ Public Sui RPC endpoints have request quotas. If you encounter `RPC rate limit e
 
 ## Network bandwidth
 
-Upload and download times are proportional to blob size and network speed. Walrus encodes data with approximately 4.5x expansion, so uploading a 1 GB blob transmits roughly 4.5 GB of encoded data across the network.
+Upload and download times are proportional to blob size and network speed. Walrus encodes data with approximately 4.5x expansion, so uploading a 1 GiB blob transmits roughly 4.5 GiB of encoded data across the network.
 
 To reduce upload latency:
 

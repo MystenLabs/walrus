@@ -8,7 +8,7 @@ Quilt introduces custom, immutable Walrus-native blob metadata, allowing you to 
 
 :::warning
 
-An identifier must start with an alphanumeric character, contain no trailing whitespace, and not exceed 64 KB in length.
+An identifier must start with an alphanumeric character, contain no trailing whitespace, and not exceed 64 KiB in length.
 
 The total size of all tags combined must not exceed 64 KB.
 
@@ -26,7 +26,7 @@ Using Quilt requires minimal additional effort beyond standard procedures. The p
 
 Quilt is especially advantageous for managing large volumes of small blobs, as long as they can be grouped together. The cost savings come from 2 sources:
 
-- **Walrus storage and write fees:** By consolidating multiple small blobs into a single quilt, storage costs can be reduced dramatically — more than 400x for files around 10 KB — making it an efficient solution for cost-sensitive applications.
+- **Walrus storage and write fees:** By consolidating multiple small blobs into a single quilt, storage costs can be reduced dramatically — more than 400x for files around 10 KiB — making it an efficient solution for cost-sensitive applications.
 
 - **Sui computation and object storage fees:** Storing many blobs as a single quilt significantly reduces Sui gas costs. In test runs with 600 files stored in a quilt, 238x savings in Sui fees were observed compared to storing them as individual blobs. Sui cost savings depend only on the number of files per quilt rather than the individual file sizes.
 
@@ -34,12 +34,12 @@ The following table demonstrates the potential cost savings in WAL when storing 
 
 | Blob size | Regular blob storage cost | Quilt storage cost | Cost saving factor |
 |----------:|--------------------------:|-------------------:|-------------------:|
-|      10KB |                 2.088 WAL |          0.005 WAL |               409x |
-|      50KB |                 2.088 WAL |          0.011 WAL |               190x |
-|     100KB |                 2.088 WAL |          0.020 WAL |               104x |
-|     200KB |                 2.088 WAL |          0.036 WAL |                58x |
-|     500KB |                 2.136 WAL |          0.084 WAL |                25x |
-|       1MB |                 2.208 WAL |          0.170 WAL |                13x |
+|      10KiB |                 2.088 WAL |          0.005 WAL |               409x |
+|      50KiB |                 2.088 WAL |          0.011 WAL |               190x |
+|     100KiB |                 2.088 WAL |          0.020 WAL |               104x |
+|     200KiB |                 2.088 WAL |          0.036 WAL |                58x |
+|     500KiB |                 2.136 WAL |          0.084 WAL |                25x |
+|       1MiB |                 2.208 WAL |          0.170 WAL |                13x |
 
 :::info
 
