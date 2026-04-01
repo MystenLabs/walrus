@@ -25,6 +25,7 @@ pub struct StorageNodeClientBuilder {
     roots: Vec<CertificateDer<'static>>,
     no_built_in_root_certs: bool,
     connect_timeout: Option<Duration>,
+    total_timeout: Option<Duration>,
     registry: Option<Registry>,
 }
 
@@ -128,6 +129,15 @@ impl StorageNodeClientBuilder {
         self
     }
 
+    /// Set a total request timeout, applied from when the request starts connecting until the
+    /// response body has finished.
+    ///
+    /// No total timeout is set by default.
+    pub fn timeout(mut self, timeout: Duration) -> Self {
+        self.total_timeout = Some(timeout);
+        self
+    }
+
     /// Registers metrics the provided registry. Defaults to the global default registry.
     pub fn metric_registry(mut self, registry: Registry) -> Self {
         self.registry = Some(registry);
@@ -198,7 +208,7 @@ impl StorageNodeClientBuilder {
             .with_custom_certificate_verifier(Arc::new(verifier))
             .with_no_client_auth();
 
-        let inner = self
+        let mut builder = self
             .inner
             .https_only(true)
             .http2_prior_knowledge()
@@ -207,9 +217,11 @@ impl StorageNodeClientBuilder {
             .connect_timeout(
                 self.connect_timeout
                     .unwrap_or(Self::DEFAULT_CONNECT_TIMEOUT),
-            )
-            .build()
-            .map_err(ClientBuildError::reqwest)?;
+            );
+        if let Some(total_timeout) = self.total_timeout {
+            builder = builder.timeout(total_timeout);
+        }
+        let inner = builder.build().map_err(ClientBuildError::reqwest)?;
 
         Ok(StorageNodeClient {
             client_clone: inner.clone(),
