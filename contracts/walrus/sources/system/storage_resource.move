@@ -49,9 +49,14 @@ public(package) fun create_storage(
     Storage { id: object::new(ctx), start_epoch, end_epoch, storage_size }
 }
 
-/// Extends the end epoch by `extendion_epochs` epochs.
+/// Extends the end epoch by `extension_epochs` epochs.
 public(package) fun extend_end_epoch(self: &mut Storage, extension_epochs: u32) {
     self.end_epoch = self.end_epoch + extension_epochs;
+}
+
+/// Increases the storage size by `additional_size` bytes.
+public(package) fun increase_size(self: &mut Storage, additional_size: u64) {
+    self.storage_size = self.storage_size + additional_size;
 }
 
 /// Splits the storage object into two based on `split_epoch`.

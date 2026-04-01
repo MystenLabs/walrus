@@ -50,6 +50,132 @@ fun create_storage_pool_zero_epochs() {
     abort
 }
 
+// === StoragePool creation with Storage tests ===
+
+#[test]
+fun create_storage_pool_with_storage_happy_path() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let storage_size = encoded_size(&system, SIZE);
+
+    // Reserve a Storage object, then create a pool from it.
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    let storage = system.reserve_space(storage_size, 3, &mut fake_coin, ctx);
+    let pool = system.create_storage_pool_with_storage(storage, ctx);
+
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), storage_size);
+    assert_eq!(pool.start_epoch(), 0);
+    assert_eq!(pool.end_epoch(), 3);
+    assert_eq!(pool.blob_count(), 0);
+
+    fake_coin.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test]
+fun create_storage_pool_with_storage_from_deleted_blob() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let storage_size = encoded_size(&system, SIZE);
+
+    // Reserve storage, register a deletable blob, then delete it to recover Storage.
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    let storage = system.reserve_space(storage_size, 3, &mut fake_coin, ctx);
+    let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
+    let mut write_payment = test_utils::mint_frost(N_COINS, ctx);
+    let blob = system.register_blob(
+        storage,
+        blob_id,
+        ROOT_HASH,
+        SIZE,
+        RS2,
+        true,
+        &mut write_payment,
+        ctx,
+    );
+    let recovered_storage = system.delete_blob(blob);
+
+    // Create a pool from the recovered Storage.
+    let pool = system.create_storage_pool_with_storage(recovered_storage, ctx);
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), storage_size);
+    assert_eq!(pool.end_epoch(), 3);
+
+    fake_coin.burn_for_testing();
+    write_payment.burn_for_testing();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test]
+fun create_storage_pool_with_storage_from_destroyed_pool() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let storage_size = encoded_size(&system, SIZE);
+
+    // Create a pool, destroy it to get Storage back, then create a new pool.
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    let pool = system.create_storage_pool(storage_size, 3, &mut fake_coin, ctx);
+    let storage = pool.destroy();
+    let new_pool = system.create_storage_pool_with_storage(storage, ctx);
+
+    assert_eq!(new_pool.reserved_encoded_capacity_bytes(), storage_size);
+    assert_eq!(new_pool.end_epoch(), 3);
+
+    fake_coin.burn_for_testing();
+    new_pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = system_state_inner::EInvalidResourceSize)]
+fun create_storage_pool_with_storage_zero_size() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let storage_size = encoded_size(&system, SIZE);
+
+    // Create a zero-size Storage via split_by_size.
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    let mut storage = system.reserve_space(storage_size, 3, &mut fake_coin, ctx);
+    let _remainder = storage.split_by_size(0, ctx);
+    // storage now has size 0.
+    let _pool = system.create_storage_pool_with_storage(storage, ctx);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = system_state_inner::EInvalidEpochsAhead)]
+fun create_storage_pool_with_storage_future_start() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let storage_size = encoded_size(&system, SIZE);
+
+    // Create a Storage with future start_epoch via split_by_epoch.
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    let mut storage = system.reserve_space(storage_size, 3, &mut fake_coin, ctx);
+    let future_storage = storage.split_by_epoch(1, ctx);
+    // future_storage covers [1, 3), current epoch is 0.
+    let _pool = system.create_storage_pool_with_storage(future_storage, ctx);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = system_state_inner::EInvalidEpochsAhead)]
+fun create_storage_pool_with_storage_expired() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let storage_size = encoded_size(&system, SIZE);
+
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    let storage = system.reserve_space(storage_size, 1, &mut fake_coin, ctx);
+
+    // Advance past end_epoch.
+    advance_epoch(&mut system);
+
+    let _pool = system.create_storage_pool_with_storage(storage, ctx);
+
+    abort
+}
+
 // === Pooled blob registration tests ===
 
 #[test]
@@ -270,7 +396,7 @@ fun delete_pooled_blob_certified() {
     assert_eq!(pool.used_encoded_bytes(), 0);
     assert!(pool.used_encoded_bytes() < used_before);
 
-    pool.destroy();
+    pool.destroy().destroy();
     system.destroy_for_testing();
 }
 
@@ -289,7 +415,7 @@ fun delete_pooled_blob_uncertified() {
     assert_eq!(pool.blob_count(), 0);
     assert_eq!(pool.used_encoded_bytes(), 0);
 
-    pool.destroy();
+    pool.destroy().destroy();
     system.destroy_for_testing();
 }
 
@@ -567,7 +693,7 @@ fun destroy_empty_pool() {
     let pool = create_default_pool(&mut system, ctx);
 
     // An empty pool can be destroyed.
-    pool.destroy();
+    pool.destroy().destroy();
     system.destroy_for_testing();
 }
 
@@ -581,7 +707,7 @@ fun destroy_non_empty_pool() {
     register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, false, ctx);
 
     // Destroying a pool with blobs should fail.
-    pool.destroy();
+    pool.destroy().destroy();
 
     abort
 }
@@ -731,7 +857,7 @@ fun full_pooled_blob_lifecycle() {
     assert_eq!(pool.used_encoded_bytes(), 0);
 
     // 6. Destroy the empty pool.
-    pool.destroy();
+    pool.destroy().destroy();
 
     fake_coin.burn_for_testing();
     system.destroy_for_testing();

@@ -223,6 +223,15 @@ public fun create_storage_pool(
         .create_storage_pool(reserved_encoded_capacity_bytes, epochs_ahead, payment, ctx)
 }
 
+/// Creates a new storage pool backed by an existing `Storage` reservation.
+public fun create_storage_pool_with_storage(
+    self: &System,
+    storage: Storage,
+    ctx: &mut TxContext,
+): StoragePool {
+    self.inner().create_storage_pool_with_storage(storage, ctx)
+}
+
 /// Registers a new blob against a storage pool.
 public fun register_pooled_blob(
     self: &mut System,

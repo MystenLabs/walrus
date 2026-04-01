@@ -824,27 +824,29 @@ public(package) fun create_storage_pool(
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): StoragePool {
-    assert!(reserved_encoded_capacity_bytes > 0, EInvalidResourceSize);
-    assert!(epochs_ahead > 0, EInvalidEpochsAhead);
-    assert!(epochs_ahead <= self.future_accounting.max_epochs_ahead(), EInvalidEpochsAhead);
+    // Reserve a Storage object (handles validation, payment, and capacity accounting).
+    let storage = self.reserve_space(reserved_encoded_capacity_bytes, epochs_ahead, payment, ctx);
+    self.create_storage_pool_with_storage(storage, ctx)
+}
 
-    let start_epoch = self.epoch();
-    let end_epoch = start_epoch + epochs_ahead;
-
-    // Pay rewards for each future epoch into the future accounting.
-    self.process_storage_payments(reserved_encoded_capacity_bytes, 0, epochs_ahead, payment);
-
-    // Account capacity in ring buffer for newly purchased epochs.
-    self.account_capacity(0, epochs_ahead, reserved_encoded_capacity_bytes);
-
-    let pool = storage_pool::create(start_epoch, end_epoch, reserved_encoded_capacity_bytes, ctx);
+/// Creates a new `StoragePool` backed by an existing `Storage` reservation.
+/// The storage must have started (start_epoch <= current epoch) and not yet expired.
+public(package) fun create_storage_pool_with_storage(
+    self: &SystemStateInnerV1,
+    storage: Storage,
+    ctx: &mut TxContext,
+): StoragePool {
+    assert!(storage.size() > 0, EInvalidResourceSize);
+    assert!(storage.start_epoch() <= self.epoch(), EInvalidEpochsAhead);
+    assert!(storage.end_epoch() > self.epoch(), EInvalidEpochsAhead);
+    let pool = storage_pool::create(storage, ctx);
 
     events::emit_storage_pool_created(
-        start_epoch,
+        self.epoch(),
         pool.object_id(),
-        reserved_encoded_capacity_bytes,
-        start_epoch,
-        end_epoch,
+        pool.reserved_encoded_capacity_bytes(),
+        pool.start_epoch(),
+        pool.end_epoch(),
     );
 
     pool
