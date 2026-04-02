@@ -108,7 +108,6 @@ const sidebars = {
       },
       collapsed: true,
       items: [
-
         'troubleshooting/network-errors',
         'troubleshooting/error-handling',
       ],
@@ -146,7 +145,6 @@ const sidebars = {
       items: [
         `sites/configuration/site-configuration`,
         'sites/configuration/specifying-http-headers',
-        'sites/configuration/setting-up-routing-rules',
         'sites/configuration/adding-metadata',
       ],
     },
