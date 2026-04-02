@@ -1178,7 +1178,8 @@ impl BlobInfoTable {
             }
         }
 
-        // Also collect blob IDs from the pooled table.
+        // Also collect blob IDs from the pooled table, tracking per-blob-id counts.
+        let mut pooled_counts: HashMap<BlobId, (u32, u32)> = HashMap::new();
         if let Some(pooled_table) = &self.per_object_pooled_blob_info {
             for result in pooled_table
                 .safe_iter_with_snapshot(&snapshot)
@@ -1192,7 +1193,7 @@ impl BlobInfoTable {
                 };
                 let blob_id = pooled_info.blob_id;
                 per_object_table_blob_ids.insert(blob_id);
-                let Some(_blob_info) = self
+                let Some(blob_info) = self
                     .aggregate_blob_info
                     .get_with_snapshot(&snapshot, &blob_id)?
                 else {
@@ -1201,6 +1202,21 @@ impl BlobInfoTable {
                         per-object pooled blob info entry exists (object ID: {object_id})"
                     ));
                 };
+
+                // Aggregate blob info must be V2 for pooled blobs.
+                anyhow::ensure!(
+                    matches!(blob_info, BlobInfo::V2(_)),
+                    "per-object pooled blob info exists for blob ID {blob_id} (object ID: \
+                    {object_id}), but aggregate blob info is V1 instead of V2"
+                );
+
+                let (total, certified) = pooled_counts.entry(blob_id).or_insert((0, 0));
+                *total = total.checked_add(1).expect("pooled ref total overflow");
+                if pooled_info.certified_epoch.is_some() {
+                    *certified = certified
+                        .checked_add(1)
+                        .expect("pooled ref certified overflow");
+                }
             }
         }
 
@@ -1238,6 +1254,24 @@ impl BlobInfoTable {
                     v2_info.check_invariants().context(format!(
                         "aggregate blob info V2 invariants violated for blob ID {blob_id}"
                     ))?;
+
+                    // Cross-check pooled ref counters against per-object pooled table.
+                    let (expected_total, expected_certified) =
+                        pooled_counts.get(&blob_id).copied().unwrap_or((0, 0));
+                    anyhow::ensure!(
+                        v2_info.count_pooled_refs_total == expected_total,
+                        "count_pooled_refs_total mismatch for blob ID {blob_id}: aggregate has \
+                        {}, but per-object pooled table has {expected_total} entries; \
+                        aggregate info: {v2_info:?}",
+                        v2_info.count_pooled_refs_total,
+                    );
+                    anyhow::ensure!(
+                        v2_info.count_pooled_refs_certified == expected_certified,
+                        "count_pooled_refs_certified mismatch for blob ID {blob_id}: aggregate \
+                        has {}, but per-object pooled table has {expected_certified} certified \
+                        entries; aggregate info: {v2_info:?}",
+                        v2_info.count_pooled_refs_certified,
+                    );
                 }
                 // Invalid blob info.
                 _ => continue,
