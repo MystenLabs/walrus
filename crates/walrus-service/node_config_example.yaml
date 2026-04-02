@@ -250,8 +250,9 @@ garbage_collection:
   data_deletion_batch_size: 2000
 sliver_reference_cache_max_entries: 65536
 wal_price_monitor:
-  enable_wal_price_monitor: false
+  force_enable_wal_price_monitor: false
   check_interval_secs: 600
+  request_timeout_secs: 60
 epoch_state_consistency:
   timeout_secs: 60
   poll_interval_millis: 500
