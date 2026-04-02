@@ -5,6 +5,7 @@
 
 use anyhow::Context;
 use bytes::Bytes;
+use sui_rpc::proto::sui::rpc::v2::dynamic_field::DynamicFieldKind as ProtoDynamicFieldKind;
 use sui_sdk::rpc_types::DynamicFieldInfo as SuiDynamicFieldInfo;
 use sui_types::{TypeTag, base_types::ObjectID, dynamic_field::DynamicFieldType};
 
@@ -89,10 +90,12 @@ pub(crate) fn dynamic_field_info_from_grpc(
         .to_vec();
 
     let kind_i32 = field.kind.context("missing kind in DynamicField")?;
-    let kind = match kind_i32 {
-        1 => DynamicFieldKind::Field,
-        2 => DynamicFieldKind::Object,
-        other => anyhow::bail!("unknown DynamicFieldKind: {other}"),
+    let proto_kind = ProtoDynamicFieldKind::try_from(kind_i32)
+        .map_err(|_| anyhow::anyhow!("unknown DynamicFieldKind: {kind_i32}"))?;
+    let kind = match proto_kind {
+        ProtoDynamicFieldKind::Field => DynamicFieldKind::Field,
+        ProtoDynamicFieldKind::Object => DynamicFieldKind::Object,
+        other => anyhow::bail!("unsupported DynamicFieldKind: {}", other.as_str_name()),
     };
 
     let value_type = field
