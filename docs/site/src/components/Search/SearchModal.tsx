@@ -261,7 +261,7 @@ export default function MultiIndexSearchModal({
 
     return (
         <div
-            className="fixed inset-0 z-50 flex justify-center p-4"
+            className="fixed inset-0 z-500 flex justify-center p-4"
             style={{ backgroundColor: overlayBg }}
         >
             <div

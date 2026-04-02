@@ -80,10 +80,6 @@ const sidebars = {
         'http-api/quilt-http-apis',
       ],
     },
-    "typescript-sdk/sdks",
-    'large-uploads',
-    'data-security',
-    'tusky-migration-guide',
     {
       type: 'category',
       label: 'Troubleshooting',
@@ -98,6 +94,10 @@ const sidebars = {
         'troubleshooting/error-handling',
       ],
     },
+    "typescript-sdk/sdks",
+    'large-uploads',
+    'data-security',
+    'tusky-migration-guide',
     'glossary',
     ],
       sitesSidebar: [
@@ -195,7 +195,7 @@ const sidebars = {
     "operator-guide/index",
       {
           type: "category",
-          label: "Operate a Storage Node",
+          label: "Storage Nodes",
           link: {
               type: "doc",
               id: "operator-guide/storage-nodes/index",
@@ -209,7 +209,6 @@ const sidebars = {
               "operator-guide/storage-nodes/storage-node-faq",
           ],
       },
-      "operator-guide/aggregators/operating-aggregator",
       {
           type: "category",
           label: "Publishers",
@@ -218,6 +217,7 @@ const sidebars = {
               "operator-guide/publishers/auth-publisher",
           ],
       },
+      "operator-guide/aggregators/operating-aggregator",
       "operator-guide/upload-relay",
       "operator-guide/signed-binaries",
       "operator-guide/stake",
