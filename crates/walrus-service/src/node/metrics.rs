@@ -260,6 +260,12 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The current monitored WAL price in USD"]
         current_monitored_wal_price: GaugeVec["source"],
+
+        #[help = "Total number of successful WAL price fetch requests"]
+        wal_price_fetch_success_total: IntCounterVec["source"],
+
+        #[help = "Total number of failed WAL price fetch requests"]
+        wal_price_fetch_failure_total: IntCounterVec["source"],
     }
 }
 

@@ -44,11 +44,12 @@ trait WalPriceFetcher: Send + Sync {
 #[derive(Clone)]
 struct CoinGeckoPriceFetcher {
     metrics: Arc<NodeMetricSet>,
+    timeout: Duration,
 }
 
 impl CoinGeckoPriceFetcher {
-    fn new(metrics: Arc<NodeMetricSet>) -> Self {
-        Self { metrics }
+    fn new(metrics: Arc<NodeMetricSet>, timeout: Duration) -> Self {
+        Self { metrics, timeout }
     }
 }
 
@@ -59,7 +60,7 @@ impl WalPriceFetcher for CoinGeckoPriceFetcher {
 
     fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
         Box::pin(async move {
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder().timeout(self.timeout).build()?;
             let response = client
                 .get(COINGECKO_API_URL)
                 .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
@@ -94,11 +95,12 @@ impl WalPriceFetcher for CoinGeckoPriceFetcher {
 #[derive(Clone)]
 struct CoinbasePriceFetcher {
     metrics: Arc<NodeMetricSet>,
+    timeout: Duration,
 }
 
 impl CoinbasePriceFetcher {
-    fn new(metrics: Arc<NodeMetricSet>) -> Self {
-        Self { metrics }
+    fn new(metrics: Arc<NodeMetricSet>, timeout: Duration) -> Self {
+        Self { metrics, timeout }
     }
 }
 
@@ -109,7 +111,7 @@ impl WalPriceFetcher for CoinbasePriceFetcher {
 
     fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
         Box::pin(async move {
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder().timeout(self.timeout).build()?;
             let response = client
                 .get(COINBASE_API_URL)
                 .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
@@ -145,11 +147,12 @@ impl WalPriceFetcher for CoinbasePriceFetcher {
 #[derive(Clone)]
 struct BinancePriceFetcher {
     metrics: Arc<NodeMetricSet>,
+    timeout: Duration,
 }
 
 impl BinancePriceFetcher {
-    fn new(metrics: Arc<NodeMetricSet>) -> Self {
-        Self { metrics }
+    fn new(metrics: Arc<NodeMetricSet>, timeout: Duration) -> Self {
+        Self { metrics, timeout }
     }
 }
 
@@ -160,7 +163,7 @@ impl WalPriceFetcher for BinancePriceFetcher {
 
     fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
         Box::pin(async move {
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder().timeout(self.timeout).build()?;
             let response = client
                 .get(BINANCE_API_URL)
                 .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
@@ -195,11 +198,12 @@ impl WalPriceFetcher for BinancePriceFetcher {
 #[derive(Clone)]
 struct PythHermesPriceFetcher {
     metrics: Arc<NodeMetricSet>,
+    timeout: Duration,
 }
 
 impl PythHermesPriceFetcher {
-    fn new(metrics: Arc<NodeMetricSet>) -> Self {
-        Self { metrics }
+    fn new(metrics: Arc<NodeMetricSet>, timeout: Duration) -> Self {
+        Self { metrics, timeout }
     }
 }
 
@@ -210,7 +214,7 @@ impl WalPriceFetcher for PythHermesPriceFetcher {
 
     fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
         Box::pin(async move {
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder().timeout(self.timeout).build()?;
             let response = client
                 .get(PYTH_HERMES_API_URL)
                 .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
@@ -262,13 +266,18 @@ pub struct WalPriceMonitorConfig {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "check_interval_secs")]
     pub check_interval: Duration,
+    /// Timeout for each individual HTTP price fetch request
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "request_timeout_secs")]
+    pub request_timeout: Duration,
 }
 
 impl Default for WalPriceMonitorConfig {
     fn default() -> Self {
         Self {
-            enable_wal_price_monitor: false,
+            enable_wal_price_monitor: true,
             check_interval: Duration::from_secs(600), // Default: check every 10 minutes
+            request_timeout: Duration::from_secs(60),
         }
     }
 }
@@ -327,11 +336,12 @@ impl WalPriceMonitor {
         let current_price = Arc::new(RwLock::new(None));
 
         // Create the list of WAL price fetchers
+        let timeout = config.request_timeout;
         let fetchers: Vec<Box<dyn WalPriceFetcher>> = vec![
-            Box::new(CoinGeckoPriceFetcher::new(metrics.clone())),
-            Box::new(CoinbasePriceFetcher::new(metrics.clone())),
-            Box::new(BinancePriceFetcher::new(metrics.clone())),
-            Box::new(PythHermesPriceFetcher::new(metrics.clone())),
+            Box::new(CoinGeckoPriceFetcher::new(metrics.clone(), timeout)),
+            Box::new(CoinbasePriceFetcher::new(metrics.clone(), timeout)),
+            Box::new(BinancePriceFetcher::new(metrics.clone(), timeout)),
+            Box::new(PythHermesPriceFetcher::new(metrics.clone(), timeout)),
         ];
 
         tracing::info!(
@@ -400,6 +410,10 @@ impl WalPriceMonitor {
                                 fetcher.source(),
                                 price
                             );
+                            metrics
+                                .wal_price_fetch_success_total
+                                .with_label_values(&[fetcher.source()])
+                                .inc();
                             prices.push(price);
                         }
                         Err(e) => {
@@ -410,6 +424,10 @@ impl WalPriceMonitor {
                                 fetcher.source(),
                                 e
                             );
+                            metrics
+                                .wal_price_fetch_failure_total
+                                .with_label_values(&[fetcher.source()])
+                                .inc();
                         }
                     }
                 }
@@ -473,7 +491,7 @@ mod tests {
                 let registry = Registry::default();
                 let metrics = Arc::new(NodeMetricSet::new(&registry));
 
-                let fetcher = <$fetcher_type>::new(metrics.clone());
+                let fetcher = <$fetcher_type>::new(metrics.clone(), Duration::from_secs(60));
                 let result = fetcher.fetch().await;
 
                 assert!(
