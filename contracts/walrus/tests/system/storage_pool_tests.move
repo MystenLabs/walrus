@@ -959,7 +959,7 @@ fun delete_pooled_blob_with_metadata() {
     system.delete_pooled_blob(&mut pool, blob_id);
     assert_eq!(pool.blob_count(), 0);
 
-    pool.destroy();
+    pool.destroy().destroy();
     system.destroy_for_testing();
 }
 

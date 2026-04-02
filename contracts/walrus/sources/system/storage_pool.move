@@ -13,8 +13,8 @@ use walrus::{
     encoding,
     events::{emit_pooled_blob_certified, emit_pooled_blob_deleted, emit_pooled_blob_registered},
     messages::CertifiedBlobMessage,
+    metadata::{Self, Metadata},
     storage_resource::Storage
-    metadata::{Self, Metadata}
 };
 
 // Error codes
