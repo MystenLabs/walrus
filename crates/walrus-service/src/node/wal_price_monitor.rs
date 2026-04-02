@@ -260,8 +260,10 @@ impl WalPriceFetcher for PythHermesPriceFetcher {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WalPriceMonitorConfig {
-    /// Whether to enable WAL price monitoring
-    pub enable_wal_price_monitor: bool,
+    /// Force-enable WAL price monitoring even when the price currency is not NanoUsd.
+    /// When false, the monitor is automatically enabled only for NanoUsd pricing.
+    #[serde(default)]
+    pub force_enable_wal_price_monitor: bool,
     /// How often to check the WAL price
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "check_interval_secs")]
@@ -275,7 +277,7 @@ pub struct WalPriceMonitorConfig {
 impl Default for WalPriceMonitorConfig {
     fn default() -> Self {
         Self {
-            enable_wal_price_monitor: true,
+            force_enable_wal_price_monitor: false,
             check_interval: Duration::from_secs(600), // Default: check every 10 minutes
             request_timeout: Duration::from_secs(60),
         }
