@@ -2,6 +2,9 @@
 # Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
 
+# Unset GIT_DIR to prevent pre-commit hooks from leaking the parent repo's git context
+# into `sui move test`, which spawns git subprocesses for dependency fetching.
+unset GIT_DIR
 shopt -s nullglob
 
 MIN_COVERAGE=${1:-70}

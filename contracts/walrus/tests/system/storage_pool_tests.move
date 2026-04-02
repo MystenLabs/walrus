@@ -9,6 +9,7 @@ use walrus::{
     blob,
     encoding,
     messages,
+    metadata,
     storage_pool::{Self, StoragePool},
     system::{Self, System},
     system_state_inner,
@@ -967,6 +968,105 @@ fun full_pooled_blob_lifecycle() {
     pool.destroy().destroy();
 
     fake_coin.burn_for_testing();
+    system.destroy_for_testing();
+}
+
+// === Pooled blob metadata tests ===
+
+#[test]
+fun pooled_blob_metadata_operations() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    // insert_or_update auto-creates metadata when none exists.
+    pool.insert_or_update_blob_metadata_pair(blob_id, b"key1".to_string(), b"value1".to_string());
+
+    // Update existing key.
+    pool.insert_or_update_blob_metadata_pair(blob_id, b"key1".to_string(), b"value2".to_string());
+    let (key, value) = pool.remove_blob_metadata_pair(blob_id, &b"key1".to_string());
+    assert_eq!(key, b"key1".to_string());
+    assert_eq!(value, b"value2".to_string());
+
+    // remove_if_exists is a no-op when metadata has no matching key.
+    let result = pool.remove_blob_metadata_pair_if_exists(blob_id, &b"missing".to_string());
+    assert!(result.is_none());
+
+    // add_or_replace: replace existing metadata and verify old is returned.
+    let mut metadata2 = metadata::new();
+    metadata2.insert_or_update(b"key2".to_string(), b"value2".to_string());
+    let old = pool.add_or_replace_blob_metadata(blob_id, metadata2);
+    assert!(old.is_some());
+
+    // take_metadata removes the metadata entirely.
+    let _taken = pool.take_blob_metadata(blob_id);
+
+    // remove_if_exists is a no-op when no metadata exists at all.
+    let result = pool.remove_blob_metadata_pair_if_exists(blob_id, &b"key1".to_string());
+    assert!(result.is_none());
+
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = storage_pool::EDuplicateMetadata)]
+fun pooled_blob_add_metadata_already_exists() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    pool.add_blob_metadata(blob_id, metadata::new());
+    pool.add_blob_metadata(blob_id, metadata::new());
+
+    abort
+}
+
+#[test, expected_failure(abort_code = storage_pool::EMissingMetadata)]
+fun pooled_blob_take_metadata_nonexistent() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    pool.take_blob_metadata(blob_id);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = storage_pool::EMissingMetadata)]
+fun pooled_blob_remove_metadata_pair_nonexistent() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    pool.remove_blob_metadata_pair(blob_id, &b"key1".to_string());
+
+    abort
+}
+
+#[test]
+fun delete_pooled_blob_with_metadata() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    pool.insert_or_update_blob_metadata_pair(blob_id, b"key1".to_string(), b"value1".to_string());
+
+    // Metadata should not prevent deletion.
+    system.delete_pooled_blob(&mut pool, blob_id);
+    assert_eq!(pool.blob_count(), 0);
+
+    pool.destroy().destroy();
     system.destroy_for_testing();
 }
 

@@ -6,12 +6,14 @@
 /// back into the pool for reuse.
 module walrus::storage_pool;
 
+use std::string::String;
 use sui::{dynamic_field, object_table::{Self, ObjectTable}};
 use walrus::{
     blob,
     encoding,
     events::{emit_pooled_blob_certified, emit_pooled_blob_deleted, emit_pooled_blob_registered},
     messages::CertifiedBlobMessage,
+    metadata::{Self, Metadata},
     storage_resource::Storage
 };
 
@@ -41,9 +43,16 @@ const EInvalidBlobCount: u64 = 9;
 const EWrongVersion: u64 = 10;
 /// The end epochs do not match.
 const EIncompatibleEndEpoch: u64 = 11;
+/// The metadata field already exists.
+const EDuplicateMetadata: u64 = 12;
+/// The blob does not have any metadata.
+const EMissingMetadata: u64 = 13;
 
 /// Version of the pool outer object.
 const VERSION: u64 = 1;
+
+/// The fixed dynamic field name for metadata on pooled blobs.
+const METADATA_DF: vector<u8> = b"metadata";
 
 // === Object definitions ===
 
@@ -332,7 +341,9 @@ public(package) fun certify(
 
 /// Deletes a deletable blob from a storage pool and destroys it.
 /// Emit `PooledBlobDeleted` event for the current epoch.
-public(package) fun delete_blob_object(pooled_blob: PooledBlob, epoch: u32) {
+/// Also removes any metadata associated with the blob.
+public(package) fun delete_blob_object(mut pooled_blob: PooledBlob, epoch: u32) {
+    dynamic_field::remove_if_exists<_, Metadata>(&mut pooled_blob.id, METADATA_DF);
     let PooledBlob {
         id,
         deletable,
@@ -359,6 +370,139 @@ public(package) fun is_deletable(self: &PooledBlob): bool {
 
 public(package) fun is_certified(self: &PooledBlob): bool {
     self.certified_epoch.is_some()
+}
+
+// === PooledBlob Metadata ===
+
+/// Adds the metadata dynamic field to the PooledBlob.
+///
+/// Aborts if the metadata is already present.
+fun add_metadata(self: &mut PooledBlob, metadata: Metadata) {
+    assert!(!dynamic_field::exists_(&self.id, METADATA_DF), EDuplicateMetadata);
+    dynamic_field::add(&mut self.id, METADATA_DF, metadata)
+}
+
+/// Adds the metadata dynamic field to the PooledBlob, replacing the existing metadata if
+/// present.
+///
+/// Returns the replaced metadata if present.
+fun add_or_replace_metadata(self: &mut PooledBlob, metadata: Metadata): option::Option<Metadata> {
+    let old_metadata = if (dynamic_field::exists_(&self.id, METADATA_DF)) {
+        option::some(self.take_metadata())
+    } else {
+        option::none()
+    };
+    self.add_metadata(metadata);
+    old_metadata
+}
+
+/// Removes the metadata dynamic field from the PooledBlob, returning the contained `Metadata`.
+///
+/// Aborts if the metadata does not exist.
+fun take_metadata(self: &mut PooledBlob): Metadata {
+    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
+    dynamic_field::remove(&mut self.id, METADATA_DF)
+}
+
+/// Returns the metadata associated with the PooledBlob.
+///
+/// Aborts if the metadata does not exist.
+fun metadata(self: &mut PooledBlob): &mut Metadata {
+    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
+    dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
+}
+
+/// Returns the metadata associated with the PooledBlob, if it exists.
+///
+/// Creates new metadata if it does not exist.
+fun metadata_or_create(self: &mut PooledBlob): &mut Metadata {
+    if (!dynamic_field::exists_(&self.id, METADATA_DF)) {
+        self.add_metadata(metadata::new());
+    };
+    dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
+}
+
+/// Inserts a key-value pair into the metadata.
+///
+/// If the key is already present, the value is updated. Creates new metadata on the PooledBlob
+/// object if it does not exist already.
+fun insert_or_update_metadata_pair(self: &mut PooledBlob, key: String, value: String) {
+    self.metadata_or_create().insert_or_update(key, value)
+}
+
+/// Removes the metadata associated with the given key.
+///
+/// Aborts if the metadata does not exist.
+fun remove_metadata_pair(self: &mut PooledBlob, key: &String): (String, String) {
+    self.metadata().remove(key)
+}
+
+/// Removes and returns the metadata associated with the given key, if it exists.
+fun remove_metadata_pair_if_exists(self: &mut PooledBlob, key: &String): option::Option<String> {
+    if (!dynamic_field::exists_(&self.id, METADATA_DF)) {
+        option::none()
+    } else {
+        self.metadata().remove_if_exists(key)
+    }
+}
+
+// === StoragePool Metadata Convenience Functions ===
+
+/// Adds metadata to a pooled blob by blob ID.
+///
+/// Aborts if the metadata is already present.
+public fun add_blob_metadata(self: &mut StoragePool, blob_id: u256, metadata: Metadata) {
+    self.borrow_blob_mut(blob_id).add_metadata(metadata)
+}
+
+/// Adds metadata to a pooled blob by blob ID, replacing existing metadata if present.
+///
+/// Returns the replaced metadata if present.
+public fun add_or_replace_blob_metadata(
+    self: &mut StoragePool,
+    blob_id: u256,
+    metadata: Metadata,
+): option::Option<Metadata> {
+    self.borrow_blob_mut(blob_id).add_or_replace_metadata(metadata)
+}
+
+/// Removes and returns the metadata from a pooled blob by blob ID.
+///
+/// Aborts if the metadata does not exist.
+public fun take_blob_metadata(self: &mut StoragePool, blob_id: u256): Metadata {
+    self.borrow_blob_mut(blob_id).take_metadata()
+}
+
+/// Inserts or updates a key-value pair in a pooled blob's metadata by blob ID.
+///
+/// Creates new metadata on the blob if it does not exist already.
+public fun insert_or_update_blob_metadata_pair(
+    self: &mut StoragePool,
+    blob_id: u256,
+    key: String,
+    value: String,
+) {
+    self.borrow_blob_mut(blob_id).insert_or_update_metadata_pair(key, value)
+}
+
+/// Removes the metadata pair with the given key from a pooled blob by blob ID.
+///
+/// Aborts if the metadata does not exist.
+public fun remove_blob_metadata_pair(
+    self: &mut StoragePool,
+    blob_id: u256,
+    key: &String,
+): (String, String) {
+    self.borrow_blob_mut(blob_id).remove_metadata_pair(key)
+}
+
+/// Removes and returns the value for the given key from a pooled blob's metadata, if it exists.
+public fun remove_blob_metadata_pair_if_exists(
+    self: &mut StoragePool,
+    blob_id: u256,
+    key: &String,
+): option::Option<String> {
+    self.borrow_blob_mut(blob_id).remove_metadata_pair_if_exists(key)
 }
 
 // === Testing ===
