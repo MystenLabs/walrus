@@ -211,7 +211,7 @@ body {
 
 .markdown li {
   line-height: 1.8;
-  font-size: 1.05rem;
+  font-size: 0.95rem;
 }
 
 /* ══════════════════════════════════════════════
@@ -307,7 +307,7 @@ body {
 .menu__link {
   border-radius: 6px;
   transition: all 0.15s ease;
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   padding: 0.4rem 0.75rem;
   color: #484946;
 }
@@ -424,7 +424,7 @@ pre {
    ══════════════════════════════════════════════ */
 
 .table-of-contents {
-  font-size: 0.875rem;
+  font-size: 0.75rem;
 }
 
 .table-of-contents__link {
@@ -1242,7 +1242,7 @@ div[class*="codeBlock"]:hover button[class*="copyButton"] {
 /* Category headings */
 .menu__list-item-collapsible > .menu__link {
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.70rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #484946;

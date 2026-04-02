@@ -151,7 +151,7 @@
 .description {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 0.9rem;
+  font-size: 0.825rem;
   line-height: 1.5;
   color: #111318;
   flex: 1;
@@ -257,7 +257,7 @@
 
 .childText {
   font-family: var(--font-sans);
-  font-size: 0.925rem;
+  font-size: 0.9rem;
   line-height: 1.3;
   color: #111318;
 
