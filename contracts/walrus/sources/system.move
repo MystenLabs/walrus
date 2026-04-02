@@ -263,6 +263,12 @@ public fun delete_pooled_blob(self: &System, storage_pool: &mut StoragePool, blo
     self.inner().delete_pooled_blob(storage_pool, blob_id)
 }
 
+/// Burns a blob from an expired storage pool, regardless of the `deletable` flag.
+/// The pool must have expired (`end_epoch <= current_epoch`).
+public fun burn_expired_pooled_blob(self: &System, storage_pool: &mut StoragePool, blob_id: u256) {
+    self.inner().burn_expired_pooled_blob(storage_pool, blob_id)
+}
+
 /// Extends the lifetime of a storage pool by `extended_epochs`.
 public fun extend_storage_pool(
     self: &mut System,
