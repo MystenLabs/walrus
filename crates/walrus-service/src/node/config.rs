@@ -373,6 +373,7 @@ impl StorageNodeConfig {
                 ..Default::default()
             },
             db_config: DatabaseConfig::default_mainnet(),
+            enable_storage_pool: false,
             ..Default::default()
         }
     }
@@ -380,6 +381,7 @@ impl StorageNodeConfig {
     /// Returns the default configuration for the testnet network.
     pub fn default_testnet() -> Self {
         Self {
+            enable_storage_pool: false,
             ..Default::default()
         }
     }
@@ -533,7 +535,7 @@ impl Default for StorageNodeConfig {
                 max_checkpoint_lag: 1500,
             },
             disable_event_blob_writer: Default::default(),
-            enable_storage_pool: Default::default(),
+            enable_storage_pool: true,
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {
