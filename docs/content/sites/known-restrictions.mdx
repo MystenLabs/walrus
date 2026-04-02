@@ -1,57 +1,77 @@
 ---
 title: Known Restrictions
-description: "Overview of known restrictions and limitations when developing and deploying Walrus Sites."
-keywords: ["walrus sites", "restrictions", "limitations", "development", "secret values", "redirects", "portal restrictions"]
+description: "A comprehensive reference of known restrictions and limitations when developing and deploying Walrus Sites."
+keywords: ["walrus sites", "restrictions", "limitations", "development", "secret values", "redirects", "portal restrictions", "service worker", "PWA", "iOS", "epochs", "static", "routing"]
 ---
 
-{/* https://linear.app/mysten-labs/issue/DOCS-686/sitesknown-restrictions */}
+Walrus Sites can be used to deploy almost any form of traditional static Web2 website built for modern browsers. There are, however, a number of restrictions that developers should keep in mind when creating or porting a website to Walrus Sites.
 
-Walrus Sites can be used to deploy almost any form of traditional static Web2 website built for modern browsers. There are, however, a number of restrictions that a developer should keep in mind when creating or porting a website to Walrus Sites.
+## Static sites only
+
+Walrus Sites store all site resources (HTML, CSS, JS, images, fonts) as blobs on Walrus, with metadata managed by a [Sui smart contract](https://docs.sui.io/guides/developer/packages/package-overview). There is no server-side runtime. As a consequence:
+
+- **No server-side rendering (SSR):** Frameworks that require a Node.js (or equivalent) server to render pages per request (such as Next.js in SSR mode, Nuxt.js, or Remix) cannot run their server component on Walrus Sites. Only the pre-built static output of those frameworks (i.e., exported HTML/CSS/JS) can be deployed.
+- **No server-side logic:** There are no endpoints, no request handlers, and no databases. Operations that would normally be handled by a backend (such as form processing, authentication sessions, or database queries) must be implemented using client-side code integrated with external APIs or Sui smart contracts.
+- **No runtime redirects:** Redirect plugins that execute at serve time (for example, the Docusaurus redirect plugin that routes `/old-path` to `/new-path` at the server level) do not function as expected. Client-side redirect workarounds must be used instead. See the [routing documentation](https://docs.wal.app/walrus-sites/routing.html) for supported approaches.
 
 ## No secret values
 
-Walrus Sites are fully publicly accessible, as the metadata is stored on Sui, and the site content is stored on Walrus. Therefore, developers **must not** store secret values within the sites.
+All content stored on Walrus Sites is fully public. Site files are stored as blobs on Walrus, and site metadata is stored on Sui. Because there is no private execution environment, developers must not embed secret values anywhere in a site's source files. This includes:
 
-Any such backend-specific operations, like storing secret values, authentication, and so on, are achievable by leveraging the integration with the Sui blockchain and a Sui-compatible wallet.
+- API keys or tokens
+- Private keys or wallet seeds
+- Passwords or credentials
+- Environment variables intended to be private
+
+Any backend-specific operations that require secrets (such as authentication flows or privileged API calls) must be handled through integration with Sui smart contracts and a [Sui-compatible wallet](https://docs.sui.io/guides/developer/wallets/what-is-a-wallet), keeping secrets out of the deployed site assets entirely.
 
 ## Maximum redirect depth
 
-The number of consecutive redirects a Walrus Site can perform is capped by the [portal](/docs/sites/portals/deploy-locally). This measure ensures that loading a Walrus Site does not result in an infinite loading loop.
+The number of consecutive redirects a Walrus Site can perform is capped by the [portal](/docs/sites/portals/mainnet-testnet). This prevents infinite redirect loops during site loading.
 
-Different portals can set this limit as they desire. The limit for the portal hosted at https://wal.app has a maximum redirect depth of 3.
+- The public portal at `https://wal.app` enforces a maximum redirect depth of 3.
+- Other portals may configure this limit differently. Self-hosted portals can adjust the value as needed.
 
-## Special `__wal__` path
+Redirect chains deeper than the portal's limit will result in the site failing to load.
 
-Anything under the `/__wal__/*` path is reserved by the portal for health checks and other portal-specific operations. If you use this path inside your site, the resources served under that path are not loaded correctly.
+## Routing constraints in `ws-resources.json`
+
+The [`ws-resources.json` configuration file](/docs/sites/configuration/site-configuration) controls client-side routing, custom headers, and site metadata. It has several notable constraints:
+
+- **Wildcard position is fixed:** Route wildcards (`*`) may only appear at the end of a path pattern. `/path/*` is valid; `/path/*/to` and `*/path/*` are not.
+- **Route targets must exist:** Every route value must reference a resource that actually exists among the site's deployed files. The Walrus Sites smart contract will abort if you define a route pointing to a non-existent resource.
+- **No server-side redirect support:** The `routes` section implements client-side routing rules only. Framework-level redirect plugins that run server-side at request time will not function as expected.
+- **Header scope is per-resource:** Custom HTTP headers defined in the `headers` section apply to individual resource paths, not globally. Each path that needs custom headers must be explicitly configured.
 
 ## Service-worker portal limitations
 
-The following limitations only apply to portals based on service-workers. If you need to support any of the features listed below, you should use a server-side portal.
+The following restrictions apply only to portals based on service workers (such as a self-hosted instance of the `worker` portal from the [`walrus-sites` repository](https://github.com/MystenLabs/walrus-sites)). If any of these features are required, use a server-side portal instead.
 
-### Service-worker portals cannot serve sites based on service-workers
+### Service-worker portals cannot serve sites that use service workers
 
-Service-worker portals leverage service-workers in the clients' browsers to perform essential operations:
+A service-worker portal installs its own service worker in the browser to resolve site metadata from Sui and fetch content from Walrus. Because browsers allow only one service worker per origin, a Walrus Site accessed through a service-worker portal cannot register its own service worker. Attempting to install a site-level service worker from within such a portal results in a broken site experience for the user.
 
-- Reading the site metadata from Sui
+### iOS Sui mobile wallet compatibility
 
-- Fetching the page content from Walrus
+Service workers cannot be loaded inside in-app browsers on iOS due to a limitation of the WebKit engine. As a result:
 
-- Serving the content to the browser
+- Walrus Sites accessed through a service-worker portal cannot be used within Sui-compatible wallet apps on iOS.
+- This means iOS wallet users cannot interact with onchain features (wallet connection, transaction signing) from within a service-worker portal.
+- Browsing a Walrus Site on iOS through a standard browser (Safari, Chrome, etc.) still works correctly.
 
-Therefore, a site accessed by a service-worker portal cannot use service-workers itself. That is, you can't "stack" service-workers. Installing a service-worker from within a Walrus Site results in a dysfunctional site and a poor experience for the user.
+**Recommended mitigation:** If using a service-worker portal as your primary access point, redirect iOS wallet users to a server-side portal (for example, `https://wal.app`). This allows the wallet interaction to function correctly via the `<site_name>.wal.app` server-side endpoint.
 
-### iOS Sui mobile wallets do not work with the service-worker portal
+### Progressive web apps are not supported
 
-Service workers cannot be loaded inside an in-app browser on iOS because of a limitation of the WebKit engine. As a consequence, Walrus Sites that are accessed through a service-worker portal cannot be used within Sui-compatible wallet apps on iOS. Therefore, Sui wallets cannot currently be used on a service-worker portal on iOS. However, browsing a Walrus Site is still possible on iOS through any browser.
+Service-worker portals are fundamentally incompatible with Progressive Web Apps (PWA) due to two structural conflicts:
 
-Given that you decided to use a service-worker portal as your main point of access to your sites, to provide a seamless experience for iOS users and other users on browsers that do not support service-workers, it is recommended to redirect to a server-side portal (https://wal.app). Whenever a user on an iOS wallet browses a Walrus Site, the redirect automatically takes them to the `<site_name>.wal.app` server-side portal. This way, the user can still use the wallet.
+1. The portal's own service worker must be registered for the site to work at all. This prevents the PWA manifest from being loaded correctly by the browser.
+2. There can only be one service worker registered per origin. Registering a PWA's service worker would overwrite the portal's service worker, breaking the site entirely.
 
-### Service worker portals do not support progressive web apps (PWAs)
+The server-side portal does not share these limitations. However, because Walrus Sites must be compatible with both portal types and must therefore target the more restrictive service-worker feature set, PWAs cannot currently be deployed to Walrus Sites while maintaining full portal compatibility.
 
-With the current design, service-worker portals cannot be used to access progressive web apps (PWAs). Two characteristics of the service-worker portal prevent support for PWAs:
+## Domain and naming constraints
 
-- Since the service-worker needs to be registered for the page to work, the PWA's manifest file cannot be loaded by the browser directly.
-
-- There can only be 1 service-worker registered per origin. Therefore, registering a PWA's service-worker would remove the Walrus Sites service-worker, breaking Walrus Sites' functionality.
-
-The server-side portal does not share these limitations. However, for the moment, both technologies are supported. Walrus Sites must be able to load from both a service-worker portal and a server-side portal, and therefore have to be built with the more restrictive feature set. For more details, see the [installation requirements for PWAs](https://en.wikipedia.org/wiki/Progressive_web_app#Installation_criteria).
+- **SuiNS dependency for human-readable URLs:** Without a [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name), a site is only accessible via a Base36-encoded Sui object ID subdomain (e.g., `58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app`). This is because subdomains are case-insensitive (ruling out Base64/Base58) and limited to 63 characters (ruling out hex, which requires 64).
+- **No traditional DNS control:** Walrus Sites do not support custom DNS records or traditional domain name configuration. Human-readable names are exclusively managed through SuiNS.
+- **Subdomain isolation required:** Each site must be accessed through a unique subdomain of the portal domain to ensure security isolation between sites and correct wallet connection behavior in the browser. Shared-origin access is not supported.
