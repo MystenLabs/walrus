@@ -289,6 +289,15 @@ public fun increase_storage_pool_capacity(
         )
 }
 
+/// Increases the pool's capacity by absorbing an existing `Storage` object.
+public fun increase_storage_pool_capacity_with_storage(
+    self: &System,
+    storage_pool: &mut StoragePool,
+    storage: Storage,
+) {
+    self.inner().increase_storage_pool_capacity_with_storage(storage_pool, storage)
+}
+
 /// Certifies a blob within a storage pool.
 public fun certify_pooled_blob(
     self: &System,
