@@ -963,6 +963,16 @@ public(package) fun increase_storage_pool_capacity(
     storage_pool.increase_reserved_encoded_capacity(additional_encoded_capacity_bytes);
 }
 
+/// Increases the pool's capacity by absorbing an existing `Storage` object.
+public(package) fun increase_storage_pool_capacity_with_storage(
+    self: &SystemStateInnerV1,
+    storage_pool: &mut StoragePool,
+    storage: Storage,
+) {
+    assert!(storage_pool.end_epoch() > self.epoch(), EInvalidEpochsAhead);
+    storage_pool.increase_capacity_with_storage(storage, self.epoch());
+}
+
 /// Certifies a blob within a `StoragePool`.
 public(package) fun certify_pooled_blob(
     self: &SystemStateInnerV1,
