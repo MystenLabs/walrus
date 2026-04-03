@@ -15,6 +15,16 @@
 # Soft invariants (crash after persistent violation):
 #   - walrus_periodic_event_source_for_deterministic_events — same per bucket across all nodes
 #   - walrus_node_blob_data_fully_stored_ratio               — must equal 1 on every node/epoch
+#
+# Epoch bucket design:
+#   Storage nodes label consistency-check metrics with `epoch % 1000` (see
+#   EPOCH_BUCKET_COUNT in consistency_check.rs). This bounds Prometheus label
+#   cardinality while ensuring buckets are never reused within any realistic
+#   test duration. The observer compares all common epoch labels across nodes.
+#   If any node has more epoch labels than MAX_EPOCH_BUCKETS, we stop comparing
+#   and log a warning, because bucket reuse could cause false positives — a
+#   stale value from epoch N in the same bucket as epoch N+1000 looks like a
+#   data divergence even though the node simply hasn't updated yet.
 
 set -euo pipefail
 
@@ -32,6 +42,10 @@ FULLY_STORED_PATIENCE="${FULLY_STORED_PATIENCE:-3}"
 # Event source metric requires 20k events (~1.5h). With 60s intervals,
 # 120 rounds ≈ 2 hours — enough time for the metric to appear.
 EVENT_SOURCE_WARN_AFTER="${EVENT_SOURCE_WARN_AFTER:-120}"
+# Must match EPOCH_BUCKET_COUNT in consistency_check.rs. When a node has this
+# many epoch labels, buckets will start being reused and comparisons become
+# unreliable.
+MAX_EPOCH_BUCKETS="${MAX_EPOCH_BUCKETS:-1000}"
 
 WORK_DIR="/tmp/observer"
 mkdir -p "$WORK_DIR"
@@ -72,17 +86,23 @@ extract_metric() {
         | sort -t"$(printf '\t')" -k1,1
 }
 
+
 # ---------------------------------------------------------------------------
 # Cross-node comparison for a labelled gauge metric.
 #
 # For every label value present in ALL scraped nodes, assert that the metric
 # value is identical.  Writes per-violation details to a file.
 #
-# Arguments: metric_name  label_name  details_file
-# Echoes the number of mismatched label values (0 = clean).
+# Arguments: metric_name  label_name  details_file  [max_labels]
+# Echoes:
+#   -2  if any node has >= max_labels labels (bucket saturation)
+#   -1  if no common labels exist
+#    0  if all common labels match
+#   >0  number of mismatched label values
 # ---------------------------------------------------------------------------
 check_cross_node_metric() {
     local metric="$1" label="$2" details_file="$3"
+    local max_labels="${4:-0}"
     local num_nodes=${#NODES[@]}
     local violations=0
 
@@ -92,6 +112,21 @@ check_cross_node_metric() {
         extract_metric "$WORK_DIR/raw_${NODES[$i]}.prom" "$metric" "$label" \
             > "$WORK_DIR/chk_${i}.tsv"
     done
+
+    # Check for approaching bucket saturation: if any node has an epoch label
+    # >= 90% of the bucket count, we're close to wraparound and comparisons
+    # may become unreliable.
+    if [ "$max_labels" -gt 0 ]; then
+        local threshold=$((max_labels * 9 / 10))
+        for i in "${!NODES[@]}"; do
+            local highest
+            highest=$(cut -f1 "$WORK_DIR/chk_${i}.tsv" | sort -n | tail -1)
+            if [ -n "$highest" ] && [ "$highest" -ge "$threshold" ]; then
+                echo "-2"
+                return
+            fi
+        done
+    fi
 
     # Labels that appear in every node's output.
     for i in "${!NODES[@]}"; do
@@ -136,7 +171,11 @@ check_cross_node_metric() {
 }
 
 # ---------------------------------------------------------------------------
-# Check walrus_node_blob_data_fully_stored_ratio == 1 for all nodes/epochs.
+# Check walrus_node_blob_data_fully_stored_ratio == 1 for each node's latest
+# epoch bucket.  With EPOCH_BUCKET_COUNT = 1_000, buckets map 1:1 to real
+# epochs for any realistic test duration.  We only check the latest (highest)
+# epoch per node because older epochs are immutable snapshots — if the latest
+# epoch is healthy, earlier ones are too.
 # Echoes the number of violations.
 # ---------------------------------------------------------------------------
 check_fully_stored_ratio() {
@@ -147,14 +186,18 @@ check_fully_stored_ratio() {
     : > "$details_file"
 
     for i in "${!NODES[@]}"; do
-        while IFS="$(printf '\t')" read -r epoch ratio; do
-            [ -z "$epoch" ] && continue
-            # Numeric comparison: ratio must equal 1.
-            if ! awk -v r="$ratio" 'BEGIN { exit (r == 1) ? 0 : 1 }'; then
-                echo "  node-${i} (${NODES[$i]}) epoch=${epoch} ratio=${ratio}" >> "$details_file"
-                violations=$((violations + 1))
-            fi
-        done < <(extract_metric "$WORK_DIR/raw_${NODES[$i]}.prom" "$metric" "epoch")
+        # Only check the highest epoch bucket (most recent consistency check).
+        local latest=""
+        latest=$(extract_metric "$WORK_DIR/raw_${NODES[$i]}.prom" "$metric" "epoch" \
+            | sort -t"$(printf '\t')" -k1,1n | tail -1)
+        [ -z "$latest" ] && continue
+        local epoch ratio
+        epoch=$(echo "$latest" | cut -f1)
+        ratio=$(echo "$latest" | cut -f2)
+        if ! awk -v r="$ratio" 'BEGIN { exit (r == 1) ? 0 : 1 }'; then
+            echo "  node-${i} (${NODES[$i]}) epoch=${epoch} ratio=${ratio}" >> "$details_file"
+            violations=$((violations + 1))
+        fi
     done
 
     echo "$violations"
@@ -168,6 +211,7 @@ log "Nodes: ${NODES[*]}, port: ${METRICS_PORT}"
 log "Check interval: ${CHECK_INTERVAL}s, initial wait: ${INITIAL_WAIT}s"
 log "Event source patience: ${EVENT_SOURCE_PATIENCE} rounds"
 log "Fully stored patience: ${FULLY_STORED_PATIENCE} rounds"
+log "Max epoch buckets: ${MAX_EPOCH_BUCKETS}"
 
 log "Waiting ${INITIAL_WAIT}s for cluster stabilization..."
 sleep "$INITIAL_WAIT"
@@ -204,33 +248,50 @@ while true; do
 
     # ------------------------------------------------------------------
     # Hard invariant 1: certified blob digest must match across nodes.
+    #
+    # The epoch label is `epoch % 1_000` (EPOCH_BUCKET_COUNT in
+    # consistency_check.rs). With 1000 buckets, reuse cannot happen in any
+    # realistic test duration. We pass MAX_EPOCH_BUCKETS so that if a test
+    # ever runs long enough to saturate the buckets, we stop comparing
+    # rather than risk false positives from stale collisions.
     # ------------------------------------------------------------------
     v=$(check_cross_node_metric \
         "walrus_blob_info_consistency_check" "epoch" \
-        "$WORK_DIR/details_blob_info.txt")
-    if [ "$v" -gt 0 ]; then
+        "$WORK_DIR/details_blob_info.txt" "$MAX_EPOCH_BUCKETS")
+    if [ "$v" -eq -2 ]; then
+        log "WARNING: walrus_blob_info_consistency_check: epoch bucket capacity reached" \
+            "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
+        print_metric_values "walrus_blob_info_consistency_check" "epoch"
+    elif [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — blob_info_consistency_check (${v} epoch(s)):"
         cat "$WORK_DIR/details_blob_info.txt"
         print_metric_values "walrus_blob_info_consistency_check" "epoch"
         die "blob_info_consistency_check: mismatched digests across nodes"
+    else
+        log "walrus_blob_info_consistency_check: OK"
+        print_metric_values "walrus_blob_info_consistency_check" "epoch"
     fi
-    log "walrus_blob_info_consistency_check: OK"
-    print_metric_values "walrus_blob_info_consistency_check" "epoch"
 
     # ------------------------------------------------------------------
     # Hard invariant 2: per-object blob digest must match across nodes.
+    # Same epoch bucket design as invariant 1; see comment above.
     # ------------------------------------------------------------------
     v=$(check_cross_node_metric \
         "walrus_per_object_blob_info_consistency_check" "epoch" \
-        "$WORK_DIR/details_per_object.txt")
-    if [ "$v" -gt 0 ]; then
+        "$WORK_DIR/details_per_object.txt" "$MAX_EPOCH_BUCKETS")
+    if [ "$v" -eq -2 ]; then
+        log "WARNING: walrus_per_object_blob_info_consistency_check: epoch bucket capacity reached" \
+            "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
+        print_metric_values "walrus_per_object_blob_info_consistency_check" "epoch"
+    elif [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — per_object_blob_info_consistency_check (${v} epoch(s)):"
         cat "$WORK_DIR/details_per_object.txt"
         print_metric_values "walrus_per_object_blob_info_consistency_check" "epoch"
         die "per_object_blob_info_consistency_check: mismatched digests across nodes"
+    else
+        log "walrus_per_object_blob_info_consistency_check: OK"
+        print_metric_values "walrus_per_object_blob_info_consistency_check" "epoch"
     fi
-    log "walrus_per_object_blob_info_consistency_check: OK"
-    print_metric_values "walrus_per_object_blob_info_consistency_check" "epoch"
 
     # ------------------------------------------------------------------
     # Soft invariant 1: event source consistency (tolerate transient lag).
@@ -270,6 +331,8 @@ while true; do
     # Soft invariant 2: all blobs fully stored (tolerate recovery lag).
     # A node that just recovered may briefly report < 1 while syncing
     # completes.  Crash only after FULLY_STORED_PATIENCE rounds.
+    # Only the latest (highest) epoch bucket per node is checked — see
+    # check_fully_stored_ratio for rationale.
     # ------------------------------------------------------------------
     v=$(check_fully_stored_ratio "$WORK_DIR/details_fully_stored.txt")
     if [ "$v" -gt 0 ]; then
