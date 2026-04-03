@@ -159,8 +159,20 @@ pub(super) async fn schedule_background_consistency_check(
     Ok(())
 }
 
+/// Number of distinct epoch buckets used for consistency-check Prometheus labels.
+///
+/// Metrics like `walrus_blob_info_consistency_check{epoch="N"}` use `epoch % EPOCH_BUCKET_COUNT`
+/// as the label so that Prometheus label cardinality stays bounded. A bucket is reused (and its
+/// old value overwritten) every `EPOCH_BUCKET_COUNT` epochs.
+///
+/// The cross-node observer in Antithesis tests compares these labels across nodes. If a node
+/// misses an epoch update, a stale value in a reused bucket looks like a data divergence. Setting
+/// the count high enough (1 000) ensures buckets are never reused within any realistic test
+/// duration, while the memory cost remains negligible.
+const EPOCH_BUCKET_COUNT: u64 = 1_000;
+
 fn get_epoch_bucket(epoch: Epoch) -> String {
-    (epoch % 100).to_string()
+    (epoch % EPOCH_BUCKET_COUNT).to_string()
 }
 
 fn handle_existence_check_result(

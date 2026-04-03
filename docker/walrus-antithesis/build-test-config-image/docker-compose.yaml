@@ -195,6 +195,7 @@ services:
       - EVENT_SOURCE_PATIENCE=3
       - FULLY_STORED_PATIENCE=3
       - EVENT_SOURCE_WARN_AFTER=120
+      - MAX_EPOCH_BUCKETS=1000
     volumes:
       - ./files/run-observer.sh:/root/run-observer.sh
     command: >
