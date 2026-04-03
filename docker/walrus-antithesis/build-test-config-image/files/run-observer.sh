@@ -144,30 +144,29 @@ check_cross_node_metric() {
         done
     fi
 
-    # Step 3: Find labels present on ALL nodes (intersection).
-    #   We only compare a label if every node has reported it. This avoids false
-    #   positives when a node is lagging and hasn't computed a recent epoch yet.
-    #   Example: if nodes report epochs {1,2,3}, {1,2,3}, {1,2}, {1,2,3},
-    #   only epochs 1 and 2 are compared (present on all 4 nodes).
+    # Step 3: Find labels present on 2+ nodes.
+    #   A label is comparable as long as at least two nodes have reported it.
+    #   Nodes that haven't computed a given epoch yet are simply excluded from
+    #   that label's comparison.
     for i in "${!NODES[@]}"; do
         cut -f1 "$WORK_DIR/chk_${i}.tsv"
-    done | sort | uniq -c | awk -v n="$num_nodes" '$1 == n { print $2 }' \
+    done | sort | uniq -c | awk '$1 >= 2 { print $2 }' \
         > "$WORK_DIR/chk_common.txt"
 
     if [ ! -s "$WORK_DIR/chk_common.txt" ]; then
-        echo "-1"  # no common labels — nothing to compare
+        echo "-1"  # no label on 2+ nodes — nothing to compare
         return
     fi
 
-    # Step 4: For each common label, verify all nodes report the same value.
+    # Step 4: For each label, verify all nodes that have it report the same value.
     while IFS= read -r lbl; do
         [ -z "$lbl" ] && continue
         local ref_val="" mismatch=false
 
-        # Collect the value for this label from each node; compare to first node's value.
         for i in "${!NODES[@]}"; do
             local val
             val=$(awk -F'\t' -v l="$lbl" '$1 == l { print $2 }' "$WORK_DIR/chk_${i}.tsv")
+            [ -z "$val" ] && continue  # node doesn't have this label, skip
             if [ -z "$ref_val" ]; then
                 ref_val="$val"
             elif [ "$val" != "$ref_val" ]; then
@@ -175,14 +174,13 @@ check_cross_node_metric() {
             fi
         done
 
-        # Record the mismatch with per-node details for debugging.
         if [ "$mismatch" = true ]; then
             {
                 echo "  ${metric}{${label}=\"${lbl}\"}:"
                 for i in "${!NODES[@]}"; do
                     local val
                     val=$(awk -F'\t' -v l="$lbl" '$1 == l { print $2 }' "$WORK_DIR/chk_${i}.tsv")
-                    echo "    node-${i} (${NODES[$i]}): ${val}"
+                    echo "    node-${i} (${NODES[$i]}): ${val:-(absent)}"
                 done
             } >> "$details_file"
             violations=$((violations + 1))
@@ -288,6 +286,9 @@ while true; do
         log "WARNING: ${BLOB_INFO}: epoch bucket capacity reached" \
             "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
         print_metric_values "$BLOB_INFO" "epoch"
+    elif [ "$v" -eq -1 ]; then
+        log "${BLOB_INFO}: no common data across nodes, skipping comparison"
+        print_metric_values "$BLOB_INFO" "epoch"
     elif [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — ${BLOB_INFO} (${v} epoch(s)):"
         cat "$WORK_DIR/details_blob_info.txt"
@@ -308,6 +309,9 @@ while true; do
     if [ "$v" -eq -2 ]; then
         log "WARNING: ${PER_OBJECT_INFO}: epoch bucket capacity reached" \
             "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
+        print_metric_values "$PER_OBJECT_INFO" "epoch"
+    elif [ "$v" -eq -1 ]; then
+        log "${PER_OBJECT_INFO}: no common data across nodes, skipping comparison"
         print_metric_values "$PER_OBJECT_INFO" "epoch"
     elif [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — ${PER_OBJECT_INFO} (${v} epoch(s)):"
