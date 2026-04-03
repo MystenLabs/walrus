@@ -9,6 +9,7 @@ use walrus::{
     blob,
     encoding,
     messages,
+    metadata,
     storage_pool::{Self, StoragePool},
     system::{Self, System},
     system_state_inner,
@@ -968,6 +969,167 @@ fun full_pooled_blob_lifecycle() {
 
     fake_coin.burn_for_testing();
     system.destroy_for_testing();
+}
+
+// === Pooled blob metadata tests ===
+
+#[test]
+fun pooled_blob_metadata_operations() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    // insert_or_update auto-creates metadata when none exists.
+    pool.insert_or_update_blob_metadata_pair(blob_id, b"key1".to_string(), b"value1".to_string());
+
+    // Update existing key.
+    pool.insert_or_update_blob_metadata_pair(blob_id, b"key1".to_string(), b"value2".to_string());
+    let (key, value) = pool.remove_blob_metadata_pair(blob_id, &b"key1".to_string());
+    assert_eq!(key, b"key1".to_string());
+    assert_eq!(value, b"value2".to_string());
+
+    // remove_if_exists is a no-op when metadata has no matching key.
+    let result = pool.remove_blob_metadata_pair_if_exists(blob_id, &b"missing".to_string());
+    assert!(result.is_none());
+
+    // add_or_replace: replace existing metadata and verify old is returned.
+    let mut metadata2 = metadata::new();
+    metadata2.insert_or_update(b"key2".to_string(), b"value2".to_string());
+    let old = pool.add_or_replace_blob_metadata(blob_id, metadata2);
+    assert!(old.is_some());
+
+    // take_metadata removes the metadata entirely.
+    let _taken = pool.take_blob_metadata(blob_id);
+
+    // remove_if_exists is a no-op when no metadata exists at all.
+    let result = pool.remove_blob_metadata_pair_if_exists(blob_id, &b"key1".to_string());
+    assert!(result.is_none());
+
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = storage_pool::EDuplicateMetadata)]
+fun pooled_blob_add_metadata_already_exists() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    pool.add_blob_metadata(blob_id, metadata::new());
+    pool.add_blob_metadata(blob_id, metadata::new());
+
+    abort
+}
+
+#[test, expected_failure(abort_code = storage_pool::EMissingMetadata)]
+fun pooled_blob_take_metadata_nonexistent() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    pool.take_blob_metadata(blob_id);
+
+    abort
+}
+
+#[test, expected_failure(abort_code = storage_pool::EMissingMetadata)]
+fun pooled_blob_remove_metadata_pair_nonexistent() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    pool.remove_blob_metadata_pair(blob_id, &b"key1".to_string());
+
+    abort
+}
+
+#[test]
+fun delete_pooled_blob_with_metadata() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    pool.insert_or_update_blob_metadata_pair(blob_id, b"key1".to_string(), b"value1".to_string());
+
+    // Metadata should not prevent deletion.
+    system.delete_pooled_blob(&mut pool, blob_id);
+    assert_eq!(pool.blob_count(), 0);
+
+    pool.destroy().destroy();
+    system.destroy_for_testing();
+}
+
+// === Burn expired pooled blob tests ===
+
+/// Covers: deletable, non-deletable, certified, and metadata blobs in one expired pool.
+#[test]
+fun burn_expired_pool_full_cleanup() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+
+    let small_size: u64 = 100;
+    let pool_capacity = encoded_size(&system, small_size) * 4;
+    let mut fake_coin = test_utils::mint_frost(N_COINS, ctx);
+    let mut pool = system.create_storage_pool(pool_capacity, 1, &mut fake_coin, ctx);
+    fake_coin.burn_for_testing();
+
+    // 1: deletable blob
+    let blob_id1 = blob::derive_blob_id(0x111, RS2, small_size);
+    register_blob_in_pool_with_root(&mut system, &mut pool, 0x111, small_size, true, ctx);
+    // 2: non-deletable blob
+    let blob_id2 = blob::derive_blob_id(0x222, RS2, small_size);
+    register_blob_in_pool_with_root(&mut system, &mut pool, 0x222, small_size, false, ctx);
+    // 3: certified non-deletable blob
+    let blob_id3 = blob::derive_blob_id(0x333, RS2, small_size);
+    register_blob_in_pool_with_root(&mut system, &mut pool, 0x333, small_size, false, ctx);
+    certify_permanent_pooled_blob(&mut pool, blob_id3, EPOCH);
+    // 4: deletable blob with metadata
+    let blob_id4 = blob::derive_blob_id(0x444, RS2, small_size);
+    register_blob_in_pool_with_root(&mut system, &mut pool, 0x444, small_size, true, ctx);
+    pool.insert_or_update_blob_metadata_pair(blob_id4, b"k".to_string(), b"v".to_string());
+
+    assert_eq!(pool.blob_count(), 4);
+
+    // Advance past expiry.
+    advance_epoch(&mut system);
+
+    // Burn all blobs one by one.
+    system.burn_expired_pooled_blob(&mut pool, blob_id1);
+    system.burn_expired_pooled_blob(&mut pool, blob_id2);
+    system.burn_expired_pooled_blob(&mut pool, blob_id3);
+    system.burn_expired_pooled_blob(&mut pool, blob_id4);
+
+    assert_eq!(pool.blob_count(), 0);
+    assert_eq!(pool.used_encoded_bytes(), 0);
+
+    pool.destroy().destroy();
+    system.destroy_for_testing();
+}
+
+#[test, expected_failure(abort_code = system_state_inner::EInvalidEpochsAhead)]
+fun burn_pooled_blob_from_non_expired_pool() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut pool = create_default_pool(&mut system, ctx);
+
+    let blob_id = default_blob_id();
+    register_blob_in_pool(&mut system, &mut pool, blob_id, SIZE, true, ctx);
+
+    // Pool is still active — burn should fail.
+    system.burn_expired_pooled_blob(&mut pool, blob_id);
+
+    abort
 }
 
 // === Helper functions ===

@@ -29,9 +29,7 @@ use sui_sdk::{
     error::Error as SuiSdkError,
     rpc_types::{
         DryRunTransactionBlockResponse,
-        DynamicFieldInfo,
         ObjectsPage,
-        Page,
         SuiCommittee,
         SuiEvent,
         SuiMoveNormalizedModule,
@@ -82,6 +80,7 @@ use crate::{
     },
     coin::Coin,
     contracts::{self, AssociatedContractStruct, MoveConversionError, TypeOriginMap},
+    dynamic_field_info::DynamicFieldPage,
     types::{
         BlobEvent,
         move_structs::{
@@ -1505,20 +1504,20 @@ impl RetriableSuiClient {
     pub async fn get_dynamic_fields(
         &self,
         object_id: ObjectID,
-        cursor: Option<ObjectID>,
+        cursor: Option<Bytes>,
         limit: Option<usize>,
-    ) -> SuiClientResult<Page<DynamicFieldInfo, ObjectID>> {
+    ) -> SuiClientResult<DynamicFieldPage> {
+        let grpc_limit = u32::try_from(limit.unwrap_or(50))
+            .map_err(|e| SuiClientError::Internal(anyhow::anyhow!("limit too large: {e}")))?;
         self.failover_sui_client
             .with_failover(
                 async |client, method| {
                     retry_rpc_errors(
                         self.get_strategy(),
                         || async {
-                            Ok(client
-                                .sui_client()
-                                .read_api()
-                                .get_dynamic_fields(object_id, cursor, limit)
-                                .await?)
+                            client
+                                .list_dynamic_fields(object_id, cursor.clone(), grpc_limit)
+                                .await
                         },
                         self.metrics.clone(),
                         method,
@@ -1526,7 +1525,7 @@ impl RetriableSuiClient {
                     .await
                 },
                 None,
-                "get_events",
+                "get_dynamic_fields",
             )
             .await
     }

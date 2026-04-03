@@ -192,7 +192,7 @@ use crate::{
     },
     node::{
         blob_event_processor::pending_events::PendingEventCounter,
-        config::{EpochStateConsistencyConfig, LiveUploadDeferralConfig},
+        config::{EpochStateConsistencyConfig, LiveUploadDeferralConfig, PriceCurrency},
         event_blob_writer::EventBlobWriter,
         garbage_collector::GarbageCollector,
         wal_price_monitor::WalPriceMonitor,
@@ -702,17 +702,19 @@ impl StorageNode {
         )
         .set(1);
 
-        // Initialize WAL price monitor if enabled
-        let (wal_price_monitor, current_wal_price) =
-            if config.wal_price_monitor.enable_wal_price_monitor {
-                let monitor = Arc::new(
-                    WalPriceMonitor::start(config.wal_price_monitor.clone(), metrics.clone()).await,
-                );
-                let current_wal_price = monitor.get_current_price().await;
-                (Some(monitor), current_wal_price)
-            } else {
-                (None, None)
-            };
+        // Initialize WAL price monitor if NanoUsd pricing is configured or force-enabled
+        let (wal_price_monitor, current_wal_price) = if config.voting_params.voting_prices.currency
+            == PriceCurrency::NanoUsd
+            || config.wal_price_monitor.force_enable_wal_price_monitor
+        {
+            let monitor = Arc::new(
+                WalPriceMonitor::start(config.wal_price_monitor.clone(), metrics.clone()).await,
+            );
+            let current_wal_price = monitor.get_current_price().await;
+            (Some(monitor), current_wal_price)
+        } else {
+            (None, None)
+        };
 
         let config_synchronizer =
             config
