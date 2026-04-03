@@ -79,8 +79,16 @@ scrape_node() {
 
 # Extract (label_value, metric_value) pairs from a Prometheus scrape file.
 # Outputs: label_value<TAB>metric_value  (sorted by label).
+#
+# Example input line:
+#   walrus_blob_info_consistency_check{epoch="5"} 3965707792766453120
+# With metric="walrus_blob_info_consistency_check" label="epoch", outputs:
+#   5	3965707792766453120
 extract_metric() {
     local file="$1" metric="$2" label="$3"
+    # 1. grep: find lines starting with the metric name
+    # 2. sed:  extract the label value and numeric value
+    # 3. sort: order by label value for consistent comparison
     { grep "^${metric}{" "$file" 2>/dev/null || true; } \
         | sed -n "s/^${metric}{.*${label}=\"\([^\"]*\)\".*} \([^ ]*\).*/\1\t\2/p" \
         | sort -t"$(printf '\t')" -k1,1
@@ -108,14 +116,17 @@ check_cross_node_metric() {
 
     : > "$details_file"
 
+    # Step 1: Extract label→value pairs from each node's scrape into TSV files.
+    #   chk_0.tsv, chk_1.tsv, ... each contain lines like: "5\t3965707792766453120"
     for i in "${!NODES[@]}"; do
         extract_metric "$WORK_DIR/raw_${NODES[$i]}.prom" "$metric" "$label" \
             > "$WORK_DIR/chk_${i}.tsv"
     done
 
-    # Check for approaching bucket saturation: if any node has an epoch label
-    # >= 90% of the bucket count, we're close to wraparound and comparisons
-    # may become unreliable.
+    # Step 2: Bail out if epoch labels are approaching bucket reuse.
+    #   Labels are `epoch % EPOCH_BUCKET_COUNT`. If the highest label on any node
+    #   is >= 90% of max_labels, we're nearing wraparound where new epochs overwrite
+    #   old ones in the same bucket, making cross-node comparison unreliable.
     if [ "$max_labels" -gt 0 ]; then
         local threshold=$((max_labels * 9 / 10))
         for i in "${!NODES[@]}"; do
@@ -128,22 +139,27 @@ check_cross_node_metric() {
         done
     fi
 
-    # Labels that appear in every node's output.
+    # Step 3: Find labels present on ALL nodes (intersection).
+    #   We only compare a label if every node has reported it. This avoids false
+    #   positives when a node is lagging and hasn't computed a recent epoch yet.
+    #   Example: if nodes report epochs {1,2,3}, {1,2,3}, {1,2}, {1,2,3},
+    #   only epochs 1 and 2 are compared (present on all 4 nodes).
     for i in "${!NODES[@]}"; do
         cut -f1 "$WORK_DIR/chk_${i}.tsv"
     done | sort | uniq -c | awk -v n="$num_nodes" '$1 == n { print $2 }' \
         > "$WORK_DIR/chk_common.txt"
 
     if [ ! -s "$WORK_DIR/chk_common.txt" ]; then
-        # Signal "no data" with -1 so callers can distinguish from "0 violations".
-        echo "-1"
+        echo "-1"  # no common labels — nothing to compare
         return
     fi
 
+    # Step 4: For each common label, verify all nodes report the same value.
     while IFS= read -r lbl; do
         [ -z "$lbl" ] && continue
         local ref_val="" mismatch=false
 
+        # Collect the value for this label from each node; compare to first node's value.
         for i in "${!NODES[@]}"; do
             local val
             val=$(awk -F'\t' -v l="$lbl" '$1 == l { print $2 }' "$WORK_DIR/chk_${i}.tsv")
@@ -154,6 +170,7 @@ check_cross_node_metric() {
             fi
         done
 
+        # Record the mismatch with per-node details for debugging.
         if [ "$mismatch" = true ]; then
             {
                 echo "  ${metric}{${label}=\"${lbl}\"}:"
@@ -186,14 +203,21 @@ check_fully_stored_ratio() {
     : > "$details_file"
 
     for i in "${!NODES[@]}"; do
-        # Only check the highest epoch bucket (most recent consistency check).
+        # Find the highest epoch bucket on this node (numerically sorted).
+        # This is the most recent consistency check result. Older epochs are
+        # immutable — they can't degrade, so only the latest matters.
         local latest=""
         latest=$(extract_metric "$WORK_DIR/raw_${NODES[$i]}.prom" "$metric" "epoch" \
             | sort -t"$(printf '\t')" -k1,1n | tail -1)
         [ -z "$latest" ] && continue
+
+        # Split "epoch_label\tratio_value" into separate variables.
         local epoch ratio
         epoch=$(echo "$latest" | cut -f1)
         ratio=$(echo "$latest" | cut -f2)
+
+        # Ratio must be exactly 1.0 (all sampled blobs fully stored).
+        # Use awk for float comparison since bash can't compare decimals.
         if ! awk -v r="$ratio" 'BEGIN { exit (r == 1) ? 0 : 1 }'; then
             echo "  node-${i} (${NODES[$i]}) epoch=${epoch} ratio=${ratio}" >> "$details_file"
             violations=$((violations + 1))

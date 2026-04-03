@@ -167,9 +167,9 @@ pub(super) async fn schedule_background_consistency_check(
 ///
 /// The cross-node observer in Antithesis tests compares these labels across nodes. If a node
 /// misses an epoch update, a stale value in a reused bucket looks like a data divergence. Setting
-/// the count high enough (1 000) ensures buckets are never reused within any realistic test
+/// the count high enough (1000) ensures buckets are never reused within any realistic test
 /// duration, while the memory cost remains negligible.
-const EPOCH_BUCKET_COUNT: u64 = 1_000;
+const EPOCH_BUCKET_COUNT: u32 = 1_000;
 
 fn get_epoch_bucket(epoch: Epoch) -> String {
     (epoch % EPOCH_BUCKET_COUNT).to_string()
