@@ -117,14 +117,17 @@ check_cross_node_metric() {
 # ---------------------------------------------------------------------------
 check_fully_stored_ratio() {
     local metric="walrus_node_blob_data_fully_stored_ratio"
+    local details_file="$1"
     local violations=0
+
+    : > "$details_file"
 
     for i in "${!NODES[@]}"; do
         while IFS="$(printf '\t')" read -r epoch ratio; do
             [ -z "$epoch" ] && continue
             # Numeric comparison: ratio must equal 1.
             if ! awk -v r="$ratio" 'BEGIN { exit (r == 1) ? 0 : 1 }'; then
-                log "  node-${i} (${NODES[$i]}) epoch=${epoch} ratio=${ratio}" >&2
+                echo "  node-${i} (${NODES[$i]}) epoch=${epoch} ratio=${ratio}" >> "$details_file"
                 violations=$((violations + 1))
             fi
         done < <(extract_metric "$WORK_DIR/raw_${NODES[$i]}.prom" "$metric" "epoch")
@@ -167,6 +170,10 @@ while true; do
         fi
     done
     if [ "$all_ok" = false ]; then
+        # Reset streak counters so that non-consecutive violations separated
+        # by unreachable rounds do not accumulate toward the patience threshold.
+        event_source_streak=0
+        fully_stored_streak=0
         sleep "$CHECK_INTERVAL"
         continue
     fi
@@ -223,10 +230,11 @@ while true; do
     # A node that just recovered may briefly report < 1 while syncing
     # completes.  Crash only after FULLY_STORED_PATIENCE rounds.
     # ------------------------------------------------------------------
-    v=$(check_fully_stored_ratio)
+    v=$(check_fully_stored_ratio "$WORK_DIR/details_fully_stored.txt")
     if [ "$v" -gt 0 ]; then
         fully_stored_streak=$((fully_stored_streak + 1))
-        log "Fully-stored-ratio violation (streak: ${fully_stored_streak}/${FULLY_STORED_PATIENCE})"
+        log "Fully-stored-ratio violation (streak: ${fully_stored_streak}/${FULLY_STORED_PATIENCE}):"
+        cat "$WORK_DIR/details_fully_stored.txt"
         if [ "$fully_stored_streak" -ge "$FULLY_STORED_PATIENCE" ]; then
             die "node_blob_data_fully_stored_ratio: persistent violation for ${FULLY_STORED_PATIENCE} consecutive rounds"
         fi
