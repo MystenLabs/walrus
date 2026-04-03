@@ -308,5 +308,480 @@
     "/walrus-sites/tutorial.html": "/walrus-sites/tutorial/index.html",
     "/walrus-sites/tutorial/index": "/walrus-sites/tutorial/index.html"
   },
-  "object_id": "0xbd6014d74e37d94a299c932e70e0b009979d9c6dc6d941eb4afe4995b8df242c"
+  "redirects": {
+    "/design/architecture": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/design/encoding": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/design/future": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/design/objectives_use_cases": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/design/operations": {
+      "location": "/docs/system-overview/operations",
+      "status_code": 301
+    },
+    "/design/operations-off-chain": {
+      "location": "/docs/system-overview/operations",
+      "status_code": 301
+    },
+    "/design/operations-sui": {
+      "location": "/docs/system-overview/operations",
+      "status_code": 301
+    },
+    "/design/overview": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/design/properties": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/dev-guide/components": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/dev-guide/costs": {
+      "location": "/docs/system-overview/storage-costs",
+      "status_code": 301
+    },
+    "/dev-guide/data-security": {
+      "location": "/docs/data-security",
+      "status_code": 301
+    },
+    "/dev-guide/dev-operations": {
+      "location": "/docs/system-overview/operations",
+      "status_code": 301
+    },
+    "/dev-guide/sui-struct": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/design/architecture": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/design/encoding": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/design/future": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/design/objectives_use_cases": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/design/operations": {
+      "location": "/docs/system-overview/operations",
+      "status_code": 301
+    },
+    "/docs/design/operations-off-chain": {
+      "location": "/docs/system-overview/operations",
+      "status_code": 301
+    },
+    "/docs/design/operations-sui": {
+      "location": "/docs/system-overview/operations",
+      "status_code": 301
+    },
+    "/docs/design/overview": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/design/properties": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/dev-guide/components": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/dev-guide/costs": {
+      "location": "/docs/system-overview/storage-costs",
+      "status_code": 301
+    },
+    "/docs/dev-guide/data-security": {
+      "location": "/docs/data-security",
+      "status_code": 301
+    },
+    "/docs/dev-guide/dev-operations": {
+      "location": "/docs/system-overview/operations",
+      "status_code": 301
+    },
+    "/docs/dev-guide/sui-struct": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/operator-guide/aggregator": {
+      "location": "/docs/operator-guide/aggregators/operating-aggregator",
+      "status_code": 301
+    },
+    "/docs/operator-guide/auth-publisher": {
+      "location": "/docs/operator-guide/publishers/auth-publisher",
+      "status_code": 301
+    },
+    "/docs/operator-guide/backup-restore-guide": {
+      "location": "/docs/operator-guide/storage-nodes/backup-restore-guide",
+      "status_code": 301
+    },
+    "/docs/operator-guide/commission-governance": {
+      "location": "/docs/operator-guide/storage-nodes/commission-governance",
+      "status_code": 301
+    },
+    "/docs/operator-guide/operator-guide": {
+      "location": "/docs/operator-guide",
+      "status_code": 301
+    },
+    "/docs/operator-guide/storage-node-faq": {
+      "location": "/docs/operator-guide/storage-nodes/storage-node-faq",
+      "status_code": 301
+    },
+    "/docs/sites/configuration/setting-up-routing-rules": {
+      "location": "/docs/sites/linking/redirects",
+      "status_code": 301
+    },
+    "/docs/sites/linking/linking": {
+      "location": "/docs/sites/linking/linking",
+      "status_code": 301
+    },
+    "/docs/stake": {
+      "location": "/docs/operator-guide/stake",
+      "status_code": 301
+    },
+    "/docs/system-overview/components": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/system-overview/sui-object-and-blob-ids": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/docs/usage/client-cli": {
+      "location": "/docs/walrus-client/storing-blobs",
+      "status_code": 301
+    },
+    "/docs/usage/examples": {
+      "location": "/docs/examples",
+      "status_code": 301
+    },
+    "/docs/usage/glossary": {
+      "location": "/docs/glossary",
+      "status_code": 301
+    },
+    "/docs/usage/json-api": {
+      "location": "/docs/walrus-client/json-mode",
+      "status_code": 301
+    },
+    "/docs/usage/networks": {
+      "location": "/docs/system-overview/available-networks",
+      "status_code": 301
+    },
+    "/docs/usage/quilt": {
+      "location": "/docs/system-overview/quilt",
+      "status_code": 301
+    },
+    "/docs/usage/sdks": {
+      "location": "/docs/typescript-sdk/sdks",
+      "status_code": 301
+    },
+    "/docs/usage/setup": {
+      "location": "/docs/getting-started/advanced-setup",
+      "status_code": 301
+    },
+    "/docs/usage/stake": {
+      "location": "/docs/stake",
+      "status_code": 301
+    },
+    "/docs/usage/started": {
+      "location": "/docs/getting-started",
+      "status_code": 301
+    },
+    "/docs/usage/troubleshooting": {
+      "location": "/docs/troubleshooting",
+      "status_code": 301
+    },
+    "/docs/usage/web-api": {
+      "location": "/docs/http-api/storing-blobs",
+      "status_code": 301
+    },
+    "/docs/walrus-client/configuration": {
+      "location": "/docs/walrus-client/walrus-cli",
+      "status_code": 301
+    },
+    "/docs/walrus-client/logging-and-metrics": {
+      "location": "/docs/walrus-client/walrus-cli",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/advanced": {
+      "location": "/docs/sites",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/authentication": {
+      "location": "/docs/sites/security/site-data-authentication",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/avoid-duplicate-content-seo": {
+      "location": "/docs/sites/linking/avoiding-duplicate-content-seo",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/bring-your-own-domain": {
+      "location": "/docs/sites/custom-domains/bringing-your-own-domain",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/builder-config": {
+      "location": "/docs/sites/getting-started/configuration-file-reference",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/ci-cd": {
+      "location": "/docs/sites/ci-cd/github-actions-workflow",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/ci-cd-gh-secrets-vars": {
+      "location": "/docs/sites/ci-cd/preparing-deployment-credentials",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/ci-cd-gh-workflow": {
+      "location": "/docs/sites/ci-cd/github-actions-workflow",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/commands": {
+      "location": "/docs/sites/getting-started/using-the-site-builder",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/intro": {
+      "location": "/docs/sites/introduction/components",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/linking": {
+      "location": "/docs/sites/linking",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/overview": {
+      "location": "/docs/sites/introduction/technical-overview",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/portal": {
+      "location": "/docs/sites/portals/deploy-locally",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/redirects": {
+      "location": "/docs/sites/linking/redirects",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/restrictions": {
+      "location": "/docs/sites/known-restrictions",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/routing": {
+      "location": "/docs/sites/configuration/setting-up-routing-rules",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/tutorial": {
+      "location": "/docs/sites",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/tutorial-install": {
+      "location": "/docs/sites/getting-started/installing-the-site-builder",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/tutorial-publish": {
+      "location": "/docs/sites/getting-started/publishing-your-first-site",
+      "status_code": 301
+    },
+    "/docs/walrus-sites/tutorial-suins": {
+      "location": "/docs/sites/custom-domains/setting-a-suins-name",
+      "status_code": 301
+    },
+    "/operator-guide/aggregator": {
+      "location": "/docs/operator-guide/aggregators/operating-aggregator",
+      "status_code": 301
+    },
+    "/operator-guide/auth-publisher": {
+      "location": "/docs/operator-guide/publishers/auth-publisher",
+      "status_code": 301
+    },
+    "/operator-guide/backup-restore-guide": {
+      "location": "/docs/operator-guide/storage-nodes/backup-restore-guide",
+      "status_code": 301
+    },
+    "/operator-guide/commission-governance": {
+      "location": "/docs/operator-guide/storage-nodes/commission-governance",
+      "status_code": 301
+    },
+    "/operator-guide/operator-guide": {
+      "location": "/docs/operator-guide",
+      "status_code": 301
+    },
+    "/operator-guide/storage-node-faq": {
+      "location": "/docs/operator-guide/storage-nodes/storage-node-faq",
+      "status_code": 301
+    },
+    "/sites/configuration/setting-up-routing-rules": {
+      "location": "/docs/sites/linking/redirects",
+      "status_code": 301
+    },
+    "/sites/linking/linking": {
+      "location": "/docs/sites/linking/linking",
+      "status_code": 301
+    },
+    "/stake": {
+      "location": "/docs/operator-guide/stake",
+      "status_code": 301
+    },
+    "/system-overview/components": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/system-overview/sui-object-and-blob-ids": {
+      "location": "/docs/system-overview/core-concepts",
+      "status_code": 301
+    },
+    "/usage/client-cli": {
+      "location": "/docs/walrus-client/storing-blobs",
+      "status_code": 301
+    },
+    "/usage/examples": {
+      "location": "/docs/examples",
+      "status_code": 301
+    },
+    "/usage/glossary": {
+      "location": "/docs/glossary",
+      "status_code": 301
+    },
+    "/usage/json-api": {
+      "location": "/docs/walrus-client/json-mode",
+      "status_code": 301
+    },
+    "/usage/networks": {
+      "location": "/docs/system-overview/available-networks",
+      "status_code": 301
+    },
+    "/usage/quilt": {
+      "location": "/docs/system-overview/quilt",
+      "status_code": 301
+    },
+    "/usage/sdks": {
+      "location": "/docs/typescript-sdk/sdks",
+      "status_code": 301
+    },
+    "/usage/setup": {
+      "location": "/docs/getting-started/advanced-setup",
+      "status_code": 301
+    },
+    "/usage/stake": {
+      "location": "/docs/stake",
+      "status_code": 301
+    },
+    "/usage/started": {
+      "location": "/docs/getting-started",
+      "status_code": 301
+    },
+    "/usage/troubleshooting": {
+      "location": "/docs/troubleshooting",
+      "status_code": 301
+    },
+    "/usage/web-api": {
+      "location": "/docs/http-api/storing-blobs",
+      "status_code": 301
+    },
+    "/walrus-client/configuration": {
+      "location": "/docs/walrus-client/walrus-cli",
+      "status_code": 301
+    },
+    "/walrus-client/logging-and-metrics": {
+      "location": "/docs/walrus-client/walrus-cli",
+      "status_code": 301
+    },
+    "/walrus-sites/advanced": {
+      "location": "/docs/sites",
+      "status_code": 301
+    },
+    "/walrus-sites/authentication": {
+      "location": "/docs/sites/security/site-data-authentication",
+      "status_code": 301
+    },
+    "/walrus-sites/avoid-duplicate-content-seo": {
+      "location": "/docs/sites/linking/avoiding-duplicate-content-seo",
+      "status_code": 301
+    },
+    "/walrus-sites/bring-your-own-domain": {
+      "location": "/docs/sites/custom-domains/bringing-your-own-domain",
+      "status_code": 301
+    },
+    "/walrus-sites/builder-config": {
+      "location": "/docs/sites/getting-started/configuration-file-reference",
+      "status_code": 301
+    },
+    "/walrus-sites/ci-cd": {
+      "location": "/docs/sites/ci-cd/github-actions-workflow",
+      "status_code": 301
+    },
+    "/walrus-sites/ci-cd-gh-secrets-vars": {
+      "location": "/docs/sites/ci-cd/preparing-deployment-credentials",
+      "status_code": 301
+    },
+    "/walrus-sites/ci-cd-gh-workflow": {
+      "location": "/docs/sites/ci-cd/github-actions-workflow",
+      "status_code": 301
+    },
+    "/walrus-sites/commands": {
+      "location": "/docs/sites/getting-started/using-the-site-builder",
+      "status_code": 301
+    },
+    "/walrus-sites/intro": {
+      "location": "/docs/sites/introduction/components",
+      "status_code": 301
+    },
+    "/walrus-sites/linking": {
+      "location": "/docs/sites/linking",
+      "status_code": 301
+    },
+    "/walrus-sites/overview": {
+      "location": "/docs/sites/introduction/technical-overview",
+      "status_code": 301
+    },
+    "/walrus-sites/portal": {
+      "location": "/docs/sites/portals/deploy-locally",
+      "status_code": 301
+    },
+    "/walrus-sites/redirects": {
+      "location": "/docs/sites/linking/redirects",
+      "status_code": 301
+    },
+    "/walrus-sites/restrictions": {
+      "location": "/docs/sites/known-restrictions",
+      "status_code": 301
+    },
+    "/walrus-sites/routing": {
+      "location": "/docs/sites/configuration/setting-up-routing-rules",
+      "status_code": 301
+    },
+    "/walrus-sites/tutorial": {
+      "location": "/docs/sites",
+      "status_code": 301
+    },
+    "/walrus-sites/tutorial-install": {
+      "location": "/docs/sites/getting-started/installing-the-site-builder",
+      "status_code": 301
+    },
+    "/walrus-sites/tutorial-publish": {
+      "location": "/docs/sites/getting-started/publishing-your-first-site",
+      "status_code": 301
+    },
+    "/walrus-sites/tutorial-suins": {
+      "location": "/docs/sites/custom-domains/setting-a-suins-name",
+      "status_code": 301
+    }
+  },
+  "site_name": "My Walrus Site",
+  "object_id": "0xafd535196684167397188876ba0bcec37a2e632abb704cc33b41fbbefbbc55c3"
 }
