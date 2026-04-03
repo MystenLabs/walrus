@@ -82,7 +82,11 @@ use crate::{
     contracts::{self, AssociatedContractStruct, MoveConversionError, TypeOriginMap},
     dynamic_field_info::DynamicFieldPage,
     types::{
+        BalanceChange,
         BlobEvent,
+        EventEnvelope,
+        TransactionResponse,
+        TransactionResponseOptions,
         move_structs::{
             BlobAttribute,
             Credits,
@@ -1013,14 +1017,9 @@ impl RetriableSuiClient {
     pub async fn get_transaction_with_options(
         &self,
         digest: TransactionDigest,
-        options: SuiTransactionBlockResponseOptions,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_READS
-            && !options.show_input
-            && !options.show_effects
-            && !options.show_object_changes
-            && !options.show_raw_effects
-        {
+        options: TransactionResponseOptions,
+    ) -> SuiClientResult<TransactionResponse> {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_READS {
             self.get_transaction_with_options_grpc(digest, options)
                 .await
         } else {
@@ -1033,32 +1032,41 @@ impl RetriableSuiClient {
     async fn get_transaction_with_options_json_rpc(
         &self,
         digest: TransactionDigest,
-        options: SuiTransactionBlockResponseOptions,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        options: TransactionResponseOptions,
+    ) -> SuiClientResult<TransactionResponse> {
+        let sdk_options = SuiTransactionBlockResponseOptions {
+            show_raw_input: options.show_raw_input,
+            show_balance_changes: options.show_balance_changes,
+            show_events: options.show_events,
+            ..Default::default()
+        };
+
         async fn make_request(
             client: Arc<DualClient>,
             digest: TransactionDigest,
-            options: SuiTransactionBlockResponseOptions,
+            sdk_options: SuiTransactionBlockResponseOptions,
         ) -> SuiClientResult<SuiTransactionBlockResponse> {
             Ok(client
                 .sui_client()
                 .read_api()
-                .get_transaction_with_options(digest, options.clone())
+                .get_transaction_with_options(digest, sdk_options.clone())
                 .await?)
         }
 
         let request = move |client: Arc<DualClient>, method| {
-            let options = options.clone();
+            let sdk_options = sdk_options.clone();
             retry_rpc_errors(
                 self.get_strategy(),
-                move || make_request(client.clone(), digest, options.clone()),
+                move || make_request(client.clone(), digest, sdk_options.clone()),
                 self.metrics.clone(),
                 method,
             )
         };
-        self.failover_sui_client
+        let resp = self
+            .failover_sui_client
             .with_failover(request, None, "get_transaction")
-            .await
+            .await?;
+        Ok(convert_sui_response_to_transaction_response(resp))
     }
 
     /// gRPC implementation of `get_transaction_with_options`.
@@ -1067,8 +1075,8 @@ impl RetriableSuiClient {
     async fn get_transaction_with_options_grpc(
         &self,
         digest: TransactionDigest,
-        options: SuiTransactionBlockResponseOptions,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        options: TransactionResponseOptions,
+    ) -> SuiClientResult<TransactionResponse> {
         let request = move |client: Arc<DualClient>, method| {
             let options = options.clone();
             retry_rpc_errors(
@@ -1848,7 +1856,10 @@ impl RetriableSuiClient {
     }
 
     /// Returns the events for the given transaction digest.
-    pub async fn get_events(&self, tx_digest: TransactionDigest) -> SuiClientResult<Vec<SuiEvent>> {
+    pub async fn get_events(
+        &self,
+        tx_digest: TransactionDigest,
+    ) -> SuiClientResult<Vec<EventEnvelope>> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_READS {
             self.get_events_grpc(tx_digest).await
         } else {
@@ -1860,18 +1871,21 @@ impl RetriableSuiClient {
     async fn get_events_json_rpc(
         &self,
         tx_digest: TransactionDigest,
-    ) -> SuiClientResult<Vec<SuiEvent>> {
-        self.failover_sui_client
+    ) -> SuiClientResult<Vec<EventEnvelope>> {
+        let events: Vec<SuiEvent> = self
+            .failover_sui_client
             .with_failover(
-                async |client, method| {
+                async |client: Arc<DualClient>, method| {
                     retry_rpc_errors(
                         self.get_strategy(),
                         || async {
-                            Ok(client
-                                .sui_client()
-                                .event_api()
-                                .get_events(tx_digest)
-                                .await?)
+                            Ok::<_, SuiClientError>(
+                                client
+                                    .sui_client()
+                                    .event_api()
+                                    .get_events(tx_digest)
+                                    .await?,
+                            )
                         },
                         self.metrics.clone(),
                         method,
@@ -1881,16 +1895,18 @@ impl RetriableSuiClient {
                 None,
                 "get_events",
             )
-            .await
+            .await?;
+        Ok(events.into_iter().map(EventEnvelope::from).collect())
     }
 
     /// gRPC implementation of `get_events`.
     ///
-    /// Uses `GetTransaction` with the events field mask, then converts gRPC events to `SuiEvent`.
+    /// Uses `GetTransaction` with the events field mask, then converts gRPC events to
+    /// [`EventEnvelope`].
     async fn get_events_grpc(
         &self,
         tx_digest: TransactionDigest,
-    ) -> SuiClientResult<Vec<SuiEvent>> {
+    ) -> SuiClientResult<Vec<EventEnvelope>> {
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
                 self.get_strategy(),
@@ -2141,6 +2157,31 @@ impl RetriableSuiClient {
         self.failover_sui_client
             .with_failover(request, None, "get_previous_transaction")
             .await
+    }
+}
+
+/// Convert a JSON-RPC [`SuiTransactionBlockResponse`] to our [`TransactionResponse`].
+fn convert_sui_response_to_transaction_response(
+    resp: SuiTransactionBlockResponse,
+) -> TransactionResponse {
+    TransactionResponse {
+        digest: resp.digest,
+        checkpoint: resp.checkpoint,
+        timestamp_ms: resp.timestamp_ms,
+        raw_transaction: resp.raw_transaction,
+        balance_changes: resp.balance_changes.map(|changes| {
+            changes
+                .into_iter()
+                .map(|c| BalanceChange {
+                    address: c.owner.get_owner_address().unwrap_or_default(),
+                    coin_type: c.coin_type,
+                    amount: c.amount,
+                })
+                .collect()
+        }),
+        events: resp
+            .events
+            .map(|e| e.data.into_iter().map(EventEnvelope::from).collect()),
     }
 }
 

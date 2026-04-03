@@ -12,10 +12,14 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use sui_sdk::{SUI_COIN_TYPE, rpc_types::SuiTransactionBlockResponse};
+use sui_sdk::SUI_COIN_TYPE;
 use sui_types::TypeTag;
 use tracing::Level;
-use walrus_sdk::{core::EncodingType, upload_relay::tip_config::TipConfig};
+use walrus_sdk::{
+    core::EncodingType,
+    sui::types::TransactionResponse,
+    upload_relay::tip_config::TipConfig,
+};
 
 use crate::tip::error::TipError;
 
@@ -24,7 +28,7 @@ use crate::tip::error::TipError;
 /// Returns an error if the transaction was sent too far in the past.
 #[tracing::instrument(level = Level::DEBUG, skip_all, fields(tx_id=%response.digest))]
 pub(crate) fn check_tx_freshness(
-    response: &SuiTransactionBlockResponse,
+    response: &TransactionResponse,
     freshness_threshold: Duration,
     max_future_threshold: Duration,
 ) -> Result<(), TipError> {
@@ -69,7 +73,7 @@ pub(crate) fn check_tx_freshness(
 /// Checks if the execution results are sufficient to cover the tip.
 pub(crate) fn check_response_tip(
     tip_config: &TipConfig,
-    response: &SuiTransactionBlockResponse,
+    response: &TransactionResponse,
     unencoded_size: u64,
     n_shards: NonZeroU16,
     encoding_type: EncodingType,
@@ -96,13 +100,9 @@ pub(crate) fn check_response_tip(
             // Go across all balance changes, looking for one that says the sui for the current
             // address have increased of at least the expected tip.
             for change in balance_changes.iter() {
-                let owner_address = change.owner.get_address_owner_address().map_err(|_| {
-                    TipError::UnexpectedResponse("could not extract the owner address")
-                })?;
+                tracing::debug!(%change.address, "checking balance changes for address");
 
-                tracing::debug!(%owner_address, "checking balance changes for address");
-
-                if owner_address == *address
+                if change.address == *address
                     && change.coin_type
                         == TypeTag::from_str(SUI_COIN_TYPE).expect("SUI is always valid")
                 {

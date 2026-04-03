@@ -3,7 +3,6 @@
 
 //! Bootstrap module for getting the initial committee and checkpoint information.
 use anyhow::{Context as _, Result};
-use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use sui_types::{
     base_types::ObjectID,
     committee::Committee,
@@ -26,7 +25,7 @@ pub async fn get_bootstrap_committee_and_checkpoint(
     system_pkg_id: ObjectID,
 ) -> Result<(Committee, VerifiedCheckpoint)> {
     let txn_digest = sui_client.get_previous_transaction(system_pkg_id).await?;
-    let txn_options = SuiTransactionBlockResponseOptions::new();
+    let txn_options = walrus_sui::types::TransactionResponseOptions::new();
     let txn = sui_client
         .get_transaction_with_options(txn_digest, txn_options)
         .await?;

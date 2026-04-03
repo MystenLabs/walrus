@@ -20,7 +20,6 @@ use sui_sdk::{
     apis::EventApi,
     rpc_types::{
         EventFilter,
-        SuiEvent,
         SuiObjectData,
         SuiObjectDataFilter,
         SuiObjectDataOptions,
@@ -1509,7 +1508,7 @@ async fn poll_for_events<U>(
     mut last_event: Option<EventID>,
 ) -> Result<()>
 where
-    U: TryFrom<SuiEvent> + Send + Sync + Debug + 'static,
+    U: TryFrom<crate::types::EventEnvelope> + Send + Sync + Debug + 'static,
 {
     // The actual interval with which we poll, increases if there is an RPC error
     let mut polling_interval = initial_polling_interval;
@@ -1536,9 +1535,10 @@ where
                         event_id = ?event.id,
                         event_type = ?event.type_
                     );
+                    let envelope = crate::types::EventEnvelope::from(event);
 
                     let continue_or_exit = async move {
-                        let event_obj = match event.try_into() {
+                        let event_obj = match envelope.try_into() {
                             Ok(event_obj) => event_obj,
                             Err(_) => {
                                 tracing::error!("could not convert event");
