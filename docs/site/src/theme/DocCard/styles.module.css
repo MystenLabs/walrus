@@ -14,7 +14,7 @@
   height: 100%;
   text-decoration: none !important;
 
-  border-radius: 20px;
+  border-radius: 16px;
   background: #f4f5f7;
   border: 1px solid rgba(0, 0, 0, 0.08);
 
@@ -32,10 +32,10 @@
 
 .content {
   position: relative;
-  padding: 22px 20px 6px;
+  padding: 14px 14px 4px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
 }
 
@@ -93,7 +93,7 @@
 .title {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.9rem;
   line-height: 1.3;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -102,7 +102,7 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 [data-theme="dark"] .title {
@@ -115,10 +115,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 6px;
   background: rgba(97, 61, 255, 0.08);
   flex-shrink: 0;
 
@@ -127,7 +127,7 @@
     linear-gradient(225deg, #613dff 25%, transparent 25%),
     linear-gradient(315deg, #613dff 25%, transparent 25%),
     linear-gradient(45deg, #613dff 25%, transparent 25%);
-  background-size: 7px 7px;
+  background-size: 6px 6px;
   background-position: center;
   background-repeat: no-repeat;
 }
@@ -139,7 +139,7 @@
     linear-gradient(225deg, #98efe4 25%, transparent 25%),
     linear-gradient(315deg, #98efe4 25%, transparent 25%),
     linear-gradient(45deg, #98efe4 25%, transparent 25%);
-  background-size: 7px 7px;
+  background-size: 6px 6px;
   background-position: center;
   background-repeat: no-repeat;
 }
@@ -151,8 +151,8 @@
 .description {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 0.825rem;
-  line-height: 1.5;
+  font-size: 0.8rem;
+  line-height: 1.45;
   color: #111318;
   flex: 1;
 
@@ -176,8 +176,8 @@
   align-items: left;
   gap: 6px;
   margin-top: auto;
-  padding: 10px 20px 20px;
-  font-size: 1.5rem;
+  padding: 6px 14px 14px;
+  font-size: 1.25rem;
   font-weight: 500;
   color: #613dff;
   opacity: 0.8;
@@ -198,9 +198,9 @@
    ══════════════════════════════════════════════ */
 
 .footer {
-  margin: 0 20px 0;
+  margin: 0 14px 0;
   border-top: 1px solid rgba(0, 0, 0, 0.08);
-  padding: 12px 0 18px;
+  padding: 10px 0 14px;
 }
 
 [data-theme="dark"] .footer {
@@ -209,12 +209,12 @@
 
 .childWrap {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .childLabel {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -231,20 +231,20 @@
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .childItem {
   display: grid;
   grid-template-columns: 10px 1fr;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
 .dot {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
   border-radius: 999px;
   background: #613dff;
   opacity: 0.4;
@@ -257,7 +257,7 @@
 
 .childText {
   font-family: var(--font-sans);
-  font-size: 0.9rem;
+  font-size: 0.825rem;
   line-height: 1.3;
   color: #111318;
 
@@ -272,7 +272,7 @@
 
 .more {
   font-family: var(--font-sans);
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   color: #613dff;
   font-weight: 500;
 }
