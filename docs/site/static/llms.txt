@@ -189,7 +189,7 @@ Important notes:
     send transactions as part of normal operation. The walrus-node setup command creates such a
     wallet.
 - [Storage Node
-    Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md):
+    Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md)
     This page covers the ongoing operation of your Walrus storage node after initial setup. Back up
     the /opt/walrus/config directory. For database backups, see the Backup and Restore Guide. The
     following metrics are the most important for monitoring node health.
