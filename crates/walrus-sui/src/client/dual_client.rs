@@ -23,6 +23,7 @@ use sui_rpc::{
         ExecuteTransactionRequest,
         ExecutedTransaction,
         GetBalanceRequest,
+        GetDatatypeRequest,
         GetEpochRequest,
         GetObjectRequest,
         GetServiceInfoRequest,
@@ -461,6 +462,56 @@ impl DualClient {
             );
         }
         Ok(type_origins)
+    }
+
+    /// Retrieves the WAL type string from the `StakedWal` struct via gRPC `GetDatatype`.
+    pub(crate) async fn get_wal_type_from_package_grpc(
+        &self,
+        package_id: ObjectID,
+    ) -> Result<String, SuiClientError> {
+        let address = address_from_object_id(package_id);
+        let request = GetDatatypeRequest::new(&address, "staked_wal", "StakedWal");
+        let mut grpc_client = self.grpc_client.clone();
+        let response = grpc_client
+            .package_client()
+            .get_datatype(request)
+            .await
+            .with_context(|| {
+                format!("error fetching StakedWal datatype for package {package_id}")
+            })?;
+
+        let datatype = response
+            .into_inner()
+            .datatype
+            .context("missing datatype in GetDatatypeResponse")?;
+
+        let principal_field = datatype
+            .fields
+            .iter()
+            .find(|f| f.name.as_deref() == Some("principal"))
+            .context("missing 'principal' field in StakedWal")?;
+
+        let principal_type = principal_field
+            .r#type
+            .as_ref()
+            .context("missing type on 'principal' field")?;
+
+        let wal_type_body = principal_type
+            .type_parameter_instantiation
+            .first()
+            .context("missing type_parameter_instantiation on 'principal' field")?;
+
+        let wal_type = wal_type_body
+            .type_name
+            .as_ref()
+            .context("missing type_name on WAL type parameter")?;
+
+        ensure!(
+            wal_type.ends_with("::wal::WAL"),
+            SuiClientError::WalTypeNotFound(package_id)
+        );
+
+        Ok(wal_type.clone())
     }
 
     pub(crate) async fn fetch_batch_of_objects<U: AssociatedContractStruct>(
@@ -1263,9 +1314,10 @@ fn grpc_changed_objects_to_object_changes(
 fn resolve_object_type(co: &ChangedObject, objects: Option<&ObjectSet>) -> Option<String> {
     // Prefer the type directly on the ChangedObject.
     if let Some(ref obj_type) = co.object_type
-        && !obj_type.is_empty() {
-            return Some(obj_type.clone());
-        }
+        && !obj_type.is_empty()
+    {
+        return Some(obj_type.clone());
+    }
     // Fall back to looking up by object_id in the ObjectSet.
     let object_id_str = co.object_id.as_ref()?;
     objects?
