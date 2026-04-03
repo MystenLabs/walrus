@@ -38,6 +38,20 @@ mkdir -p "$WORK_DIR"
 log()  { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] [observer] $*"; }
 die()  { log "FATAL: $*" >&2; exit 1; }
 
+# Print per-node metric values for a labelled gauge.
+# Arguments: metric_name  label_name
+print_metric_values() {
+    local metric="$1" label="$2"
+    for i in "${!NODES[@]}"; do
+        local vals=""
+        while IFS="$(printf '\t')" read -r lbl val; do
+            [ -z "$lbl" ] && continue
+            vals="${vals} ${label}=${lbl}:${val}"
+        done < <(extract_metric "$WORK_DIR/raw_${NODES[$i]}.prom" "$metric" "$label")
+        log "  node-${i} (${NODES[$i]}):${vals:- (none)}"
+    done
+}
+
 # Scrape the /metrics endpoint of a storage node.
 scrape_node() {
     local ip="$1" out="$2"
@@ -80,6 +94,12 @@ check_cross_node_metric() {
         cut -f1 "$WORK_DIR/chk_${i}.tsv"
     done | sort | uniq -c | awk -v n="$num_nodes" '$1 == n { print $2 }' \
         > "$WORK_DIR/chk_common.txt"
+
+    if [ ! -s "$WORK_DIR/chk_common.txt" ]; then
+        log "  ${metric}: no common ${label} values across nodes, skipping comparison"
+        echo "0"
+        return
+    fi
 
     while IFS= read -r lbl; do
         [ -z "$lbl" ] && continue
@@ -187,9 +207,11 @@ while true; do
     if [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — blob_info_consistency_check (${v} epoch(s)):"
         cat "$WORK_DIR/details_blob_info.txt"
+        print_metric_values "walrus_blob_info_consistency_check" "epoch"
         die "blob_info_consistency_check: mismatched digests across nodes"
     fi
     log "walrus_blob_info_consistency_check: OK"
+    print_metric_values "walrus_blob_info_consistency_check" "epoch"
 
     # ------------------------------------------------------------------
     # Hard invariant 2: per-object blob digest must match across nodes.
@@ -200,9 +222,11 @@ while true; do
     if [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — per_object_blob_info_consistency_check (${v} epoch(s)):"
         cat "$WORK_DIR/details_per_object.txt"
+        print_metric_values "walrus_per_object_blob_info_consistency_check" "epoch"
         die "per_object_blob_info_consistency_check: mismatched digests across nodes"
     fi
     log "walrus_per_object_blob_info_consistency_check: OK"
+    print_metric_values "walrus_per_object_blob_info_consistency_check" "epoch"
 
     # ------------------------------------------------------------------
     # Soft invariant 1: event source consistency (tolerate transient lag).
@@ -217,12 +241,14 @@ while true; do
         event_source_streak=$((event_source_streak + 1))
         log "Event source mismatch (streak: ${event_source_streak}/${EVENT_SOURCE_PATIENCE}):"
         cat "$WORK_DIR/details_event_source.txt"
+        print_metric_values "walrus_periodic_event_source_for_deterministic_events" "bucket"
         if [ "$event_source_streak" -ge "$EVENT_SOURCE_PATIENCE" ]; then
             die "periodic_event_source: persistent mismatch for ${EVENT_SOURCE_PATIENCE} consecutive rounds"
         fi
     else
         event_source_streak=0
         log "walrus_periodic_event_source_for_deterministic_events: OK"
+        print_metric_values "walrus_periodic_event_source_for_deterministic_events" "bucket"
     fi
 
     # ------------------------------------------------------------------
@@ -235,12 +261,14 @@ while true; do
         fully_stored_streak=$((fully_stored_streak + 1))
         log "Fully-stored-ratio violation (streak: ${fully_stored_streak}/${FULLY_STORED_PATIENCE}):"
         cat "$WORK_DIR/details_fully_stored.txt"
+        print_metric_values "walrus_node_blob_data_fully_stored_ratio" "epoch"
         if [ "$fully_stored_streak" -ge "$FULLY_STORED_PATIENCE" ]; then
             die "node_blob_data_fully_stored_ratio: persistent violation for ${FULLY_STORED_PATIENCE} consecutive rounds"
         fi
     else
         fully_stored_streak=0
         log "walrus_node_blob_data_fully_stored_ratio: OK"
+        print_metric_values "walrus_node_blob_data_fully_stored_ratio" "epoch"
     fi
 
     log "All checks passed for round ${round}"
