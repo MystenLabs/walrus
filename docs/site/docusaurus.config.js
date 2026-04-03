@@ -253,8 +253,7 @@ const config = {
       { property: 'og:image', content: 'https://docs.wal.app/img/walrus-card.jpg' },
     ],
       navbar: {
-        title: "Walrus Docs",
-        logo: { alt: "Walrus", src: "img/logo.svg" },
+        logo: { alt: "Walrus", src: "img/Walrus_Docs.svg" },
         items: [
           {
             type: "docSidebar",
