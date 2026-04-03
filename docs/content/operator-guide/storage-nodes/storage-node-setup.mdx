@@ -270,11 +270,11 @@ The `walrus-node setup` command generates the node configuration and a Sui walle
 
 - `--node-capacity`: The capacity you can dedicate to the Walrus database. Accepts values like `3.14TB`, `2.718TiB`, and similar units.
 - `--sui-network`: The Sui full node URL used to configure the wallet of the storage node.
-- `--sui-rpc`: The Sui RPC URL used for all Sui interactions. This can be the same as `--sui-network` or a separate endpoint. See the [FAQ](/docs/operator-guide/storage-node-faq#sui-rpc) for the distinction.
+- `--sui-rpc`: The Sui RPC URL used for all Sui interactions. This can be the same as `--sui-network` or a separate endpoint. See the [FAQ](/docs/operator-guide/storage-nodes/storage-node-faq#sui-rpc) for the distinction.
 - `--checkpoint-bucket`: URL for checkpoint-based transaction reading as a fallback.
 - `--additional-rpc-endpoints`: Additional Sui RPC endpoints for redundancy (you can specify this option multiple times).
 - `--storage-price` and `--write-price`: Your voting parameters for the storage price per MiB and epoch, and write price per MiB (one-time fee). You can specify the currency with the `--price-currency` flag (defaults to FROST). Check with the Walrus Foundation for the current recommended values.
-- `--commission-rate`: Commission rate in basis points (100 bp = 1%). See the [FAQ](/docs/operator-guide/storage-node-faq#commission) for details. The default value of 6000 bp (60%) is the maximum commission rate if you intend to receive staking from the Walrus Foundation.
+- `--commission-rate`: Commission rate in basis points (100 bp = 1%). See the [FAQ](/docs/operator-guide/storage-nodes/storage-node-faq#commission) for details. The default value of 6000 bp (60%) is the maximum commission rate if you intend to receive staking from the Walrus Foundation.
 - `--metrics-push-url`: URL for pushing Prometheus metrics. The Walrus Foundation provides a metrics endpoint for committee members.
 - `--image-url`, `--project-url`, `--description`: Optional metadata about your node.
 
@@ -366,7 +366,7 @@ You must run registration during initial setup. It creates the onchain records f
 
 ##### Step 3: Set up commission and governance authorization.
 
-Designate a secure wallet address for receiving commission and authorizing governance operations. See [Commission and Governance](/docs/operator-guide/commission-governance) for details.
+Designate a secure wallet address for receiving commission and authorizing governance operations. See [Commission and Governance](/docs/operator-guide/storage-nodes/commission-governance) for details.
 
 ##### Step 4: Start the node.
 
