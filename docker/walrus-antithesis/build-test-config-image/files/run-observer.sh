@@ -50,6 +50,12 @@ MAX_EPOCH_BUCKETS="${MAX_EPOCH_BUCKETS:-1000}"
 WORK_DIR="/tmp/observer"
 mkdir -p "$WORK_DIR"
 
+# Short aliases for long metric names (used in checks and log messages).
+BLOB_INFO="walrus_blob_info_consistency_check"
+PER_OBJECT_INFO="walrus_per_object_blob_info_consistency_check"
+EVENT_SOURCE="walrus_periodic_event_source_for_deterministic_events"
+FULLY_STORED_RATIO="walrus_node_blob_data_fully_stored_ratio"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -82,7 +88,7 @@ scrape_node() {
 #
 # Example input line:
 #   walrus_blob_info_consistency_check{epoch="5"} 3965707792766453120
-# With metric="walrus_blob_info_consistency_check" label="epoch", outputs:
+# With metric="$BLOB_INFO" label="epoch", outputs:
 #   5	3965707792766453120
 extract_metric() {
     local file="$1" metric="$2" label="$3"
@@ -103,7 +109,7 @@ extract_metric() {
 #
 # Arguments: metric_name  label_name  details_file  [max_labels]
 # Echoes:
-#   -2  if any node has >= max_labels labels (bucket saturation)
+#   -2  if labels are nearing bucket saturation
 #   -1  if no common labels exist
 #    0  if all common labels match
 #   >0  number of mismatched label values
@@ -196,7 +202,7 @@ check_cross_node_metric() {
 # Echoes the number of violations.
 # ---------------------------------------------------------------------------
 check_fully_stored_ratio() {
-    local metric="walrus_node_blob_data_fully_stored_ratio"
+    local metric="$FULLY_STORED_RATIO"
     local details_file="$1"
     local violations=0
 
@@ -280,20 +286,20 @@ while true; do
     # rather than risk false positives from stale collisions.
     # ------------------------------------------------------------------
     v=$(check_cross_node_metric \
-        "walrus_blob_info_consistency_check" "epoch" \
+        "$BLOB_INFO" "epoch" \
         "$WORK_DIR/details_blob_info.txt" "$MAX_EPOCH_BUCKETS")
     if [ "$v" -eq -2 ]; then
-        log "WARNING: walrus_blob_info_consistency_check: epoch bucket capacity reached" \
+        log "WARNING: ${BLOB_INFO}: epoch bucket capacity reached" \
             "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
-        print_metric_values "walrus_blob_info_consistency_check" "epoch"
+        print_metric_values "$BLOB_INFO" "epoch"
     elif [ "$v" -gt 0 ]; then
-        log "INVARIANT VIOLATION — blob_info_consistency_check (${v} epoch(s)):"
+        log "INVARIANT VIOLATION — ${BLOB_INFO} (${v} epoch(s)):"
         cat "$WORK_DIR/details_blob_info.txt"
-        print_metric_values "walrus_blob_info_consistency_check" "epoch"
-        die "blob_info_consistency_check: mismatched digests across nodes"
+        print_metric_values "$BLOB_INFO" "epoch"
+        die "${BLOB_INFO}: mismatched digests across nodes"
     else
-        log "walrus_blob_info_consistency_check: OK"
-        print_metric_values "walrus_blob_info_consistency_check" "epoch"
+        log "${BLOB_INFO}: OK"
+        print_metric_values "$BLOB_INFO" "epoch"
     fi
 
     # ------------------------------------------------------------------
@@ -301,20 +307,20 @@ while true; do
     # Same epoch bucket design as invariant 1; see comment above.
     # ------------------------------------------------------------------
     v=$(check_cross_node_metric \
-        "walrus_per_object_blob_info_consistency_check" "epoch" \
+        "$PER_OBJECT_INFO" "epoch" \
         "$WORK_DIR/details_per_object.txt" "$MAX_EPOCH_BUCKETS")
     if [ "$v" -eq -2 ]; then
-        log "WARNING: walrus_per_object_blob_info_consistency_check: epoch bucket capacity reached" \
+        log "WARNING: ${PER_OBJECT_INFO}: epoch bucket capacity reached" \
             "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
-        print_metric_values "walrus_per_object_blob_info_consistency_check" "epoch"
+        print_metric_values "$PER_OBJECT_INFO" "epoch"
     elif [ "$v" -gt 0 ]; then
-        log "INVARIANT VIOLATION — per_object_blob_info_consistency_check (${v} epoch(s)):"
+        log "INVARIANT VIOLATION — ${PER_OBJECT_INFO} (${v} epoch(s)):"
         cat "$WORK_DIR/details_per_object.txt"
-        print_metric_values "walrus_per_object_blob_info_consistency_check" "epoch"
-        die "per_object_blob_info_consistency_check: mismatched digests across nodes"
+        print_metric_values "$PER_OBJECT_INFO" "epoch"
+        die "${PER_OBJECT_INFO}: mismatched digests across nodes"
     else
-        log "walrus_per_object_blob_info_consistency_check: OK"
-        print_metric_values "walrus_per_object_blob_info_consistency_check" "epoch"
+        log "${PER_OBJECT_INFO}: OK"
+        print_metric_values "$PER_OBJECT_INFO" "epoch"
     fi
 
     # ------------------------------------------------------------------
@@ -324,31 +330,31 @@ while true; do
     # mismatch across EVENT_SOURCE_PATIENCE consecutive rounds.
     # ------------------------------------------------------------------
     v=$(check_cross_node_metric \
-        "walrus_periodic_event_source_for_deterministic_events" "bucket" \
+        "$EVENT_SOURCE" "bucket" \
         "$WORK_DIR/details_event_source.txt")
     if [ "$v" -eq -1 ]; then
         # No data yet — the metric is recorded every 20k events (~1.5h).
         event_source_streak=0
         if [ "$round" -lt "$EVENT_SOURCE_WARN_AFTER" ]; then
-            log "walrus_periodic_event_source_for_deterministic_events: no data yet" \
+            log "${EVENT_SOURCE}: no data yet" \
                 "(expected — metric requires ~20k events, round ${round}/${EVENT_SOURCE_WARN_AFTER})"
         else
-            log "WARNING: walrus_periodic_event_source_for_deterministic_events: still no data" \
+            log "WARNING: ${EVENT_SOURCE}: still no data" \
                 "after ${round} rounds — expected by now, check event processing"
         fi
-        print_metric_values "walrus_periodic_event_source_for_deterministic_events" "bucket"
+        print_metric_values "$EVENT_SOURCE" "bucket"
     elif [ "$v" -gt 0 ]; then
         event_source_streak=$((event_source_streak + 1))
         log "Event source mismatch (streak: ${event_source_streak}/${EVENT_SOURCE_PATIENCE}):"
         cat "$WORK_DIR/details_event_source.txt"
-        print_metric_values "walrus_periodic_event_source_for_deterministic_events" "bucket"
+        print_metric_values "$EVENT_SOURCE" "bucket"
         if [ "$event_source_streak" -ge "$EVENT_SOURCE_PATIENCE" ]; then
-            die "periodic_event_source: persistent mismatch for ${EVENT_SOURCE_PATIENCE} consecutive rounds"
+            die "${EVENT_SOURCE}: persistent mismatch for ${EVENT_SOURCE_PATIENCE} consecutive rounds"
         fi
     else
         event_source_streak=0
-        log "walrus_periodic_event_source_for_deterministic_events: OK"
-        print_metric_values "walrus_periodic_event_source_for_deterministic_events" "bucket"
+        log "${EVENT_SOURCE}: OK"
+        print_metric_values "$EVENT_SOURCE" "bucket"
     fi
 
     # ------------------------------------------------------------------
@@ -363,14 +369,14 @@ while true; do
         fully_stored_streak=$((fully_stored_streak + 1))
         log "Fully-stored-ratio violation (streak: ${fully_stored_streak}/${FULLY_STORED_PATIENCE}):"
         cat "$WORK_DIR/details_fully_stored.txt"
-        print_metric_values "walrus_node_blob_data_fully_stored_ratio" "epoch"
+        print_metric_values "$FULLY_STORED_RATIO" "epoch"
         if [ "$fully_stored_streak" -ge "$FULLY_STORED_PATIENCE" ]; then
-            die "node_blob_data_fully_stored_ratio: persistent violation for ${FULLY_STORED_PATIENCE} consecutive rounds"
+            die "${FULLY_STORED_RATIO}: persistent violation for ${FULLY_STORED_PATIENCE} consecutive rounds"
         fi
     else
         fully_stored_streak=0
-        log "walrus_node_blob_data_fully_stored_ratio: OK"
-        print_metric_values "walrus_node_blob_data_fully_stored_ratio" "epoch"
+        log "${FULLY_STORED_RATIO}: OK"
+        print_metric_values "$FULLY_STORED_RATIO" "epoch"
     fi
 
     log "All checks passed for round ${round}"
