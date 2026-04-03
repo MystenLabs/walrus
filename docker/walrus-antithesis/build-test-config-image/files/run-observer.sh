@@ -11,9 +11,9 @@
 # Hard invariants (crash on first confirmed violation):
 #   - walrus_blob_info_consistency_check           — same digest per epoch across all nodes
 #   - walrus_per_object_blob_info_consistency_check — same digest per epoch across all nodes
+#   - walrus_periodic_event_source_for_deterministic_events — same per bucket across all nodes
 #
 # Soft invariants (crash after persistent violation):
-#   - walrus_periodic_event_source_for_deterministic_events — same per bucket across all nodes
 #   - walrus_node_blob_data_fully_stored_ratio               — must equal 1 on every node/epoch
 #
 # Epoch bucket design:
@@ -36,7 +36,6 @@ METRICS_PORT="${METRICS_PORT:-9184}"
 CHECK_INTERVAL="${CHECK_INTERVAL:-60}"
 INITIAL_WAIT="${INITIAL_WAIT:-180}"
 # Consecutive rounds a soft-invariant violation must persist before crashing.
-EVENT_SOURCE_PATIENCE="${EVENT_SOURCE_PATIENCE:-3}"
 FULLY_STORED_PATIENCE="${FULLY_STORED_PATIENCE:-3}"
 # Rounds before we escalate "no event source data" from info to warning.
 # Event source metric requires 20k events (~1.5h). With 60s intervals,
@@ -239,14 +238,12 @@ check_fully_stored_ratio() {
 log "Cross-node invariant observer starting"
 log "Nodes: ${NODES[*]}, port: ${METRICS_PORT}"
 log "Check interval: ${CHECK_INTERVAL}s, initial wait: ${INITIAL_WAIT}s"
-log "Event source patience: ${EVENT_SOURCE_PATIENCE} rounds"
 log "Fully stored patience: ${FULLY_STORED_PATIENCE} rounds"
 log "Max epoch buckets: ${MAX_EPOCH_BUCKETS}"
 
 log "Waiting ${INITIAL_WAIT}s for cluster stabilization..."
 sleep "$INITIAL_WAIT"
 
-event_source_streak=0
 fully_stored_streak=0
 round=0
 
@@ -268,9 +265,8 @@ while true; do
         fi
     done
     if [ "$all_ok" = false ]; then
-        # Reset streak counters so that non-consecutive violations separated
+        # Reset streak counter so that non-consecutive violations separated
         # by unreachable rounds do not accumulate toward the patience threshold.
-        event_source_streak=0
         fully_stored_streak=0
         sleep "$CHECK_INTERVAL"
         continue
@@ -324,17 +320,17 @@ while true; do
     fi
 
     # ------------------------------------------------------------------
-    # Soft invariant 1: event source consistency (tolerate transient lag).
-    # Nodes may be at different event-processing positions, so bucket
-    # values can temporarily diverge. Crash only after a persistent
-    # mismatch across EVENT_SOURCE_PATIENCE consecutive rounds.
+    # Hard invariant 3: event source must match across nodes.
+    # The metric is recorded every fixed batch of events. For a given
+    # bucket, either a node hasn't reached that batch (no data) or it
+    # has the final hash. check_cross_node_metric only compares labels
+    # present on ALL nodes, so lagging nodes are excluded automatically.
     # ------------------------------------------------------------------
     v=$(check_cross_node_metric \
         "$EVENT_SOURCE" "bucket" \
         "$WORK_DIR/details_event_source.txt")
     if [ "$v" -eq -1 ]; then
         # No data yet — the metric is recorded every 20k events (~1.5h).
-        event_source_streak=0
         if [ "$round" -lt "$EVENT_SOURCE_WARN_AFTER" ]; then
             log "${EVENT_SOURCE}: no data yet" \
                 "(expected — metric requires ~20k events, round ${round}/${EVENT_SOURCE_WARN_AFTER})"
@@ -344,21 +340,17 @@ while true; do
         fi
         print_metric_values "$EVENT_SOURCE" "bucket"
     elif [ "$v" -gt 0 ]; then
-        event_source_streak=$((event_source_streak + 1))
-        log "Event source mismatch (streak: ${event_source_streak}/${EVENT_SOURCE_PATIENCE}):"
+        log "INVARIANT VIOLATION — ${EVENT_SOURCE} (${v} bucket(s)):"
         cat "$WORK_DIR/details_event_source.txt"
         print_metric_values "$EVENT_SOURCE" "bucket"
-        if [ "$event_source_streak" -ge "$EVENT_SOURCE_PATIENCE" ]; then
-            die "${EVENT_SOURCE}: persistent mismatch for ${EVENT_SOURCE_PATIENCE} consecutive rounds"
-        fi
+        die "${EVENT_SOURCE}: mismatched values across nodes"
     else
-        event_source_streak=0
         log "${EVENT_SOURCE}: OK"
         print_metric_values "$EVENT_SOURCE" "bucket"
     fi
 
     # ------------------------------------------------------------------
-    # Soft invariant 2: all blobs fully stored (tolerate recovery lag).
+    # Soft invariant 1: all blobs fully stored (tolerate recovery lag).
     # A node that just recovered may briefly report < 1 while syncing
     # completes.  Crash only after FULLY_STORED_PATIENCE rounds.
     # Only the latest (highest) epoch bucket per node is checked — see
