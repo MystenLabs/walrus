@@ -1063,7 +1063,7 @@ impl RetriableSuiClient {
             .failover_sui_client
             .with_failover(request, None, "get_transaction")
             .await?;
-        Ok(convert_sui_response_to_transaction_response(resp))
+        convert_sui_response_to_transaction_response(resp)
     }
 
     /// gRPC implementation of `get_transaction_with_options`.
@@ -2107,26 +2107,31 @@ impl RetriableSuiClient {
 /// Convert a JSON-RPC [`SuiTransactionBlockResponse`] to our [`TransactionResponse`].
 fn convert_sui_response_to_transaction_response(
     resp: SuiTransactionBlockResponse,
-) -> TransactionResponse {
-    TransactionResponse {
+) -> SuiClientResult<TransactionResponse> {
+    Ok(TransactionResponse {
         digest: resp.digest,
         checkpoint: resp.checkpoint,
         timestamp_ms: resp.timestamp_ms,
         raw_transaction: resp.raw_transaction,
-        balance_changes: resp.balance_changes.map(|changes| {
-            changes
-                .into_iter()
-                .map(|c| BalanceChange {
-                    address: c.owner.get_owner_address().unwrap_or_default(),
-                    coin_type: c.coin_type,
-                    amount: c.amount,
-                })
-                .collect()
-        }),
+        balance_changes: resp
+            .balance_changes
+            .map(|changes| {
+                changes
+                    .into_iter()
+                    .map(|c| {
+                        Ok(BalanceChange {
+                            address: c.owner.get_owner_address().map_err(Box::new)?,
+                            coin_type: c.coin_type,
+                            amount: c.amount,
+                        })
+                    })
+                    .collect::<SuiClientResult<Vec<_>>>()
+            })
+            .transpose()?,
         events: resp
             .events
             .map(|e| e.data.into_iter().map(EventEnvelope::from).collect()),
-    }
+    })
 }
 
 #[derive(Clone)]
