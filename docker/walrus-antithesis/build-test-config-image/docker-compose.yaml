@@ -194,6 +194,7 @@ services:
       - INITIAL_WAIT=180
       - EVENT_SOURCE_PATIENCE=3
       - FULLY_STORED_PATIENCE=3
+      - EVENT_SOURCE_WARN_AFTER=120
     volumes:
       - ./files/run-observer.sh:/root/run-observer.sh
     command: >

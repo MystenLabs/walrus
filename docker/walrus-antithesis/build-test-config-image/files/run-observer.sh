@@ -28,6 +28,10 @@ INITIAL_WAIT="${INITIAL_WAIT:-180}"
 # Consecutive rounds a soft-invariant violation must persist before crashing.
 EVENT_SOURCE_PATIENCE="${EVENT_SOURCE_PATIENCE:-3}"
 FULLY_STORED_PATIENCE="${FULLY_STORED_PATIENCE:-3}"
+# Rounds before we escalate "no event source data" from info to warning.
+# Event source metric requires 20k events (~1.5h). With 60s intervals,
+# 120 rounds ≈ 2 hours — enough time for the metric to appear.
+EVENT_SOURCE_WARN_AFTER="${EVENT_SOURCE_WARN_AFTER:-120}"
 
 WORK_DIR="/tmp/observer"
 mkdir -p "$WORK_DIR"
@@ -48,7 +52,7 @@ print_metric_values() {
             [ -z "$lbl" ] && continue
             vals="${vals} ${label}=${lbl}:${val}"
         done < <(extract_metric "$WORK_DIR/raw_${NODES[$i]}.prom" "$metric" "$label")
-        log "  node-${i} (${NODES[$i]}):${vals:- (none)}"
+        log "  node-${i} (${NODES[$i]}):${vals:- (no data — not enough events processed yet)}"
     done
 }
 
@@ -96,8 +100,8 @@ check_cross_node_metric() {
         > "$WORK_DIR/chk_common.txt"
 
     if [ ! -s "$WORK_DIR/chk_common.txt" ]; then
-        log "  ${metric}: no common ${label} values across nodes, skipping comparison"
-        echo "0"
+        # Signal "no data" with -1 so callers can distinguish from "0 violations".
+        echo "-1"
         return
     fi
 
@@ -237,7 +241,18 @@ while true; do
     v=$(check_cross_node_metric \
         "walrus_periodic_event_source_for_deterministic_events" "bucket" \
         "$WORK_DIR/details_event_source.txt")
-    if [ "$v" -gt 0 ]; then
+    if [ "$v" -eq -1 ]; then
+        # No data yet — the metric is recorded every 20k events (~1.5h).
+        event_source_streak=0
+        if [ "$round" -lt "$EVENT_SOURCE_WARN_AFTER" ]; then
+            log "walrus_periodic_event_source_for_deterministic_events: no data yet" \
+                "(expected — metric requires ~20k events, round ${round}/${EVENT_SOURCE_WARN_AFTER})"
+        else
+            log "WARNING: walrus_periodic_event_source_for_deterministic_events: still no data" \
+                "after ${round} rounds — expected by now, check event processing"
+        fi
+        print_metric_values "walrus_periodic_event_source_for_deterministic_events" "bucket"
+    elif [ "$v" -gt 0 ]; then
         event_source_streak=$((event_source_streak + 1))
         log "Event source mismatch (streak: ${event_source_streak}/${EVENT_SOURCE_PATIENCE}):"
         cat "$WORK_DIR/details_event_source.txt"
