@@ -18,14 +18,7 @@ use chrono::{DateTime, Utc};
 use futures::FutureExt as _;
 use sui_sdk::{
     apis::EventApi,
-    rpc_types::{
-        EventFilter,
-        SuiEvent,
-        SuiObjectData,
-        SuiObjectDataFilter,
-        SuiObjectDataOptions,
-        SuiObjectResponseQuery,
-    },
+    rpc_types::{EventFilter, SuiEvent},
     types::base_types::ObjectID,
 };
 use sui_types::{
@@ -79,7 +72,7 @@ use crate::{
             WalrusSubsidiesInner,
         },
     },
-    utils::{get_sui_object_from_bcs, handle_pagination},
+    utils::get_sui_object_from_bcs,
 };
 
 const EVENT_MODULE: &str = "events";
@@ -763,11 +756,11 @@ impl SuiReadClient {
     /// Get all the owned objects of the specified type for the specified owner.
     ///
     /// If some of the returned objects cannot be converted to the expected type, they are ignored.
-    pub(crate) async fn get_owned_objects<'a, U>(
-        &'a self,
+    pub(crate) async fn get_owned_objects<U>(
+        &self,
         owner: SuiAddress,
-        type_args: &'a [TypeTag],
-    ) -> Result<impl Iterator<Item = U> + 'a>
+        type_args: &[TypeTag],
+    ) -> Result<impl Iterator<Item = U>>
     where
         U: AssociatedContractStruct,
     {
@@ -776,66 +769,13 @@ impl SuiReadClient {
             contract_struct = %U::CONTRACT_STRUCT,
         );
 
-        let results = self
-            .get_owned_object_data(owner, type_args, U::CONTRACT_STRUCT)
-            .instrument(span.clone())
-            .await?;
-
-        Ok(results.filter_map(move |object_data| {
-            let _entered = span.enter();
-            object_data.map_or_else(
-                |error| {
-                    tracing::warn!(
-                        ?error,
-                        contract_struct = %U::CONTRACT_STRUCT,
-                        "failed to convert to local type",
-                    );
-                    None
-                },
-                |object_data| match U::try_from_object_data(&object_data) {
-                    Result::Ok(value) => Some(value),
-                    Result::Err(error) => {
-                        tracing::warn!(
-                            ?error,
-                            contract_struct = %U::CONTRACT_STRUCT,
-                            "failed to convert to local type",
-                        );
-                        None
-                    }
-                },
-            )
-        }))
-    }
-
-    /// Get all the [`SuiObjectData`] objects of the specified type for the specified owner.
-    async fn get_owned_object_data<'a>(
-        &'a self,
-        owner: SuiAddress,
-        type_args: &'a [TypeTag],
-        object_type: contracts::StructTag<'a>,
-    ) -> Result<impl Iterator<Item = Result<SuiObjectData>> + 'a> {
-        let struct_tag =
-            object_type.to_move_struct_tag_with_type_map(&self.type_origin_map(), type_args)?;
-        Ok(handle_pagination(move |cursor| {
-            self.sui_client.get_owned_objects(
-                owner,
-                Some(SuiObjectResponseQuery {
-                    filter: Some(SuiObjectDataFilter::StructType(struct_tag.clone())),
-                    options: Some(SuiObjectDataOptions::new().with_bcs().with_type()),
-                }),
-                cursor,
-                None,
-            )
-        })
-        .await?
-        .map(|resp| {
-            resp.data.ok_or_else(|| {
-                anyhow!(
-                    "response does not contain object data [err={:?}]",
-                    resp.error
-                )
-            })
-        }))
+        let type_origin_map = self.type_origin_map().clone();
+        Ok(self
+            .sui_client
+            .get_owned_objects_typed::<U>(owner, &type_origin_map, type_args)
+            .instrument(span)
+            .await?
+            .into_iter())
     }
 
     pub(crate) async fn object_arg_for_object(

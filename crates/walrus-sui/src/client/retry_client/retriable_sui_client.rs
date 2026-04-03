@@ -36,6 +36,7 @@ use sui_sdk::{
         SuiMoveNormalizedStructType,
         SuiMoveNormalizedType,
         SuiObjectData,
+        SuiObjectDataFilter,
         SuiObjectDataOptions,
         SuiObjectResponse,
         SuiObjectResponseQuery,
@@ -94,7 +95,7 @@ use crate::{
             SystemObjectForDeserialization,
         },
     },
-    utils::{get_sui_object_from_bcs, get_sui_object_from_object_response},
+    utils::{get_sui_object_from_bcs, get_sui_object_from_object_response, handle_pagination},
 };
 
 /// The maximum gas allowed in a transaction, in MIST (50 SUI). Used for gas budget estimation.
@@ -214,6 +215,7 @@ const GRPC_MIGRATION_LEVEL_TRANSACTION_READS: GrpcMigrationLevel = GrpcMigration
 const GRPC_MIGRATION_LEVEL_SERVICE_INFO: GrpcMigrationLevel = GrpcMigrationLevel(6);
 const GRPC_MIGRATION_LEVEL_TRANSACTION_WRITES: GrpcMigrationLevel = GrpcMigrationLevel(7);
 const GRPC_MIGRATION_LEVEL_MOVE_MODULES: GrpcMigrationLevel = GrpcMigrationLevel(8);
+const GRPC_MIGRATION_LEVEL_OWNED_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(9);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -559,6 +561,94 @@ impl RetriableSuiClient {
             }
         }
         Ok(result_objects_with_refs)
+    }
+
+    /// Returns all owned objects of the specified type for the given owner.
+    ///
+    /// Branches on `GRPC_MIGRATION_LEVEL_OWNED_OBJECTS` to use gRPC or JSON-RPC.
+    pub async fn get_owned_objects_typed<U>(
+        &self,
+        owner: SuiAddress,
+        type_origin_map: &TypeOriginMap,
+        type_args: &[TypeTag],
+    ) -> SuiClientResult<Vec<U>>
+    where
+        U: AssociatedContractStruct,
+    {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_OWNED_OBJECTS {
+            self.get_owned_objects_grpc_typed(owner, type_origin_map, type_args)
+                .await
+        } else {
+            self.get_owned_objects_json_rpc_typed(owner, type_origin_map, type_args)
+                .await
+        }
+    }
+
+    /// gRPC path: delegates to existing `get_owned_objects_of_type` and strips the `ObjectRef`.
+    async fn get_owned_objects_grpc_typed<U>(
+        &self,
+        owner: SuiAddress,
+        type_origin_map: &TypeOriginMap,
+        type_args: &[TypeTag],
+    ) -> SuiClientResult<Vec<U>>
+    where
+        U: AssociatedContractStruct,
+    {
+        Ok(self
+            .get_owned_objects_of_type(owner, type_origin_map, type_args)
+            .await?
+            .into_iter()
+            .map(|(obj, _ref)| obj)
+            .collect())
+    }
+
+    /// JSON-RPC path: paginates via `get_owned_objects` and converts responses to `U`.
+    async fn get_owned_objects_json_rpc_typed<U>(
+        &self,
+        owner: SuiAddress,
+        type_origin_map: &TypeOriginMap,
+        type_args: &[TypeTag],
+    ) -> SuiClientResult<Vec<U>>
+    where
+        U: AssociatedContractStruct,
+    {
+        let struct_tag =
+            U::CONTRACT_STRUCT.to_move_struct_tag_with_type_map(type_origin_map, type_args)?;
+        let responses = handle_pagination(|cursor| {
+            self.get_owned_objects(
+                owner,
+                Some(SuiObjectResponseQuery {
+                    filter: Some(SuiObjectDataFilter::StructType(struct_tag.clone())),
+                    options: Some(SuiObjectDataOptions::new().with_bcs().with_type()),
+                }),
+                cursor,
+                None,
+            )
+        })
+        .await?;
+        Ok(responses
+            .filter_map(|resp| {
+                let data = resp.data.or_else(|| {
+                    tracing::warn!(
+                        error = ?resp.error,
+                        contract_struct = %U::CONTRACT_STRUCT,
+                        "response does not contain object data"
+                    );
+                    None
+                })?;
+                match U::try_from_object_data(&data) {
+                    Ok(obj) => Some(obj),
+                    Err(error) => {
+                        tracing::warn!(
+                            ?error,
+                            contract_struct = %U::CONTRACT_STRUCT,
+                            "failed to convert to local type"
+                        );
+                        None
+                    }
+                }
+            })
+            .collect())
     }
 
     /// Returns a stream of coins for the given address.
