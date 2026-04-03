@@ -1011,18 +1011,25 @@ impl RetriableSuiClient {
     /// Returns a [`TransactionResponse`] for the given digest.
     ///
     /// Routes to gRPC when the migration level is sufficient, otherwise falls back to JSON-RPC.
-    pub async fn get_transaction_with_options(
+    ///
+    /// Uses `Box::pin` to cap the future size on the stack, since the JSON-RPC path includes
+    /// the large `SuiTransactionBlockResponse` type.
+    pub fn get_transaction_with_options(
         &self,
         digest: TransactionDigest,
         options: TransactionResponseOptions,
-    ) -> SuiClientResult<TransactionResponse> {
-        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_READS {
-            self.get_transaction_with_options_grpc(digest, options)
-                .await
-        } else {
-            self.get_transaction_with_options_json_rpc(digest, options)
-                .await
-        }
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = SuiClientResult<TransactionResponse>> + Send + '_>,
+    > {
+        Box::pin(async move {
+            if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_READS {
+                self.get_transaction_with_options_grpc(digest, options)
+                    .await
+            } else {
+                self.get_transaction_with_options_json_rpc(digest, options)
+                    .await
+            }
+        })
     }
 
     /// JSON-RPC implementation of `get_transaction_with_options`.
