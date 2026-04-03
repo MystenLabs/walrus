@@ -24,7 +24,7 @@ Important notes:
     using Cargo. For standard setup instructions, see Getting Started. Walrus is open source under
     an Apache 2 license.
 - [Getting Started](https://docs.wal.app/docs/getting-started.md): Walrus is a verifiable data
-    platform for high-stakes systems like AI and on-chain finance, where data is stored as blobs.
+    platform for high-stakes systems like AI and onchain finance, where data is stored as blobs.
     Walrus uses an object storage architecture, where blobs are stored in a flat namespace rather
     than a hierarchy. There are no folders or directories.
 
@@ -54,16 +54,16 @@ Important notes:
     algorithm used in Walrus is an adaptation of the Twin-Code framework presented by Rashmi et al.
     [1].
 - [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md): Storing blobs on
-    Walrus Mainnet incurs 2 separate costs: WAL for the storage operation. See WAL tokenomics and
-    the Walrus delegated proof of stake system for more details. SUI for executing transactions on
-    Sui Mainnet. See SUI tokenomics and SUI gas fee calculation for more details.
+    Walrus Mainnet incurs 2 separate costs: WAL for the storage operation. You pay per storage unit
+    per epoch. In other words, the cost scales with blob size and epoch. Run walrus info to see
+    current pricing, including the price per encoded storage unit and the additional write fee.
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md): This page
     describes the practical limits and constraints you should consider when designing applications
     on Walrus. For current values, run walrus info. Walrus supports blobs up to approximately 13.6
     GiB. Check the current limit with walrus info under "Maximum blob size.
 - [View System Info](https://docs.wal.app/docs/system-overview/view-system-info.md): The Walrus
     system object contains metadata about available and used storage and the price of storage per
-    KB in FROST. These values are determined by 2/3 agreement between storage nodes for each
+    KiB in FROST. These values are determined by 2/3 agreement between storage nodes for each
     storage epoch. You can pay to purchase storage space for specified durations.
 
 ## Usage
@@ -124,7 +124,7 @@ Important notes:
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md): The following JavaScript example
     shows how to upload and download a blob through a web form using the HTTP API.
 - [Move](https://docs.wal.app/docs/examples/move.md): The following Move example showcases how to
-    import and use Walrus on-chain objects.
+    import and use Walrus onchain objects.
 - [Python](https://docs.wal.app/docs/examples/python.md): You can interact with Walrus from within
     Python code. Use the HTTP API to store and read blobs. Use the JSON API to store, read, and
     check the availability of a blob. Checking the certification of a blob illustrates reading the
@@ -161,7 +161,7 @@ Important notes:
     publishing to Walrus.
 - [Operating
     Publisher](https://docs.wal.app/docs/operator-guide/publishers/operating-publisher.md): The
-    publisher and daemon perform on-chain actions and require a Sui wallet with sufficient SUI and
+    publisher and daemon perform onchain actions and require a Sui wallet with sufficient SUI and
     WAL balances. To handle many parallel requests without object conflicts, they create internal
     sub-wallets (introduced in version 1.4.0) funded from the main wallet.
 - [Signed Binaries](https://docs.wal.app/docs/operator-guide/signed-binaries.md): Walrus release
@@ -220,8 +220,8 @@ Important notes:
     public address. You will need to: Export a private key from your Sui Wallet or CLI.
 - [Adding Metadata](https://docs.wal.app/docs/sites/configuration/adding-metadata.md): The metadata
     section of ws-resources.json lets you add human-readable information to your Walrus Site
-    object. This data is stored on-chain and is used by portals, explorers, wallets, and other
-    tools to display information about your site.
+    object. This data is stored onchain and is used by portals, explorers, wallets, and other tools
+    to display information about your site.
 - [Setting Up Routing
     Rules](https://docs.wal.app/docs/sites/configuration/setting-up-routing-rules.md): The optional
     routes section allows you to specify client-side routing rules for your site. This is useful
@@ -237,18 +237,20 @@ Important notes:
     the headers object are the exact paths of the resources (no wildcards), and the values are
     lists of key-value pairs corresponding to the headers that the portal attaches to the response.
 - [Bringing Your Own
-    Domain](https://docs.wal.app/docs/sites/custom-domains/bringing-your-own-domain.md): There
-    might be cases where you want to host a Walrus Site under a specific domain without following
-    the default naming convention of .
+    Domain](https://docs.wal.app/docs/sites/custom-domains/bringing-your-own-domain.md): By
+    default, Walrus Sites are served through a portal at a subdomain address like
+    https://example.wal.app. If you want to serve your site at a classic DNS domain you own, for
+    example https://example.com, you can do so by deploying your own portal and configuring it to
+    serve only your site.
 - [DNS Configuration](https://docs.wal.app/docs/sites/custom-domains/dns-configuration.md): After
     setting up your portal and configuring it for your domain, you need to configure your domain's
     DNS to route traffic to the server running your portal. This guide covers adding DNS records,
     setting up HTTPS with a reverse proxy, verifying propagation, and troubleshooting common DNS
     issues.
 - [Setting A SuiNS Name](https://docs.wal.app/docs/sites/custom-domains/setting-a-suins-name.md):
-    Browsing sites with Base36 subdomains, for example, is no longer possible using the wal.app
-    portal. Base36 subdomains are still supported if you use a local server or an alternative
-    portal. To browse walrus sites using the wal.app portal, you must use SuiNS names instead.
+    Sui Name Service (SuiNS) provides human-readable names for Walrus Sites, similar to how DNS
+    works for websites. Instead of sharing a long Base36 subdomain like , you can link a SuiNS name
+    to your site's object ID and browse it at a readable address like my-project.wal.app.
 - [Installing The Site
     Builder](https://docs.wal.app/docs/sites/getting-started/installing-the-site-builder.md): The
     site-builder is a CLI tool that lets you create, edit, and publish Walrus Sites. You can
@@ -257,49 +259,48 @@ Important notes:
 - [Publishing Your First
     Site](https://docs.wal.app/docs/sites/getting-started/publishing-your-first-site.md): The
     Walrus Sites site-builder uploads your website's files to Walrus, where resources like HTML,
-    CSS, JavaScript, and images are stored as blobs. A Sui smart contract serves as an on-chain
+    CSS, JavaScript, and images are stored as blobs. A Sui smart contract serves as an onchain
     index that maps each resource path to its Walrus blob ID and records site ownership.
 - [Using The Site
     Builder](https://docs.wal.app/docs/sites/getting-started/using-the-site-builder.md): This
     reference page provides details on site-builder configuration and CLI commands.
-- [Sites](https://docs.wal.app/docs/sites.md): This tutorial walks you through the steps necessary
-    to publish a Walrus Site. We also provide the instructions on how to add a SuiNS name to it for
-    convenient browsing. Install and setup the Walrus Sites site-builder tool for development.
-    Publish your first Walrus Site using the site-builder tool.
-- [Components](https://docs.wal.app/docs/sites/introduction/components.md): Walrus Sites are
-    "web"-sites that use Sui and Walrus as their underlying technology. They are a prime example of
-    how Walrus can be used to build new and exciting decentralized applications. Anyone can build
-    and deploy a Walrus Site and make it accessible to the world!
-- [Technical Overview](https://docs.wal.app/docs/sites/introduction/technical-overview.md): Walrus
-    Sites are enabled by Sui and Walrus. The resources of a Walrus Site (html, css, js, images, and
-    so on) are stored on Walrus, while the main entry point to it is an object stored on Sui that
-    contains the metadata for the site and points to the Walrus blob IDs.
+- [Sites](https://docs.wal.app/docs/sites.md): Walrus Sites are decentralized websites built on Sui
+    and Walrus. Your site's files are stored on Walrus, a decentralized storage network, while a
+    Sui smart contract records ownership and maps each resource path to its content.
+- [Components](https://docs.wal.app/docs/sites/introduction/components.md): A Walrus Site is made
+    up of 4 main components that work together: the site's files stored on Walrus, a Sui object
+    that indexes those files as resources, the site-builder CLI that publishes and updates the
+    site, and a portal that serves the site to browsers.
+- [Technical Overview](https://docs.wal.app/docs/sites/introduction/technical-overview.md): A
+    Walrus Site is a static web site published entirely onchain, with no origin server. Sui stores
+    the site's ownership and resource index, and Walrus stores the resource files themselves. A
+    portal bridges these systems and serves the site to the browser over standard HTTP.
 - [Known Restrictions](https://docs.wal.app/docs/sites/known-restrictions.md): Walrus Sites can be
     used to deploy almost any form of traditional static Web2 website built for modern browsers.
     There are, however, a number of restrictions that a developer should keep in mind when creating
     or porting a website to Walrus Sites.
 - [Avoiding Duplicate Content
-    SEO](https://docs.wal.app/docs/sites/linking/avoiding-duplicate-content-seo.md): When you
-    deploy your own Walrus Sites portal, you might expose the same site under multiple hostnames: A
-    SuiNS domain: A human-readable names registered on-chain, for example snowreads.wal.app.
-    Base36: Subdomains derived directly from the site object ID, for example 1myb…xd.portal.com.
+    SEO](https://docs.wal.app/docs/sites/linking/avoiding-duplicate-content-seo.md): Duplicate
+    content occurs when the same or substantially similar content is accessible at more than 1 URL.
+    Search engines such as Google consolidate duplicate pages and assign ranking signals to
+    whichever URL they consider canonical.
 - [Linking From Walrus
     Sites](https://docs.wal.app/docs/sites/linking/linking-from-walrus-sites.md): Walrus Sites
     serves content stored on Walrus through a portal. All relative URLs in your site resolve
-    against the on-chain site object. Anything outside that object, such as third-party pages,
-    APIs, CDN assets, other Walrus Sites, requires an absolute URL.
+    against the onchain site object. Anything outside that object, such as third-party pages, APIs,
+    CDN assets, other Walrus Sites, requires an absolute URL.
 - [Linking To Walrus Sites](https://docs.wal.app/docs/sites/linking/linking-to-walrus-sites.md): A
-    Walrus Site is addressed through a portal. The portal resolves the site from an on-chain object
+    Walrus Site is addressed through a portal. The portal resolves the site from an onchain object
     and serves its content. To link to a Walrus Site from an external source, you construct a URL
     that the portal can resolve.
 - [Linking To](https://docs.wal.app/docs/sites/linking/linking-to.md): This feature is currently
     unavailable on server-side portals. If you are browsing a Walrus Site on https://wal.app, you
     are not able to use Walrus Sites links. Certain types of links on Walrus Sites work differently
     than on a regular website.
-- [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Consider a collection of NFTs,
-    such as the one published by https://flatland.wal.app. As shown there, each minted NFT has its
-    own Walrus Site, which can be personalized based on the contents, for example, the color, of
-    the NFT itself. To achieve this, add a "redirect" in the NFT's Display property.
+- [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Walrus Sites supports 3 kinds
+    of redirects: internal routing redirects, HTTP redirects, and object redirects. Internal
+    routing redirects map URL paths within your site to specific resources. HTTP redirects return
+    3xx responses to send the client to a different URL.
 - [Mainnet](https://docs.wal.app/docs/sites/portals/deploy-locally.md): To view a website deployed
     using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus
     and their corresponding Sui objects before serving the site in your browser. You can browse any
@@ -307,7 +308,7 @@ Important notes:
 - [Uncomment and configure when enableallowlist is
     true](https://docs.wal.app/docs/sites/portals/mainnet-testnet.md): Walrus Site Portals are used
     to access and browse a Walrus Site. The portal you run must match the network on which your
-    site is deployed. Each network has its own on-chain package, default RPC endpoint, and Walrus
+    site is deployed. Each network has its own onchain package, default RPC endpoint, and Walrus
     aggregator.
 - [Site Data Authentication](https://docs.wal.app/docs/sites/security/site-data-authentication.md):
     Walrus Sites authenticate the data that is served on the client side from the Walrus storage,
@@ -324,9 +325,10 @@ Important notes:
     how to handle Walrus errors programmatically in your applications. For a reference of specific
     error messages and their solutions, see Troubleshooting Common Errors. Not all errors are
     equal.
-- [Troubleshooting](https://docs.wal.app/docs/troubleshooting.md): Debug logging You can enable
-    debug logging for Walrus by setting the environment variable RUSTLOG=walrus=debug. Before
-    undertaking any other steps, make sure you have the latest walrus binary.
+- [Troubleshooting](https://docs.wal.app/docs/troubleshooting.md): Resolve common issues with the
+    Walrus CLI, configuration, and network connectivity. Before undertaking any other steps, make
+    sure you have the latest walrus binary. If you have multiple versions in different locations,
+    find the binary that is actually used with which walrus.
 - [Network Errors](https://docs.wal.app/docs/troubleshooting/network-errors.md): This page covers
     common errors you might encounter when using Walrus. Each entry includes the error message, its
     cause, and how to troubleshoot it. Errors in this section occur when the Walrus CLI cannot load
@@ -341,8 +343,9 @@ Important notes:
 ## Large Uploads
 
 - [Large Uploads](https://docs.wal.app/docs/large-uploads.md): The maximum blob size on Walrus is
-    approximately 13.6 GB. To upload data larger than this, there are certain workarounds and
-    considerations that you must utilize for optimal production performance.
+    approximately 13.6 GiB. Uploading large data sets or individual blobs larger than 1 GiB require
+    certain workarounds and planning for optimal performance and efficiency. After you plan your
+    upload strategy, estimate the storage costs for your data.
 
 ## Optional
 

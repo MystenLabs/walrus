@@ -11,9 +11,9 @@ This guide covers migrating a Walrus storage node to new hardware. It assumes yo
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
 
-- [x] New host set up following the [Storage Node Setup](/docs/operator-guide/storage-node-setup)
-  guide (through the [TLS setup](/docs/operator-guide/storage-node-setup#tls-setup) and
-  [systemd service](/docs/operator-guide/storage-node-setup#systemd) sections. Do **not** run
+- [x] New host set up following the [Storage Node Setup](/docs/operator-guide/storage-nodes/storage-node-setup)
+  guide (through the [TLS setup](/docs/operator-guide/storage-nodes/storage-node-setup#tls-setup) and
+  [systemd service](/docs/operator-guide/storage-nodes/storage-node-setup#systemd) sections. Do **not** run
   `walrus-node setup` or `register` on the new host.)
 - [x] SSH access from the new host to the old host
 
@@ -75,7 +75,7 @@ While the sync is running, update your DNS records to point to the new host.
 
 ##### Step 4: Download the latest binaries.
 
-Download the latest `walrus` and `walrus-node` binaries (see [Download binaries](/docs/operator-guide/storage-node-setup#binaries)).
+Download the latest `walrus` and `walrus-node` binaries (see [Download binaries](/docs/operator-guide/storage-nodes/storage-node-setup#binaries)).
 
 ##### Step 5: Verify transferred data.
 
