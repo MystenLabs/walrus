@@ -169,7 +169,8 @@ impl DualClient {
 
     /// Get a transaction response from the Sui network via gRPC.
     ///
-    /// Handles: checkpoint, timestamp, raw_input, balance_changes, and events.
+    /// Supports requesting raw_input, balance_changes, and events via the options parameter.
+    /// Always includes digest, checkpoint, and timestamp.
     pub async fn get_transaction_response_grpc(
         &self,
         digest: TransactionDigest,
@@ -178,28 +179,6 @@ impl DualClient {
         let field_mask = build_transaction_field_mask(options);
         let executed_tx = self.get_transaction_raw(digest, field_mask).await?;
         executed_transaction_to_response(digest, options, &executed_tx)
-    }
-
-    /// Get events for a transaction from the Sui network via gRPC.
-    pub async fn get_transaction_events_grpc(
-        &self,
-        tx_digest: TransactionDigest,
-    ) -> Result<Vec<EventEnvelope>, SuiClientError> {
-        let field_mask = FieldMask::from_paths(&[ExecutedTransaction::path_builder()
-            .events()
-            .events()
-            .finish()]);
-        let executed_tx = self.get_transaction_raw(tx_digest, field_mask).await?;
-        let empty = Vec::new();
-        executed_tx
-            .events
-            .as_ref()
-            .map(|e| &e.events)
-            .unwrap_or(&empty)
-            .iter()
-            .enumerate()
-            .map(|(idx, event)| grpc_event_to_event_envelope(tx_digest, idx, event))
-            .collect::<Result<Vec<_>, _>>()
     }
 
     /// Low-level gRPC call to get a transaction with a specific field mask.
