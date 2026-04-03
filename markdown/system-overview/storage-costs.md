@@ -1,5 +1,3 @@
-{/* https://linear.app/mysten-labs/issue/DOCS-633/system-overviewstorage-costs */}
-
 Storing blobs on Walrus Mainnet incurs 2 separate costs:
 
 - **WAL** for the storage operation. You pay per storage unit per epoch. In other words, the cost scales with blob size and epoch. Run `walrus info` to see current pricing, including the price per encoded storage unit and the additional write fee. See [WAL tokenomics](https://www.walrus.xyz/wal-token) and the [Walrus delegated proof of stake system](/walrus.pdf) for more details.

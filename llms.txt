@@ -53,6 +53,10 @@ Important notes:
 - [Red Stuff](https://docs.wal.app/docs/system-overview/red-stuff.md): The RedStuff encoding
     algorithm used in Walrus is an adaptation of the Twin-Code framework presented by Rashmi et al.
     [1].
+- [Relay](https://docs.wal.app/docs/system-overview/relay.md): An upload relay is a server-side
+    service that simplifies the upload process by handling the complexity of writing to multiple
+    storage nodes. It provides batching capabilities and improved reliability for client
+    applications.
 - [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md): Storing blobs on
     Walrus Mainnet incurs 2 separate costs: WAL for the storage operation. You pay per storage unit
     per epoch. In other words, the cost scales with blob size and epoch. Run walrus info to see
@@ -65,10 +69,6 @@ Important notes:
     system object contains metadata about available and used storage and the price of storage per
     KiB in FROST. These values are determined by 2/3 agreement between storage nodes for each
     storage epoch. You can pay to purchase storage space for specified durations.
-
-## Usage
-
-- [Troubleshooting](https://docs.wal.app/docs/usage/troubleshooting.md)
 
 ## Walrus Client
 
@@ -100,11 +100,11 @@ Important notes:
     support quilt operations. All query parameters available for storing regular blobs can also be
     used when storing quilts.
 - [Reading Blobs](https://docs.wal.app/docs/http-api/reading-blobs.md): You can read blobs using
-    HTTP GET requests and their blob ID or object ID.
+    HTTP GET requests with their blob ID or object ID.
 - [Storing Blobs](https://docs.wal.app/docs/http-api/storing-blobs.md): You can store data using
-    HTTP PUT requests. For example, with cURL, you can store blobs using a publisher: Control how
-    the new blob is created through a combination of several query parameters as documented in the
-    OpenAPI specification.
+    HTTP PUT requests. The following examples use curl to store blobs through a publisher: Control
+    how the new blob is created through a combination of query parameters as documented in the
+    OpenAPI specification. Specify the lifetime of the blob through the epochs parameter.
 
 ## TypeScript SDK
 
@@ -201,23 +201,24 @@ Important notes:
 
 ## Sites
 
-- [Github Actions Workflow](https://docs.wal.app/docs/sites/ci-cd/github-actions-workflow.md): You
-    can create GitHub workflows to automate your Walrus Site deployments using the official Walrus
-    Site GitHub Action.
+- [Github Actions Workflow](https://docs.wal.app/docs/sites/ci-cd/github-actions-workflow.md):
+    Create a GitHub Actions workflow to automatically deploy your Walrus Site whenever you push to
+    your repository. The workflow uses the official Deploy Walrus Site action maintained by Mysten
+    Labs.
+- [1. Reconstruct Sui client configuration from CI
+    secrets.](https://docs.wal.app/docs/sites/ci-cd/other-ci-cd-platforms.md): The official Deploy
+    Walrus Site action targets GitHub Actions only. On any other CI/CD platform, such as GitLab
+    CI/CD, CircleCI, or Bitbucket Pipelines, you drive deployment directly through the site-builder
+    CLI.
 - [Preparing Deployment
     Credentials](https://docs.wal.app/docs/sites/ci-cd/preparing-deployment-credentials.md): To
-    allow a GitHub Action to deploy your Walrus Site, it needs to be able to sign transactions on
-    your behalf. This requires securely providing it with your private key and the corresponding
-    public address. You will need to: Export a private key from your Sui Wallet or CLI.
+    deploy a Walrus Site through a GitHub Actions workflow, the workflow must sign Sui transactions
+    on your behalf. This requires 2 credentials: a private key stored as an encrypted GitHub
+    secret, and the corresponding Sui address stored as a GitHub variable.
 - [Adding Metadata](https://docs.wal.app/docs/sites/configuration/adding-metadata.md): The metadata
     section of ws-resources.json lets you add human-readable information to your Walrus Site
     object. This data is stored onchain and is used by portals, explorers, wallets, and other tools
     to display information about your site.
-- [Setting Up Routing
-    Rules](https://docs.wal.app/docs/sites/configuration/setting-up-routing-rules.md): The optional
-    routes section allows you to specify client-side routing rules for your site. This is useful
-    when you want to use a single-page application (SPA) framework, such as React or Angular. The
-    configuration in the routes object is a mapping from route keys to resource path values.
 - [Site Configuration](https://docs.wal.app/docs/sites/configuration/site-configuration.md): In its
     base configuration, a Walrus Site serves static assets through a portal. However, many modern
     web applications require more advanced features, such as custom headers, client-side routing,
@@ -268,7 +269,7 @@ Important notes:
     portal bridges these systems and serves the site to the browser over standard HTTP.
 - [Known Restrictions](https://docs.wal.app/docs/sites/known-restrictions.md): Walrus Sites can be
     used to deploy almost any form of traditional static Web2 website built for modern browsers.
-    There are, however, a number of restrictions that a developer should keep in mind when creating
+    There are, however, a number of restrictions that developers should keep in mind when creating
     or porting a website to Walrus Sites.
 - [Avoiding Duplicate Content
     SEO](https://docs.wal.app/docs/sites/linking/avoiding-duplicate-content-seo.md): Duplicate
@@ -284,10 +285,10 @@ Important notes:
     Walrus Site is addressed through a portal. The portal resolves the site from an onchain object
     and serves its content. To link to a Walrus Site from an external source, you construct a URL
     that the portal can resolve.
-- [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Walrus Sites supports 2 kinds
-    of redirects: internal routing redirects, which map URL paths within your site to specific
-    resources, and object redirects, which allow arbitrary Sui objects to point to a Walrus Site.
-    These work differently and serve different use cases.
+- [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Walrus Sites supports 3 kinds
+    of redirects: internal routing redirects, HTTP redirects, and object redirects. Internal
+    routing redirects map URL paths within your site to specific resources. HTTP redirects return
+    3xx responses to send the client to a different URL.
 - [Mainnet](https://docs.wal.app/docs/sites/portals/deploy-locally.md): To view a website deployed
     using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus
     and their corresponding Sui objects before serving the site in your browser. You can browse any
@@ -297,10 +298,13 @@ Important notes:
     to access and browse a Walrus Site. The portal you run must match the network on which your
     site is deployed. Each network has its own onchain package, default RPC endpoint, and Walrus
     aggregator.
+- [Access Control Options](https://docs.wal.app/docs/sites/security/access-control-options.md): All
+    blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its contents
+    directly from a Walrus aggregator. This means that access control for Walrus Sites is not
+    enforced at the storage layer.
 - [Site Data Authentication](https://docs.wal.app/docs/sites/security/site-data-authentication.md):
-    Walrus Sites authenticate the data that is served on the client side from the Walrus storage,
-    guaranteeing with various degrees of confidence depending on the setup, that the site data is
-    authentic and has not been tampered with by a malicious aggregator.
+    Walrus Sites use SHA-256 hashes stored on Sui to verify that every resource served by a portal
+    matches the content the site owner originally published.
 - [Troubleshooting](https://docs.wal.app/docs/sites/troubleshooting.md): This page covers common
     errors when deploying and browsing Walrus Sites, organized by where they occur. Errors in this
     section relate to site-builder configuration. Cause: The site-builder binary is not in a

@@ -331,3 +331,9 @@ You can find the `constants.ts` file in the `portal/common/lib` directory. It ho
 | `MAX_REDIRECT_DEPTH` | The number of [redirects](/docs/sites/linking/redirects) the portal follows before stopping. |
 | `SITE_NAMES` | Hard-coded `name: objectID` mappings that override SuiNS names. For development only. Use at your own risk, as it might render some sites with legitimate SuiNS names unusable. |
 | `FALLBACK_PORTAL` | Applies to the service-worker portal only. The fallback portal is a server-side portal used when a browser does not support service workers. |
+
+:::warning
+ 
+The portal reserves the `/__wal__/*` path prefix for internal operations such as health checks. Do not use this prefix for any of your site's resources, as they will not be served correctly.
+ 
+:::

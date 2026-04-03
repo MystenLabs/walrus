@@ -1,6 +1,6 @@
-To view a website deployed using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus and their corresponding Sui objects before serving the site in your browser. You can browse any Walrus Site deployed on Mainnet or Testnet using a Sites Portal. 
+To view a website deployed using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus and their corresponding Sui objects before serving the site in your browser. You can browse any Walrus Site deployed on Mainnet or Testnet using a Sites Portal.
 
-Use Docker to deploy a Sites Portal locally. There are no Testnet portals hosted for public good, and Mainnet sites must use a SuiNS domain name to be resolved via the Walrus Foundation's public Mainnet portal. 
+Use Docker to deploy a Sites Portal locally. There are no Testnet portals hosted for public good, and Mainnet sites must use a SuiNS domain name to be resolved through Walrus Foundation's public Mainnet portal.
 
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
@@ -12,22 +12,18 @@ Use Docker to deploy a Sites Portal locally. There are no Testnet portals hosted
 </TabItem>
 </Tabs>
 
-## Programmatic installation
+{/* ## Programmatic installation
 
 The [`local-docker-portal.sh`](https://github.com/MystenLabs/walrus-sites/blob/main/scripts/local-docker-portal.sh) script automates portal configuration and startup. It reads the version of your locally installed `site-builder`, generates a `portal-config.yaml` file, and runs the corresponding Docker image.
 
-Download the script:
+To download the script:
 
 ```sh
 $ curl -O https://raw.githubusercontent.com/MystenLabs/walrus-sites/main/scripts/local-docker-portal.sh
 $ chmod +x local-docker-portal.sh
 ```
 
-To run the script, it requires the target network (`mainnet` or `testnet`) as its only argument, with an optional second argument to override the default landing page.
-
-```sh
-$ ./local-docker-portal.sh <network>
-```
+The script requires the target network (`mainnet` or `testnet`) as its first argument. You can optionally pass a second argument to override the default landing page.
 
 <Tabs>
 <TabItem value="mainnet" label="Portal for Mainnet sites">
@@ -57,25 +53,25 @@ $ ./local-docker-portal.sh mainnet 46f3881sp4r55fc6pcao9t93bieeejl4vr4k2uv8u4wwy
 
 :::tip
 
-To obtain the Base36 ID of a site you have published, use the [`convert` command](/docs/sites/getting-started/using-the-site-builder):
+To obtain the Base36 ID of a site you published, use the [`convert` command](/docs/sites/getting-started/using-the-site-builder):
 
 ```sh
-$ site-builder convert <hex-object-id>
+$ site-builder convert HEX_OBJECT_ID
 ```
 
 :::
 
-Once the portal is running, open your browser and navigate to:
+Once the portal is running, open your browser and navigate to the following URL:
 
 ```
-http://<site-object-id-b36>.localhost:3000
+http://SITE_OBJECT_ID_B36.localhost:3000
 ```
 
-Replace `<site-object-id-b36>` with the Base36-encoded object ID of the Walrus Site you want to view.
+Replace `SITE_OBJECT_ID_B36` with the Base36-encoded object ID of the Walrus Site you want to view.
 
 :::info
 
-The portal runs on port 3000 by default. The `--rm` flag in the `local-docker-portal.sh` script ensures the Docker container is removed automatically when stopped.
+The portal runs on **port 3000** by default. The `--rm` flag in the `local-docker-portal.sh` script ensures the Docker container is removed automatically when stopped.
 
 :::
 
@@ -85,88 +81,71 @@ Use this method if you need to [customize the portal configuration](/docs/sites/
 
 ### Docker
 
+*/}
+
+Clone the `walrus-sites` repository and check out the stable branch:
+
+```sh
+$ git clone https://github.com/MystenLabs/walrus-sites.git
+$ cd walrus-sites
+$ git checkout mainnet
+```
+
+Copy the template configuration file for your target network and rename it to `portal-config.yaml`:
+
+<Tabs>
+<TabItem value="mainnet" label="Mainnet">
+
+```sh
+$ cp portal/server/portal-config.mainnet.example.yaml portal/server/portal-config.yaml
+```
+
+</TabItem>
+
+<TabItem value="testnet" label="Testnet">
+
+```sh
+$ cp portal/server/portal-config.testnet.example.yaml portal/server/portal-config.yaml
+```
+
+</TabItem>
+</Tabs>
+
+Run the Docker container:
+
+```bash
+docker run \
+  -it \
+  --rm \
+  -v $(pwd)/portal/server/portal-config.yaml:/portal-config.yaml:ro \
+  -e PORTAL_CONFIG=/portal-config.yaml \
+  -p 3000:3000 \
+  mysten/walrus-sites-server-portal:mainnet-v2.8.0
+```
+
 The portal Docker image version must match your `site-builder` version. Run the following command to get the version tag:
 
 ```bash
 $ site-builder -V | awk '{ print $2 }' | awk -F - '{ printf("v%s\n", $1) }'
 ```
 
-This outputs a version string like `v0.7.3`.
+Be sure that version tag matches the version in `mysten/walrus-sites-server-portal:mainnet-v2.8.0`.
 
-Create a file named `portal-config.yaml` with the following content. Adjust the values for the network you are deploying on.
-
-<Tabs>
-<TabItem value="mainnet" label="Mainnet `portal-config.yaml`">
-
-```yaml
-network: mainnet
-site_package: "0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27"
-landing_page_oid_b36: "46f3881sp4r55fc6pcao9t93bieeejl4vr4k2uv8u4wwyx1a93"
-enable_allowlist: false
-enable_blocklist: false
-b36_domain_resolution: true
-rpc_urls:
-  - url: https://fullnode.mainnet.sui.io:443
-    retries: 2
-    metric: 100
-aggregator_urls:
-  - url: https://aggregator.walrus-mainnet.walrus.space
-    retries: 3
-    metric: 100
-```
-
-</TabItem>
-
-<TabItem value="testnet" label="Testnet `portal-config.yaml`">
-
-```yaml
-network: testnet
-site_package: "0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799"
-landing_page_oid_b36: "1p3repujoigwcqrk0w4itsxm7hs7xjl4hwgt3t0szn6evad83q"
-enable_allowlist: false
-enable_blocklist: false
-b36_domain_resolution: true
-rpc_urls:
-  - url: https://fullnode.testnet.sui.io:443
-    retries: 2
-    metric: 100
-aggregator_urls:
-  - url: https://aggregator.walrus-testnet.walrus.space
-    retries: 3
-    metric: 100
-```
-
-</TabItem>
-</Tabs>
-
-Then run the Docker container:
-
-```bash
-docker run \
-  -it \
-  --rm \
-  -v /path/to/portal-config.yaml:/etc/walrus-sites/portal-config.yaml:ro \
-  -p 3000:3000 \
-  mysten/walrus-sites-server-portal:mainnet-
-```
-
-Replace `/path/to/portal-config.yaml` with the absolute path to your config file, and `<version>` with the version string.
-
-Open your browser and navigate to:
+Once the Docker container is running, open your browser and navigate to the following URL:
 
 ```
-http://<site-object-id-b36>.localhost:3000
+http:/localhost:3000
 ```
 
 ### Local development
 
-This requires having the `bun` tool installed:
+This method requires `bun`. Check whether `bun` is installed:
 
 ```sh
 $ bun --version
 ```
 
-If not installed, run the following command:
+If `bun` is not installed, run the following command:
 
 ```sh
 $ curl -fsSL https://bun.sh/install | bash
@@ -175,11 +154,12 @@ $ curl -fsSL https://bun.sh/install | bash
 Install the dependencies:
 
 ```sh
-$ cd portal
+$ git clone https://github.com/MystenLabs/walrus-sites.git
+$ cd walrus-sites/portal
 $ bun install
 ```
 
-To run a server-side portal, copy the example [`portal-config.yaml`](/docs/sites/portals/mainnet-testnet) for your target network and start the server. The server portal is served at `localhost:3000`.
+To run a server-side portal, copy the example [`portal-config.yaml`](/docs/sites/portals/mainnet-testnet) for your target network and start the server. The server portal runs at `localhost:3000`.
 
 ```sh
 # Mainnet
@@ -191,7 +171,7 @@ $ cp server/portal-config.testnet.example.yaml server/portal-config.yaml
 $ bun run server
 ```
 
-To run a service-worker portal, copy the example [`.env.local`](/docs/sites/portals/mainnet-testnet#environment-variable-overrides) for your target network and start the worker. The service-worker portal is served at `localhost:8080`.
+To run a service-worker portal, copy the example [`.env.local`](/docs/sites/portals/mainnet-testnet#environment-variable-overrides) for your target network and start the worker. The service-worker portal runs at `localhost:8080`.
 
 ```sh
 # Mainnet

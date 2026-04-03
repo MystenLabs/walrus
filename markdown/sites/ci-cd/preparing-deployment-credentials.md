@@ -1,14 +1,4 @@
-{/* https://linear.app/mysten-labs/issue/DOCS-681/sitesci-cdpreparing-deployment-credentials */}
-
-To allow a GitHub Action to deploy your Walrus Site, it needs to be able to sign transactions on your behalf. This requires securely providing it with your private key and the corresponding public address.
-
-You will need to:
-
-1. Export a private key from your Sui Wallet or CLI.
-
-1. Correctly format the key and add it as a `SUI_KEYSTORE` secret in your GitHub repository.
-
-1. Add the matching public address as a `SUI_ADDRESS` variable in your GitHub repository.
+To deploy a Walrus Site through a [GitHub Actions](https://github.com/features/actions) workflow, the workflow must sign [Sui transactions](https://docs.sui.io/guides/developer/transactions/txn-overview) on your behalf. This requires 2 credentials: a private key stored as an encrypted GitHub secret, and the corresponding Sui address stored as a GitHub variable.
 
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
@@ -20,124 +10,100 @@ You will need to:
 
 ## Exporting your private key
 
-It's recommended to use a dedicated Sui address for each GitHub workflow rather than reusing addresses across different projects or purposes. This provides better security isolation and helps avoid [gas-coin equivocation](https://docs.sui.io/guides/developer/sui-101/avoid-equivocation) issues that can occur when multiple workflows try to use the same gas coins concurrently.
+Use a separate Sui address for each GitHub workflow rather than sharing one address across multiple projects. A dedicated address provides 2 key benefits:
+
+- **Security isolation:** A compromise of one workflow does not expose keys used elsewhere.
+- **No equivocation:** When multiple concurrent workflow runs share an address, they compete for the same gas coins. Sui rejects duplicate coin references in the same checkpoint, causing transaction failures. A dedicated address eliminates this risk. See [Avoiding Equivocation](https://docs.sui.io/guides/developer/sui-101/avoid-equivocation) for details.
 
 <Tabs>
 <TabItem label="From Sui CLI" value="cli">
 
-If you wish to use a key you already own, you can find it in the `~/.sui/sui_config/sui.keystore` file. This file contains a JSON array of all your keys. To find the address for a specific key, you would need to use the `sui keytool unpack "<the base64 key from sui.keystore>"` command.
+The Sui CLI stores all local keys in `~/.sui/sui_config/sui.keystore` as a JSON array of Base64-encoded strings. You can use an existing key from this file or generate a new one.
 
-If you'd like to create a new key:
+To use an existing key, run the following command to look up the Sui address that corresponds to a key in your keystore:
 
-1. Generate a new key by running the following command in your terminal:
+```sh
+$ sui keytool unpack "<base64-key-from-sui.keystore>"
+```
 
-    ```sh
-    $ sui keytool generate ed25519 # Or secp256k1 or secp256r1
-    ```
+To generate a new key, run the following command to generate a new key pair:
 
-1. This command creates a file in your current directory named `<SUI_ADDRESS>.key` (for example, `0x123...abc.key`). The filename is your new [Sui address](https://docs.sui.io/guides/developer/getting-started/get-address).
+```sh
+$ sui keytool generate ed25519
+```
 
-1. The content of this file is the private key in the `base64WithFlag` format. This is the value you need for the `SUI_KEYSTORE` secret.
+You can substitute `ed25519` with `secp256k1` or `secp256r1` depending on your preferred signature scheme.
 
-1. You now have both the address (from the filename) for the `SUI_ADDRESS` variable and the key (from the file's content) for the `SUI_KEYSTORE` secret.
+The command creates a file in your current directory named after the new Sui address, for example `0x123...abc.key`. The filename is your [Sui address](https://docs.sui.io/guides/developer/getting-started/get-address). Copy the filename, you need it later for the `SUI_ADDRESS` variable.
 
-</TabItem>
-<TabItem label="From Slush wallet" value="slush">
-
-This method is recommended if you manage your keys through the [Slush browser extension](https://chromewebstore.google.com/detail/slush-%E2%80%94-a-sui-wallet/opcgpfmipidbgpenhmajoajpbobppdil).
-
-1. Open your Slush extension and select the account you want to use for deployments. Make sure to copy the corresponding Sui address, as you need it later for the `SUI_ADDRESS` variable.
-
-1. Navigate to the account management screen and select **Export Private Key**.
-
-1. Copy the provided private key (it is in bech32 format, starting with `suiprivkey`).
-
-1. Use the `sui keytool convert <suiprivkey...>` command to transform your key into the required Base64 format. Paste your copied key in place of `suiprivkey...`:
-
-    ```sh
-    $ sui keytool convert `suiprivkey...`
-    ```
-
-1. The command produces an output similar to:
-
-    ```sh
-    ╭────────────────┬──────────────────────────────────────────────────────────────────────────╮
-    │ bech32WithFlag │  suiprivkey............................................................  │
-    │ base64WithFlag │  A...........................................                            │
-    │ hexWithoutFlag │  ................................................................        │
-    │ scheme         │  ed25519                                                                 │
-    ╰────────────────┴──────────────────────────────────────────────────────────────────────────╯
-    ```
-
-    Copy the `base64WithFlag` value. This is what you use for the `SUI_KEYSTORE` secret.
+Open the `.key` file. Its content is the private key in `base64WithFlag` format. This value is what you use for the `SUI_KEYSTORE` secret.
 
 </TabItem>
-</Tabs>
+<TabItem label="From Slush Wallet" value="slush">
 
-## Funding your address
+Use this method if you manage keys through the [Slush browser extension](https://slush.app/).
 
-Before the GitHub Action can deploy your site, the address you generated needs to be funded with both [SUI tokens](https://docs.sui.io/guides/developer/getting-started/get-coins) (for network gas fees) and [WAL tokens](/docs/getting-started) (for storing your site's data). The method for acquiring these tokens differs between Testnet and Mainnet.
+1. Open Slush and select the account you want to use for deployments. Copy its Sui address,you need it later for the `SUI_ADDRESS` variable.
+2. Navigate to the account management screen and select **Export Private Key**.
+3. Copy the private key displayed. It is in bech32 format and starts with `suiprivkey`.
+4. Convert the bech32 key to the Base64 format required by the GitHub Action. Replace `suiprivkey...` with your copied key:
 
-<Tabs>
-<TabItem label="Testnet Funding" value="testnet">
+```sh
+$ sui keytool convert suiprivkey...
+```
 
-1. **Get SUI tokens**: Use the [official Sui faucet](https://faucet.sui.io/) to get free Testnet SUI.
+5. The command produces a table similar to the following:
 
-1. **Get WAL tokens**: Exchange your new Testnet SUI for Testnet WAL at a 1:1 rate by running the `walrus get-wal` command either using the `walrus get-wal` CLI command or visiting [stake-wal.wal.app](https://stake-wal.wal.app/?network=testnet) setting network to Testnet and using the "Get WAL" button.
+```sh
+╭────────────────┬──────────────────────────────────────────────────────────────────────────╮
+│ bech32WithFlag │  suiprivkey............................................................  │
+│ base64WithFlag │  A...........................................                            │
+│ hexWithoutFlag │  ................................................................        │
+│ scheme         │  ed25519                                                                 │
+╰────────────────┴──────────────────────────────────────────────────────────────────────────╯
+```
 
-</TabItem>
-<TabItem label="Mainnet funding" value="mainnet">
-
-For a Mainnet deployment, you need to acquire both SUI and WAL tokens from an exchange and transfer them to your deployment address. You can also check Slush Wallet for token swaps to WAL, and on-ramp services. Availability might vary by region.
+Copy the value in the `base64WithFlag` row. This is what you use for the `SUI_KEYSTORE` secret.
 
 </TabItem>
 </Tabs>
+
+## Funding your deployment address
+
+Before any workflow can deploy a site, the address needs SUI tokens to pay network gas fees and WAL tokens to pay for storage. For instructions on acquiring both, refer to [Getting Started with Walrus](/docs/getting-started).
 
 ## Adding credentials to GitHub
 
-Now, add the key and address to your GitHub repository.
+With your key and address ready, store them in your GitHub repository. The private key goes into an encrypted secret; the public address goes into a plain variable.
 
-1. Navigate to your GitHub repository in a web browser.
+1. Navigate to your GitHub repository and click the **Settings** tab.
+2. In the left sidebar, click **Secrets and variables**, then select **Actions**.
+3. Open the **Secrets** tab and click **New repository secret**.
+4. Set the name to `SUI_KEYSTORE`.
+5. In the **Value** field, paste your `base64WithFlag` key wrapped as a JSON array:
 
-1. Click on the **Settings** tab located in the top navigation bar of your repository.
+```json
+["AXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"]
+```
 
-1. In the left sidebar, click **Secrets and variables**, then select **Actions**.
+:::caution
 
-1. You see 2 tabs: **Secrets** and **Variables**. Start with the **Secrets** tab.
-
-1. Click the **New repository secret** button.
-
-1. Name the secret `SUI_KEYSTORE`.
-
-1. In the **Value** field, paste the `Base64 Key with Flag` you copied earlier. It must be formatted as a JSON array containing a single string:
-
-    ```json
-    ["AXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"]
-    ```
-
-1. Click **Add secret** to save it.
-
-    :::caution
-
-    Make sure to format the keystore as a JSON array with a single string element, not just the raw key value. Include the square brackets and quotes exactly as shown above.
-
-    :::
-
-1. Next, switch to the **Variables** tab and click **New repository variable**.
-
-1. Name the variable `SUI_ADDRESS`.
-
-1. In the **Value** field, paste the Sui address that corresponds to your private key (for example: `0x123abc...def789`).
-
-1. Click **Add variable** to save it.
-
-:::danger
-
-Never share your private key or commit it to version control. GitHub secrets are encrypted and only accessible to your workflows, but always verify you're adding secrets correctly.
+The value must be a JSON array containing a single string element. Include the square brackets and quotation marks exactly as shown. A raw key string without the array wrapper causes authentication to fail.
 
 :::
 
-For more information about managing secrets and variables in GitHub Actions, check the official GitHub documentation:
+6. Click **Add secret**.
+7. Switch to the **Variables** tab and click **New repository variable**.
+8. Set the name to `SUI_ADDRESS`.
+9. In the **Value** field, paste the Sui address that corresponds to your private key, for example `0x123abc...def789`.
+10. Click **Add variable**.
 
-- [About secrets](https://docs.github.com/en/actions/concepts/security/about-secrets)
-- [Using secrets in GitHub Actions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/using-secrets-in-github-actions)
+:::danger
+
+Never commit your private key to version control or share it in plain text. GitHub secrets are encrypted at rest and are only exposed to authorized workflow runs. Verify you are on the correct repository before saving.
+
+:::
+
+## Next steps
+ 
+With your credentials stored, you are ready to write the workflow file that uses them. See [Creating a GitHub Actions Workflow for Walrus Sites](/docs/sites/ci-cd/github-actions-workflow) for complete workflow examples and a reference of all action inputs.

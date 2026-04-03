@@ -1,49 +1,35 @@
-{/* https://linear.app/mysten-labs/issue/DOCS-646/http-apireading-blobs */}
+You can read blobs using HTTP GET requests with their blob ID or object ID.
 
-You can read blobs using HTTP GET requests and their blob ID or object ID.
+## Reading by blob ID
 
-### Blob IDs
-
-For example, the following cURL command reads a blob and writes it to an output file:
+The following `curl` command reads a blob and writes it to an output file:
 
 ```sh
-$ curl "$AGGREGATOR/v1/blobs/<some blob ID>" -o <some file name>
+$ curl "$AGGREGATOR/v1/blobs/<BLOB_ID>" -o <FILE_NAME>
 ```
 
-Alternatively, you can print the contents of a blob in the terminal with the cURL command:
+To print the contents of a blob directly in the terminal:
 
 ```sh
-$ curl "$AGGREGATOR/v1/blobs/<some blob ID>"
+$ curl "$AGGREGATOR/v1/blobs/<BLOB_ID>"
 ```
 
 :::tip
 
-Modern browsers attempt to sniff the content type for such resources, and generally do a good job of inferring content types for media. However, the aggregator on purpose prevents such sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
+Modern browsers attempt to sniff the content type for these resources and generally do a good job of inferring content types for media. The aggregator intentionally prevents sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
 
 :::
 
-### Object ID
+## Reading by object ID
 
-You can also read blobs by using the object ID of a Sui blob object or a shared blob. For example, the following cURL command downloads the blob corresponding to a Sui object ID:
+You can also read blobs by using the object ID of a Sui blob object or a shared blob. The following `curl` command downloads the blob corresponding to a Sui object ID:
 
 ```sh
-$ curl "$AGGREGATOR/v1/blobs/by-object-id/<object-id>" -o <some file name>
+$ curl "$AGGREGATOR/v1/blobs/by-object-id/<OBJECT_ID>" -o <FILE_NAME>
 ```
 
-Downloading blobs by object ID allows setting some HTTP headers. The aggregator recognizes the following attribute keys and returns the values in the corresponding HTTP headers when present:
+Downloading blobs by object ID allows setting HTTP headers. The aggregator recognizes the following attribute keys and returns the values in the corresponding HTTP headers when present: `content-disposition`, `content-encoding`, `content-language`, `content-location`, `content-type`, and `link`.
 
-- `content-disposition`
+## Consistency checks
 
-- `content-encoding`
-
-- `content-language`
-
-- `content-location`
-
-- `content-type`
-
-- `link`
-
-### Consistency checks
-
-The consistency checks performed by the aggregator are the same as the ones [performed by the CLI](/docs/walrus-client/storing-blobs#consistency-checks). For special use cases, the [strict consistency check](/docs/system-overview/red-stuff) can be enabled by adding a query parameter `strict_consistency_check=true` (starting with `v1.35`). If the writer of the blob is known and trusted, you can disable the consistency check by adding a query parameter `skip_consistency_check=true` (starting with `v1.36`).
+The consistency checks performed by the aggregator are the same as those [performed by the CLI](/docs/walrus-client/storing-blobs#consistency-checks). For special use cases, you can enable the [strict consistency check](/docs/system-overview/red-stuff) by adding a query parameter `strict_consistency_check=true` (starting with `v1.35`). If the writer of the blob is known and trusted, you can disable the consistency check by adding a query parameter `skip_consistency_check=true` (starting with `v1.36`).
