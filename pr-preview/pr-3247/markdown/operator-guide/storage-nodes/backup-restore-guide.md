@@ -12,7 +12,7 @@ The current backup implementation creates full copies of the database files. Bac
 - [x] Storage node running with appropriate permissions to create backups
 - [x] Sufficient disk space for backup storage (a separate physical volume is recommended)
 - [x] Unix or Linux operating system with support for Unix domain sockets
-- [x] `walrus` [user account](/docs/operator-guide/storage-node-setup) with appropriate permissions
+- [x] `walrus` [user account](/docs/operator-guide/storage-nodes/storage-node-setup) with appropriate permissions
 - [x] Configure the local administration socket
 
     The backup system communicates with running storage nodes through a Unix domain socket. To enable this functionality:

@@ -70,10 +70,6 @@ Important notes:
     KiB in FROST. These values are determined by 2/3 agreement between storage nodes for each
     storage epoch. You can pay to purchase storage space for specified durations.
 
-## Usage
-
-- [Troubleshooting](https://docs.wal.app/docs/usage/troubleshooting.md)
-
 ## Walrus Client
 
 - [JSON Mode](https://docs.wal.app/docs/walrus-client/json-mode.md): All Walrus client commands are
@@ -223,11 +219,6 @@ Important notes:
     section of ws-resources.json lets you add human-readable information to your Walrus Site
     object. This data is stored onchain and is used by portals, explorers, wallets, and other tools
     to display information about your site.
-- [Setting Up Routing
-    Rules](https://docs.wal.app/docs/sites/configuration/setting-up-routing-rules.md): The optional
-    routes section allows you to specify client-side routing rules for your site. This is useful
-    when you want to use a single-page application (SPA) framework, such as React or Angular. The
-    configuration in the routes object is a mapping from route keys to resource path values.
 - [Site Configuration](https://docs.wal.app/docs/sites/configuration/site-configuration.md): In its
     base configuration, a Walrus Site serves static assets through a portal. However, many modern
     web applications require more advanced features, such as custom headers, client-side routing,
@@ -294,10 +285,10 @@ Important notes:
     Walrus Site is addressed through a portal. The portal resolves the site from an onchain object
     and serves its content. To link to a Walrus Site from an external source, you construct a URL
     that the portal can resolve.
-- [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Walrus Sites supports 2 kinds
-    of redirects: internal routing redirects, which map URL paths within your site to specific
-    resources, and object redirects, which allow arbitrary Sui objects to point to a Walrus Site.
-    These work differently and serve different use cases.
+- [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Walrus Sites supports 3 kinds
+    of redirects: internal routing redirects, HTTP redirects, and object redirects. Internal
+    routing redirects map URL paths within your site to specific resources. HTTP redirects return
+    3xx responses to send the client to a different URL.
 - [Mainnet](https://docs.wal.app/docs/sites/portals/deploy-locally.md): To view a website deployed
     using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus
     and their corresponding Sui objects before serving the site in your browser. You can browse any

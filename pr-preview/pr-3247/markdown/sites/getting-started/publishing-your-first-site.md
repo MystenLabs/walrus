@@ -217,7 +217,7 @@ that can intercept requests and resolve routes at runtime, Walrus Sites serves s
 
 This means that redirect plugins **do not work on Walrus Sites**. For example, if you are using Docusaurus, the redirect plugin that routes `/file/path/old` to `/file/path/new` will not function as expected when deployed to Walrus Sites.
 
-There are workarounds for simulating redirect behavior in the browser. For more information, see the [routing documentation](/docs/sites/configuration/setting-up-routing-rules).
+There are workarounds for simulating redirect behavior in the browser. For more information, see the [routing documentation](/docs/sites/linking/redirects).
 
 ## Exporting markdown
 
@@ -277,6 +277,6 @@ A complete `ws-resources.json` with both entries for a markdown file looks like 
 }
 ```
 
-For more information, see the [routing documentation](/docs/sites/configuration/setting-up-routing-rules) and the [headers documentation](/docs/sites/configuration/specifying-http-headers).
+For more information, see the [routing documentation](/docs/sites/linking/redirects) and the [headers documentation](/docs/sites/configuration/specifying-http-headers).
 
 To update your Walrus Site, ensure you rebuild your website first before running `deploy` again.

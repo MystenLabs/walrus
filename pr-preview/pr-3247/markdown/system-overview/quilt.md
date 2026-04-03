@@ -1,5 +1,3 @@
-{/* https://linear.app/mysten-labs/issue/DOCS-638/system-overviewquilt */}
-
 Quilt is a batch storage feature designed to optimize the storage cost and efficiency of large numbers of small blobs. Before Quilt, storing small blobs (less than 10 MB) on Walrus involved higher per-byte costs due to internal system data overhead. Quilt addresses this by encoding multiple blobs (up to 666 for QuiltV1) into a single unit called a **quilt**, significantly reducing Walrus storage overhead and lowering costs to purchase Walrus and Sui storage, as well as Sui computation gas fees.
 
 Each blob within a quilt can be accessed and retrieved individually without downloading the entire quilt. The blob boundaries in a quilt align with Walrus internal structures and Walrus storage nodes, allowing for retrieval latency that is comparable to, or lower than, that of a regular blob.

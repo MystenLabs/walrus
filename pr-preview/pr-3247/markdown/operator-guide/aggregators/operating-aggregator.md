@@ -19,7 +19,7 @@ If you run the aggregator without a reverse proxy, open **port 9000** on your fi
 
 ## Download the client configuration {#client-config}
 
-The aggregator requires a client configuration file. If you run the aggregator on the same host as a [storage node](/docs/operator-guide/storage-node-setup#binaries), the configuration is already available at `/opt/walrus/config/client_config.yaml`. Otherwise, download it:
+The aggregator requires a client configuration file. If you run the aggregator on the same host as a [storage node](/docs/operator-guide/storage-nodes/storage-node-setup#binaries), the configuration is already available at `/opt/walrus/config/client_config.yaml`. Otherwise, download it:
 
 <Tabs>
 <TabItem label="Mainnet" value="mainnet">
