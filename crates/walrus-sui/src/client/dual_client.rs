@@ -17,8 +17,10 @@ use sui_rpc::{
         BatchGetObjectsRequest,
         BatchGetObjectsResponse,
         Bcs,
+        ChangedObject,
         DynamicField,
         Epoch as GrpcEpoch,
+        ExecuteTransactionRequest,
         ExecutedTransaction,
         GetBalanceRequest,
         GetEpochRequest,
@@ -29,7 +31,13 @@ use sui_rpc::{
         ListOwnedObjectsRequest,
         ListOwnedObjectsResponse,
         Object,
+        ObjectSet,
+        SimulateTransactionRequest,
+        Transaction as ProtoTransaction,
+        UserSignature as ProtoUserSignature,
+        changed_object,
         get_object_result,
+        owner::OwnerKind,
         state_service_client::StateServiceClient,
     },
 };
@@ -39,21 +47,25 @@ use sui_sdk::{
     rpc_types::{
         BalanceChange as SuiBalanceChange,
         BcsEvent,
+        ObjectChange,
         SuiCommittee,
         SuiEvent,
+        SuiTransactionBlockEffects,
         SuiTransactionBlockResponse,
         SuiTransactionBlockResponseOptions,
     },
 };
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, ObjectRef, SuiAddress},
+    base_types::{ObjectDigest, ObjectID, ObjectRef, SequenceNumber, SuiAddress},
     crypto::{AuthorityPublicKeyBytes, ToFromBytes},
     digests::TransactionDigest,
+    effects::TransactionEffects as NativeTransactionEffects,
     event::EventID,
+    gas::GasCostSummary,
     object::Owner,
     signature::GenericSignature,
-    transaction::{SenderSignedData, TransactionData},
+    transaction::{SenderSignedData, Transaction, TransactionData, TransactionDataAPI},
 };
 use tonic::service::interceptor::InterceptedService;
 use walrus_core::ensure;
@@ -699,6 +711,127 @@ impl DualClient {
             validators,
         })
     }
+
+    /// Execute a signed transaction via gRPC and convert the response to a
+    /// `SuiTransactionBlockResponse`.
+    ///
+    /// Uses `Box::pin` to erase the future type and avoid `Send` recursion overflow
+    /// from the deep `ExecutedTransaction` proto type tree.
+    pub fn execute_transaction_grpc(
+        &self,
+        transaction: &Transaction,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<SuiTransactionBlockResponse, SuiClientError>>
+                + Send
+                + '_,
+        >,
+    > {
+        let tx_data_bytes = bcs::to_bytes(transaction.transaction_data())
+            .expect("TransactionData serialization cannot fail");
+        let proto_tx =
+            ProtoTransaction::default().with_bcs(Bcs::default().with_value(tx_data_bytes));
+        let proto_sigs: Vec<ProtoUserSignature> = transaction
+            .tx_signatures()
+            .iter()
+            .map(|sig| {
+                ProtoUserSignature::default()
+                    .with_bcs(Bcs::default().with_value(sig.as_ref().to_vec()))
+            })
+            .collect();
+
+        let sender = transaction.transaction_data().sender();
+        let mut grpc_client = self.grpc_client.clone();
+
+        Box::pin(async move {
+            let request = ExecuteTransactionRequest::new(proto_tx)
+                .with_signatures(proto_sigs)
+                .with_read_mask(FieldMask::from_paths(&[
+                    ExecutedTransaction::path_builder().effects().bcs().finish(),
+                    ExecutedTransaction::path_builder()
+                        .effects()
+                        .changed_objects()
+                        .finish(),
+                    ExecutedTransaction::path_builder()
+                        .events()
+                        .events()
+                        .finish(),
+                    ExecutedTransaction::path_builder()
+                        .balance_changes()
+                        .finish(),
+                    ExecutedTransaction::path_builder().digest(),
+                    ExecutedTransaction::path_builder().checkpoint(),
+                    ExecutedTransaction::path_builder().timestamp(),
+                    ExecutedTransaction::path_builder()
+                        .objects()
+                        .objects()
+                        .object_id(),
+                    ExecutedTransaction::path_builder()
+                        .objects()
+                        .objects()
+                        .object_type(),
+                ]));
+
+            let response = grpc_client
+                .execution_client()
+                .execute_transaction(request)
+                .await?;
+
+            let executed_tx = response
+                .into_inner()
+                .transaction
+                .context("no transaction in execute_transaction response")?;
+
+            execute_response_to_sui_response(&executed_tx, sender)
+        })
+    }
+
+    /// Simulate a transaction via gRPC for gas estimation purposes.
+    ///
+    /// Returns just the `GasCostSummary` since that's all `estimate_gas_budget` needs.
+    /// Uses `Box::pin` to erase the future type (same reason as `execute_transaction_grpc`).
+    pub fn simulate_transaction_for_gas_grpc(
+        &self,
+        transaction_data: &TransactionData,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<GasCostSummary, SuiClientError>> + Send + '_>,
+    > {
+        let tx_bytes =
+            bcs::to_bytes(transaction_data).expect("TransactionData serialization cannot fail");
+        let proto_tx = ProtoTransaction::default().with_bcs(Bcs::default().with_value(tx_bytes));
+        let mut grpc_client = self.grpc_client.clone();
+
+        Box::pin(async move {
+            let request =
+                SimulateTransactionRequest::new(proto_tx).with_read_mask(FieldMask::from_paths(&[
+                    ExecutedTransaction::path_builder()
+                        .effects()
+                        .gas_used()
+                        .finish(),
+                ]));
+
+            let response = grpc_client
+                .execution_client()
+                .simulate_transaction(request)
+                .await?;
+
+            let gas_used = response
+                .into_inner()
+                .transaction
+                .context("no transaction in simulate_transaction response")?
+                .effects
+                .context("no effects in simulated transaction")?
+                .gas_used
+                .context("no gas_used in effects")?;
+
+            Ok(GasCostSummary {
+                computation_cost: gas_used.computation_cost.unwrap_or(0),
+                storage_cost: gas_used.storage_cost.unwrap_or(0),
+                storage_rebate: gas_used.storage_rebate.unwrap_or(0),
+                non_refundable_storage_fee: gas_used.non_refundable_storage_fee.unwrap_or(0),
+            })
+        })
+    }
 }
 
 async fn list_owned_objects(
@@ -1022,6 +1155,286 @@ fn grpc_event_to_sui_event(
         bcs: BcsEvent::new(contents),
         timestamp_ms: None,
     })
+}
+
+/// Convert a gRPC `ExecutedTransaction` from an execute response into a
+/// `SuiTransactionBlockResponse`, handling effects, object changes, events, and balance changes.
+fn execute_response_to_sui_response(
+    executed_tx: &ExecutedTransaction,
+    sender: SuiAddress,
+) -> Result<SuiTransactionBlockResponse, SuiClientError> {
+    let digest: TransactionDigest = executed_tx
+        .digest
+        .as_ref()
+        .context("no digest in executed transaction")?
+        .parse()
+        .context("parsing transaction digest")?;
+
+    let mut response = SuiTransactionBlockResponse::new(digest);
+
+    response.checkpoint = executed_tx.checkpoint;
+    response.timestamp_ms = executed_tx
+        .timestamp
+        .as_ref()
+        .map(|ts| {
+            u64::try_from(ts.seconds)
+                .context("negative timestamp")
+                .map(|s| s * 1000 + u64::try_from(ts.nanos).unwrap_or(0) / 1_000_000)
+        })
+        .transpose()?;
+
+    // Deserialize effects from BCS.
+    if let Some(effects) = &executed_tx.effects {
+        if let Some(effects_bcs) = &effects.bcs {
+            let effects_bytes = effects_bcs
+                .value
+                .as_ref()
+                .context("no value in effects bcs")?;
+            let native_effects: NativeTransactionEffects =
+                bcs::from_bytes(effects_bytes).context("deserializing TransactionEffects BCS")?;
+            let sui_effects = SuiTransactionBlockEffects::try_from(native_effects)
+                .context("converting TransactionEffects to SuiTransactionBlockEffects")?;
+            response.effects = Some(sui_effects);
+        }
+
+        // Convert changed_objects to ObjectChange.
+        let object_changes = grpc_changed_objects_to_object_changes(
+            &effects.changed_objects,
+            executed_tx.objects.as_ref(),
+            sender,
+        );
+        if !object_changes.is_empty() {
+            response.object_changes = Some(object_changes);
+        }
+    }
+
+    // Convert balance changes.
+    if !executed_tx.balance_changes.is_empty() {
+        response.balance_changes = Some(
+            executed_tx
+                .balance_changes
+                .iter()
+                .map(convert_grpc_balance_change)
+                .collect::<Result<Vec<_>, _>>()?,
+        );
+    }
+
+    // Convert events.
+    if let Some(events) = &executed_tx.events {
+        let sui_events: Vec<SuiEvent> = events
+            .events
+            .iter()
+            .enumerate()
+            .map(|(idx, event)| grpc_event_to_sui_event(digest, idx, event))
+            .collect::<Result<Vec<_>, _>>()?;
+        response.events = Some(sui_sdk::rpc_types::SuiTransactionBlockEvents { data: sui_events });
+    }
+
+    Ok(response)
+}
+
+/// Convert gRPC `ChangedObject` entries to `Vec<ObjectChange>`.
+///
+/// Uses the `ObjectSet` from the response (if available) as a fallback for type resolution
+/// when `changed_object.object_type` is not populated.
+fn grpc_changed_objects_to_object_changes(
+    changed_objects: &[ChangedObject],
+    objects: Option<&ObjectSet>,
+    sender: SuiAddress,
+) -> Vec<ObjectChange> {
+    let mut result = Vec::new();
+
+    for co in changed_objects {
+        match convert_single_changed_object(co, objects, sender) {
+            Ok(Some(change)) => result.push(change),
+            Ok(None) => {} // not a mappable variant, skip
+            Err(e) => {
+                tracing::warn!(
+                    object_id = ?co.object_id,
+                    "skipping changed object due to conversion error: {e:#}"
+                );
+            }
+        }
+    }
+    result
+}
+
+/// Resolve the `object_type` string for a `ChangedObject`, falling back to the `ObjectSet`.
+fn resolve_object_type(co: &ChangedObject, objects: Option<&ObjectSet>) -> Option<String> {
+    // Prefer the type directly on the ChangedObject.
+    if let Some(ref obj_type) = co.object_type
+        && !obj_type.is_empty() {
+            return Some(obj_type.clone());
+        }
+    // Fall back to looking up by object_id in the ObjectSet.
+    let object_id_str = co.object_id.as_ref()?;
+    objects?
+        .objects
+        .iter()
+        .find(|obj| obj.object_id.as_deref() == Some(object_id_str.as_str()))
+        .and_then(|obj| obj.object_type.clone())
+}
+
+/// Convert a gRPC `Owner` proto to a `sui_types::object::Owner`.
+fn convert_grpc_owner(owner: &sui_rpc::proto::sui::rpc::v2::Owner) -> Result<Owner, anyhow::Error> {
+    let kind = owner
+        .kind
+        .and_then(|k| OwnerKind::try_from(k).ok())
+        .unwrap_or(OwnerKind::Unknown);
+    match kind {
+        OwnerKind::Address | OwnerKind::ConsensusAddress => {
+            let addr: SuiAddress = owner
+                .address
+                .as_ref()
+                .context("no address in owner")?
+                .parse()
+                .context("parsing owner address")?;
+            Ok(Owner::AddressOwner(addr))
+        }
+        OwnerKind::Object => {
+            let addr: SuiAddress = owner
+                .address
+                .as_ref()
+                .context("no address in owner")?
+                .parse()
+                .context("parsing owner address")?;
+            Ok(Owner::ObjectOwner(addr))
+        }
+        OwnerKind::Shared => {
+            let initial_shared_version =
+                SequenceNumber::from_u64(owner.version.context("no version in shared owner")?);
+            Ok(Owner::Shared {
+                initial_shared_version,
+            })
+        }
+        OwnerKind::Immutable => Ok(Owner::Immutable),
+        OwnerKind::Unknown | _ => Err(anyhow::anyhow!("unknown owner kind")),
+    }
+}
+
+/// Attempt to convert a single `ChangedObject` into an `ObjectChange`.
+/// Returns `Ok(None)` for combinations that don't map to a known variant.
+fn convert_single_changed_object(
+    co: &ChangedObject,
+    objects: Option<&ObjectSet>,
+    sender: SuiAddress,
+) -> Result<Option<ObjectChange>, anyhow::Error> {
+    use changed_object::{IdOperation, InputObjectState, OutputObjectState};
+
+    let id_op = co
+        .id_operation
+        .and_then(|v| IdOperation::try_from(v).ok())
+        .unwrap_or(IdOperation::None);
+    let output_state = co
+        .output_state
+        .and_then(|v| OutputObjectState::try_from(v).ok())
+        .unwrap_or(OutputObjectState::Unknown);
+    let input_state = co
+        .input_state
+        .and_then(|v| InputObjectState::try_from(v).ok())
+        .unwrap_or(InputObjectState::Unknown);
+
+    let object_id: ObjectID = co
+        .object_id
+        .as_ref()
+        .context("no object_id in changed object")?
+        .parse()
+        .context("parsing changed object object_id")?;
+    let version = SequenceNumber::from_u64(co.output_version.unwrap_or(0));
+    let output_digest: ObjectDigest = co
+        .output_digest
+        .as_ref()
+        .map(|d| d.parse())
+        .transpose()
+        .context("parsing changed object output_digest")?
+        .unwrap_or(ObjectDigest::new([0; 32]));
+
+    match (id_op, output_state, input_state) {
+        // Published package.
+        (IdOperation::Created, OutputObjectState::PackageWrite, _) => {
+            Ok(Some(ObjectChange::Published {
+                package_id: object_id,
+                version,
+                digest: output_digest,
+                modules: vec![],
+            }))
+        }
+        // New object created.
+        (IdOperation::Created, OutputObjectState::ObjectWrite, _) => {
+            let object_type_str =
+                resolve_object_type(co, objects).context("no object_type for created object")?;
+            let object_type: StructTag = object_type_str
+                .parse()
+                .context("parsing created object type")?;
+            let owner = co
+                .output_owner
+                .as_ref()
+                .map(convert_grpc_owner)
+                .transpose()?
+                .unwrap_or(Owner::AddressOwner(sender));
+            Ok(Some(ObjectChange::Created {
+                sender,
+                owner,
+                object_type,
+                object_id,
+                version,
+                digest: output_digest,
+            }))
+        }
+        // Object mutated (id unchanged, was written, existed before).
+        (IdOperation::None, OutputObjectState::ObjectWrite, InputObjectState::Exists) => {
+            let object_type_str =
+                resolve_object_type(co, objects).context("no object_type for mutated object")?;
+            let object_type: StructTag = object_type_str
+                .parse()
+                .context("parsing mutated object type")?;
+            let owner = co
+                .output_owner
+                .as_ref()
+                .map(convert_grpc_owner)
+                .transpose()?
+                .unwrap_or(Owner::AddressOwner(sender));
+            let previous_version = SequenceNumber::from_u64(co.input_version.unwrap_or(0));
+            Ok(Some(ObjectChange::Mutated {
+                sender,
+                owner,
+                object_type,
+                object_id,
+                version,
+                previous_version,
+                digest: output_digest,
+            }))
+        }
+        // Wrapped (id unchanged, output doesn't exist, existed before).
+        (IdOperation::None, OutputObjectState::DoesNotExist, InputObjectState::Exists) => {
+            let object_type_str =
+                resolve_object_type(co, objects).context("no object_type for wrapped object")?;
+            let object_type: StructTag = object_type_str
+                .parse()
+                .context("parsing wrapped object type")?;
+            Ok(Some(ObjectChange::Wrapped {
+                sender,
+                object_type,
+                object_id,
+                version,
+            }))
+        }
+        // Deleted (id deleted, output doesn't exist, existed before).
+        (IdOperation::Deleted, OutputObjectState::DoesNotExist, InputObjectState::Exists) => {
+            let object_type_str =
+                resolve_object_type(co, objects).context("no object_type for deleted object")?;
+            let object_type: StructTag = object_type_str
+                .parse()
+                .context("parsing deleted object type")?;
+            Ok(Some(ObjectChange::Deleted {
+                sender,
+                object_type,
+                object_id,
+                version,
+            }))
+        }
+        _ => Ok(None),
+    }
 }
 
 async fn batch_get_objects<T>(
