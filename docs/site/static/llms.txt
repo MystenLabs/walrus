@@ -307,10 +307,10 @@ Important notes:
     unavailable on server-side portals. If you are browsing a Walrus Site on https://wal.app, you
     are not able to use Walrus Sites links. Certain types of links on Walrus Sites work differently
     than on a regular website.
-- [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Walrus Sites supports 2 kinds
-    of redirects: internal routing redirects, which map URL paths within your site to specific
-    resources, and object redirects, which allow arbitrary Sui objects to point to a Walrus Site.
-    These work differently and serve different use cases.
+- [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Walrus Sites supports 3 kinds
+    of redirects: internal routing redirects, HTTP redirects, and object redirects. Internal
+    routing redirects map URL paths within your site to specific resources. HTTP redirects return
+    3xx responses to send the client to a different URL.
 - [Mainnet](https://docs.wal.app/docs/sites/portals/deploy-locally.md): To view a website deployed
     using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus
     and their corresponding Sui objects before serving the site in your browser. You can browse any

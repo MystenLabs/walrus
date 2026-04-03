@@ -364,6 +364,16 @@ public(package) fun delete_blob_object(mut pooled_blob: PooledBlob, epoch: u32) 
     );
 }
 
+/// Burns a blob from an expired storage pool, regardless of the `deletable` flag.
+/// This should only be called when the parent pool has expired (`end_epoch <= current_epoch`).
+/// No event is emitted because the server-side blob info entry may already be garbage collected.
+/// Also removes any metadata associated with the blob.
+public(package) fun burn_blob_object(mut pooled_blob: PooledBlob) {
+    dynamic_field::remove_if_exists<_, Metadata>(&mut pooled_blob.id, METADATA_DF);
+    let PooledBlob { id, .. } = pooled_blob;
+    id.delete();
+}
+
 public(package) fun is_deletable(self: &PooledBlob): bool {
     self.deletable
 }

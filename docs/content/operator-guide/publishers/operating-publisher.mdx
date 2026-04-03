@@ -23,7 +23,7 @@ If you run the publisher without a reverse proxy, open **port 9001** on your fir
 
 ## Download the client configuration {#client-config}
 
-The publisher requires a client configuration file. If you run the publisher on the same host as a [storage node](/docs/operator-guide/storage-node-setup#binaries), the configuration is already available at `/opt/walrus/config/client_config.yaml`. Otherwise, download it:
+The publisher requires a client configuration file. If you run the publisher on the same host as a [storage node](/docs/operator-guide/storage-nodes/storage-node-setup#binaries), the configuration is already available at `/opt/walrus/config/client_config.yaml`. Otherwise, download it:
 
 <div className="outlined-tabs">
 
@@ -48,7 +48,7 @@ curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/conf
 
 ## Create and fund the publisher wallet {#fund-publisher}
 
-The publisher needs a **separate wallet** from the storage node, even if it runs on the same host. See the [storage node FAQ](/docs/operator-guide/storage-node-faq#wallets) for details on wallet requirements.
+The publisher needs a **separate wallet** from the storage node, even if it runs on the same host. See the [storage node FAQ](/docs/operator-guide/storage-nodes/storage-node-faq#wallets) for details on wallet requirements.
 
 ##### Step 1: Generate a new wallet.
 
@@ -84,7 +84,7 @@ Acquire WAL tokens through the Walrus token distribution or supported exchanges,
 
 :::caution
 
-The aggregator does not perform Sui onchain actions and therefore consumes no gas. The publisher, however, performs actions onchain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher because this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs. Consider using an [authenticated publisher](/docs/operator-guide/auth-publisher) to restrict access.
+The aggregator does not perform Sui onchain actions and therefore consumes no gas. The publisher, however, performs actions onchain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher because this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs. Consider using an [authenticated publisher](/docs/operator-guide/publishers/auth-publisher) to restrict access.
 
 :::
 

@@ -94,6 +94,7 @@ use walrus_sui::{
     },
     coin::Coin,
     config::WalletConfig,
+    dynamic_field_info::DynamicFieldKind,
     test_utils::{self, fund_addresses, wallet_for_testing},
     types::{
         Blob,
@@ -4163,6 +4164,100 @@ async fn test_apply_system_prices_does_not_crash_nodes() -> TestResult {
 
     // Store and read a blob to verify nodes are still alive after processing the event.
     basic_store_and_read(&client, 1, 1000, None, || Ok(())).await?;
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_list_dynamic_fields_on_system_object() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    let system_object_id = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .system_object_id();
+
+    // List dynamic fields on the system object (it has at least the versioned inner object).
+    let page = client
+        .as_ref()
+        .sui_client()
+        .retriable_sui_client()
+        .get_dynamic_fields(system_object_id, None, None)
+        .await?;
+
+    assert!(
+        !page.fields.is_empty(),
+        "system object should have at least one dynamic field"
+    );
+
+    // All fields should have a valid field_id and kind.
+    for field in &page.fields {
+        assert!(
+            field.kind == DynamicFieldKind::Field || field.kind == DynamicFieldKind::Object,
+            "unexpected dynamic field kind"
+        );
+        assert!(!field.bcs_name.is_empty(), "bcs_name should not be empty");
+        assert!(
+            !field.value_type.is_empty(),
+            "value_type should not be empty"
+        );
+    }
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_list_dynamic_fields_pagination() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    let staking_object_id = client
+        .as_ref()
+        .sui_client()
+        .read_client()
+        .staking_object_id();
+
+    // Fetch all dynamic fields in one page.
+    let all_fields = client
+        .as_ref()
+        .sui_client()
+        .retriable_sui_client()
+        .get_dynamic_fields(staking_object_id, None, Some(1000))
+        .await?;
+
+    if all_fields.fields.len() > 1 {
+        // Fetch page-by-page with limit=1 and verify we can paginate through all fields.
+        let mut collected = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page = client
+                .as_ref()
+                .sui_client()
+                .retriable_sui_client()
+                .get_dynamic_fields(staking_object_id, cursor, Some(1))
+                .await?;
+
+            collected.extend(page.fields);
+            if !page.has_next_page {
+                break;
+            }
+            cursor = page.next_cursor;
+        }
+
+        assert_eq!(
+            collected.len(),
+            all_fields.fields.len(),
+            "paginated results should match total count"
+        );
+    }
 
     Ok(())
 }

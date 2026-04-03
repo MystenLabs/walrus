@@ -890,7 +890,6 @@ public(package) fun register_pooled_blob(
     self.future_accounting.ring_lookup_mut(0).rewards_balance().join(payment);
 }
 
-// TODO(WAL-1161): allow burning storage pool and its blobs.
 /// Deletes a blob from a `StoragePool` and frees its capacity.
 public(package) fun delete_pooled_blob(
     self: &SystemStateInnerV1,
@@ -904,6 +903,22 @@ public(package) fun delete_pooled_blob(
 
     // Delete the blob (checks deletable, emits event, destroys).
     storage_pool::delete_blob_object(blob, self.epoch());
+}
+
+/// Burns a blob from an expired `StoragePool`, regardless of the `deletable` flag.
+/// The pool must have expired (`end_epoch <= current_epoch`).
+public(package) fun burn_expired_pooled_blob(
+    self: &SystemStateInnerV1,
+    storage_pool: &mut StoragePool,
+    blob_id: u256,
+) {
+    assert!(storage_pool.end_epoch() <= self.epoch(), EInvalidEpochsAhead);
+
+    // Remove blob from the table and decrement used size.
+    let blob = storage_pool.remove_blob(blob_id, self.n_shards());
+
+    // Burn the blob (no deletable check, no event, destroys).
+    storage_pool::burn_blob_object(blob);
 }
 
 /// Extends the lifetime of a `StoragePool` by `extended_epochs`.

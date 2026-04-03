@@ -44,7 +44,7 @@ echo 'tmpfs /cache tmpfs nodev,nosuid,nodiratime,size=16G 0 0' | sudo tee -a /et
 sudo apt install nginx python3-certbot-nginx -y
 ```
 
-If you have not installed certbot from the [Storage Node Setup](/docs/operator-guide/storage-node-setup#tls-setup) guide, install it now:
+If you have not installed certbot from the [Storage Node Setup](/docs/operator-guide/storage-nodes/storage-node-setup#tls-setup) guide, install it now:
 
 ```sh
 sudo snap install --classic certbot --channel=edge
@@ -130,7 +130,7 @@ sudo systemctl restart nginx
 
 :::caution
 
-If you run the nginx reverse proxy on the **same host** as the storage node, change `standalone` to `nginx` in `/etc/letsencrypt/renewal/walrus-storage-node.conf`. This ensures certbot uses the nginx plugin for renewal instead of trying to bind to **port 80** directly. See the [Storage Node Setup TLS section](/docs/operator-guide/storage-node-setup#tls-setup) to learn more about how certbot is configured for the storage node.
+If you run the nginx reverse proxy on the **same host** as the storage node, change `standalone` to `nginx` in `/etc/letsencrypt/renewal/walrus-storage-node.conf`. This ensures certbot uses the nginx plugin for renewal instead of trying to bind to **port 80** directly. See the [Storage Node Setup TLS section](/docs/operator-guide/storage-nodes/storage-node-setup#tls-setup) to learn more about how certbot is configured for the storage node.
 
 :::
 
