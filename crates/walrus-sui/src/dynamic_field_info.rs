@@ -6,8 +6,7 @@
 use anyhow::Context;
 use bytes::Bytes;
 use sui_rpc::proto::sui::rpc::v2::dynamic_field::DynamicFieldKind as ProtoDynamicFieldKind;
-use sui_sdk::rpc_types::DynamicFieldInfo as SuiDynamicFieldInfo;
-use sui_types::{TypeTag, base_types::ObjectID, dynamic_field::DynamicFieldType};
+use sui_types::{TypeTag, base_types::ObjectID};
 
 /// The kind of a dynamic field (field or object).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,30 +41,6 @@ pub struct DynamicFieldPage {
     pub next_cursor: Option<Bytes>,
     /// Whether there are more pages to fetch.
     pub has_next_page: bool,
-}
-
-impl From<SuiDynamicFieldInfo> for DynamicFieldInfo {
-    fn from(info: SuiDynamicFieldInfo) -> Self {
-        Self {
-            field_id: info.object_id,
-            name_type: info.name.type_,
-            bcs_name: info.bcs_name.into_bytes(),
-            kind: match info.type_ {
-                DynamicFieldType::DynamicField => DynamicFieldKind::Field,
-                DynamicFieldType::DynamicObject => DynamicFieldKind::Object,
-            },
-            value_type: info.object_type,
-        }
-    }
-}
-
-impl From<DynamicFieldKind> for DynamicFieldType {
-    fn from(kind: DynamicFieldKind) -> Self {
-        match kind {
-            DynamicFieldKind::Field => DynamicFieldType::DynamicField,
-            DynamicFieldKind::Object => DynamicFieldType::DynamicObject,
-        }
-    }
 }
 
 /// Convert a gRPC `DynamicField` proto message into a local `DynamicFieldInfo`.

@@ -30,7 +30,6 @@ use sui_sdk::{
     rpc_types::{
         DryRunTransactionBlockResponse,
         ObjectsPage,
-        Page,
         SuiCommittee,
         SuiEvent,
         SuiMoveNormalizedModule,
@@ -81,7 +80,7 @@ use crate::{
     },
     coin::Coin,
     contracts::{self, AssociatedContractStruct, MoveConversionError, TypeOriginMap},
-    dynamic_field_info::{DynamicFieldInfo, DynamicFieldPage},
+    dynamic_field_info::DynamicFieldPage,
     types::{
         BlobEvent,
         move_structs::{
@@ -211,7 +210,6 @@ const GRPC_MIGRATION_LEVEL_GET_OBJECT: GrpcMigrationLevel = GrpcMigrationLevel(1
 const GRPC_MIGRATION_LEVEL_BATCH_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(2);
 const GRPC_MIGRATION_LEVEL_SELECT_COINS: GrpcMigrationLevel = GrpcMigrationLevel(3);
 const GRPC_MIGRATION_LEVEL_GET_BALANCE: GrpcMigrationLevel = GrpcMigrationLevel(4);
-const GRPC_MIGRATION_LEVEL_DYNAMIC_FIELDS: GrpcMigrationLevel = GrpcMigrationLevel(5);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -1509,22 +1507,6 @@ impl RetriableSuiClient {
         cursor: Option<Bytes>,
         limit: Option<usize>,
     ) -> SuiClientResult<DynamicFieldPage> {
-        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_DYNAMIC_FIELDS {
-            self.get_dynamic_fields_with_grpc(object_id, cursor, limit)
-                .await
-        } else {
-            self.get_dynamic_fields_with_json_rpc(object_id, cursor, limit)
-                .await
-        }
-    }
-
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    async fn get_dynamic_fields_with_grpc(
-        &self,
-        object_id: ObjectID,
-        cursor: Option<Bytes>,
-        limit: Option<usize>,
-    ) -> SuiClientResult<DynamicFieldPage> {
         let grpc_limit = u32::try_from(limit.unwrap_or(50))
             .map_err(|e| SuiClientError::Internal(anyhow::anyhow!("limit too large: {e}")))?;
         self.failover_sui_client
@@ -1546,49 +1528,6 @@ impl RetriableSuiClient {
                 "get_dynamic_fields",
             )
             .await
-    }
-
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    async fn get_dynamic_fields_with_json_rpc(
-        &self,
-        object_id: ObjectID,
-        cursor: Option<Bytes>,
-        limit: Option<usize>,
-    ) -> SuiClientResult<DynamicFieldPage> {
-        let cursor_id = cursor
-            .map(|bytes| {
-                ObjectID::from_bytes(&bytes)
-                    .map_err(|e| SuiClientError::Internal(anyhow::anyhow!("invalid cursor: {e}")))
-            })
-            .transpose()?;
-        let page: Page<sui_sdk::rpc_types::DynamicFieldInfo, ObjectID> = self
-            .failover_sui_client
-            .with_failover(
-                async |client, method| {
-                    retry_rpc_errors(
-                        self.get_strategy(),
-                        || async {
-                            client
-                                .sui_client()
-                                .read_api()
-                                .get_dynamic_fields(object_id, cursor_id, limit)
-                                .await
-                                .map_err(SuiClientError::from)
-                        },
-                        self.metrics.clone(),
-                        method,
-                    )
-                    .await
-                },
-                None,
-                "get_dynamic_fields",
-            )
-            .await?;
-        Ok(DynamicFieldPage {
-            fields: page.data.into_iter().map(DynamicFieldInfo::from).collect(),
-            next_cursor: page.next_cursor.map(|id| Bytes::from(id.to_vec())),
-            has_next_page: page.has_next_page,
-        })
     }
 
     /// Checks if the Walrus system object exist on chain and returns the Walrus package ID.
