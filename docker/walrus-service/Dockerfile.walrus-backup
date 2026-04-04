@@ -6,7 +6,6 @@
 FROM rust:1.93-bookworm AS builder
 
 ARG PROFILE=release
-ARG RUST_LOG=info,walrus_service::common::event_blob_downloader=warn
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
 WORKDIR "$WORKDIR/walrus"
@@ -28,7 +27,7 @@ FROM debian:bookworm-slim AS walrus-backup
 
 RUN apt-get update && apt-get install -y ca-certificates curl libpq-dev
 ARG PROFILE=release
-
+ARG RUST_LOG=info,walrus_service::common::event_blob_downloader=warn
 ENV RUST_LOG=$RUST_LOG
 WORKDIR "$WORKDIR/walrus"
 # Both bench and release profiles copy from release dir
