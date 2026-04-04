@@ -215,6 +215,14 @@ const GRPC_MIGRATION_LEVEL_SELECT_COINS: GrpcMigrationLevel = GrpcMigrationLevel
 const GRPC_MIGRATION_LEVEL_GET_BALANCE: GrpcMigrationLevel = GrpcMigrationLevel(4);
 const GRPC_MIGRATION_LEVEL_TRANSACTION_READS: GrpcMigrationLevel = GrpcMigrationLevel(5);
 
+impl GrpcMigrationLevel {
+    /// Returns true if the migration level is high enough that all RPC calls use gRPC
+    /// and the JSON-RPC SuiClient is not needed.
+    pub fn is_fully_migrated(&self) -> bool {
+        *self >= GRPC_MIGRATION_LEVEL_GET_BALANCE
+    }
+}
+
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
         static VALUE: LazyLock<u32> = LazyLock::new(|| {
