@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use move_core_types::{identifier::Identifier, language_storage::StructTag as MoveStructTag};
 use serde::de::DeserializeOwned;
 use sui_sdk::{
-    rpc_types::{SuiData, SuiEvent, SuiObjectData},
+    rpc_types::{SuiData, SuiObjectData},
     types::base_types::ObjectID,
 };
 use sui_types::TypeTag;
@@ -86,11 +86,11 @@ pub(crate) trait AssociatedContractStructWithPkgId: AssociatedContractStruct {
     fn package_id(&self) -> ObjectID;
 }
 
-/// A trait for types that correspond to a Sui event.
+/// A trait for types that correspond to a Sui contract event.
 ///
-/// Implementors of this trait are convertible from [SuiEvent]s and can
-/// identify their associated contract type.
-pub trait AssociatedSuiEvent: TryFrom<SuiEvent> {
+/// Implementors of this trait are convertible from [`EventEnvelope`][crate::types::EventEnvelope]s
+/// and can identify their associated contract type.
+pub trait AssociatedContractEvent: TryFrom<crate::types::EventEnvelope> {
     /// [`StructTag`] corresponding to the Move struct of the associated event.
     const EVENT_STRUCT: StructTag<'static>;
 }

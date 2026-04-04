@@ -31,7 +31,6 @@ use sui_sdk::{
         DryRunTransactionBlockResponse,
         ObjectsPage,
         SuiCommittee,
-        SuiEvent,
         SuiMoveNormalizedModule,
         SuiMoveNormalizedStructType,
         SuiMoveNormalizedType,
@@ -59,7 +58,7 @@ use sui_types::{
     transaction::{Transaction, TransactionData, TransactionKind},
     transaction_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
 };
-use tracing::Level;
+use tracing::{Instrument, Level};
 use walrus_core::ensure;
 use walrus_utils::backoff::{ExponentialBackoff, ExponentialBackoffConfig};
 
@@ -82,7 +81,11 @@ use crate::{
     contracts::{self, AssociatedContractStruct, MoveConversionError, TypeOriginMap},
     dynamic_field_info::DynamicFieldPage,
     types::{
+        BalanceChange,
         BlobEvent,
+        EventEnvelope,
+        TransactionResponse,
+        TransactionResponseOptions,
         move_structs::{
             BlobAttribute,
             Credits,
@@ -210,6 +213,7 @@ const GRPC_MIGRATION_LEVEL_GET_OBJECT: GrpcMigrationLevel = GrpcMigrationLevel(1
 const GRPC_MIGRATION_LEVEL_BATCH_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(2);
 const GRPC_MIGRATION_LEVEL_SELECT_COINS: GrpcMigrationLevel = GrpcMigrationLevel(3);
 const GRPC_MIGRATION_LEVEL_GET_BALANCE: GrpcMigrationLevel = GrpcMigrationLevel(4);
+const GRPC_MIGRATION_LEVEL_TRANSACTION_READS: GrpcMigrationLevel = GrpcMigrationLevel(5);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -1004,31 +1008,89 @@ impl RetriableSuiClient {
             .await
     }
 
-    /// Returns a [`SuiTransactionBlockResponse`] based on the provided [`TransactionDigest`].
+    /// Returns a [`TransactionResponse`] for the given digest.
     ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_transaction_with_options`] internally.
-    pub async fn get_transaction_with_options(
+    /// Routes to gRPC when the migration level is sufficient, otherwise falls back to JSON-RPC.
+    ///
+    /// Uses `Box::pin` to cap the future size on the stack, since the JSON-RPC path includes
+    /// the large `SuiTransactionBlockResponse` type.
+    pub fn get_transaction_with_options(
         &self,
         digest: TransactionDigest,
-        options: SuiTransactionBlockResponseOptions,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+        options: TransactionResponseOptions,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = SuiClientResult<TransactionResponse>> + Send + '_>,
+    > {
+        Box::pin(async move {
+            if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_READS {
+                self.get_transaction_with_options_grpc(digest, options)
+                    .await
+            } else {
+                self.get_transaction_with_options_json_rpc(digest, options)
+                    .await
+            }
+        })
+    }
+
+    /// JSON-RPC implementation of `get_transaction_with_options`.
+    async fn get_transaction_with_options_json_rpc(
+        &self,
+        digest: TransactionDigest,
+        options: TransactionResponseOptions,
+    ) -> SuiClientResult<TransactionResponse> {
+        let sdk_options = SuiTransactionBlockResponseOptions {
+            show_raw_input: options.show_raw_input,
+            show_balance_changes: options.show_balance_changes,
+            show_events: options.show_events,
+            ..Default::default()
+        };
+
         async fn make_request(
             client: Arc<DualClient>,
             digest: TransactionDigest,
-            options: SuiTransactionBlockResponseOptions,
+            sdk_options: SuiTransactionBlockResponseOptions,
         ) -> SuiClientResult<SuiTransactionBlockResponse> {
             Ok(client
                 .sui_client()
                 .read_api()
-                .get_transaction_with_options(digest, options.clone())
+                .get_transaction_with_options(digest, sdk_options.clone())
                 .await?)
         }
 
         let request = move |client: Arc<DualClient>, method| {
+            let sdk_options = sdk_options.clone();
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || make_request(client.clone(), digest, sdk_options.clone()),
+                self.metrics.clone(),
+                method,
+            )
+        };
+        let resp = self
+            .failover_sui_client
+            .with_failover(request, None, "get_transaction")
+            .await?;
+        convert_sui_response_to_transaction_response(resp)
+    }
+
+    /// gRPC implementation of `get_transaction_with_options`.
+    ///
+    /// Supports requesting raw_input, balance_changes, and events via the options parameter.
+    /// Always includes digest, checkpoint, and timestamp.
+    async fn get_transaction_with_options_grpc(
+        &self,
+        digest: TransactionDigest,
+        options: TransactionResponseOptions,
+    ) -> SuiClientResult<TransactionResponse> {
+        let request = move |client: Arc<DualClient>, method| {
             let options = options.clone();
             retry_rpc_errors(
                 self.get_strategy(),
-                move || make_request(client.clone(), digest, options.clone()),
+                move || {
+                    let client = client.clone();
+                    let options = options.clone();
+                    async move { client.get_transaction_response_grpc(digest, &options).await }
+                },
                 self.metrics.clone(),
                 method,
             )
@@ -1748,48 +1810,68 @@ impl RetriableSuiClient {
     }
 
     /// Executes a transaction.
-    #[tracing::instrument(level = Level::DEBUG, err, skip(self, transaction))]
-    pub async fn execute_transaction(
+    ///
+    /// Uses `Box::pin` to cap the future size on the stack, since `SuiTransactionBlockResponse`
+    /// is a large type that causes stack overflows in deep async call chains.
+    pub fn execute_transaction(
         &self,
         transaction: Transaction,
         method: &'static str,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        async fn make_request(
-            client: Arc<DualClient>,
-            transaction: Transaction,
-        ) -> SuiClientResult<SuiTransactionBlockResponse> {
-            #[cfg(msim)]
-            {
-                maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = SuiClientResult<SuiTransactionBlockResponse>>
+                + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            let span = tracing::debug_span!("execute_transaction", method);
+            async {
+                async fn make_request(
+                    client: Arc<DualClient>,
+                    transaction: Transaction,
+                ) -> SuiClientResult<SuiTransactionBlockResponse> {
+                    #[cfg(msim)]
+                    {
+                        maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
+                    }
+                    Ok(client
+                        .sui_client()
+                        .quorum_driver_api()
+                        .execute_transaction_block(
+                            transaction.clone(),
+                            SuiTransactionBlockResponseOptions::new()
+                                .with_effects()
+                                .with_input()
+                                .with_events()
+                                .with_object_changes()
+                                .with_balance_changes(),
+                            Some(WaitForLocalExecution),
+                        )
+                        .await?)
+                }
+                let request = move |client: Arc<DualClient>, method| {
+                    let transaction = transaction.clone();
+                    // Retry here must use the exact same transaction to avoid locked objects.
+                    retry_rpc_errors(
+                        self.get_strategy(),
+                        move || make_request(client.clone(), transaction.clone()),
+                        self.metrics.clone(),
+                        method,
+                    )
+                };
+                let result = self
+                    .failover_sui_client
+                    .with_failover(request, None, method)
+                    .await;
+                if let Err(err) = &result {
+                    tracing::error!(%err, "execute_transaction failed");
+                }
+                result
             }
-            Ok(client
-                .sui_client()
-                .quorum_driver_api()
-                .execute_transaction_block(
-                    transaction.clone(),
-                    SuiTransactionBlockResponseOptions::new()
-                        .with_effects()
-                        .with_input()
-                        .with_events()
-                        .with_object_changes()
-                        .with_balance_changes(),
-                    Some(WaitForLocalExecution),
-                )
-                .await?)
-        }
-        let request = move |client: Arc<DualClient>, method| {
-            let transaction = transaction.clone();
-            // Retry here must use the exact same transaction to avoid locked objects.
-            retry_rpc_errors(
-                self.get_strategy(),
-                move || make_request(client.clone(), transaction.clone()),
-                self.metrics.clone(),
-                method,
-            )
-        };
-        self.failover_sui_client
-            .with_failover(request, None, method)
+            .instrument(span)
             .await
+        })
     }
 
     /// Gets a backoff strategy, seeded from the internal RNG.
@@ -1799,28 +1881,21 @@ impl RetriableSuiClient {
     }
 
     /// Returns the events for the given transaction digest.
-    pub async fn get_events(&self, tx_digest: TransactionDigest) -> SuiClientResult<Vec<SuiEvent>> {
-        self.failover_sui_client
-            .with_failover(
-                async |client, method| {
-                    retry_rpc_errors(
-                        self.get_strategy(),
-                        || async {
-                            Ok(client
-                                .sui_client()
-                                .event_api()
-                                .get_events(tx_digest)
-                                .await?)
-                        },
-                        self.metrics.clone(),
-                        method,
-                    )
-                    .await
-                },
-                None,
-                "get_events",
+    ///
+    /// Routes through [`Self::get_transaction_with_options`] for both gRPC and JSON-RPC,
+    /// intentionally using `read_api().get_transaction_with_options()` instead of
+    /// `event_api().get_events()` to consolidate code paths.
+    pub async fn get_events(
+        &self,
+        tx_digest: TransactionDigest,
+    ) -> SuiClientResult<Vec<EventEnvelope>> {
+        let resp = self
+            .get_transaction_with_options(
+                tx_digest,
+                TransactionResponseOptions::new().with_events(),
             )
-            .await
+            .await?;
+        Ok(resp.events.unwrap_or_default())
     }
 
     /// Get an object from an [`ObjectID`].
@@ -2058,6 +2133,36 @@ impl RetriableSuiClient {
             .with_failover(request, None, "get_previous_transaction")
             .await
     }
+}
+
+/// Convert a JSON-RPC [`SuiTransactionBlockResponse`] to our [`TransactionResponse`].
+fn convert_sui_response_to_transaction_response(
+    resp: SuiTransactionBlockResponse,
+) -> SuiClientResult<TransactionResponse> {
+    Ok(TransactionResponse {
+        digest: resp.digest,
+        checkpoint: resp.checkpoint,
+        timestamp_ms: resp.timestamp_ms,
+        raw_transaction: resp.raw_transaction,
+        balance_changes: resp
+            .balance_changes
+            .map(|changes| {
+                changes
+                    .into_iter()
+                    .map(|c| {
+                        Ok(BalanceChange {
+                            address: c.owner.get_owner_address().map_err(Box::new)?,
+                            coin_type: c.coin_type,
+                            amount: c.amount,
+                        })
+                    })
+                    .collect::<SuiClientResult<Vec<_>>>()
+            })
+            .transpose()?,
+        events: resp
+            .events
+            .map(|e| e.data.into_iter().map(EventEnvelope::from).collect()),
+    })
 }
 
 #[derive(Clone)]

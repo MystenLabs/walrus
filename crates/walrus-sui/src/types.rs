@@ -28,6 +28,7 @@ pub use events::{
     EpochChangeEvent,
     EpochChangeStart,
     EpochParametersSelected,
+    EventEnvelope,
     InvalidBlobId,
     PackageEvent,
     PooledBlobCertified,
@@ -40,6 +41,9 @@ pub use events::{
     StoragePoolEvent,
     StoragePoolExtendedEvent,
 };
+
+pub mod transaction;
+pub use transaction::{BalanceChange, TransactionResponse, TransactionResponseOptions};
 
 pub mod move_structs;
 pub use move_structs::{

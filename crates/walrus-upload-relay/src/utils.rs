@@ -4,7 +4,6 @@
 //! Utilities for the Walrus Upload Relay.
 
 use fastcrypto::hash::{HashFunction as _, Sha256};
-use sui_sdk::rpc_types::SuiTransactionBlockResponse;
 use sui_types::transaction::{
     CallArg,
     SenderSignedData,
@@ -14,6 +13,7 @@ use sui_types::transaction::{
 };
 use walrus_sdk::{
     core::ensure,
+    sui::types::TransactionResponse,
     upload_relay::params::{DIGEST_LEN, HashedAuthPackage},
 };
 
@@ -24,7 +24,7 @@ use crate::error::WalrusUploadRelayError;
 pub(crate) fn check_tx_auth_package(
     blob: &[u8],
     rcvd_nonce: &[u8; DIGEST_LEN],
-    tx: SuiTransactionBlockResponse,
+    tx: TransactionResponse,
 ) -> Result<(), WalrusUploadRelayError> {
     let tx_auth_package = extract_hashed_auth_package(tx)?;
     auth_package_checks(tx_auth_package, blob, rcvd_nonce)
@@ -65,7 +65,7 @@ pub(crate) fn auth_package_checks(
 
 /// Extracts the hashed auth package from the transaction.
 pub(crate) fn extract_hashed_auth_package(
-    tx: SuiTransactionBlockResponse,
+    tx: TransactionResponse,
 ) -> Result<HashedAuthPackage, WalrusUploadRelayError> {
     let orig_tx: SenderSignedData = bcs::from_bytes(&tx.raw_transaction).map_err(|_| {
         WalrusUploadRelayError::other("error deserializing the transaction from bytes")

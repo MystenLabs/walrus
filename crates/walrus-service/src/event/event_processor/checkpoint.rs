@@ -181,7 +181,8 @@ impl CheckpointProcessor {
                     None,
                     move_datatype_layout,
                 )?;
-                let contract_event: ContractEvent = sui_event.try_into()?;
+                let contract_event: ContractEvent =
+                    walrus_sui::types::EventEnvelope::from(sui_event).try_into()?;
                 let event_sequence_number = CheckpointEventPosition::new(
                     *checkpoint.checkpoint_summary.sequence_number(),
                     counter,

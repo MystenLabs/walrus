@@ -181,6 +181,12 @@ Configured in `.config/nextest.toml`:
 - **simtest**: `num-cpus` threads, 30m timeout
 - **performance-test**: single-threaded, 15m timeout
 
+## gRPC protobuf definitions
+
+Sui Rust SDK houses the .proto files for the Sui gRPC API. Often these are stored locally at
+../sui-rust-sdk/crates/sui-rpc/vendored/proto/sui/rpc/v2/. If not, they are available at
+https://github.com/MystenLabs/sui-rust-sdk/tree/master/crates/sui-rpc/vendored/proto/sui/rpc/v2.
+
 ## Documentation
 
 Documentation files live under `docs/content/` and use MDX (Docusaurus) format. The site is built

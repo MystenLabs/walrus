@@ -25,7 +25,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
-use sui_sdk::rpc_types::SuiTransactionBlockResponseOptions;
 use sui_types::digests::TransactionDigest;
 use tokio::{sync::Notify, task::JoinHandle, time::Instant};
 use tower_http::cors::{Any, CorsLayer};
@@ -246,7 +245,7 @@ impl Controller {
             .retriable_sui_client()
             .get_transaction_with_options(
                 params.tx_id,
-                SuiTransactionBlockResponseOptions::new()
+                walrus_sdk::sui::types::TransactionResponseOptions::new()
                     .with_raw_input()
                     .with_balance_changes(),
             )

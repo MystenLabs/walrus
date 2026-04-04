@@ -4,26 +4,48 @@
 //! Walrus event type bindings. Replicates the move event types in Rust.
 
 use anyhow::anyhow;
+use move_core_types::language_storage::StructTag as MoveStructTag;
 use serde::{Deserialize, Serialize};
 use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
 use walrus_core::{BlobId, EncodingType, Epoch, ShardIndex, ensure};
 
-use crate::contracts::{self, AssociatedSuiEvent, MoveConversionError, StructTag};
+use crate::contracts::{self, AssociatedContractEvent, MoveConversionError, StructTag};
+
+/// A protocol-agnostic Sui event with only the fields Walrus needs for deserialization.
+#[derive(Debug, Clone)]
+pub struct EventEnvelope {
+    /// The event ID (transaction digest + sequence number).
+    pub id: EventID,
+    /// The Move struct type of the event.
+    pub type_: MoveStructTag,
+    /// The BCS-serialized event contents.
+    pub bcs: Vec<u8>,
+}
+
+impl From<SuiEvent> for EventEnvelope {
+    fn from(event: SuiEvent) -> Self {
+        Self {
+            id: event.id,
+            type_: event.type_,
+            bcs: event.bcs.bytes().to_vec(),
+        }
+    }
+}
 
 fn ensure_event_type(
-    sui_event: &SuiEvent,
+    envelope: &EventEnvelope,
     struct_tag: &StructTag,
 ) -> Result<(), MoveConversionError> {
     ensure!(
-        sui_event.type_.name.as_str() == struct_tag.name
-            && sui_event.type_.module.as_str() == struct_tag.module,
+        envelope.type_.name.as_str() == struct_tag.name
+            && envelope.type_.module.as_str() == struct_tag.module,
         MoveConversionError::TypeMismatch {
             expected: struct_tag.to_string(),
             actual: format!(
                 "{}::{}",
-                sui_event.type_.module.as_str(),
-                sui_event.type_.name.as_str()
+                envelope.type_.module.as_str(),
+                envelope.type_.name.as_str()
             ),
         }
     );
@@ -51,18 +73,18 @@ pub struct BlobRegistered {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for BlobRegistered {
+impl AssociatedContractEvent for BlobRegistered {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobRegistered;
 }
 
-impl TryFrom<SuiEvent> for BlobRegistered {
+impl TryFrom<EventEnvelope> for BlobRegistered {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
         let (epoch, blob_id, size, encoding_type, end_epoch, deletable, object_id) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+            bcs::from_bytes(&envelope.bcs)?;
 
         Ok(Self {
             epoch,
@@ -72,7 +94,7 @@ impl TryFrom<SuiEvent> for BlobRegistered {
             end_epoch,
             deletable,
             object_id,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -96,18 +118,18 @@ pub struct BlobCertified {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for BlobCertified {
+impl AssociatedContractEvent for BlobCertified {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobCertified;
 }
 
-impl TryFrom<SuiEvent> for BlobCertified {
+impl TryFrom<EventEnvelope> for BlobCertified {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
         let (epoch, blob_id, end_epoch, deletable, object_id, is_extension) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+            bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             blob_id,
@@ -115,7 +137,7 @@ impl TryFrom<SuiEvent> for BlobCertified {
             deletable,
             object_id,
             is_extension,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -137,25 +159,24 @@ pub struct BlobDeleted {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for BlobDeleted {
+impl AssociatedContractEvent for BlobDeleted {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::BlobDeleted;
 }
 
-impl TryFrom<SuiEvent> for BlobDeleted {
+impl TryFrom<EventEnvelope> for BlobDeleted {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_id, end_epoch, object_id, was_certified) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, blob_id, end_epoch, object_id, was_certified) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             blob_id,
             end_epoch,
             object_id,
             was_certified,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -171,21 +192,21 @@ pub struct InvalidBlobId {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for InvalidBlobId {
+impl AssociatedContractEvent for InvalidBlobId {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::InvalidBlobID;
 }
 
-impl TryFrom<SuiEvent> for InvalidBlobId {
+impl TryFrom<EventEnvelope> for InvalidBlobId {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, blob_id) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             blob_id,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -201,21 +222,21 @@ pub struct DenyListBlobDeleted {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for DenyListBlobDeleted {
+impl AssociatedContractEvent for DenyListBlobDeleted {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::DenyListBlobDeleted;
 }
 
-impl TryFrom<SuiEvent> for DenyListBlobDeleted {
+impl TryFrom<EventEnvelope> for DenyListBlobDeleted {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, blob_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, blob_id) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             blob_id,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -382,28 +403,31 @@ impl BlobEvent {
     }
 }
 
-impl TryFrom<SuiEvent> for BlobEvent {
+impl TryFrom<EventEnvelope> for BlobEvent {
     type Error = anyhow::Error;
 
-    fn try_from(value: SuiEvent) -> Result<Self, Self::Error> {
-        match (&value.type_).into() {
-            contracts::events::BlobRegistered => Ok(BlobEvent::Registered(value.try_into()?)),
-            contracts::events::BlobCertified => Ok(BlobEvent::Certified(value.try_into()?)),
-            contracts::events::InvalidBlobID => Ok(BlobEvent::InvalidBlobID(value.try_into()?)),
-            contracts::events::BlobDeleted => Ok(BlobEvent::Deleted(value.try_into()?)),
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        match (&envelope.type_).into() {
+            contracts::events::BlobRegistered => Ok(BlobEvent::Registered(envelope.try_into()?)),
+            contracts::events::BlobCertified => Ok(BlobEvent::Certified(envelope.try_into()?)),
+            contracts::events::InvalidBlobID => Ok(BlobEvent::InvalidBlobID(envelope.try_into()?)),
+            contracts::events::BlobDeleted => Ok(BlobEvent::Deleted(envelope.try_into()?)),
             contracts::events::DenyListBlobDeleted => {
-                Ok(BlobEvent::DenyListBlobDeleted(value.try_into()?))
+                Ok(BlobEvent::DenyListBlobDeleted(envelope.try_into()?))
             }
             contracts::events::PooledBlobRegistered => {
-                Ok(BlobEvent::PooledBlobRegistered(value.try_into()?))
+                Ok(BlobEvent::PooledBlobRegistered(envelope.try_into()?))
             }
             contracts::events::PooledBlobCertified => {
-                Ok(BlobEvent::PooledBlobCertified(value.try_into()?))
+                Ok(BlobEvent::PooledBlobCertified(envelope.try_into()?))
             }
             contracts::events::PooledBlobDeleted => {
-                Ok(BlobEvent::PooledBlobDeleted(value.try_into()?))
+                Ok(BlobEvent::PooledBlobDeleted(envelope.try_into()?))
             }
-            _ => Err(anyhow!("could not convert to blob event: {}", value)),
+            _ => Err(anyhow!(
+                "could not convert to blob event: {:?}",
+                envelope.type_
+            )),
         }
     }
 }
@@ -417,20 +441,20 @@ pub struct EpochParametersSelected {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for EpochParametersSelected {
+impl AssociatedContractEvent for EpochParametersSelected {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::EpochParametersSelected;
 }
 
-impl TryFrom<SuiEvent> for EpochParametersSelected {
+impl TryFrom<EventEnvelope> for EpochParametersSelected {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let next_epoch = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let next_epoch = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             next_epoch,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -444,20 +468,20 @@ pub struct EpochChangeStart {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for EpochChangeStart {
+impl AssociatedContractEvent for EpochChangeStart {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::EpochChangeStart;
 }
 
-impl TryFrom<SuiEvent> for EpochChangeStart {
+impl TryFrom<EventEnvelope> for EpochChangeStart {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let epoch = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let epoch = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -471,20 +495,20 @@ pub struct EpochChangeDone {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for EpochChangeDone {
+impl AssociatedContractEvent for EpochChangeDone {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::EpochChangeDone;
 }
 
-impl TryFrom<SuiEvent> for EpochChangeDone {
+impl TryFrom<EventEnvelope> for EpochChangeDone {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let epoch = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let epoch = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -499,21 +523,21 @@ pub struct ShardsReceived {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ShardsReceived {
+impl AssociatedContractEvent for ShardsReceived {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::ShardsReceived;
 }
 
-impl TryFrom<SuiEvent> for ShardsReceived {
+impl TryFrom<EventEnvelope> for ShardsReceived {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, shards) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, shards) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             shards,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -527,21 +551,21 @@ pub struct ShardRecoveryStart {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ShardRecoveryStart {
+impl AssociatedContractEvent for ShardRecoveryStart {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::ShardRecoveryStart;
 }
 
-impl TryFrom<SuiEvent> for ShardRecoveryStart {
+impl TryFrom<EventEnvelope> for ShardRecoveryStart {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, shards) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, shards) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             shards,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -609,22 +633,22 @@ pub struct ContractUpgradedEvent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ContractUpgradedEvent {
+impl AssociatedContractEvent for ContractUpgradedEvent {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::ContractUpgraded;
 }
 
-impl TryFrom<SuiEvent> for ContractUpgradedEvent {
+impl TryFrom<EventEnvelope> for ContractUpgradedEvent {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, package_id, version) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, package_id, version) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             package_id,
             version,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -642,21 +666,21 @@ pub struct ContractUpgradeProposedEvent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ContractUpgradeProposedEvent {
+impl AssociatedContractEvent for ContractUpgradeProposedEvent {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::ContractUpgradeProposed;
 }
 
-impl TryFrom<SuiEvent> for ContractUpgradeProposedEvent {
+impl TryFrom<EventEnvelope> for ContractUpgradeProposedEvent {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, package_digest) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, package_digest) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             package_digest,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -672,21 +696,21 @@ pub struct ContractUpgradeQuorumReachedEvent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ContractUpgradeQuorumReachedEvent {
+impl AssociatedContractEvent for ContractUpgradeQuorumReachedEvent {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::ContractUpgradeQuorumReached;
 }
 
-impl TryFrom<SuiEvent> for ContractUpgradeQuorumReachedEvent {
+impl TryFrom<EventEnvelope> for ContractUpgradeQuorumReachedEvent {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, package_digest) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, package_digest) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             package_digest,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -704,22 +728,22 @@ pub struct ProtocolVersionUpdatedEvent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for ProtocolVersionUpdatedEvent {
+impl AssociatedContractEvent for ProtocolVersionUpdatedEvent {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::ProtocolVersionUpdated;
 }
 
-impl TryFrom<SuiEvent> for ProtocolVersionUpdatedEvent {
+impl TryFrom<EventEnvelope> for ProtocolVersionUpdatedEvent {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, start_epoch, protocol_version) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, start_epoch, protocol_version) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             start_epoch,
             protocol_version,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -737,22 +761,22 @@ pub struct PricesUpdatedEvent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for PricesUpdatedEvent {
+impl AssociatedContractEvent for PricesUpdatedEvent {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::PricesUpdated;
 }
 
-impl TryFrom<SuiEvent> for PricesUpdatedEvent {
+impl TryFrom<EventEnvelope> for PricesUpdatedEvent {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, storage_price, write_price) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, storage_price, write_price) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             storage_price,
             write_price,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -774,25 +798,25 @@ pub struct StoragePoolCreatedEvent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for StoragePoolCreatedEvent {
+impl AssociatedContractEvent for StoragePoolCreatedEvent {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::StoragePoolCreated;
 }
 
-impl TryFrom<SuiEvent> for StoragePoolCreatedEvent {
+impl TryFrom<EventEnvelope> for StoragePoolCreatedEvent {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
         let (epoch, storage_pool_id, reserved_encoded_capacity_bytes, start_epoch, end_epoch) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+            bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             storage_pool_id,
             reserved_encoded_capacity_bytes,
             start_epoch,
             end_epoch,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -818,18 +842,18 @@ pub struct PooledBlobRegistered {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for PooledBlobRegistered {
+impl AssociatedContractEvent for PooledBlobRegistered {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::PooledBlobRegistered;
 }
 
-impl TryFrom<SuiEvent> for PooledBlobRegistered {
+impl TryFrom<EventEnvelope> for PooledBlobRegistered {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
         let (epoch, blob_id, unencoded_size, encoding_type, deletable, object_id, pool_id) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+            bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             blob_id,
@@ -838,7 +862,7 @@ impl TryFrom<SuiEvent> for PooledBlobRegistered {
             deletable,
             object_id,
             storage_pool_id: pool_id,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -860,25 +884,25 @@ pub struct PooledBlobCertified {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for PooledBlobCertified {
+impl AssociatedContractEvent for PooledBlobCertified {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::PooledBlobCertified;
 }
 
-impl TryFrom<SuiEvent> for PooledBlobCertified {
+impl TryFrom<EventEnvelope> for PooledBlobCertified {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
         let (epoch, blob_id, deletable, object_id, storage_pool_id) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+            bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             blob_id,
             deletable,
             object_id,
             storage_pool_id,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -900,25 +924,25 @@ pub struct PooledBlobDeleted {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for PooledBlobDeleted {
+impl AssociatedContractEvent for PooledBlobDeleted {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::PooledBlobDeleted;
 }
 
-impl TryFrom<SuiEvent> for PooledBlobDeleted {
+impl TryFrom<EventEnvelope> for PooledBlobDeleted {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
         let (epoch, blob_id, object_id, was_certified, storage_pool_id) =
-            bcs::from_bytes(sui_event.bcs.bytes())?;
+            bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             blob_id,
             object_id,
             was_certified,
             storage_pool_id,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -936,22 +960,22 @@ pub struct StoragePoolExtendedEvent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for StoragePoolExtendedEvent {
+impl AssociatedContractEvent for StoragePoolExtendedEvent {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::StoragePoolExtended;
 }
 
-impl TryFrom<SuiEvent> for StoragePoolExtendedEvent {
+impl TryFrom<EventEnvelope> for StoragePoolExtendedEvent {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, storage_pool_id, new_end_epoch) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, storage_pool_id, new_end_epoch) = bcs::from_bytes(&envelope.bcs)?;
         Ok(Self {
             epoch,
             storage_pool_id,
             new_end_epoch,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -1061,24 +1085,24 @@ pub struct RegisterDenyListUpdateEvent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for RegisterDenyListUpdateEvent {
+impl AssociatedContractEvent for RegisterDenyListUpdateEvent {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::RegisterDenyListUpdate;
 }
 
-impl TryFrom<SuiEvent> for RegisterDenyListUpdateEvent {
+impl TryFrom<EventEnvelope> for RegisterDenyListUpdateEvent {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, root, sequence_number, node_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, root, sequence_number, node_id) = bcs::from_bytes(&envelope.bcs)?;
 
         Ok(Self {
             epoch,
             root,
             sequence_number,
             node_id,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -1098,24 +1122,24 @@ pub struct DenyListUpdateEvent {
     pub event_id: EventID,
 }
 
-impl AssociatedSuiEvent for DenyListUpdateEvent {
+impl AssociatedContractEvent for DenyListUpdateEvent {
     const EVENT_STRUCT: StructTag<'static> = contracts::events::DenyListUpdate;
 }
 
-impl TryFrom<SuiEvent> for DenyListUpdateEvent {
+impl TryFrom<EventEnvelope> for DenyListUpdateEvent {
     type Error = MoveConversionError;
 
-    fn try_from(sui_event: SuiEvent) -> Result<Self, Self::Error> {
-        ensure_event_type(&sui_event, &Self::EVENT_STRUCT)?;
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        ensure_event_type(&envelope, &Self::EVENT_STRUCT)?;
 
-        let (epoch, root, sequence_number, node_id) = bcs::from_bytes(sui_event.bcs.bytes())?;
+        let (epoch, root, sequence_number, node_id) = bcs::from_bytes(&envelope.bcs)?;
 
         Ok(Self {
             epoch,
             root,
             sequence_number,
             node_id,
-            event_id: sui_event.id,
+            event_id: envelope.id,
         })
     }
 }
@@ -1256,79 +1280,82 @@ impl ContractEvent {
     }
 }
 
-impl TryFrom<SuiEvent> for ContractEvent {
+impl TryFrom<EventEnvelope> for ContractEvent {
     type Error = anyhow::Error;
 
-    fn try_from(value: SuiEvent) -> Result<Self, Self::Error> {
-        match (&value.type_).into() {
+    fn try_from(envelope: EventEnvelope) -> Result<Self, Self::Error> {
+        match (&envelope.type_).into() {
             contracts::events::BlobRegistered => Ok(ContractEvent::BlobEvent(
-                BlobEvent::Registered(value.try_into()?),
+                BlobEvent::Registered(envelope.try_into()?),
             )),
             contracts::events::BlobCertified => Ok(ContractEvent::BlobEvent(BlobEvent::Certified(
-                value.try_into()?,
+                envelope.try_into()?,
             ))),
             contracts::events::BlobDeleted => Ok(ContractEvent::BlobEvent(BlobEvent::Deleted(
-                value.try_into()?,
+                envelope.try_into()?,
             ))),
             contracts::events::InvalidBlobID => Ok(ContractEvent::BlobEvent(
-                BlobEvent::InvalidBlobID(value.try_into()?),
+                BlobEvent::InvalidBlobID(envelope.try_into()?),
             )),
             contracts::events::EpochParametersSelected => Ok(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::EpochParametersSelected(value.try_into()?),
+                EpochChangeEvent::EpochParametersSelected(envelope.try_into()?),
             )),
             contracts::events::EpochChangeStart => Ok(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::EpochChangeStart(value.try_into()?),
+                EpochChangeEvent::EpochChangeStart(envelope.try_into()?),
             )),
             contracts::events::EpochChangeDone => Ok(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::EpochChangeDone(value.try_into()?),
+                EpochChangeEvent::EpochChangeDone(envelope.try_into()?),
             )),
 
             contracts::events::ShardsReceived => Ok(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::ShardsReceived(value.try_into()?),
+                EpochChangeEvent::ShardsReceived(envelope.try_into()?),
             )),
             contracts::events::ShardRecoveryStart => Ok(ContractEvent::EpochChangeEvent(
-                EpochChangeEvent::ShardRecoveryStart(value.try_into()?),
+                EpochChangeEvent::ShardRecoveryStart(envelope.try_into()?),
             )),
             contracts::events::ContractUpgraded => Ok(ContractEvent::PackageEvent(
-                PackageEvent::ContractUpgraded(value.try_into()?),
+                PackageEvent::ContractUpgraded(envelope.try_into()?),
             )),
             contracts::events::ContractUpgradeProposed => Ok(ContractEvent::PackageEvent(
-                PackageEvent::ContractUpgradeProposed(value.try_into()?),
+                PackageEvent::ContractUpgradeProposed(envelope.try_into()?),
             )),
             contracts::events::ContractUpgradeQuorumReached => Ok(ContractEvent::PackageEvent(
-                PackageEvent::ContractUpgradeQuorumReached(value.try_into()?),
+                PackageEvent::ContractUpgradeQuorumReached(envelope.try_into()?),
             )),
             contracts::events::RegisterDenyListUpdate => Ok(ContractEvent::DenyListEvent(
-                DenyListEvent::RegisterDenyListUpdate(value.try_into()?),
+                DenyListEvent::RegisterDenyListUpdate(envelope.try_into()?),
             )),
             contracts::events::DenyListUpdate => Ok(ContractEvent::DenyListEvent(
-                DenyListEvent::DenyListUpdate(value.try_into()?),
+                DenyListEvent::DenyListUpdate(envelope.try_into()?),
             )),
             contracts::events::DenyListBlobDeleted => Ok(ContractEvent::BlobEvent(
-                BlobEvent::DenyListBlobDeleted(value.try_into()?),
+                BlobEvent::DenyListBlobDeleted(envelope.try_into()?),
             )),
             contracts::events::ProtocolVersionUpdated => Ok(ContractEvent::ProtocolEvent(
-                ProtocolEvent::ProtocolVersionUpdated(value.try_into()?),
+                ProtocolEvent::ProtocolVersionUpdated(envelope.try_into()?),
             )),
             contracts::events::PricesUpdated => Ok(ContractEvent::ProtocolEvent(
-                ProtocolEvent::PricesUpdated(value.try_into()?),
+                ProtocolEvent::PricesUpdated(envelope.try_into()?),
             )),
             contracts::events::StoragePoolCreated => Ok(ContractEvent::StoragePoolEvent(
-                StoragePoolEvent::StoragePoolCreated(value.try_into()?),
+                StoragePoolEvent::StoragePoolCreated(envelope.try_into()?),
             )),
             contracts::events::PooledBlobRegistered => Ok(ContractEvent::BlobEvent(
-                BlobEvent::PooledBlobRegistered(value.try_into()?),
+                BlobEvent::PooledBlobRegistered(envelope.try_into()?),
             )),
             contracts::events::PooledBlobCertified => Ok(ContractEvent::BlobEvent(
-                BlobEvent::PooledBlobCertified(value.try_into()?),
+                BlobEvent::PooledBlobCertified(envelope.try_into()?),
             )),
             contracts::events::PooledBlobDeleted => Ok(ContractEvent::BlobEvent(
-                BlobEvent::PooledBlobDeleted(value.try_into()?),
+                BlobEvent::PooledBlobDeleted(envelope.try_into()?),
             )),
             contracts::events::StoragePoolExtended => Ok(ContractEvent::StoragePoolEvent(
-                StoragePoolEvent::StoragePoolExtended(value.try_into()?),
+                StoragePoolEvent::StoragePoolExtended(envelope.try_into()?),
             )),
-            _ => unreachable!("Encountered unexpected unrecognized events {}", value),
+            _ => unreachable!(
+                "Encountered unexpected unrecognized events {:?}",
+                envelope.type_
+            ),
         }
     }
 }
