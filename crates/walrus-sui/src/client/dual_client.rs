@@ -840,14 +840,7 @@ fn reconstruct_raw_transaction(
                 .value
                 .as_ref()
                 .context("no value in signature bcs")?;
-            // gRPC UserSignature.bcs may be raw bytes or length-prefixed BCS;
-            // try raw first, then fall back to BCS deserialization.
             GenericSignature::from_bytes(sig_bytes)
-                .or_else(|_| {
-                    bcs::from_bytes::<GenericSignature>(sig_bytes).map_err(|e| {
-                        fastcrypto::error::FastCryptoError::GeneralError(e.to_string())
-                    })
-                })
                 .context("parsing GenericSignature from gRPC bcs")
         })
         .collect::<Result<Vec<_>, _>>()?;
