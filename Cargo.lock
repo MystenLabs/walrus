@@ -2285,9 +2285,9 @@ checksum = "3618cccc083bb987a415d85c02ca6c9994ea5b44731ec28b9ecf09658655fba9"
 
 [[package]]
 name = "const-str"
-version = "0.6.4"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "451d0640545a0553814b4c646eb549343561618838e9b42495f466131fe3ad49"
+checksum = "18f12cc9948ed9604230cdddc7c86e270f9401ccbe3c2e98a4378c5e7632212f"
 
 [[package]]
 name = "constant_time_eq"
@@ -13438,7 +13438,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "clap",
- "const-str 0.6.4",
+ "const-str 1.1.0",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=4db0e90c732bbf7420ca20de808b698883148d9c)",
  "futures",
  "hyper",
@@ -13840,7 +13840,7 @@ version = "1.47.0"
 dependencies = [
  "anyhow",
  "bytes",
- "const-str 0.6.4",
+ "const-str 1.1.0",
  "git-version",
  "home",
  "http-body 1.0.1",
