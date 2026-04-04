@@ -58,7 +58,7 @@ use sui_types::{
     transaction::{Transaction, TransactionData, TransactionKind},
     transaction_driver_types::ExecuteTransactionRequestType::WaitForLocalExecution,
 };
-use tracing::Level;
+use tracing::{Instrument, Level};
 use walrus_core::ensure;
 use walrus_utils::backoff::{ExponentialBackoff, ExponentialBackoffConfig};
 
@@ -1810,48 +1810,63 @@ impl RetriableSuiClient {
     }
 
     /// Executes a transaction.
-    #[tracing::instrument(level = Level::DEBUG, err, skip(self, transaction))]
-    pub async fn execute_transaction(
+    ///
+    /// Uses `Box::pin` to cap the future size on the stack, since `SuiTransactionBlockResponse`
+    /// is a large type that causes stack overflows in deep async call chains.
+    pub fn execute_transaction(
         &self,
         transaction: Transaction,
         method: &'static str,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
-        async fn make_request(
-            client: Arc<DualClient>,
-            transaction: Transaction,
-        ) -> SuiClientResult<SuiTransactionBlockResponse> {
-            #[cfg(msim)]
-            {
-                maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = SuiClientResult<SuiTransactionBlockResponse>>
+                + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            let span = tracing::debug_span!("execute_transaction");
+            async {
+                async fn make_request(
+                    client: Arc<DualClient>,
+                    transaction: Transaction,
+                ) -> SuiClientResult<SuiTransactionBlockResponse> {
+                    #[cfg(msim)]
+                    {
+                        maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
+                    }
+                    Ok(client
+                        .sui_client()
+                        .quorum_driver_api()
+                        .execute_transaction_block(
+                            transaction.clone(),
+                            SuiTransactionBlockResponseOptions::new()
+                                .with_effects()
+                                .with_input()
+                                .with_events()
+                                .with_object_changes()
+                                .with_balance_changes(),
+                            Some(WaitForLocalExecution),
+                        )
+                        .await?)
+                }
+                let request = move |client: Arc<DualClient>, method| {
+                    let transaction = transaction.clone();
+                    // Retry here must use the exact same transaction to avoid locked objects.
+                    retry_rpc_errors(
+                        self.get_strategy(),
+                        move || make_request(client.clone(), transaction.clone()),
+                        self.metrics.clone(),
+                        method,
+                    )
+                };
+                self.failover_sui_client
+                    .with_failover(request, None, method)
+                    .await
             }
-            Ok(client
-                .sui_client()
-                .quorum_driver_api()
-                .execute_transaction_block(
-                    transaction.clone(),
-                    SuiTransactionBlockResponseOptions::new()
-                        .with_effects()
-                        .with_input()
-                        .with_events()
-                        .with_object_changes()
-                        .with_balance_changes(),
-                    Some(WaitForLocalExecution),
-                )
-                .await?)
-        }
-        let request = move |client: Arc<DualClient>, method| {
-            let transaction = transaction.clone();
-            // Retry here must use the exact same transaction to avoid locked objects.
-            retry_rpc_errors(
-                self.get_strategy(),
-                move || make_request(client.clone(), transaction.clone()),
-                self.metrics.clone(),
-                method,
-            )
-        };
-        self.failover_sui_client
-            .with_failover(request, None, method)
+            .instrument(span)
             .await
+        })
     }
 
     /// Gets a backoff strategy, seeded from the internal RNG.
