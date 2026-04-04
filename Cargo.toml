@@ -86,7 +86,7 @@ move-package-alt = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v
 move-package-alt-compilation = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.69.1" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.69.1" }
 num-bigint = { version = "0.4.5", default-features = false }
-object_store = { version = "0.11.2", features = ["gcp"] }
+object_store = { version = "0.13.1", features = ["gcp"] }
 once_cell = { version = "1.21.4" }
 opentelemetry = { version = "=0.31", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "=0.31" }
