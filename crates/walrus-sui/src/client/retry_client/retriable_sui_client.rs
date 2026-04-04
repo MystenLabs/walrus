@@ -1860,9 +1860,14 @@ impl RetriableSuiClient {
                         method,
                     )
                 };
-                self.failover_sui_client
+                let result = self
+                    .failover_sui_client
                     .with_failover(request, None, method)
-                    .await
+                    .await;
+                if let Err(err) = &result {
+                    tracing::error!(%err, "execute_transaction failed");
+                }
+                result
             }
             .instrument(span)
             .await
