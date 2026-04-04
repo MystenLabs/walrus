@@ -754,15 +754,13 @@ fn executed_transaction_to_response(
     executed_tx: &ExecutedTransaction,
 ) -> Result<TransactionResponse, SuiClientError> {
     let checkpoint = executed_tx.checkpoint;
-    // Proto `Timestamp.nanos` is `i32` (0–999,999,999); `unwrap_or(0)` handles the
-    // `i32 → u64` conversion for the sub-second component.
     let timestamp_ms = executed_tx
         .timestamp
         .as_ref()
         .map(|ts| {
-            u64::try_from(ts.seconds)
-                .context("negative timestamp")
-                .map(|s| s * 1000 + u64::try_from(ts.nanos).unwrap_or(0) / 1_000_000)
+            let seconds = u64::try_from(ts.seconds).context("negative timestamp seconds")?;
+            let nanos = u64::try_from(ts.nanos).context("negative timestamp nanos")?;
+            anyhow::Ok(seconds * 1000 + nanos / 1_000_000)
         })
         .transpose()?;
 
@@ -792,6 +790,8 @@ fn executed_transaction_to_response(
                 events
                     .events
                     .iter()
+                    // Event index matches on-chain event_seq; protobuf repeated fields
+                    // preserve order and the gRPC server serializes from the same vector.
                     .enumerate()
                     .map(|(idx, event)| grpc_event_to_event_envelope(digest, idx, event))
                     .collect::<Result<Vec<_>, _>>()
@@ -840,6 +840,8 @@ fn reconstruct_raw_transaction(
                 .value
                 .as_ref()
                 .context("no value in signature bcs")?;
+            // gRPC UserSignature.bcs may be raw bytes or length-prefixed BCS;
+            // try raw first, then fall back to BCS deserialization.
             GenericSignature::from_bytes(sig_bytes)
                 .or_else(|_| {
                     bcs::from_bytes::<GenericSignature>(sig_bytes).map_err(|e| {
