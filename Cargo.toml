@@ -163,7 +163,7 @@ url = "2.5.4"
 urlencoding = "2.1"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }
-uuid = { version = "1.22.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
+uuid = { version = "1.23.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
