@@ -182,6 +182,9 @@ pub fn populate_labels(
     // apply all of the labels we made here to all of the metrics we received from the node
     let mut metric_families = data.metric_families;
 
+    // NB: this check runs before remove_labels is applied. That's intentional — a static label
+    // colliding with a per-metric label is a configuration bug even if remove_labels would
+    // paper over it.
     #[cfg(debug_assertions)]
     {
         let static_label_names: HashSet<&str> = label_pairs.iter().map(|lp| lp.name()).collect();
@@ -189,7 +192,7 @@ pub fn populate_labels(
             for existing in m.label.iter() {
                 assert!(
                     !static_label_names.contains(existing.name()),
-                    "static label {:?} overwrites per-metric value {:?} on metric",
+                    "label name {:?} collision: static label would overwrite per-metric value {:?}",
                     existing.name(),
                     existing.value(),
                 );
@@ -410,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "static label")]
+    #[should_panic(expected = "label name")]
     fn test_populate_labels_detects_label_collision() {
         // Simulate a metric that already has a "source" label (like
         // walrus_current_monitored_wal_price with source="binance"), and a
