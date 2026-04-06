@@ -287,12 +287,6 @@ pub struct StorageNodeConfig {
     /// Disable the event-blob writer
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub disable_event_blob_writer: bool,
-    /// Whether to enable the per-object pooled blob info table for tracking pooled blobs.
-    // TODO(WAL-1184): this is a temporary configuration to enable the storage pool. Since in
-    // RocksDB, once a column family is created, it is hard to delete it. So adding this config
-    // during development to give us more flexibility in making changes.
-    #[serde(default, skip_serializing_if = "defaults::is_default")]
-    pub enable_storage_pool: bool,
     /// The commission rate of the storage node, in basis points.
     #[serde(default = "defaults::commission_rate")]
     pub commission_rate: u16,
@@ -373,7 +367,6 @@ impl StorageNodeConfig {
                 ..Default::default()
             },
             db_config: DatabaseConfig::default_mainnet(),
-            enable_storage_pool: false,
             ..Default::default()
         }
     }
@@ -381,7 +374,6 @@ impl StorageNodeConfig {
     /// Returns the default configuration for the testnet network.
     pub fn default_testnet() -> Self {
         Self {
-            enable_storage_pool: false,
             ..Default::default()
         }
     }
@@ -535,7 +527,6 @@ impl Default for StorageNodeConfig {
                 max_checkpoint_lag: 1500,
             },
             disable_event_blob_writer: Default::default(),
-            enable_storage_pool: true,
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {
@@ -617,16 +608,6 @@ impl StorageNodeConfig {
         let config: StorageNodeConfig = serde_yaml::from_value(merged_value.clone())
             .with_context(|| format!("unable to deserialize merged config: {merged_value:?}",))?;
         config.validate()?;
-
-        // TODO(WAL-1184): remove this check when rolling out storage pool.
-        if config.enable_storage_pool
-            && matches!(network_kind, NetworkKind::Mainnet | NetworkKind::Testnet)
-        {
-            anyhow::bail!(
-                "enable_storage_pool cannot be set to true on {network_kind:?}; \
-                storage pool DB tables are still under development and subject to change"
-            );
-        }
 
         Ok(LoadedConfig {
             config_path: path.to_path_buf(),
@@ -2324,31 +2305,6 @@ mod tests {
                 loaded_config.config.live_upload_deferral.enabled,
                 expected_defaults.live_upload_deferral.enabled,
                 "default-only values are preserved"
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn load_config_rejects_storage_pool_on_mainnet_and_testnet() -> TestResult {
-        let mainnet_ids = contract_ids_from_yaml(MAINNET_CLIENT_CONFIG_YAML);
-        let testnet_ids = contract_ids_from_yaml(TESTNET_CLIENT_CONFIG_YAML);
-
-        let dir = TempDir::new()?;
-        for (label, ids) in [("mainnet", mainnet_ids), ("testnet", testnet_ids)] {
-            let yaml = base_user_yaml_with_sui(
-                ids.system_object,
-                ids.staking_object,
-                "enable_storage_pool: true",
-            );
-            let config_path = dir.path().join(format!("node-{label}.yaml"));
-            std::fs::write(&config_path, &yaml)?;
-
-            let err = StorageNodeConfig::load_config(&config_path)
-                .expect_err("should reject enable_storage_pool on {label}");
-            assert!(
-                err.to_string().contains("enable_storage_pool"),
-                "error message should mention enable_storage_pool, got: {err}"
             );
         }
         Ok(())

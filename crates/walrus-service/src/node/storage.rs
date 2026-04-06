@@ -214,7 +214,6 @@ impl Storage {
         db_config: DatabaseConfig,
         metrics_config: MetricConf,
         metrics_registry: Registry,
-        enable_storage_pool: bool,
     ) -> Result<Self, anyhow::Error> {
         let mut db_opts = Options::from(&db_config.global);
         db_opts.create_missing_column_families(true);
@@ -263,8 +262,7 @@ impl Storage {
         let node_status_options = db_table_opts_factory.node_status();
         let metadata_options = db_table_opts_factory.metadata();
         let metadata_cf_name = metadata_cf_name();
-        let blob_info_column_families =
-            BlobInfoTable::options(&db_table_opts_factory, enable_storage_pool);
+        let blob_info_column_families = BlobInfoTable::options(&db_table_opts_factory);
         let (event_cursor_cf_name, event_cursor_options) =
             EventCursorTable::options(&db_table_opts_factory);
         let garbage_collector_table_cf_name = garbage_collector_table_cf_name();
@@ -342,7 +340,7 @@ impl Storage {
         )?;
 
         let event_cursor = EventCursorTable::reopen(&database)?;
-        let blob_info = BlobInfoTable::reopen(&database, enable_storage_pool)?;
+        let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -1794,7 +1792,6 @@ pub(crate) mod tests {
                 DatabaseConfig::default(),
                 MetricConf::default(),
                 Registry::default(),
-                true,
             )?;
 
             for shard_id in [SHARD_INDEX, OTHER_SHARD_INDEX] {
@@ -1834,7 +1831,6 @@ pub(crate) mod tests {
                 DatabaseConfig::default(),
                 MetricConf::default(),
                 Registry::default(),
-                true,
             )?;
 
             // Check that the shard status is restored correctly.
@@ -1961,7 +1957,6 @@ pub(crate) mod tests {
                 DatabaseConfig::default(),
                 MetricConf::default(),
                 Registry::default(),
-                true,
             )?;
 
             // Check shard files exist.
@@ -1981,7 +1976,6 @@ pub(crate) mod tests {
                 DatabaseConfig::default(),
                 MetricConf::default(),
                 Registry::default(),
-                true,
             )?;
 
             // Reload storage and the shard should not exist.
