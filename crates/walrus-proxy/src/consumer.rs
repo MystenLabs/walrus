@@ -179,23 +179,28 @@ pub fn populate_labels(
         })
         .collect();
 
-    // Collect the names of static labels we're about to add so we can detect collisions.
-    let static_label_names: HashSet<&str> = label_pairs.iter().map(|lp| lp.name()).collect();
-
     // apply all of the labels we made here to all of the metrics we received from the node
     let mut metric_families = data.metric_families;
-    metric_families
-        .iter_mut()
-        .flat_map(|mf| mf.mut_metric())
-        .for_each(|m| {
+
+    #[cfg(debug_assertions)]
+    {
+        let static_label_names: HashSet<&str> = label_pairs.iter().map(|lp| lp.name()).collect();
+        for m in metric_families.iter().flat_map(|mf| mf.get_metric()) {
             for existing in m.label.iter() {
-                debug_assert!(
+                assert!(
                     !static_label_names.contains(existing.name()),
                     "static label {:?} overwrites per-metric value {:?} on metric",
                     existing.name(),
                     existing.value(),
                 );
             }
+        }
+    }
+
+    metric_families
+        .iter_mut()
+        .flat_map(|mf| mf.mut_metric())
+        .for_each(|m| {
             m.label.extend(label_pairs.clone());
             // if the metric has a label that is in the remove_labels list, remove it
             m.label
