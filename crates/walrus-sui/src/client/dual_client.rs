@@ -613,7 +613,7 @@ impl DualClient {
 
     /// Get the reference gas price for the current epoch via gRPC.
     pub async fn get_reference_gas_price_grpc(&self) -> Result<u64, SuiClientError> {
-        let request = GetEpochRequest::default().with_read_mask(FieldMask::from_paths([
+        let request = GetEpochRequest::latest().with_read_mask(FieldMask::from_paths([
             GrpcEpoch::path_builder().reference_gas_price(),
         ]));
         let mut grpc_client = self.grpc_client.clone();
@@ -631,7 +631,7 @@ impl DualClient {
         &self,
         epoch: Option<u64>,
     ) -> Result<SuiCommittee, SuiClientError> {
-        let mut request = GetEpochRequest::default().with_read_mask(FieldMask::from_paths([
+        let mut request = GetEpochRequest::latest().with_read_mask(FieldMask::from_paths([
             GrpcEpoch::path_builder().epoch(),
             GrpcEpoch::path_builder().committee().finish(),
         ]));
