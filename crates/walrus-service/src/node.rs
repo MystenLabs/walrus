@@ -751,7 +751,6 @@ impl StorageNode {
                 config.db_config.clone(),
                 MetricConf::new("storage"),
                 registry.clone(),
-                config.enable_storage_pool,
             )?
         };
         tracing::info!("successfully opened the node database");
