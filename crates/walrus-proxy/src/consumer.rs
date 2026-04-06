@@ -179,12 +179,23 @@ pub fn populate_labels(
         })
         .collect();
 
+    // Collect the names of static labels we're about to add so we can detect collisions.
+    let static_label_names: HashSet<&str> = label_pairs.iter().map(|lp| lp.name()).collect();
+
     // apply all of the labels we made here to all of the metrics we received from the node
     let mut metric_families = data.metric_families;
     metric_families
         .iter_mut()
         .flat_map(|mf| mf.mut_metric())
         .for_each(|m| {
+            for existing in m.label.iter() {
+                debug_assert!(
+                    !static_label_names.contains(existing.name()),
+                    "static label {:?} overwrites per-metric value {:?} on metric",
+                    existing.name(),
+                    existing.value(),
+                );
+            }
             m.label.extend(label_pairs.clone());
             // if the metric has a label that is in the remove_labels list, remove it
             m.label
@@ -378,4 +389,45 @@ pub async fn convert_to_remote_write(
     CONSUMER_OPS_SUBMITTED.inc_by(f64::from(mf_cnt));
     timer.observe_duration();
     (StatusCode::CREATED, "created")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prom_to_mimir::tests::{create_counter, create_labels, create_metric_counter};
+
+    fn create_metric_family(name: &str, metrics: Vec<proto::Metric>) -> proto::MetricFamily {
+        let mut mf = proto::MetricFamily::default();
+        mf.set_name(name.into());
+        mf.set_field_type(proto::MetricType::COUNTER);
+        mf.set_metric(metrics);
+        mf
+    }
+
+    #[test]
+    #[should_panic(expected = "static label")]
+    fn test_populate_labels_detects_label_collision() {
+        // Simulate a metric that already has a "source" label (like
+        // walrus_current_monitored_wal_price with source="binance"), and a
+        // static config label also named "source" (like source="walrus-proxy").
+        let static_labels = vec![Label {
+            name: "source".into(),
+            value: "walrus-proxy".into(),
+        }];
+
+        let metric = create_metric_counter(
+            create_labels(vec![("source", "binance")]),
+            create_counter(42.0),
+        );
+
+        let data = MetricFamilyWithStaticLabels {
+            labels: None,
+            metric_families: vec![create_metric_family(
+                "walrus_current_monitored_wal_price",
+                vec![metric],
+            )],
+        };
+
+        populate_labels("test-node".into(), static_labels, HashSet::new(), data);
+    }
 }
