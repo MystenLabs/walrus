@@ -259,13 +259,13 @@ walrus_utils::metrics::define_metric_set! {
         blob_retirement_notifier_registered_blobs: IntGauge[],
 
         #[help = "The current monitored WAL price in USD"]
-        current_monitored_wal_price: GaugeVec["source"],
+        current_monitored_wal_price: GaugeVec["price_source"],
 
         #[help = "Total number of successful WAL price fetch requests"]
-        wal_price_fetch_success_total: IntCounterVec["source"],
+        wal_price_fetch_success_total: IntCounterVec["price_source"],
 
         #[help = "Total number of failed WAL price fetch requests"]
-        wal_price_fetch_failure_total: IntCounterVec["source"],
+        wal_price_fetch_failure_total: IntCounterVec["price_source"],
     }
 }
 
