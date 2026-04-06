@@ -66,7 +66,7 @@ use walrus_core::{
 };
 use walrus_storage_node_client::{UploadIntent, api::BlobStatus, error::NodeError};
 use walrus_sui::{
-    client::{CertifyAndExtendBlobResult, ExpirySelectionPolicy, ReadClient, SuiContractClient},
+    client::{ExpirySelectionPolicy, ReadClient, SuiContractClient},
     types::{
         Blob,
         BlobEvent,
@@ -84,28 +84,20 @@ use crate::{
         auto_tune::AutoTuneHandle,
         byte_range_read_client::ByteRangeReadClient,
         client_types::{
-            BlobAwaitingUpload,
-            BlobData,
-            BlobPendingCertifyAndExtend,
-            BlobWithStatus,
             EncodedBlob,
-            RegisteredBlob,
             UnencodedBlob,
-            WalrusStoreBlobFinished,
             WalrusStoreBlobMaybeFinished,
-            WalrusStoreBlobUnfinished,
             WalrusStoreEncodedBlobApi as _,
         },
         communication::{NodeResult, NodeWriteCommunication, node::NodeIndex},
         quilt_client::QuiltClient,
-        refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
+        refresh::{CommitteesRefresherHandle, RequestKind},
         resource::{PriceComputation, ResourceManager},
         responses::{BlobStoreResult, BlobStoreResultWithPath},
         upload_relay_client::UploadRelayClient,
     },
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
     utils::{
-        self,
         CompletedReasonWeight,
         WeightedFutures,
         WeightedResult,
