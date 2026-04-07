@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use bytes::Bytes;
+use fastcrypto::encoding::{Base58, Encoding, Hex};
 use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
 use sui_rpc::{
     Client as GrpcClient,
@@ -599,16 +600,21 @@ impl DualClient {
     }
 
     /// Get the chain identifier via gRPC.
+    ///
+    /// The gRPC API returns the full base58-encoded genesis checkpoint digest, but the
+    /// chain identifier format used elsewhere (JSON-RPC, Sui CLI) is the first 4 bytes of
+    /// that digest hex-encoded. This method converts accordingly.
     pub async fn get_chain_identifier_grpc(&self) -> Result<String, SuiClientError> {
         let mut grpc_client = self.grpc_client.clone();
         let response = grpc_client
             .ledger_client()
             .get_service_info(GetServiceInfoRequest::default())
             .await?;
-        Ok(response
+        let chain_id_base58 = response
             .into_inner()
             .chain_id
-            .context("no chain_id in get_service_info response")?)
+            .context("no chain_id in get_service_info response")?;
+        Ok(chain_identifier_from_base58(&chain_id_base58)?)
     }
 
     /// Get the reference gas price for the current epoch via gRPC.
@@ -1039,4 +1045,38 @@ fn append_batch_get_objects_response<T>(
         }
     }
     Ok(())
+}
+
+/// Converts a base58-encoded genesis checkpoint digest (as returned by the gRPC API) into the
+/// short chain identifier format (first 4 bytes, hex-encoded) used by JSON-RPC and the Sui CLI.
+fn chain_identifier_from_base58(base58_digest: &str) -> anyhow::Result<String> {
+    let bytes = Base58::decode(base58_digest)?;
+    ensure!(bytes.len() >= 4, "chain_id digest too short");
+    Ok(Hex::encode(&bytes[..4]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_chain_identifier_from_base58_mainnet() {
+        // Mainnet genesis checkpoint digest in base58.
+        let base58 = "4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S";
+        let short_id = chain_identifier_from_base58(base58).unwrap();
+        assert_eq!(short_id, "35834a8a");
+    }
+
+    #[test]
+    fn test_chain_identifier_from_base58_testnet() {
+        // Testnet genesis checkpoint digest in base58.
+        let base58 = "69WiPg3DAQiwdxfncX6wYQ2siKwAe6L9BZthQea3JNMD";
+        let short_id = chain_identifier_from_base58(base58).unwrap();
+        assert_eq!(short_id, "4c78adac");
+    }
+
+    #[test]
+    fn test_chain_identifier_from_base58_invalid() {
+        assert!(chain_identifier_from_base58("!!!invalid").is_err());
+    }
 }
