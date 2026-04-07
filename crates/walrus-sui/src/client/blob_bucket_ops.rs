@@ -2,10 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::*;
-use crate::types::{
-    move_errors::BlobBucketError,
-    move_structs::{PooledBlob, StoragePoolInnerV1},
-};
+use crate::types::{move_errors::BlobBucketError, move_structs::PooledBlob};
 
 /// Handle for a shared blob bucket and its capability.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -327,8 +324,8 @@ impl SuiContractClient {
                 .read_client()
                 .get_blob_bucket_storage_pool_id(blob_bucket_object_id)
                 .await?,
-            end_epoch: storage_pool_inner.end_epoch,
-            reserved_encoded_capacity_bytes: storage_pool_inner.reserved_encoded_capacity_bytes,
+            end_epoch: storage_pool_inner.end_epoch(),
+            reserved_encoded_capacity_bytes: storage_pool_inner.reserved_encoded_capacity_bytes(),
             used_encoded_bytes: storage_pool_inner.used_encoded_bytes,
         })
     }
@@ -520,13 +517,11 @@ impl SuiContractClientInner {
         blob_bucket_cap_object_id: ObjectID,
         epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
-        let StoragePoolInnerV1 {
-            reserved_encoded_capacity_bytes,
-            ..
-        } = self
+        let storage_pool_inner = self
             .read_client
             .get_blob_bucket_storage_pool_inner(blob_bucket_object_id)
             .await?;
+        let reserved_encoded_capacity_bytes = storage_pool_inner.reserved_encoded_capacity_bytes();
         let mut pt_builder = self.transaction_builder();
         pt_builder
             .extend_blob_bucket_storage_pool(
@@ -557,10 +552,10 @@ impl SuiContractClientInner {
             .await?;
         let current_epoch = self.read_client.current_epoch().await?;
         ensure!(
-            storage_pool_inner.end_epoch > current_epoch,
+            storage_pool_inner.end_epoch() > current_epoch,
             anyhow!("blob bucket storage pool is not active").into()
         );
-        let remaining_epochs = storage_pool_inner.end_epoch - current_epoch;
+        let remaining_epochs = storage_pool_inner.end_epoch() - current_epoch;
 
         let mut pt_builder = self.transaction_builder();
         pt_builder

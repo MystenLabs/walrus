@@ -12,10 +12,7 @@ use std::{
 use chrono::{DateTime, Utc};
 use fastcrypto::traits::ToFromBytes;
 use serde::{
-    Deserialize,
-    Deserializer,
-    Serialize,
-    Serializer,
+    Deserialize, Deserializer, Serialize, Serializer,
     de::{DeserializeOwned, Error},
 };
 pub use sui_types::base_types::ObjectID;
@@ -27,21 +24,13 @@ use sui_types::{
 #[cfg(feature = "utoipa")]
 use utoipa::openapi::schema;
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    Epoch,
-    NetworkPublicKey,
-    PublicKey,
-    ShardIndex,
+    BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex,
     messages::BlobPersistenceType,
 };
 
 use super::NetworkAddress;
 use crate::contracts::{
-    self,
-    AssociatedContractStruct,
-    AssociatedContractStructWithPkgId,
-    StructTag,
+    self, AssociatedContractStruct, AssociatedContractStructWithPkgId, StructTag,
 };
 
 /// Sui object for storage resources.
@@ -173,9 +162,7 @@ pub(crate) struct StoragePoolObject {
 #[allow(dead_code)] // Some fields are only needed for selective off-chain inspection.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct StoragePoolInnerV1 {
-    pub(crate) start_epoch: Epoch,
-    pub(crate) end_epoch: Epoch,
-    pub(crate) reserved_encoded_capacity_bytes: u64,
+    pub(crate) storage: StorageResource,
     pub(crate) used_encoded_bytes: u64,
     pub(crate) blob_count: u64,
     #[serde(deserialize_with = "deserialize_bag_or_table")]
@@ -184,6 +171,16 @@ pub(crate) struct StoragePoolInnerV1 {
 
 impl AssociatedContractStruct for StoragePoolInnerV1 {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePoolInnerV1;
+}
+
+impl StoragePoolInnerV1 {
+    pub(crate) fn end_epoch(&self) -> Epoch {
+        self.storage.end_epoch
+    }
+
+    pub(crate) fn reserved_encoded_capacity_bytes(&self) -> u64 {
+        self.storage.storage_size
+    }
 }
 
 /// Sui type for the bucket inner state.

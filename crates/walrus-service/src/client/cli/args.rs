@@ -20,11 +20,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::{
-    BlobId,
-    EncodingType,
-    Epoch,
-    EpochCount,
-    QuiltPatchId,
+    BlobId, EncodingType, Epoch, EpochCount, QuiltPatchId,
     encoding::{EncodingConfig, EncodingFactory},
     ensure,
 };
@@ -228,6 +224,21 @@ pub enum CliCommands {
         #[command(flatten)]
         #[serde(flatten)]
         common_options: CommonStoreOptions,
+    },
+    /// Create a new blob bucket.
+    #[command(alias("create-blob-bucket"))]
+    CreateBucket {
+        /// The blob bucket package ID.
+        #[arg(long)]
+        blob_bucket_package_id: ObjectID,
+        /// The initial reserved encoded capacity in bytes.
+        #[arg(long)]
+        reserved_encoded_capacity_bytes: u64,
+        /// The epoch argument to specify either the number of epochs to store the bucket for, or
+        /// the end epoch, or the earliest expiry time in rfc3339 format.
+        #[command(flatten)]
+        #[serde(flatten)]
+        epoch_arg: EpochArg,
     },
     /// Store new blobs into an existing blob bucket.
     #[command(alias("write-in-bucket"))]
@@ -697,6 +708,7 @@ impl CliCommands {
     pub fn as_str(&self) -> &'static str {
         match self {
             CliCommands::Store { .. } => "store",
+            CliCommands::CreateBucket { .. } => "create-bucket",
             CliCommands::StoreInBucket { .. } => "store-in-bucket",
             CliCommands::StoreQuilt { .. } => "store-quilt",
             CliCommands::Read { .. } => "read",
@@ -1990,6 +2002,11 @@ mod tests {
         r#""0x2222222222222222222222222222222222222222222222222222222222222222", "#,
         r#""files": ["README.md"], "epochs": 1}}"#,
     );
+    const CREATE_BUCKET_STR: &str = concat!(
+        r#"{"createBucket": {"blobBucketPackageId": "#,
+        r#""0x3333333333333333333333333333333333333333333333333333333333333333", "#,
+        r#""reservedEncodedCapacityBytes": 1, "epochs": 1}}"#,
+    );
     const READ_STR: &str = r#"{"read": {"blobId": "4BKcDC0Ih5RJ8R0tFMz3MZVNZV8b2goT6_JiEEwNHQo"}}"#;
     const DAEMON_STR: &str =
         r#"{"daemon": {"bindAddress": "127.0.0.1:12345", "subWalletsDir": "/some/path"}}"#;
@@ -2055,6 +2072,21 @@ mod tests {
         })
     }
 
+    fn create_bucket_command(epochs: EpochCountOrMax) -> Commands {
+        Commands::Cli(CliCommands::CreateBucket {
+            blob_bucket_package_id: ObjectID::from_str(
+                "0x3333333333333333333333333333333333333333333333333333333333333333",
+            )
+            .unwrap(),
+            reserved_encoded_capacity_bytes: 1,
+            epoch_arg: EpochArg {
+                epochs: Some(epochs),
+                earliest_expiry_time: None,
+                end_epoch: None,
+            },
+        })
+    }
+
     // Fixture for the read command.
     fn read_command() -> Commands {
         Commands::Cli(CliCommands::Read {
@@ -2113,6 +2145,10 @@ mod tests {
             store_in_bucket_1: (
                 &make_cmd_str(STORE_IN_BUCKET_STR),
                 store_in_bucket_command(EpochCountOrMax::Epochs(NonZeroU32::new(1).expect("1 > 0")))
+            ),
+            create_bucket_1: (
+                &make_cmd_str(CREATE_BUCKET_STR),
+                create_bucket_command(EpochCountOrMax::Epochs(NonZeroU32::new(1).expect("1 > 0")))
             ),
             read: (&make_cmd_str(READ_STR), read_command()),
             daemon: (&make_cmd_str(DAEMON_STR), daemon_command())

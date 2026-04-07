@@ -24,16 +24,9 @@ use sui_config::{SUI_CLIENT_CONFIG, sui_config_dir};
 use sui_types::base_types::ObjectID;
 use tokio::sync::Mutex as TokioMutex;
 use walrus_core::{
-    BlobId,
-    DEFAULT_ENCODING,
-    EncodingType,
-    EpochCount,
-    SUPPORTED_ENCODING_TYPES,
+    BlobId, DEFAULT_ENCODING, EncodingType, EpochCount, SUPPORTED_ENCODING_TYPES,
     encoding::{
-        ConsistencyCheckType,
-        EncodingConfig,
-        EncodingFactory as _,
-        Primary,
+        ConsistencyCheckType, EncodingConfig, EncodingFactory as _, Primary,
         encoded_blob_length_for_n_shards,
         quilt_encoding::{QuiltApi, QuiltStoreBlob, QuiltVersionV1},
     },
@@ -45,16 +38,10 @@ use walrus_sdk::{
     config::load_configuration,
     error::ClientErrorKind,
     node_client::{
-        NodeCommunicationFactory,
-        StoreArgs,
-        StoreBlobsApi as _,
-        StoreBlobsInBucketApi as _,
-        WalrusNodeClient,
-        WalrusNodeClientCreatedInBackground,
+        NodeCommunicationFactory, StoreArgs, StoreBlobsApi as _, StoreBlobsInBucketApi as _,
+        WalrusNodeClient, WalrusNodeClientCreatedInBackground,
         quilt_client::{
-            QuiltClient,
-            assign_identifiers_with_paths,
-            generate_identifier_from_path,
+            QuiltClient, assign_identifiers_with_paths, generate_identifier_from_path,
             read_blobs_from_paths,
         },
         resource::RegisterBlobOp,
@@ -64,11 +51,7 @@ use walrus_sdk::{
     store_optimizations::StoreOptimizations,
     sui::{
         client::{
-            BlobBucketHandle,
-            BlobPersistence,
-            ExpirySelectionPolicy,
-            PostStoreAction,
-            ReadClient,
+            BlobBucketHandle, BlobPersistence, ExpirySelectionPolicy, PostStoreAction, ReadClient,
             SuiContractClient,
         },
         config::WalletConfig,
@@ -84,82 +67,35 @@ use walrus_utils::{load_from_yaml_str, metrics::Registry, read_blob_from_file};
 
 use super::{
     args::{
-        AggregatorArgs,
-        BlobIdentifiers,
-        BlobIdentity,
-        BucketStoreOptions,
-        BurnSelection,
-        CliCommands,
-        DaemonArgs,
-        DaemonCommands,
-        EpochArg,
-        FileOrBlobId,
-        HealthSortBy,
-        InfoCommands,
-        NodeAdminCommands,
-        NodeSelection,
-        PublisherArgs,
-        RpcArg,
-        SortBy,
+        AggregatorArgs, BlobIdentifiers, BlobIdentity, BucketStoreOptions, BurnSelection,
+        CliCommands, DaemonArgs, DaemonCommands, EpochArg, FileOrBlobId, HealthSortBy,
+        InfoCommands, NodeAdminCommands, NodeSelection, PublisherArgs, RpcArg, SortBy,
         UserConfirmation,
     },
     backfill::{pull_archive_blobs, run_blob_backfill},
 };
 use crate::{
     client::{
-        ClientConfig,
-        ClientDaemon,
+        ClientConfig, ClientDaemon,
         cli::{
-            BlobIdDecimal,
-            CliOutput,
-            HumanReadableFrost,
-            HumanReadableMist,
-            QuiltBlobInput,
-            QuiltPatchByIdentifier,
-            QuiltPatchByPatchId,
-            QuiltPatchByTag,
-            QuiltPatchSelector,
+            BlobIdDecimal, CliOutput, HumanReadableFrost, HumanReadableMist, QuiltBlobInput,
+            QuiltPatchByIdentifier, QuiltPatchByPatchId, QuiltPatchByTag, QuiltPatchSelector,
             args::{CommonStoreOptions, TraceExporter},
-            get_contract_client,
-            get_read_client,
-            get_sui_read_client_from_rpc_node_or_wallet,
+            get_contract_client, get_read_client, get_sui_read_client_from_rpc_node_or_wallet,
             internal_run::{
-                ChildUploaderEvent,
-                InternalRunContext,
-                emit_child_event,
-                emit_v1_certified_event,
-                maybe_spawn_child_upload_process,
-                quilt_blob_input_to_cli_arg,
+                ChildUploaderEvent, InternalRunContext, emit_child_event, emit_v1_certified_event,
+                maybe_spawn_child_upload_process, quilt_blob_input_to_cli_arg,
             },
-            success,
-            warning,
+            success, warning,
         },
         multiplexer::ClientMultiplexer,
         responses::{
-            BlobIdConversionOutput,
-            BlobIdOutput,
-            BlobStatusOutput,
-            DeleteOutput,
-            DryRunOutput,
-            ExchangeOutput,
-            ExtendBlobOutput,
-            FundSharedBlobOutput,
-            GetBlobAttributeOutput,
-            InfoBftOutput,
-            InfoCoinOutput,
-            InfoCommitteeOutput,
-            InfoEpochOutput,
-            InfoOutput,
-            InfoPriceOutput,
-            InfoSizeOutput,
-            InfoStorageOutput,
-            ReadOutput,
-            ReadQuiltOutput,
-            ServiceHealthInfoOutput,
-            ShareBlobOutput,
-            StakeOutput,
-            StoreQuiltDryRunOutput,
-            WalletOutput,
+            BlobIdConversionOutput, BlobIdOutput, BlobStatusOutput, CreateBucketOutput,
+            DeleteOutput, DryRunOutput, ExchangeOutput, ExtendBlobOutput, FundSharedBlobOutput,
+            GetBlobAttributeOutput, InfoBftOutput, InfoCoinOutput, InfoCommitteeOutput,
+            InfoEpochOutput, InfoOutput, InfoPriceOutput, InfoSizeOutput, InfoStorageOutput,
+            ReadOutput, ReadQuiltOutput, ServiceHealthInfoOutput, ShareBlobOutput, StakeOutput,
+            StoreQuiltDryRunOutput, WalletOutput,
         },
     },
     common::telemetry::TracingSubscriberBuilder,
@@ -334,6 +270,19 @@ impl ClientCommandRunner {
                 files,
                 common_options,
             } => self.store(files, common_options.try_into()?).await,
+
+            CliCommands::CreateBucket {
+                blob_bucket_package_id,
+                reserved_encoded_capacity_bytes,
+                epoch_arg,
+            } => {
+                self.create_bucket(
+                    blob_bucket_package_id,
+                    reserved_encoded_capacity_bytes,
+                    epoch_arg,
+                )
+                .await
+            }
 
             CliCommands::StoreInBucket {
                 blob_bucket_object_id,
@@ -1069,6 +1018,54 @@ impl ClientCommandRunner {
         }
 
         results.print_output(self.json)
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn create_bucket(
+        self,
+        blob_bucket_package_id: ObjectID,
+        reserved_encoded_capacity_bytes: u64,
+        epoch_arg: EpochArg,
+    ) -> Result<()> {
+        epoch_arg.exactly_one_is_some()?;
+
+        let config = self.config?;
+        let wallet = self.wallet?;
+        let mut client_created_in_bg = WalrusNodeClientCreatedInBackground::new(
+            get_contract_client(config.clone(), wallet, self.gas_budget),
+            config.contract_config.n_shards,
+        );
+        let epochs_ahead = get_epochs_ahead(
+            &epoch_arg,
+            config.contract_config.max_epochs_ahead,
+            &mut client_created_in_bg,
+        )
+        .await?;
+
+        tracing::info!(
+            %blob_bucket_package_id,
+            reserved_encoded_capacity_bytes,
+            epochs_ahead,
+            "creating blob bucket"
+        );
+        let client = client_created_in_bg.client().await?;
+        let blob_bucket = client
+            .sui_client()
+            .create_blob_bucket(
+                blob_bucket_package_id,
+                reserved_encoded_capacity_bytes,
+                epochs_ahead,
+            )
+            .await?;
+
+        CreateBucketOutput {
+            blob_bucket_object_id: blob_bucket.bucket_object_id,
+            blob_bucket_cap_object_id: blob_bucket.cap_object_id,
+            storage_pool_id: blob_bucket.storage_pool_id,
+            reserved_encoded_capacity_bytes,
+            epochs_ahead,
+        }
+        .print_output(self.json)
     }
 
     #[tracing::instrument(skip_all)]

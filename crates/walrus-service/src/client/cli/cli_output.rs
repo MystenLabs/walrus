@@ -15,8 +15,7 @@ use itertools::Itertools as _;
 use prettytable::{Table, format, row};
 use serde::Serialize;
 use walrus_core::{
-    BlobId,
-    ShardIndex,
+    BlobId, ShardIndex,
     metadata::{QuiltMetadata, QuiltMetadataV1},
 };
 use walrus_sdk::{
@@ -25,11 +24,8 @@ use walrus_sdk::{
         client_types::{self, StoredQuiltPatch},
         resource::RegisterBlobOp,
         responses::{
-            BlobBucketStoreResult,
-            BlobBucketStoreResultWithPath,
-            BlobStoreResult,
-            BlobStoreResultWithPath,
-            QuiltStoreResult,
+            BlobBucketStoreResult, BlobBucketStoreResultWithPath, BlobStoreResult,
+            BlobStoreResultWithPath, QuiltStoreResult,
         },
     },
 };
@@ -38,45 +34,17 @@ use walrus_sui::types::Blob;
 
 use crate::client::{
     cli::{
-        HumanReadableBytes,
-        HumanReadableFrost,
-        HumanReadableMist,
-        WalrusColors,
-        error,
-        success,
-        thousands_separator,
-        warning,
+        HumanReadableBytes, HumanReadableFrost, HumanReadableMist, WalrusColors, error, success,
+        thousands_separator, warning,
     },
     responses::{
-        BlobIdConversionOutput,
-        BlobIdOutput,
-        BlobStatusOutput,
-        DeleteOutput,
-        DryRunOutput,
-        EncodingDependentPriceInfo,
-        EpochTimeOrMessage,
-        ExampleBlobInfo,
-        ExchangeOutput,
-        ExtendBlobOutput,
-        FundSharedBlobOutput,
-        GetBlobAttributeOutput,
-        InfoBftOutput,
-        InfoCoinOutput,
-        InfoCommitteeOutput,
-        InfoEpochOutput,
-        InfoOutput,
-        InfoPriceOutput,
-        InfoSizeOutput,
-        InfoStorageOutput,
-        NodeHealthOutput,
-        ReadOutput,
-        ReadQuiltOutput,
-        ServiceHealthInfoOutput,
-        ShareBlobOutput,
-        StakeOutput,
-        StorageNodeInfo,
-        StoreQuiltDryRunOutput,
-        WalletOutput,
+        BlobIdConversionOutput, BlobIdOutput, BlobStatusOutput, CreateBucketOutput, DeleteOutput,
+        DryRunOutput, EncodingDependentPriceInfo, EpochTimeOrMessage, ExampleBlobInfo,
+        ExchangeOutput, ExtendBlobOutput, FundSharedBlobOutput, GetBlobAttributeOutput,
+        InfoBftOutput, InfoCoinOutput, InfoCommitteeOutput, InfoEpochOutput, InfoOutput,
+        InfoPriceOutput, InfoSizeOutput, InfoStorageOutput, NodeHealthOutput, ReadOutput,
+        ReadQuiltOutput, ServiceHealthInfoOutput, ShareBlobOutput, StakeOutput, StorageNodeInfo,
+        StoreQuiltDryRunOutput, WalletOutput,
     },
 };
 
@@ -1147,6 +1115,25 @@ impl CliOutput for ExtendBlobOutput {
             "{} The blob has been extended by {} epochs",
             success(),
             self.epochs_extended
+        );
+    }
+}
+
+impl CliOutput for CreateBucketOutput {
+    fn print_cli_output(&self) {
+        println!(
+            "{} Blob bucket created.\n\
+            Blob bucket object ID: {}\n\
+            Blob bucket cap object ID: {}\n\
+            Storage pool object ID: {}\n\
+            Reserved encoded capacity: {}\n\
+            Epochs ahead: {}",
+            success(),
+            self.blob_bucket_object_id,
+            self.blob_bucket_cap_object_id,
+            self.storage_pool_id,
+            HumanReadableBytes(self.reserved_encoded_capacity_bytes),
+            self.epochs_ahead,
         );
     }
 }
