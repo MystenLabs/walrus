@@ -162,6 +162,7 @@ impl<'a, 'b> OwnedRegistrationPlanner<'a, 'b> {
         metadata_list: &[&VerifiedBlobMetadataWithId],
     ) -> ClientResult<Vec<(Blob, RegisterBlobOp)>> {
         let max_len = metadata_list.len();
+        let target_end_epoch = self.resource_manager.write_committee_epoch + self.epochs_ahead;
         debug_assert!(
             encoded_lengths.len() == max_len,
             "inconsistent metadata and encoded lengths"
@@ -193,19 +194,14 @@ impl<'a, 'b> OwnedRegistrationPlanner<'a, 'b> {
                     blob_id = %blob.blob_id,
                     "blob is already registered and valid; using the existing registration"
                 );
-                if blob.storage.end_epoch
-                    < self.resource_manager.write_committee_epoch + self.epochs_ahead
-                {
+                if blob.storage.end_epoch < target_end_epoch {
                     tracing::debug!(
                         blob_id = %blob.blob_id,
                         "blob is already registered but its lifetime is too short; extending it"
                     );
-                    let epoch_delta = self.resource_manager.write_committee_epoch
-                        + self.epochs_ahead
-                        - blob.storage.end_epoch;
+                    let epoch_delta = target_end_epoch - blob.storage.end_epoch;
                     let mut extended_blob = blob.clone();
-                    extended_blob.storage.end_epoch =
-                        self.resource_manager.write_committee_epoch + self.epochs_ahead;
+                    extended_blob.storage.end_epoch = target_end_epoch;
                     if blob.certified_epoch.is_some() {
                         extended_blobs.push((
                             extended_blob,
@@ -244,10 +240,9 @@ impl<'a, 'b> OwnedRegistrationPlanner<'a, 'b> {
                 .owned_storage(ExpirySelectionPolicy::Valid)
                 .await?;
 
-            let target_epoch = self.epochs_ahead + self.resource_manager.write_committee_epoch;
             let mut available_resources: Vec<_> = all_storage_resources
                 .into_iter()
-                .filter(|storage| storage.end_epoch >= target_epoch)
+                .filter(|storage| storage.end_epoch >= target_end_epoch)
                 .collect();
 
             blob_processing_items.sort_by(|(_, size_a), (_, size_b)| size_b.cmp(size_a));
