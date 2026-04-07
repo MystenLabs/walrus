@@ -667,7 +667,7 @@ impl DualClient {
                     .as_ref()
                     .context("no public_key in committee member")?;
                 let pk = AuthorityPublicKeyBytes::from_bytes(pk_bytes)
-                    .map_err(|e| anyhow::anyhow!("invalid authority public key: {e}"))?;
+                    .context("invalid authority public key")?;
                 let weight = member.weight.context("no weight in committee member")?;
                 Ok((pk, weight))
             })
