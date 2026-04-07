@@ -44,7 +44,7 @@ pub use events::{
 
 /// Committee info types for the Sui validator committee.
 pub mod committee;
-pub use committee::CommitteeInfo;
+pub use committee::SuiCommitteeInfo;
 
 pub mod transaction;
 pub use transaction::{BalanceChange, TransactionResponse, TransactionResponseOptions};

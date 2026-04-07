@@ -82,8 +82,8 @@ use crate::{
     types::{
         BalanceChange,
         BlobEvent,
-        CommitteeInfo,
         EventEnvelope,
+        SuiCommitteeInfo,
         TransactionResponse,
         TransactionResponseOptions,
         move_structs::{
@@ -1246,7 +1246,10 @@ impl RetriableSuiClient {
     }
 
     /// Returns the committee information for the given epoch.
-    pub async fn get_committee_info(&self, epoch: Option<u64>) -> SuiClientResult<CommitteeInfo> {
+    pub async fn get_committee_info(
+        &self,
+        epoch: Option<u64>,
+    ) -> SuiClientResult<SuiCommitteeInfo> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_SERVICE_INFO {
             self.get_committee_info_grpc(epoch).await
         } else {
@@ -1258,7 +1261,7 @@ impl RetriableSuiClient {
     async fn get_committee_info_json_rpc(
         &self,
         epoch: Option<u64>,
-    ) -> SuiClientResult<CommitteeInfo> {
+    ) -> SuiClientResult<SuiCommitteeInfo> {
         let epoch = epoch.map(BigInt::from);
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
@@ -1284,7 +1287,10 @@ impl RetriableSuiClient {
     }
 
     /// gRPC implementation of `get_committee_info`.
-    async fn get_committee_info_grpc(&self, epoch: Option<u64>) -> SuiClientResult<CommitteeInfo> {
+    async fn get_committee_info_grpc(
+        &self,
+        epoch: Option<u64>,
+    ) -> SuiClientResult<SuiCommitteeInfo> {
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
                 self.get_strategy(),

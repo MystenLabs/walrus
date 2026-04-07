@@ -54,8 +54,8 @@ use crate::{
     dynamic_field_info::{DynamicFieldPage, dynamic_field_info_from_grpc},
     types::{
         BalanceChange,
-        CommitteeInfo,
         EventEnvelope,
+        SuiCommitteeInfo,
         TransactionResponse,
         TransactionResponseOptions,
     },
@@ -642,7 +642,7 @@ impl DualClient {
     pub async fn get_committee_info_grpc(
         &self,
         epoch: Option<u64>,
-    ) -> Result<CommitteeInfo, SuiClientError> {
+    ) -> Result<SuiCommitteeInfo, SuiClientError> {
         let mut request = GetEpochRequest::latest().with_read_mask(FieldMask::from_paths([
             GrpcEpoch::path_builder().epoch(),
             GrpcEpoch::path_builder().committee().finish(),
@@ -672,7 +672,7 @@ impl DualClient {
                 Ok((pk, weight))
             })
             .collect::<Result<Vec<_>, anyhow::Error>>()?;
-        Ok(CommitteeInfo {
+        Ok(SuiCommitteeInfo {
             epoch: epoch_data.epoch.context("no epoch number")?,
             validators,
         })
