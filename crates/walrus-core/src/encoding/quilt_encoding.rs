@@ -738,7 +738,17 @@ impl QuiltVersionV1 {
             prefix_size += tags_size + TAGS_SIZE_BYTES_LENGTH;
         }
 
-        Ok(prefix_size + blob.data().len() + QuiltVersionV1::BLOB_HEADER_SIZE)
+        let blob_content_size = prefix_size + blob.data().len();
+        if blob_content_size > BlobHeaderV1::MAX_SERIALIZED_BLOB_SIZE as usize {
+            return Err(QuiltError::QuiltOversize(format!(
+                "blob size ({blob_content_size} bytes) exceeds the maximum size for a single blob \
+                in a quilt ({} bytes); the per-blob limit is constrained by the 4-byte \
+                header format",
+                BlobHeaderV1::MAX_SERIALIZED_BLOB_SIZE
+            )));
+        }
+
+        Ok(blob_content_size + QuiltVersionV1::BLOB_HEADER_SIZE)
     }
 
     /// Decodes a blob from a column data source.
@@ -894,9 +904,16 @@ impl QuiltVersion for QuiltVersionV1 {
 }
 
 /// The header of a encoded blob in QuiltVersionV1.
+///
+/// The wire format is 6 bytes: 1 byte version + 4 bytes length (little-endian u32) + 1 byte mask.
+/// Because the length field is 4 bytes, individual blobs within a quilt are limited to
+/// [`u32::MAX`] bytes (~4 GiB). This is distinct from the overall maximum blob size reported by
+/// `walrus info`, which applies to the outer encoded blob (the quilt as a whole).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct BlobHeaderV1 {
-    /// The length of the serialized blob.
+    /// The length of the serialized blob (extensions + data, excluding the header itself).
+    ///
+    /// Limited to [`u32::MAX`] (~4 GiB) by the 4-byte wire format.
     pub length: u32,
     /// The mask of the blob.
     pub mask: u8,
@@ -908,8 +925,9 @@ impl BlobHeaderV1 {
     /// The mask bit that indicates whether the blob has attributes.
     const TAGS_ENABLED: u8 = 1;
 
-    /// The maximum value of the length.
-    const MAX_SERIALIZED_BLOB_SIZE: u32 = u32::MAX;
+    /// The maximum size of a single serialized blob within a quilt, constrained by the 4-byte
+    /// wire format of the length field.
+    pub const MAX_SERIALIZED_BLOB_SIZE: u32 = u32::MAX;
     /// The maximum value of the mask.
     const MAX_MASK_VALUE: u8 = u8::MAX;
 
@@ -1380,7 +1398,14 @@ impl<'a> QuiltEncoderV1<'a> {
         }
 
         let total_size = extension_bytes.iter().map(|b| b.len()).sum::<usize>() + blob.data().len();
-        header.length = total_size as u32;
+        header.length = u32::try_from(total_size).map_err(|_| {
+            QuiltError::QuiltOversize(format!(
+                "blob size ({total_size} bytes) exceeds the maximum size for a single blob \
+                in a quilt ({} bytes); the per-blob limit is constrained by the 4-byte \
+                header format",
+                BlobHeaderV1::MAX_SERIALIZED_BLOB_SIZE
+            ))
+        })?;
         let header_bytes = header.as_bytes();
         debug_assert_eq!(header_bytes.len(), QuiltVersionV1::BLOB_HEADER_SIZE);
 
@@ -3086,7 +3111,7 @@ mod tests {
     #[test]
     fn test_decode_blob_huge_length_rejected_early() {
         let mut raw = build_valid_blob_entry("test-id", &[1, 2, 3]);
-        forge_blob_length(&mut raw, u32::MAX);
+        forge_blob_length(&mut raw, BlobHeaderV1::MAX_SERIALIZED_BLOB_SIZE);
         assert_decode_err(&raw, is_data_source_size_error);
     }
 
@@ -3149,6 +3174,22 @@ mod tests {
                 QuiltError::IndexOutOfBounds(..) | QuiltError::MissingSlivers(..)
             )
         });
+    }
+
+    // -- blob exceeding MAX_SERIALIZED_BLOB_SIZE rejected on encode --
+
+    #[test]
+    fn test_encode_blob_exceeding_max_serialized_blob_size_rejected() {
+        // A blob whose serialized size (data + extensions) exceeds MAX_SERIALIZED_BLOB_SIZE
+        // must be rejected with a QuiltOversize error instead of silently truncating the
+        // header length.
+        let data = vec![0u8; BlobHeaderV1::MAX_SERIALIZED_BLOB_SIZE as usize + 1];
+        let blob = QuiltStoreBlob::new(&data, "oversized").expect("valid blob");
+        let result = QuiltEncoderV1::get_header_and_extension_bytes(&blob);
+        assert!(
+            matches!(result, Err(QuiltError::QuiltOversize(ref msg)) if msg.contains("exceeds")),
+            "expected QuiltOversize error, got: {result:?}"
+        );
     }
 
     // -- get_blobs_by_identifiers with bad index (index points to nonexistent column) --
