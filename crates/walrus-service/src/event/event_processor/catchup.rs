@@ -10,12 +10,7 @@ use std::{
     time::Duration,
 };
 
-use sui_types::{
-    committee::Committee,
-    event::EventID,
-    messages_checkpoint::VerifiedCheckpoint,
-    sui_serde::BigInt,
-};
+use sui_types::{committee::Committee, event::EventID, messages_checkpoint::VerifiedCheckpoint};
 use tracing;
 use typed_store::{Map, TypedStoreError, rocks::DBBatch};
 use walrus_core::{BlobId, Epoch};
@@ -635,7 +630,7 @@ impl EventBlobCatchupManager {
             let committee_info = self
                 .clients
                 .sui_client
-                .get_committee_info(Some(BigInt::from(checkpoint_summary.epoch)))
+                .get_committee_info(Some(checkpoint_summary.epoch))
                 .await?;
             Ok(Committee::new(
                 committee_info.epoch,

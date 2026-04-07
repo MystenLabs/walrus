@@ -30,7 +30,6 @@ use sui_sdk::{
     rpc_types::{
         DryRunTransactionBlockResponse,
         ObjectsPage,
-        SuiCommittee,
         SuiMoveNormalizedModule,
         SuiMoveNormalizedStructType,
         SuiMoveNormalizedType,
@@ -83,6 +82,7 @@ use crate::{
     types::{
         BalanceChange,
         BlobEvent,
+        CommitteeInfo,
         EventEnvelope,
         TransactionResponse,
         TransactionResponseOptions,
@@ -1246,12 +1246,9 @@ impl RetriableSuiClient {
     }
 
     /// Returns the committee information for the given epoch.
-    pub async fn get_committee_info(
-        &self,
-        epoch: Option<BigInt<u64>>,
-    ) -> SuiClientResult<SuiCommittee> {
+    pub async fn get_committee_info(&self, epoch: Option<u64>) -> SuiClientResult<CommitteeInfo> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_SERVICE_INFO {
-            self.get_committee_info_grpc(epoch.map(|b| *b)).await
+            self.get_committee_info_grpc(epoch).await
         } else {
             self.get_committee_info_json_rpc(epoch).await
         }
@@ -1260,8 +1257,9 @@ impl RetriableSuiClient {
     /// JSON-RPC implementation of `get_committee_info`.
     async fn get_committee_info_json_rpc(
         &self,
-        epoch: Option<BigInt<u64>>,
-    ) -> SuiClientResult<SuiCommittee> {
+        epoch: Option<u64>,
+    ) -> SuiClientResult<CommitteeInfo> {
+        let epoch = epoch.map(BigInt::from);
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
                 self.get_strategy(),
@@ -1272,7 +1270,8 @@ impl RetriableSuiClient {
                             .sui_client()
                             .governance_api()
                             .get_committee_info(epoch)
-                            .await?)
+                            .await?
+                            .into())
                     }
                 },
                 self.metrics.clone(),
@@ -1285,7 +1284,7 @@ impl RetriableSuiClient {
     }
 
     /// gRPC implementation of `get_committee_info`.
-    async fn get_committee_info_grpc(&self, epoch: Option<u64>) -> SuiClientResult<SuiCommittee> {
+    async fn get_committee_info_grpc(&self, epoch: Option<u64>) -> SuiClientResult<CommitteeInfo> {
         let request = move |client: Arc<DualClient>, method| {
             retry_rpc_errors(
                 self.get_strategy(),

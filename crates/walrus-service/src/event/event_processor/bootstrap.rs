@@ -7,7 +7,6 @@ use sui_types::{
     base_types::ObjectID,
     committee::Committee,
     messages_checkpoint::VerifiedCheckpoint,
-    sui_serde::BigInt,
 };
 use walrus_sui::client::retry_client::{RetriableRpcClient, RetriableSuiClient};
 
@@ -42,9 +41,7 @@ pub async fn get_bootstrap_committee_and_checkpoint(
             .collect();
         Committee::new(epoch + 1, next_committee)
     } else {
-        let committee_info = sui_client
-            .get_committee_info(Some(BigInt::from(epoch)))
-            .await?;
+        let committee_info = sui_client.get_committee_info(Some(epoch)).await?;
         Committee::new(
             committee_info.epoch,
             committee_info.validators.into_iter().collect(),

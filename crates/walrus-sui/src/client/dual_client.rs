@@ -34,7 +34,7 @@ use sui_rpc::{
         state_service_client::StateServiceClient,
     },
 };
-use sui_sdk::{SuiClient, SuiClientBuilder, rpc_types::SuiCommittee};
+use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::{
     TypeTag,
     base_types::{ObjectID, ObjectRef, SuiAddress},
@@ -52,7 +52,13 @@ use crate::{
     coin::Coin,
     contracts::{AssociatedContractStruct, TypeOriginMap},
     dynamic_field_info::{DynamicFieldPage, dynamic_field_info_from_grpc},
-    types::{BalanceChange, EventEnvelope, TransactionResponse, TransactionResponseOptions},
+    types::{
+        BalanceChange,
+        CommitteeInfo,
+        EventEnvelope,
+        TransactionResponse,
+        TransactionResponseOptions,
+    },
 };
 
 /// The maximum number of objects to request in a single "batch" gRPC call.
@@ -636,7 +642,7 @@ impl DualClient {
     pub async fn get_committee_info_grpc(
         &self,
         epoch: Option<u64>,
-    ) -> Result<SuiCommittee, SuiClientError> {
+    ) -> Result<CommitteeInfo, SuiClientError> {
         let mut request = GetEpochRequest::latest().with_read_mask(FieldMask::from_paths([
             GrpcEpoch::path_builder().epoch(),
             GrpcEpoch::path_builder().committee().finish(),
@@ -666,7 +672,7 @@ impl DualClient {
                 Ok((pk, weight))
             })
             .collect::<Result<Vec<_>, anyhow::Error>>()?;
-        Ok(SuiCommittee {
+        Ok(CommitteeInfo {
             epoch: epoch_data.epoch.context("no epoch number")?,
             validators,
         })

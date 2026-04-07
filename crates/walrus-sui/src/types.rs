@@ -42,6 +42,10 @@ pub use events::{
     StoragePoolExtendedEvent,
 };
 
+/// Committee info types for the Sui validator committee.
+pub mod committee;
+pub use committee::CommitteeInfo;
+
 pub mod transaction;
 pub use transaction::{BalanceChange, TransactionResponse, TransactionResponseOptions};
 
