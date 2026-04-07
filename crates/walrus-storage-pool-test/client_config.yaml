@@ -1,0 +1,4 @@
+system_object: "0xf18dacb3459b7c4d371e93c749c4e821f43b194fa57e3cfee64ac00e5ef2ae00"
+staking_object: "0x6fb903f9ce2b91bfa6f383251181d0f7a631c9b7e41ce8bba8c737b792b9e5d8"
+rpc_urls:
+  - "https://fullnode.testnet.sui.io:443"

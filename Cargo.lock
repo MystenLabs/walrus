@@ -13697,6 +13697,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "walrus-storage-pool-test"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "walrus-core",
+ "walrus-sdk",
+ "walrus-storage-node-client",
+ "walrus-sui",
+]
+
+[[package]]
 name = "walrus-stress"
 version = "1.47.0"
 dependencies = [

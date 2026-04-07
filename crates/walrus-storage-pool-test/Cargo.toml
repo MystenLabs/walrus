@@ -1,0 +1,21 @@
+[package]
+name = "walrus-storage-pool-test"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "walrus-storage-pool-test"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+walrus-core = { path = "../walrus-core" }
+walrus-sdk = { path = "../walrus-sdk" }
+walrus-sui = { path = "../walrus-sui" }
+walrus-storage-node-client = { path = "../walrus-storage-node-client" }

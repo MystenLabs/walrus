@@ -468,6 +468,165 @@ impl WalrusPtbBuilder {
         Ok(bitmap)
     }
 
+    // ---- Storage Pool operations ----
+
+    /// Adds a call to `create_storage_pool` to the `pt_builder` and returns the result
+    /// [`Argument`] representing the created `StoragePool`.
+    pub async fn create_storage_pool(
+        &mut self,
+        reserved_encoded_capacity_bytes: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<Argument> {
+        let price = self
+            .storage_price_for_encoded_length(reserved_encoded_capacity_bytes, epochs_ahead, false)
+            .await?;
+        self.fill_wal_balance(price).await?;
+
+        let arguments = vec![
+            self.system_arg(SharedObjectMutability::Mutable)?,
+            self.pt_builder.pure(reserved_encoded_capacity_bytes)?,
+            self.pt_builder.pure(epochs_ahead)?,
+            self.wal_coin_arg()?,
+        ];
+        let result_arg =
+            self.walrus_move_call(contracts::system::create_storage_pool, arguments)?;
+        self.reduce_wal_balance(price)?;
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
+    /// Adds a call to `register_pooled_blob` to the `pt_builder`.
+    pub async fn register_pooled_blob(
+        &mut self,
+        storage_pool: ArgumentOrOwnedObject,
+        blob_metadata: BlobObjectMetadata,
+        deletable: bool,
+    ) -> SuiClientResult<()> {
+        let price = self
+            .write_price_for_encoded_length(blob_metadata.encoded_size, false)
+            .await?;
+        self.fill_wal_balance(price).await?;
+
+        let storage_pool_arg = self.argument_from_arg_or_obj(storage_pool).await?;
+
+        let arguments = vec![
+            self.system_arg(SharedObjectMutability::Mutable)?,
+            storage_pool_arg,
+            self.pt_builder.pure(blob_metadata.blob_id)?,
+            self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
+            self.pt_builder.pure(blob_metadata.unencoded_size)?,
+            self.pt_builder
+                .pure(u8::from(blob_metadata.encoding_type))?,
+            self.pt_builder.pure(deletable)?,
+            self.wal_coin_arg()?,
+        ];
+        self.walrus_move_call(contracts::system::register_pooled_blob, arguments)?;
+        self.reduce_wal_balance(price)?;
+        Ok(())
+    }
+
+    /// Adds a call to `certify_pooled_blob` to the `pt_builder`.
+    pub async fn certify_pooled_blob(
+        &mut self,
+        storage_pool: ArgumentOrOwnedObject,
+        blob_id: &walrus_core::BlobId,
+        certificate: &ConfirmationCertificate,
+    ) -> SuiClientResult<()> {
+        let signers = self.signers_to_bitmap(&certificate.signers).await?;
+
+        let arguments = vec![
+            self.system_arg(SharedObjectMutability::Immutable)?,
+            self.argument_from_arg_or_obj(storage_pool).await?,
+            self.pt_builder.pure(blob_id)?,
+            self.pt_builder.pure(certificate.signature.as_bytes())?,
+            self.pt_builder.pure(&signers)?,
+            self.pt_builder.pure(&certificate.serialized_message)?,
+        ];
+        self.walrus_move_call(contracts::system::certify_pooled_blob, arguments)?;
+        Ok(())
+    }
+
+    /// Adds a call to `delete_pooled_blob` to the `pt_builder`.
+    pub async fn delete_pooled_blob(
+        &mut self,
+        storage_pool: ArgumentOrOwnedObject,
+        blob_id: &walrus_core::BlobId,
+    ) -> SuiClientResult<()> {
+        let arguments = vec![
+            self.system_arg(SharedObjectMutability::Immutable)?,
+            self.argument_from_arg_or_obj(storage_pool).await?,
+            self.pt_builder.pure(blob_id)?,
+        ];
+        self.walrus_move_call(contracts::system::delete_pooled_blob, arguments)?;
+        Ok(())
+    }
+
+    /// Adds a call to `extend_storage_pool` to the `pt_builder`.
+    pub async fn extend_storage_pool(
+        &mut self,
+        storage_pool: ArgumentOrOwnedObject,
+        extended_epochs: EpochCount,
+        pool_encoded_capacity: u64,
+    ) -> SuiClientResult<()> {
+        let price = self
+            .storage_price_for_encoded_length(pool_encoded_capacity, extended_epochs, false)
+            .await?;
+        self.fill_wal_balance(price).await?;
+
+        let arguments = vec![
+            self.system_arg(SharedObjectMutability::Mutable)?,
+            self.argument_from_arg_or_obj(storage_pool).await?,
+            self.pt_builder.pure(extended_epochs)?,
+            self.wal_coin_arg()?,
+        ];
+        self.walrus_move_call(contracts::system::extend_storage_pool, arguments)?;
+        self.reduce_wal_balance(price)?;
+        Ok(())
+    }
+
+    /// Adds a call to `increase_storage_pool_capacity` to the `pt_builder`.
+    pub async fn increase_storage_pool_capacity(
+        &mut self,
+        storage_pool: ArgumentOrOwnedObject,
+        additional_encoded_capacity_bytes: u64,
+        remaining_epochs: EpochCount,
+    ) -> SuiClientResult<()> {
+        let price = self
+            .storage_price_for_encoded_length(
+                additional_encoded_capacity_bytes,
+                remaining_epochs,
+                false,
+            )
+            .await?;
+        self.fill_wal_balance(price).await?;
+
+        let arguments = vec![
+            self.system_arg(SharedObjectMutability::Mutable)?,
+            self.argument_from_arg_or_obj(storage_pool).await?,
+            self.pt_builder.pure(additional_encoded_capacity_bytes)?,
+            self.wal_coin_arg()?,
+        ];
+        self.walrus_move_call(
+            contracts::system::increase_storage_pool_capacity,
+            arguments,
+        )?;
+        self.reduce_wal_balance(price)?;
+        Ok(())
+    }
+
+    /// Adds a call to `storage_pool::destroy` to the `pt_builder`.
+    /// The pool must have `blob_count == 0`. Returns the `Storage` object.
+    pub async fn destroy_storage_pool(
+        &mut self,
+        storage_pool: ArgumentOrOwnedObject,
+    ) -> SuiClientResult<Argument> {
+        let arguments = vec![self.argument_from_arg_or_obj(storage_pool).await?];
+        let result_arg =
+            self.walrus_move_call(contracts::storage_pool::destroy, arguments)?;
+        self.add_result_to_be_consumed(result_arg);
+        Ok(result_arg)
+    }
+
     /// Adds a call to `certify_event_blob` to the `pt_builder`.
     pub async fn certify_event_blob(
         &mut self,
