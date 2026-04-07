@@ -29,8 +29,8 @@ use super::{
     SuiClientResult,
     SuiContractClient,
     SuiContractClientInner,
-    SuiTransactionBlockResponse,
     SystemError,
+    TransactionResponse,
     anyhow,
     contracts,
     ensure,
@@ -993,7 +993,7 @@ impl SuiContractClientInner {
     /// Helper function to create a mapping from blob IDs to shared blob object IDs.
     async fn get_post_store_action_results(
         &self,
-        res: &SuiTransactionBlockResponse,
+        res: &TransactionResponse,
         certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         post_store: &PostStoreAction,
     ) -> SuiClientResult<Vec<PostStoreActionResult>> {

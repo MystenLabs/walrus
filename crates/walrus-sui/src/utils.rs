@@ -24,7 +24,7 @@ use sui_keys::keystore::{
     Keystore,
 };
 use sui_sdk::{
-    rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
+    rpc_types::{Page, SuiObjectResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
 };
@@ -52,6 +52,7 @@ use crate::{
     coin::Coin,
     config::load_wallet_context_from_path,
     contracts::{AssociatedContractStruct, MoveConversionError},
+    types::{ObjectChangeEntry, TransactionResponse},
     wallet::Wallet,
 };
 
@@ -126,16 +127,16 @@ pub(crate) fn get_package_id_from_object(object: &sui_types::object::Object) -> 
 /// Gets the objects of the given type that were created in a transaction.
 ///
 /// All the object ids of the objects created in the transaction, and of type represented by the
-/// `struct_tag`, are taken from the [`SuiTransactionBlockResponse`].
+/// `struct_tag`, are taken from the [`TransactionResponse`].
 pub(crate) fn get_created_sui_object_ids_by_type(
-    response: &SuiTransactionBlockResponse,
+    response: &TransactionResponse,
     struct_tag: &StructTag,
 ) -> Result<Vec<ObjectID>> {
     match response.object_changes.as_ref() {
         Some(changes) => Ok(changes
             .iter()
             .filter_map(|changed| {
-                if let ObjectChange::Created {
+                if let ObjectChangeEntry::Created {
                     object_type,
                     object_id,
                     ..

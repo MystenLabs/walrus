@@ -6,7 +6,12 @@
 //! These types replace `sui_sdk::rpc_types` transaction types so that Walrus code does not depend
 //! on SDK-specific representations. Only fields that Walrus actually uses are included.
 
-use sui_types::{TypeTag, base_types::SuiAddress, digests::TransactionDigest};
+use move_core_types::language_storage::StructTag;
+use sui_types::{
+    TypeTag,
+    base_types::{ObjectID, SuiAddress},
+    digests::TransactionDigest,
+};
 
 use super::events::EventEnvelope;
 
@@ -19,6 +24,66 @@ pub struct BalanceChange {
     pub coin_type: TypeTag,
     /// The signed amount of the change.
     pub amount: i128,
+}
+
+/// The execution status of a transaction's effects.
+#[derive(Debug, Clone)]
+pub enum TransactionEffectsStatus {
+    /// The transaction executed successfully.
+    Success,
+    /// The transaction failed with the given error.
+    Failure {
+        /// The error message.
+        error: String,
+    },
+}
+
+/// A protocol-agnostic object change from a transaction.
+#[derive(Debug, Clone)]
+pub enum ObjectChangeEntry {
+    /// A package was published.
+    Published {
+        /// The package ID.
+        package_id: ObjectID,
+        /// The version.
+        version: u64,
+    },
+    /// An object was created.
+    Created {
+        /// The sender of the transaction.
+        sender: SuiAddress,
+        /// The object type.
+        object_type: StructTag,
+        /// The object ID.
+        object_id: ObjectID,
+    },
+    /// An object was mutated.
+    Mutated {
+        /// The sender of the transaction.
+        sender: SuiAddress,
+        /// The object type.
+        object_type: StructTag,
+        /// The object ID.
+        object_id: ObjectID,
+    },
+    /// An object was deleted.
+    Deleted {
+        /// The sender of the transaction.
+        sender: SuiAddress,
+        /// The object type.
+        object_type: StructTag,
+        /// The object ID.
+        object_id: ObjectID,
+    },
+    /// An object was wrapped.
+    Wrapped {
+        /// The sender of the transaction.
+        sender: SuiAddress,
+        /// The object type.
+        object_type: StructTag,
+        /// The object ID.
+        object_id: ObjectID,
+    },
 }
 
 /// A protocol-agnostic transaction query response containing only the fields Walrus uses.
@@ -36,6 +101,12 @@ pub struct TransactionResponse {
     pub balance_changes: Option<Vec<BalanceChange>>,
     /// Events emitted by the transaction.
     pub events: Option<Vec<EventEnvelope>>,
+    /// The execution status of the transaction effects.
+    pub effects_status: Option<TransactionEffectsStatus>,
+    /// Object changes from the transaction.
+    pub object_changes: Option<Vec<ObjectChangeEntry>>,
+    /// Errors from the transaction.
+    pub errors: Vec<String>,
 }
 
 /// Options controlling which fields to include in a [`TransactionResponse`].
@@ -47,6 +118,10 @@ pub struct TransactionResponseOptions {
     pub show_balance_changes: bool,
     /// Whether to include events.
     pub show_events: bool,
+    /// Whether to include effects.
+    pub show_effects: bool,
+    /// Whether to include object changes.
+    pub show_object_changes: bool,
 }
 
 impl TransactionResponseOptions {
@@ -70,6 +145,18 @@ impl TransactionResponseOptions {
     /// Enables the events field.
     pub fn with_events(mut self) -> Self {
         self.show_events = true;
+        self
+    }
+
+    /// Enables the effects field.
+    pub fn with_effects(mut self) -> Self {
+        self.show_effects = true;
+        self
+    }
+
+    /// Enables the object changes field.
+    pub fn with_object_changes(mut self) -> Self {
+        self.show_object_changes = true;
         self
     }
 }

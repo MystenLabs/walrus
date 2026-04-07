@@ -15,7 +15,6 @@ use bytes::Bytes;
 use rand::{Rng, RngCore, rngs::ThreadRng};
 use reqwest::{Response, Url};
 use serde::Serialize;
-use sui_sdk::rpc_types::SuiTransactionBlockResponse;
 use sui_types::{
     base_types::SuiAddress,
     digests::TransactionDigest,
