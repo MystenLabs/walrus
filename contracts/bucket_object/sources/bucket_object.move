@@ -7,6 +7,7 @@ module bucket_object::bucket_object;
 use blob_bucket::blob_bucket::{Self as blob_bucket, BlobBucket, BlobBucketCap};
 use bucket_object::bucket_object_inner_v1::{Self, BucketObjectInnerV1};
 use bucket_object::object_headers::ObjectHeaders;
+use bucket_object::object_metadata::ObjectMetadata;
 use bucket_object::object_version::{Self, ObjectVersion};
 use sui::coin::Coin;
 use std::string::String;
@@ -117,6 +118,7 @@ public fun stage_registered_blob_version(
     blob_id: u256,
     size: u64,
     headers: ObjectHeaders,
+    metadata: ObjectMetadata,
     content_etag: String,
     object_etag: String,
 ) {
@@ -130,6 +132,7 @@ public fun stage_registered_blob_version(
         blob_bucket.get_blob_object_id(blob_id),
         size,
         headers,
+        metadata,
         content_etag,
         object_etag,
         false,
@@ -148,6 +151,7 @@ public fun put_object_if_absent_and_register(
     deletable: bool,
     write_payment: &mut Coin<WAL>,
     headers: ObjectHeaders,
+    metadata: ObjectMetadata,
     content_etag: String,
     object_etag: String,
     ctx: &mut TxContext,
@@ -168,6 +172,7 @@ public fun put_object_if_absent_and_register(
         deletable,
         write_payment,
         headers,
+        metadata,
         content_etag,
         object_etag,
         ctx,
@@ -186,6 +191,7 @@ public fun update_object_if_match_and_register(
     deletable: bool,
     write_payment: &mut Coin<WAL>,
     headers: ObjectHeaders,
+    metadata: ObjectMetadata,
     content_etag: String,
     object_etag: String,
     ctx: &mut TxContext,
@@ -206,6 +212,7 @@ public fun update_object_if_match_and_register(
         deletable,
         write_payment,
         headers,
+        metadata,
         content_etag,
         object_etag,
         ctx,
@@ -288,6 +295,7 @@ public fun stage_registered_blob_version_for_testing(
     blob_id: u256,
     size: u64,
     headers: ObjectHeaders,
+    metadata: ObjectMetadata,
     content_etag: String,
     object_etag: String,
 ) {
@@ -297,6 +305,7 @@ public fun stage_registered_blob_version_for_testing(
         blob_id,
         size,
         headers,
+        metadata,
         content_etag,
         object_etag,
     );
@@ -331,6 +340,7 @@ fun register_and_stage_new_version(
     deletable: bool,
     write_payment: &mut Coin<WAL>,
     headers: ObjectHeaders,
+    metadata: ObjectMetadata,
     content_etag: String,
     object_etag: String,
     ctx: &mut TxContext,
@@ -356,6 +366,7 @@ fun register_and_stage_new_version(
         blob_id,
         unencoded_size,
         headers,
+        metadata,
         content_etag,
         object_etag,
     );

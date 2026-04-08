@@ -5,7 +5,13 @@
 module bucket_object::bucket_object_tests;
 
 use blob_bucket::{blob_bucket, blob_bucket_inner_v1};
-use bucket_object::{bucket_object, bucket_object_inner_v1, object_headers, object_version};
+use bucket_object::{
+    bucket_object,
+    bucket_object_inner_v1,
+    object_headers,
+    object_metadata,
+    object_version,
+};
 use std::unit_test::assert_eq;
 use wal::wal::WAL;
 use sui::coin::Coin;
@@ -134,6 +140,7 @@ fun stage_and_promote_pending_version() {
         next_pooled_blob_object_id,
         768,
         html_headers(),
+        html_metadata(),
         b"content-etag-v1".to_string(),
         b"object-etag-v1".to_string(),
         false,
@@ -163,6 +170,13 @@ fun stage_and_promote_pending_version() {
     assert_eq!(
         object_headers::content_type(&object_version::headers(bucket_object::current_version(&bucket_object))),
         option::some(b"text/html".to_string()),
+    );
+    assert_eq!(
+        object_metadata::try_get(
+            &object_version::metadata(bucket_object::current_version(&bucket_object)),
+            &b"site".to_string(),
+        ),
+        option::some(b"marketing".to_string()),
     );
 
     let inner = bucket_object::destroy_for_testing(bucket_object);
@@ -201,6 +215,7 @@ fun pending_version_must_advance_generation() {
         new_id_for_testing(ctx),
         768,
         empty_headers(),
+        empty_metadata(),
         b"content-etag-v1".to_string(),
         b"object-etag-v1".to_string(),
         false,
@@ -241,6 +256,7 @@ fun pending_version_must_match_bucket_object() {
         new_id_for_testing(ctx),
         768,
         empty_headers(),
+        empty_metadata(),
         b"content-etag-v1".to_string(),
         b"object-etag-v1".to_string(),
         false,
@@ -282,6 +298,7 @@ fun put_object_if_absent_and_register_stages_pending_version() {
         true,
         &mut write_payment,
         html_headers(),
+        html_metadata(),
         b"content-etag-v1".to_string(),
         b"object-etag-v1".to_string(),
         ctx,
@@ -299,6 +316,13 @@ fun put_object_if_absent_and_register_stages_pending_version() {
     assert_eq!(
         object_headers::content_type(&object_version::headers(bucket_object::pending_version(&bucket_object))),
         option::some(b"text/html".to_string()),
+    );
+    assert_eq!(
+        object_metadata::try_get(
+            &object_version::metadata(bucket_object::pending_version(&bucket_object)),
+            &b"site".to_string(),
+        ),
+        option::some(b"marketing".to_string()),
     );
 
     write_payment.burn_for_testing();
@@ -345,6 +369,7 @@ fun put_object_if_absent_requires_no_current_version() {
         true,
         &mut write_payment,
         empty_headers(),
+        empty_metadata(),
         b"content-etag-v2".to_string(),
         b"object-etag-v2".to_string(),
         ctx,
@@ -394,6 +419,7 @@ fun update_object_if_match_and_register_stages_next_generation() {
         true,
         &mut write_payment,
         js_headers(),
+        js_metadata(),
         b"content-etag-v2".to_string(),
         b"object-etag-v2".to_string(),
         ctx,
@@ -412,6 +438,13 @@ fun update_object_if_match_and_register_stages_next_generation() {
     assert_eq!(
         object_headers::content_type(&object_version::headers(bucket_object::pending_version(&bucket_object))),
         option::some(b"application/javascript".to_string()),
+    );
+    assert_eq!(
+        object_metadata::try_get(
+            &object_version::metadata(bucket_object::pending_version(&bucket_object)),
+            &b"cache-bust".to_string(),
+        ),
+        option::some(b"v2".to_string()),
     );
 
     write_payment.burn_for_testing();
@@ -461,6 +494,9 @@ fun delete_object_promotes_delete_marker() {
         object_headers::content_type(&object_version::headers(bucket_object::current_version(&bucket_object))),
         option::none(),
     );
+    assert!(object_metadata::is_empty(&object_version::metadata(
+        bucket_object::current_version(&bucket_object),
+    )));
 
     destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
 }
@@ -543,6 +579,7 @@ fun put_object_if_absent_allows_current_delete_marker() {
         true,
         &mut write_payment,
         empty_headers(),
+        empty_metadata(),
         b"content-etag-v2".to_string(),
         b"object-etag-v2".to_string(),
         ctx,
@@ -599,6 +636,7 @@ fun update_object_if_match_requires_matching_etag() {
         true,
         &mut write_payment,
         empty_headers(),
+        empty_metadata(),
         b"content-etag-v2".to_string(),
         b"object-etag-v2".to_string(),
         ctx,
@@ -633,6 +671,7 @@ fun stage_registered_blob_version_uses_registered_blob_state() {
         blob_id,
         SIZE,
         html_headers(),
+        html_metadata(),
         b"content-etag-v1".to_string(),
         b"object-etag-v1".to_string(),
     );
@@ -650,6 +689,13 @@ fun stage_registered_blob_version_uses_registered_blob_state() {
     assert_eq!(
         object_headers::content_type(&object_version::headers(bucket_object::pending_version(&bucket_object))),
         option::some(b"text/html".to_string()),
+    );
+    assert_eq!(
+        object_metadata::try_get(
+            &object_version::metadata(bucket_object::pending_version(&bucket_object)),
+            &b"site".to_string(),
+        ),
+        option::some(b"marketing".to_string()),
     );
 
     destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
@@ -681,6 +727,7 @@ fun finalize_pending_version_requires_certification() {
         blob_id,
         SIZE,
         empty_headers(),
+        empty_metadata(),
         b"content-etag-v1".to_string(),
         b"object-etag-v1".to_string(),
     );
@@ -716,6 +763,7 @@ fun finalize_pending_version_promotes_after_certification() {
         blob_id,
         SIZE,
         html_headers(),
+        html_metadata(),
         b"content-etag-v1".to_string(),
         b"object-etag-v1".to_string(),
     );
@@ -733,6 +781,13 @@ fun finalize_pending_version_promotes_after_certification() {
     assert_eq!(
         object_headers::content_type(&object_version::headers(bucket_object::current_version(&bucket_object))),
         option::some(b"text/html".to_string()),
+    );
+    assert_eq!(
+        object_metadata::try_get(
+            &object_version::metadata(bucket_object::current_version(&bucket_object)),
+            &b"site".to_string(),
+        ),
+        option::some(b"marketing".to_string()),
     );
 
     destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
@@ -854,6 +909,7 @@ fun register_and_finalize_initial_object_version(
         true,
         &mut write_payment,
         html_headers(),
+        html_metadata(),
         b"content-etag-v1".to_string(),
         b"object-etag-v1".to_string(),
         ctx,
@@ -876,6 +932,10 @@ fun empty_headers(): object_headers::ObjectHeaders {
     object_headers::empty()
 }
 
+fun empty_metadata(): object_metadata::ObjectMetadata {
+    object_metadata::empty()
+}
+
 fun html_headers(): object_headers::ObjectHeaders {
     object_headers::new_for_testing(
         option::some(b"text/html".to_string()),
@@ -894,4 +954,18 @@ fun js_headers(): object_headers::ObjectHeaders {
         option::none(),
         option::some(b"public, max-age=31536000".to_string()),
     )
+}
+
+fun html_metadata(): object_metadata::ObjectMetadata {
+    let mut metadata = object_metadata::empty();
+    object_metadata::insert_or_update(&mut metadata, b"site".to_string(), b"marketing".to_string());
+    object_metadata::insert_or_update(&mut metadata, b"owner".to_string(), b"walrus".to_string());
+    metadata
+}
+
+fun js_metadata(): object_metadata::ObjectMetadata {
+    let mut metadata = object_metadata::empty();
+    object_metadata::insert_or_update(&mut metadata, b"site".to_string(), b"marketing".to_string());
+    object_metadata::insert_or_update(&mut metadata, b"cache-bust".to_string(), b"v2".to_string());
+    metadata
 }

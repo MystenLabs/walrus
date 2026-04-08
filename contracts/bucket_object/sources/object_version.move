@@ -4,6 +4,7 @@
 module bucket_object::object_version;
 
 use bucket_object::object_headers::{Self as object_headers, ObjectHeaders};
+use bucket_object::object_metadata::{Self as object_metadata, ObjectMetadata};
 use std::string::String;
 
 public struct ObjectVersion has copy, store, drop {
@@ -13,6 +14,7 @@ public struct ObjectVersion has copy, store, drop {
     pooled_blob_object_id: option::Option<ID>,
     size: u64,
     headers: ObjectHeaders,
+    metadata: ObjectMetadata,
     content_etag: String,
     object_etag: String,
     delete_marker: bool,
@@ -25,6 +27,7 @@ public fun new(
     pooled_blob_object_id: ID,
     size: u64,
     headers: ObjectHeaders,
+    metadata: ObjectMetadata,
     content_etag: String,
     object_etag: String,
     delete_marker: bool,
@@ -36,6 +39,7 @@ public fun new(
         pooled_blob_object_id: option::some(pooled_blob_object_id),
         size,
         headers,
+        metadata,
         content_etag,
         object_etag,
         delete_marker,
@@ -54,6 +58,7 @@ public fun new_delete_marker(
         pooled_blob_object_id: option::none(),
         size: 0,
         headers: object_headers::empty(),
+        metadata: object_metadata::empty(),
         content_etag: b"".to_string(),
         object_etag,
         delete_marker: true,
@@ -68,6 +73,7 @@ public fun new_for_testing(
     pooled_blob_object_id: ID,
     size: u64,
     headers: ObjectHeaders,
+    metadata: ObjectMetadata,
     content_etag: String,
     object_etag: String,
     delete_marker: bool,
@@ -79,6 +85,7 @@ public fun new_for_testing(
         pooled_blob_object_id,
         size,
         headers,
+        metadata,
         content_etag,
         object_etag,
         delete_marker,
@@ -113,6 +120,10 @@ public fun headers(self: &ObjectVersion): ObjectHeaders {
     self.headers
 }
 
+public fun metadata(self: &ObjectVersion): ObjectMetadata {
+    self.metadata
+}
+
 public fun content_etag(self: &ObjectVersion): String {
     self.content_etag
 }
@@ -134,6 +145,7 @@ public fun destroy_for_testing(self: ObjectVersion) {
         pooled_blob_object_id: _,
         size: _,
         headers: _,
+        metadata: _,
         content_etag: _,
         object_etag: _,
         delete_marker: _,
