@@ -92,6 +92,28 @@ public fun new_for_testing(
     )
 }
 
+public fun new_successor(
+    self: &ObjectVersion,
+    bucket_object_id: ID,
+    generation: u64,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    object_etag: String,
+): ObjectVersion {
+    new(
+        bucket_object_id,
+        generation,
+        blob_id(self),
+        pooled_blob_object_id(self),
+        size(self),
+        headers,
+        metadata,
+        content_etag(self),
+        object_etag,
+        false,
+    )
+}
+
 public fun bucket_object_id(self: &ObjectVersion): ID {
     self.bucket_object_id
 }

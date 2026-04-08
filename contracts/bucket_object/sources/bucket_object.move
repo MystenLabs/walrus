@@ -39,6 +39,8 @@ const EObjectAlreadyExists: u64 = 8;
 const ECurrentVersionMissing: u64 = 9;
 /// The expected object etag does not match the current version.
 const EObjectEtagMismatch: u64 = 10;
+/// The current version cannot be updated because it does not point to a live blob.
+const ECurrentVersionHasNoBlob: u64 = 11;
 
 public struct BucketObject has key {
     id: UID,
@@ -219,6 +221,37 @@ public fun update_object_if_match_and_register(
     );
 }
 
+public fun update_object_attributes(
+    self: &mut BucketObject,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    object_etag: String,
+) {
+    let next_version = current_version_successor(
+        self,
+        headers,
+        metadata,
+        object_etag,
+    );
+    stage_pending_version(self, next_version);
+    self.inner_mut().promote_pending_version();
+}
+
+public fun update_object_attributes_if_match(
+    self: &mut BucketObject,
+    expected_object_etag: String,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    object_etag: String,
+) {
+    assert!(self.inner().has_current_version(), ECurrentVersionMissing);
+    assert!(
+        object_version::object_etag(self.inner().current_version()) == expected_object_etag,
+        EObjectEtagMismatch,
+    );
+    update_object_attributes(self, headers, metadata, object_etag);
+}
+
 public fun delete_object(self: &mut BucketObject, object_etag: String) {
     assert!(!self.inner().has_pending_version(), EPendingVersionAlreadyExists);
     let bucket_object_id = object::id(self);
@@ -370,6 +403,25 @@ fun register_and_stage_new_version(
         content_etag,
         object_etag,
     );
+}
+
+fun current_version_successor(
+    self: &BucketObject,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    object_etag: String,
+): ObjectVersion {
+    assert!(self.inner().has_current_version(), ECurrentVersionMissing);
+    let current_version = self.inner().current_version();
+    assert!(object_version::has_blob(current_version), ECurrentVersionHasNoBlob);
+    object_version::new_successor(
+        current_version,
+        object::id(self),
+        self.inner().generation() + 1,
+        headers,
+        metadata,
+        object_etag,
+    )
 }
 
 fun inner(self: &BucketObject): &BucketObjectInnerV1 {

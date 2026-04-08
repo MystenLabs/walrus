@@ -646,6 +646,159 @@ fun update_object_if_match_requires_matching_etag() {
 }
 
 #[test]
+fun update_object_attributes_if_match_promotes_new_generation() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+    let current_blob_id = object_version::blob_id(bucket_object::current_version(&bucket_object));
+    let current_pooled_blob_object_id = object_version::pooled_blob_object_id(
+        bucket_object::current_version(&bucket_object),
+    );
+    let current_content_etag = object_version::content_etag(
+        bucket_object::current_version(&bucket_object),
+    );
+
+    bucket_object::update_object_attributes_if_match(
+        &mut bucket_object,
+        b"object-etag-v1".to_string(),
+        js_headers(),
+        js_metadata(),
+        b"object-etag-v2".to_string(),
+    );
+
+    assert_eq!(bucket_object::generation(&bucket_object), 2);
+    assert!(bucket_object::has_current_version(&bucket_object));
+    assert!(!bucket_object::has_pending_version(&bucket_object));
+    assert_eq!(object_version::generation(bucket_object::current_version(&bucket_object)), 2);
+    assert_eq!(object_version::blob_id(bucket_object::current_version(&bucket_object)), current_blob_id);
+    assert_eq!(
+        object_version::pooled_blob_object_id(bucket_object::current_version(&bucket_object)),
+        current_pooled_blob_object_id,
+    );
+    assert_eq!(
+        object_version::content_etag(bucket_object::current_version(&bucket_object)),
+        current_content_etag,
+    );
+    assert_eq!(
+        object_version::object_etag(bucket_object::current_version(&bucket_object)),
+        b"object-etag-v2".to_string(),
+    );
+    assert_eq!(
+        object_headers::content_type(&object_version::headers(bucket_object::current_version(&bucket_object))),
+        option::some(b"application/javascript".to_string()),
+    );
+    assert_eq!(
+        object_metadata::try_get(
+            &object_version::metadata(bucket_object::current_version(&bucket_object)),
+            &b"cache-bust".to_string(),
+        ),
+        option::some(b"v2".to_string()),
+    );
+
+    destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
+}
+
+#[test, expected_failure(abort_code = bucket_object::EObjectEtagMismatch)]
+fun update_object_attributes_if_match_requires_matching_etag() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+
+    bucket_object::update_object_attributes_if_match(
+        &mut bucket_object,
+        b"wrong-etag".to_string(),
+        js_headers(),
+        js_metadata(),
+        b"object-etag-v2".to_string(),
+    );
+
+    abort
+}
+
+#[test, expected_failure(abort_code = bucket_object::ECurrentVersionHasNoBlob)]
+fun update_object_attributes_requires_live_current_blob() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+    bucket_object::delete_object(&mut bucket_object, b"object-etag-delete".to_string());
+
+    bucket_object::update_object_attributes(
+        &mut bucket_object,
+        js_headers(),
+        js_metadata(),
+        b"object-etag-v2".to_string(),
+    );
+
+    abort
+}
+
+#[test]
 fun stage_registered_blob_version_uses_registered_blob_state() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
