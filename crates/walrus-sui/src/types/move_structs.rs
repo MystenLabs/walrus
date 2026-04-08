@@ -12,7 +12,10 @@ use std::{
 use chrono::{DateTime, Utc};
 use fastcrypto::traits::ToFromBytes;
 use serde::{
-    Deserialize, Deserializer, Serialize, Serializer,
+    Deserialize,
+    Deserializer,
+    Serialize,
+    Serializer,
     de::{DeserializeOwned, Error},
 };
 pub use sui_types::base_types::ObjectID;
@@ -24,13 +27,21 @@ use sui_types::{
 #[cfg(feature = "utoipa")]
 use utoipa::openapi::schema;
 use walrus_core::{
-    BlobId, EncodingType, Epoch, NetworkPublicKey, PublicKey, ShardIndex,
+    BlobId,
+    EncodingType,
+    Epoch,
+    NetworkPublicKey,
+    PublicKey,
+    ShardIndex,
     messages::BlobPersistenceType,
 };
 
 use super::NetworkAddress;
 use crate::contracts::{
-    self, AssociatedContractStruct, AssociatedContractStructWithPkgId, StructTag,
+    self,
+    AssociatedContractStruct,
+    AssociatedContractStructWithPkgId,
+    StructTag,
 };
 
 /// Sui object for storage resources.
@@ -191,6 +202,216 @@ pub(crate) struct BlobBucketInnerV1 {
 
 impl AssociatedContractStruct for BlobBucketInnerV1 {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::blob_bucket_inner_v1::BlobBucketInnerV1;
+}
+
+/// Sui object for a bucket-object registry.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BucketObjectRegistry {
+    /// Object ID of the Sui object.
+    pub id: ObjectID,
+    /// The linked blob bucket object ID.
+    pub blob_bucket_id: ObjectID,
+    /// Exact key-to-object mapping for the bucket namespace.
+    pub entries: VecMap<String, ObjectID>,
+}
+
+impl BucketObjectRegistry {
+    /// Returns the bucket-object ID for the given key, if present.
+    pub fn resolve(&self, key: &str) -> Option<ObjectID> {
+        self.entries
+            .contents
+            .iter()
+            .find(|entry| entry.key == key)
+            .map(|entry| entry.value)
+    }
+}
+
+impl AssociatedContractStruct for BucketObjectRegistry {
+    const CONTRACT_STRUCT: StructTag<'static> =
+        contracts::bucket_object_registry::BucketObjectRegistry;
+}
+
+/// Sui object for a shared bucket object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct BucketObject {
+    /// Object ID of the Sui object.
+    pub id: ObjectID,
+    /// The versioned inner-state selector for the bucket object.
+    pub version: u64,
+}
+
+impl AssociatedContractStruct for BucketObject {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::bucket_object::BucketObject;
+}
+
+/// Sui type for the inner bucket-object state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BucketObjectInnerV1 {
+    /// The linked blob bucket object ID.
+    pub blob_bucket_id: ObjectID,
+    /// The exact key for this object within the bucket namespace.
+    pub key: String,
+    /// The latest promoted generation.
+    pub generation: u64,
+    /// The currently live version, if any.
+    pub current_version: Option<ObjectVersion>,
+    /// The registered but not yet finalized version, if any.
+    pub pending_version: Option<ObjectVersion>,
+}
+
+impl AssociatedContractStruct for BucketObjectInnerV1 {
+    const CONTRACT_STRUCT: StructTag<'static> =
+        contracts::bucket_object_inner_v1::BucketObjectInnerV1;
+}
+
+/// Standard object headers stored in an immutable object version.
+#[derive(Debug, Default, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct ObjectHeaders {
+    /// Content-Type header.
+    pub content_type: Option<String>,
+    /// Content-Encoding header.
+    pub content_encoding: Option<String>,
+    /// Content-Language header.
+    pub content_language: Option<String>,
+    /// Content-Disposition header.
+    pub content_disposition: Option<String>,
+    /// Cache-Control header.
+    pub cache_control: Option<String>,
+}
+
+impl AssociatedContractStruct for ObjectHeaders {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::object_headers::ObjectHeaders;
+}
+
+/// Custom user metadata stored in an immutable object version.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct ObjectMetadata {
+    /// Metadata entries.
+    pub entries: VecMap<String, String>,
+}
+
+impl ObjectMetadata {
+    /// Returns the metadata value for the provided key.
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.entries
+            .contents
+            .iter()
+            .find(|entry| entry.key == key)
+            .map(|entry| entry.value.as_str())
+    }
+}
+
+impl Default for ObjectMetadata {
+    fn default() -> Self {
+        Self {
+            entries: VecMap { contents: vec![] },
+        }
+    }
+}
+
+impl<I, K, V> From<I> for ObjectMetadata
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    fn from(iter: I) -> Self {
+        let contents = iter
+            .into_iter()
+            .map(|(key, value)| Entry {
+                key: key.into(),
+                value: value.into(),
+            })
+            .collect();
+        Self {
+            entries: VecMap { contents },
+        }
+    }
+}
+
+impl AssociatedContractStruct for ObjectMetadata {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::object_metadata::ObjectMetadata;
+}
+
+/// Immutable object tags stored alongside an object version.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct ObjectTags {
+    /// Tag entries.
+    pub entries: VecMap<String, String>,
+}
+
+impl ObjectTags {
+    /// Returns the tag value for the provided key.
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.entries
+            .contents
+            .iter()
+            .find(|entry| entry.key == key)
+            .map(|entry| entry.value.as_str())
+    }
+}
+
+impl Default for ObjectTags {
+    fn default() -> Self {
+        Self {
+            entries: VecMap { contents: vec![] },
+        }
+    }
+}
+
+impl<I, K, V> From<I> for ObjectTags
+where
+    I: IntoIterator<Item = (K, V)>,
+    K: Into<String>,
+    V: Into<String>,
+{
+    fn from(iter: I) -> Self {
+        let contents = iter
+            .into_iter()
+            .map(|(key, value)| Entry {
+                key: key.into(),
+                value: value.into(),
+            })
+            .collect();
+        Self {
+            entries: VecMap { contents },
+        }
+    }
+}
+
+impl AssociatedContractStruct for ObjectTags {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::object_tags::ObjectTags;
+}
+
+/// Immutable version snapshot for a bucket object.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub struct ObjectVersion {
+    /// The bucket object that owns this version.
+    pub bucket_object_id: ObjectID,
+    /// Monotonic per-object generation.
+    pub generation: u64,
+    /// The content-addressed blob ID, if this version points to a live blob.
+    pub blob_id: Option<BlobId>,
+    /// The pooled blob object backing this version, if any.
+    pub pooled_blob_object_id: Option<ObjectID>,
+    /// The object size in bytes.
+    pub size: u64,
+    /// Standard object headers for this version.
+    pub headers: ObjectHeaders,
+    /// User metadata for this version.
+    pub metadata: ObjectMetadata,
+    /// Object tags for this version.
+    pub tags: ObjectTags,
+    /// Content identity etag.
+    pub content_etag: String,
+    /// Object-version etag used for CAS.
+    pub object_etag: String,
+    /// Whether this version is a delete marker.
+    pub delete_marker: bool,
+}
+
+impl AssociatedContractStruct for ObjectVersion {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::object_version::ObjectVersion;
 }
 
 /// Sui object for a blob.

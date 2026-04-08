@@ -87,10 +87,12 @@ use crate::{
 pub mod dual_client;
 
 mod blob_bucket_ops;
+mod bucket_object_ops;
 mod owned_blob_ops;
 mod read_client;
 mod shared_blob_ops;
 pub use blob_bucket_ops::{BlobBucketHandle, BlobBucketStoragePoolStatus};
+pub use bucket_object_ops::{BucketObjectState, BucketObjectVersionInput};
 pub use read_client::{
     CommitteesAndState,
     FixedSystemParameters,

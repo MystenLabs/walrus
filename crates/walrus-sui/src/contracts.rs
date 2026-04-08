@@ -261,6 +261,61 @@ pub mod blob_bucket_inner_v1 {
     contract_ident!(struct blob_bucket_inner_v1::BlobBucketInnerV1);
 }
 
+/// Module for tags corresponding to the Move module `bucket_object`.
+pub mod bucket_object {
+
+    contract_ident!(struct bucket_object::BucketObject);
+    contract_ident!(fn bucket_object::new);
+    contract_ident!(fn bucket_object::put_object_if_absent_and_register);
+    contract_ident!(fn bucket_object::update_object_if_match_and_register);
+    contract_ident!(fn bucket_object::update_object_attributes);
+    contract_ident!(fn bucket_object::update_object_attributes_if_match);
+    contract_ident!(fn bucket_object::delete_object);
+    contract_ident!(fn bucket_object::delete_object_if_match);
+    contract_ident!(fn bucket_object::finalize_pending_version_if_certified);
+}
+
+/// Module for tags corresponding to the Move module `bucket_object_inner_v1`.
+pub mod bucket_object_inner_v1 {
+
+    contract_ident!(struct bucket_object_inner_v1::BucketObjectInnerV1);
+}
+
+/// Module for tags corresponding to the Move module `bucket_object_registry`.
+pub mod bucket_object_registry {
+
+    contract_ident!(struct bucket_object_registry::BucketObjectRegistry);
+    contract_ident!(fn bucket_object_registry::new);
+    contract_ident!(fn bucket_object_registry::resolve_or_create_bucket_object);
+    contract_ident!(fn bucket_object_registry::copy_object_if_absent);
+    contract_ident!(fn bucket_object_registry::rename_object);
+    contract_ident!(fn bucket_object_registry::rename_object_if_match);
+}
+
+/// Module for tags corresponding to the Move module `object_headers`.
+pub mod object_headers {
+
+    contract_ident!(struct object_headers::ObjectHeaders);
+}
+
+/// Module for tags corresponding to the Move module `object_metadata`.
+pub mod object_metadata {
+
+    contract_ident!(struct object_metadata::ObjectMetadata);
+}
+
+/// Module for tags corresponding to the Move module `object_tags`.
+pub mod object_tags {
+
+    contract_ident!(struct object_tags::ObjectTags);
+}
+
+/// Module for tags corresponding to the Move module `object_version`.
+pub mod object_version {
+
+    contract_ident!(struct object_version::ObjectVersion);
+}
+
 /// Module for tags corresponding to the Move module `system_state_inner`.
 pub mod system_state_inner {
 

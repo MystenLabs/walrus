@@ -120,6 +120,7 @@ use crate::{
     },
 };
 
+mod bucket_object_ops;
 pub mod byte_range_read_client;
 pub mod client_types;
 pub mod communication;
@@ -130,6 +131,11 @@ pub mod quilt_client;
 pub mod refresh;
 pub mod resource;
 pub mod responses;
+pub use bucket_object_ops::{
+    BucketObjectAttributeUpdate,
+    BucketObjectVersionAttrs,
+    BucketObjectsApi,
+};
 pub mod store_args;
 pub use store_args::{EncodingProgressEvent, StoreArgs};
 pub mod upload_relay_client;

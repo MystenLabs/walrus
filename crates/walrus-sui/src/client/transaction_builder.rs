@@ -66,6 +66,7 @@ use crate::{
 };
 
 mod blob_bucket_ops;
+mod bucket_object_ops;
 mod owned_blob_ops;
 mod shared_blob_ops;
 

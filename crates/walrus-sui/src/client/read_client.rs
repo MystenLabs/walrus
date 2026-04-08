@@ -42,6 +42,7 @@ use walrus_core::{Epoch, ensure};
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use super::{
+    BucketObjectState,
     SuiClientError,
     SuiClientResult,
     contract_config::ContractConfig,
@@ -65,6 +66,9 @@ use crate::{
             BlobBucket,
             BlobBucketInnerV1,
             BlobWithAttribute,
+            BucketObject,
+            BucketObjectInnerV1,
+            BucketObjectRegistry,
             Credits,
             EpochState,
             EventBlob,
@@ -1228,6 +1232,64 @@ impl SuiReadClient {
             .await
     }
 
+    /// Returns the package ID of the bucket-object package corresponding to the given object.
+    pub(crate) async fn bucket_object_package_id(
+        &self,
+        object_id: ObjectID,
+    ) -> SuiClientResult<ObjectID> {
+        self.sui_client.get_package_id_from_object(object_id).await
+    }
+
+    /// Returns the bucket-object registry.
+    pub async fn get_bucket_object_registry(
+        &self,
+        registry_object_id: ObjectID,
+    ) -> SuiClientResult<BucketObjectRegistry> {
+        self.sui_client.get_sui_object(registry_object_id).await
+    }
+
+    /// Resolves the bucket-object ID for the given key, if present in the registry.
+    pub async fn resolve_bucket_object(
+        &self,
+        registry_object_id: ObjectID,
+        key: &str,
+    ) -> SuiClientResult<Option<ObjectID>> {
+        let registry = self.get_bucket_object_registry(registry_object_id).await?;
+        Ok(registry.resolve(key))
+    }
+
+    /// Returns the current bucket-object state for the given shared object.
+    pub async fn get_bucket_object_state(
+        &self,
+        bucket_object_id: ObjectID,
+    ) -> SuiClientResult<BucketObjectState> {
+        let bucket_object: BucketObject = self.sui_client.get_sui_object(bucket_object_id).await?;
+        let inner = self.get_bucket_object_inner(bucket_object_id).await?;
+        Ok(BucketObjectState {
+            bucket_object,
+            blob_bucket_id: inner.blob_bucket_id,
+            key: inner.key,
+            generation: inner.generation,
+            current_version: inner.current_version,
+            pending_version: inner.pending_version,
+        })
+    }
+
+    /// Resolves a key through the registry and returns the current object state, if present.
+    pub async fn get_bucket_object_state_by_key(
+        &self,
+        registry_object_id: ObjectID,
+        key: &str,
+    ) -> SuiClientResult<Option<BucketObjectState>> {
+        let Some(bucket_object_id) = self.resolve_bucket_object(registry_object_id, key).await?
+        else {
+            return Ok(None);
+        };
+        self.get_bucket_object_state(bucket_object_id)
+            .await
+            .map(Some)
+    }
+
     /// Returns the object ID of the storage pool backing the given blob bucket.
     pub(crate) async fn get_blob_bucket_storage_pool_id(
         &self,
@@ -1268,6 +1330,20 @@ impl SuiReadClient {
                 bucket_object_id,
                 TypeTag::U64,
                 bucket.version,
+            )
+            .await
+    }
+
+    async fn get_bucket_object_inner(
+        &self,
+        bucket_object_id: ObjectID,
+    ) -> SuiClientResult<BucketObjectInnerV1> {
+        let bucket_object: BucketObject = self.sui_client.get_sui_object(bucket_object_id).await?;
+        self.sui_client
+            .get_dynamic_field::<u64, BucketObjectInnerV1>(
+                bucket_object_id,
+                TypeTag::U64,
+                bucket_object.version,
             )
             .await
     }
