@@ -16,11 +16,7 @@ The total size of all tags combined must not exceed 64 KB.
 
 ### Per-blob size limit
 
-Each individual blob within a quilt is limited to approximately 4 GiB (4,294,967,295 bytes). This
-limit is separate from the maximum blob size shown by `walrus info`, which applies to regular blobs
-and to the quilt as a whole. The per-blob limit comes from the quilt's internal header format, which
-uses a 4-byte field to store each blob's length. You can check this limit by running `walrus info`
-and looking for the "Maximum blob size in quilt" field.
+Each individual blob within a quilt is limited to approximately 4 GiB (4,294,967,295 bytes). This limit is separate from the maximum blob size shown by `walrus info`, which applies to regular blobs and to the quilt as a whole. The per-blob limit comes from the quilt's internal header format, which uses a 4-byte field to store each blob's length. You can check this limit by running `walrus info` and looking for the "Maximum blob size in quilt" field.
 
 If you need to store data larger than 4 GiB, store it as a regular blob instead of within a quilt.
 
