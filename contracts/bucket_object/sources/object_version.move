@@ -8,8 +8,8 @@ use std::string::String;
 public struct ObjectVersion has copy, store, drop {
     bucket_object_id: ID,
     generation: u64,
-    blob_id: u256,
-    pooled_blob_object_id: ID,
+    blob_id: option::Option<u256>,
+    pooled_blob_object_id: option::Option<ID>,
     size: u64,
     content_etag: String,
     object_etag: String,
@@ -29,12 +29,29 @@ public fun new(
     ObjectVersion {
         bucket_object_id,
         generation,
-        blob_id,
-        pooled_blob_object_id,
+        blob_id: option::some(blob_id),
+        pooled_blob_object_id: option::some(pooled_blob_object_id),
         size,
         content_etag,
         object_etag,
         delete_marker,
+    }
+}
+
+public fun new_delete_marker(
+    bucket_object_id: ID,
+    generation: u64,
+    object_etag: String,
+): ObjectVersion {
+    ObjectVersion {
+        bucket_object_id,
+        generation,
+        blob_id: option::none(),
+        pooled_blob_object_id: option::none(),
+        size: 0,
+        content_etag: b"".to_string(),
+        object_etag,
+        delete_marker: true,
     }
 }
 
@@ -69,12 +86,16 @@ public fun generation(self: &ObjectVersion): u64 {
     self.generation
 }
 
+public fun has_blob(self: &ObjectVersion): bool {
+    self.blob_id.is_some()
+}
+
 public fun blob_id(self: &ObjectVersion): u256 {
-    self.blob_id
+    *self.blob_id.borrow()
 }
 
 public fun pooled_blob_object_id(self: &ObjectVersion): ID {
-    self.pooled_blob_object_id
+    *self.pooled_blob_object_id.borrow()
 }
 
 public fun size(self: &ObjectVersion): u64 {

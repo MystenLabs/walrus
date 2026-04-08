@@ -400,6 +400,141 @@ fun update_object_if_match_and_register_stages_next_generation() {
     destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
 }
 
+#[test]
+fun delete_object_promotes_delete_marker() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+
+    bucket_object::delete_object(&mut bucket_object, b"object-etag-delete".to_string());
+
+    assert_eq!(bucket_object::generation(&bucket_object), 2);
+    assert!(bucket_object::has_current_version(&bucket_object));
+    assert!(!bucket_object::has_pending_version(&bucket_object));
+    assert!(bucket_object::is_deleted(&bucket_object));
+    assert!(object_version::delete_marker(bucket_object::current_version(&bucket_object)));
+    assert_eq!(
+        object_version::object_etag(bucket_object::current_version(&bucket_object)),
+        b"object-etag-delete".to_string(),
+    );
+
+    destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
+}
+
+#[test, expected_failure(abort_code = bucket_object::EObjectEtagMismatch)]
+fun delete_object_if_match_requires_matching_etag() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+
+    bucket_object::delete_object_if_match(
+        &mut bucket_object,
+        b"wrong-etag".to_string(),
+        b"object-etag-delete".to_string(),
+    );
+
+    abort
+}
+
+#[test]
+fun put_object_if_absent_allows_current_delete_marker() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size * 2,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+    bucket_object::delete_object(&mut bucket_object, b"object-etag-delete".to_string());
+
+    let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+    bucket_object::put_object_if_absent_and_register(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        NEXT_ROOT_HASH,
+        SIZE,
+        RS2,
+        true,
+        &mut write_payment,
+        b"content-etag-v2".to_string(),
+        b"object-etag-v2".to_string(),
+        ctx,
+    );
+
+    let next_blob_id = blob::derive_blob_id(NEXT_ROOT_HASH, RS2, SIZE);
+    assert!(bucket_object::is_deleted(&bucket_object));
+    assert!(bucket_object::has_pending_version(&bucket_object));
+    assert_eq!(object_version::generation(bucket_object::pending_version(&bucket_object)), 3);
+    assert_eq!(object_version::blob_id(bucket_object::pending_version(&bucket_object)), next_blob_id);
+
+    write_payment.burn_for_testing();
+    destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
+}
+
 #[test, expected_failure(abort_code = bucket_object::EObjectEtagMismatch)]
 fun update_object_if_match_requires_matching_etag() {
     let sk = test_utils::bls_sk_for_testing();
@@ -564,6 +699,41 @@ fun finalize_pending_version_promotes_after_certification() {
         object_version::object_etag(bucket_object::current_version(&bucket_object)),
         b"object-etag-v1".to_string(),
     );
+
+    destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
+}
+
+#[test]
+fun finalize_pending_delete_marker_promotes_without_certification() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    let delete_marker = object_version::new_delete_marker(
+        object::id(&bucket_object),
+        1,
+        b"object-etag-delete".to_string(),
+    );
+
+    bucket_object::stage_pending_version_for_testing(&mut bucket_object, delete_marker);
+    bucket_object::finalize_pending_version_if_certified_for_testing(&mut bucket_object, &blob_bucket);
+
+    assert_eq!(bucket_object::generation(&bucket_object), 1);
+    assert!(bucket_object::has_current_version(&bucket_object));
+    assert!(bucket_object::is_deleted(&bucket_object));
+    assert!(object_version::delete_marker(bucket_object::current_version(&bucket_object)));
 
     destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
 }

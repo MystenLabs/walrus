@@ -93,6 +93,11 @@ public fun has_current_version(self: &BucketObject): bool {
     self.inner().has_current_version()
 }
 
+public fun is_deleted(self: &BucketObject): bool {
+    self.inner().has_current_version()
+        && object_version::delete_marker(self.inner().current_version())
+}
+
 public fun current_version(self: &BucketObject): &ObjectVersion {
     self.inner().current_version()
 }
@@ -143,7 +148,11 @@ public fun put_object_if_absent_and_register(
     object_etag: String,
     ctx: &mut TxContext,
 ) {
-    assert!(!self.inner().has_current_version(), EObjectAlreadyExists);
+    assert!(
+        !self.inner().has_current_version()
+            || object_version::delete_marker(self.inner().current_version()),
+        EObjectAlreadyExists,
+    );
     register_and_stage_new_version(
         self,
         blob_bucket,
@@ -196,14 +205,44 @@ public fun update_object_if_match_and_register(
     );
 }
 
+public fun delete_object(self: &mut BucketObject, object_etag: String) {
+    assert!(!self.inner().has_pending_version(), EPendingVersionAlreadyExists);
+    let bucket_object_id = object::id(self);
+    let next_generation = self.inner().generation() + 1;
+    stage_pending_version(
+        self,
+        object_version::new_delete_marker(
+            bucket_object_id,
+            next_generation,
+            object_etag,
+        ),
+    );
+    self.inner_mut().promote_pending_version();
+}
+
+public fun delete_object_if_match(
+    self: &mut BucketObject,
+    expected_object_etag: String,
+    object_etag: String,
+) {
+    assert!(self.inner().has_current_version(), ECurrentVersionMissing);
+    assert!(
+        object_version::object_etag(self.inner().current_version()) == expected_object_etag,
+        EObjectEtagMismatch,
+    );
+    delete_object(self, object_etag);
+}
+
 public fun finalize_pending_version_if_certified(self: &mut BucketObject, blob_bucket: &BlobBucket) {
     assert!(object::id(blob_bucket) == self.inner().blob_bucket_id(), EBlobBucketMismatch);
     assert!(self.inner().has_pending_version(), EPendingVersionMissing);
     let pending_version = self.inner().pending_version();
-    assert!(
-        blob_bucket.is_blob_certified(object_version::blob_id(pending_version)),
-        EPendingVersionNotCertified,
-    );
+    if (!object_version::delete_marker(pending_version)) {
+        assert!(
+            blob_bucket.is_blob_certified(object_version::blob_id(pending_version)),
+            EPendingVersionNotCertified,
+        );
+    };
     self.inner_mut().promote_pending_version();
 }
 
