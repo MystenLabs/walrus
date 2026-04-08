@@ -100,3 +100,8 @@ required-features = ["test-utils"]
 name = "gas_cost_bench"
 harness = false
 required-features = ["test-utils"]
+
+[[bench]]
+name = "committee_size_bench"
+harness = false
+required-features = ["test-utils"]
