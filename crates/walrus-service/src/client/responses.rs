@@ -290,6 +290,7 @@ impl InfoStorageOutput {
 pub(crate) struct InfoSizeOutput {
     pub(crate) storage_unit_size: u64,
     pub(crate) max_blob_size: u64,
+    pub(crate) max_blob_size_in_quilt: u64,
 }
 
 impl InfoSizeOutput {
@@ -299,6 +300,9 @@ impl InfoSizeOutput {
         Ok(Self {
             storage_unit_size: BYTES_PER_UNIT_SIZE,
             max_blob_size: max_blob_size_for_n_shards(committee.n_shards(), DEFAULT_ENCODING),
+            max_blob_size_in_quilt: u64::from(
+                walrus_core::encoding::quilt_encoding::BlobHeaderV1::MAX_SERIALIZED_BLOB_SIZE,
+            ),
         })
     }
 }

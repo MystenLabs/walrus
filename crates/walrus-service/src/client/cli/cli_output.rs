@@ -536,6 +536,7 @@ impl CliOutput for InfoSizeOutput {
         let Self {
             storage_unit_size: unit_size,
             max_blob_size,
+            max_blob_size_in_quilt,
         } = self;
 
         printdoc!(
@@ -543,12 +544,15 @@ impl CliOutput for InfoSizeOutput {
 
             {heading}
             Maximum blob size: {hr_max_blob} ({max_blob_size_sep} B)
+            Maximum blob size in quilt: {hr_max_quilt_blob} ({max_quilt_blob_sep} B)
             Storage unit: {hr_storage_unit}
             ",
             heading = "Blob size".bold().walrus_teal(),
             hr_max_blob = HumanReadableBytes(*max_blob_size),
+            hr_max_quilt_blob = HumanReadableBytes(*max_blob_size_in_quilt),
             hr_storage_unit = HumanReadableBytes(*unit_size),
             max_blob_size_sep = thousands_separator(*max_blob_size),
+            max_quilt_blob_sep = thousands_separator(*max_blob_size_in_quilt),
         );
     }
 }

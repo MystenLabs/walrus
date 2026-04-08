@@ -10,6 +10,8 @@ This page describes the practical limits and constraints you should consider whe
 
 Walrus supports blobs up to approximately 13.6 GiB. Check the current limit with `walrus info` under "Maximum blob size."
 
+When using [quilts](/docs/system-overview/quilt) for batch storage, each individual blob within the quilt is limited to approximately 4 GiB. This per-blob limit is imposed by the quilt's internal header format. Check the current limit with `walrus info` under "Maximum blob size in quilt." If you need to store data larger than 4 GiB, store it as a regular blob instead of within a quilt.
+
 If your data exceeds this limit, learn more about [best practices for large data uploads](/docs/large-uploads).
 
 ## Memory requirements

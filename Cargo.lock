@@ -13302,6 +13302,7 @@ dependencies = [
  "enum_dispatch",
  "fastcrypto 0.1.9 (git+https://github.com/MystenLabs/fastcrypto?rev=4db0e90c732bbf7420ca20de808b698883148d9c)",
  "hex",
+ "libc",
  "p256",
  "proptest",
  "rand 0.8.5",
