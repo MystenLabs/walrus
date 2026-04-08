@@ -3,14 +3,22 @@
 
 //! Walrus events observed by the storage node.
 
-use std::{fmt::Debug, future::ready, pin::Pin, sync::Arc, thread};
+use std::{
+    collections::BTreeMap,
+    fmt::Debug,
+    future::ready,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 
 use anyhow::Error;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures_util::stream;
 use sui_types::{digests::TransactionDigest, event::EventID};
-use tokio::time::MissedTickBehavior;
+use tokio::time::{Instant, MissedTickBehavior};
 use tokio_stream::{Stream, wrappers::IntervalStream};
 use tracing::Level;
 
@@ -20,17 +28,142 @@ use crate::{
         event_processor::processor::EventProcessor,
         events::{EventStreamCursor, InitState, PositionedStreamEvent},
     },
-    node::{metrics::STATUS_HIGHEST_FINISHED, storage::EventProgress},
+    node::{
+        metrics::{NodeMetricSet, STATUS_HIGHEST_FINISHED},
+        storage::EventProgress,
+    },
 };
 
 /// The capacity of the event channel.
 pub const EVENT_CHANNEL_CAPACITY: usize = 1024;
+const OLDEST_UNFINISHED_EVENT_AGE_UPDATE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// The event ID for checkpoint events.
 pub const EVENT_ID_FOR_CHECKPOINT_EVENTS: EventID = EventID {
     tx_digest: TransactionDigest::ZERO,
     event_seq: 0,
 };
+
+#[derive(Debug, Clone)]
+pub(crate) struct OldestUnfinishedEventTracker {
+    metrics: Arc<NodeMetricSet>,
+    inner: Arc<Mutex<OldestUnfinishedEventTrackerInner>>,
+}
+
+#[derive(Debug, Default)]
+struct OldestUnfinishedEventTrackerInner {
+    unfinished_events: BTreeMap<u64, UnfinishedEventInfo>,
+    current_oldest_event_type: Option<&'static str>,
+    age_refresh_task_running: bool,
+}
+
+#[derive(Debug)]
+struct UnfinishedEventInfo {
+    event_type: &'static str,
+    started_at: Instant,
+}
+
+impl OldestUnfinishedEventTracker {
+    pub fn new(metrics: Arc<NodeMetricSet>) -> Self {
+        metrics.reset_oldest_unfinished_event_metrics();
+        Self {
+            metrics,
+            inner: Arc::new(Mutex::new(OldestUnfinishedEventTrackerInner::default())),
+        }
+    }
+
+    pub fn track_event(&self, index: u64, event_type: &'static str) {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("unfinished event tracker mutex should not be poisoned");
+        let previous = inner.unfinished_events.insert(
+            index,
+            UnfinishedEventInfo {
+                event_type,
+                started_at: Instant::now(),
+            },
+        );
+        debug_assert!(
+            previous.is_none(),
+            "event index should only be tracked once: {}",
+            index
+        );
+        self.update_metrics_locked(&mut inner);
+
+        if !inner.age_refresh_task_running {
+            inner.age_refresh_task_running = true;
+            let tracker = self.clone();
+            tokio::spawn(async move {
+                tracker.refresh_age_metrics().await;
+            });
+        }
+    }
+
+    pub fn finish_event(&self, index: u64) {
+        let mut inner = self
+            .inner
+            .lock()
+            .expect("unfinished event tracker mutex should not be poisoned");
+        inner.unfinished_events.remove(&index);
+        self.update_metrics_locked(&mut inner);
+    }
+
+    fn update_metrics_locked(&self, inner: &mut OldestUnfinishedEventTrackerInner) {
+        let oldest_event = inner
+            .unfinished_events
+            .first_key_value()
+            .map(|(index, info)| {
+                (
+                    *index,
+                    info.event_type,
+                    info.started_at.elapsed().as_secs_f64(),
+                )
+            });
+
+        match oldest_event {
+            Some((index, event_type, age_seconds)) => {
+                self.metrics.set_oldest_unfinished_event_index(
+                    index.try_into().expect("event index fits in i64"),
+                );
+                self.metrics
+                    .set_oldest_unfinished_event_age_seconds(age_seconds);
+                if inner.current_oldest_event_type != Some(event_type) {
+                    if let Some(previous_event_type) =
+                        inner.current_oldest_event_type.replace(event_type)
+                    {
+                        self.metrics
+                            .set_oldest_unfinished_event_type(previous_event_type, false);
+                    }
+                    self.metrics
+                        .set_oldest_unfinished_event_type(event_type, true);
+                }
+            }
+            None => {
+                self.metrics.reset_oldest_unfinished_event_metrics();
+                if let Some(previous_event_type) = inner.current_oldest_event_type.take() {
+                    self.metrics
+                        .set_oldest_unfinished_event_type(previous_event_type, false);
+                }
+            }
+        }
+    }
+
+    async fn refresh_age_metrics(self) {
+        loop {
+            tokio::time::sleep(OLDEST_UNFINISHED_EVENT_AGE_UPDATE_INTERVAL).await;
+            let mut inner = self
+                .inner
+                .lock()
+                .expect("unfinished event tracker mutex should not be poisoned");
+            if inner.unfinished_events.is_empty() {
+                inner.age_refresh_task_running = false;
+                return;
+            }
+            self.update_metrics_locked(&mut inner);
+        }
+    }
+}
 
 /// Represents a Walrus event and the obligation to completely process that event.
 ///
@@ -52,15 +185,23 @@ pub const EVENT_ID_FOR_CHECKPOINT_EVENTS: EventID = EventID {
 pub(crate) struct EventHandle {
     index: u64,
     event_id: EventID,
+    event_type: &'static str,
     node: Arc<StorageNodeInner>,
     can_be_dropped: bool,
 }
 
 impl EventHandle {
-    pub fn new(index: u64, event_id: Option<EventID>, node: Arc<StorageNodeInner>) -> Self {
+    pub fn new(
+        index: u64,
+        event_id: Option<EventID>,
+        event_type: &'static str,
+        node: Arc<StorageNodeInner>,
+    ) -> Self {
+        node.unfinished_event_tracker.track_event(index, event_type);
         Self {
             index,
             event_id: event_id.unwrap_or(EVENT_ID_FOR_CHECKPOINT_EVENTS),
+            event_type,
             node,
             can_be_dropped: false,
         }
@@ -95,6 +236,7 @@ impl EventHandle {
         walrus_utils::with_label!(event_cursor_progress, STATUS_PENDING).set(pending);
         walrus_utils::with_label!(event_cursor_progress, STATUS_HIGHEST_FINISHED)
             .set(highest_finished_event_index);
+        self.node.unfinished_event_tracker.finish_event(self.index);
         self.can_be_dropped = true;
     }
 }
@@ -108,9 +250,11 @@ impl Drop for EventHandle {
 
         match () {
             _ if thread::panicking() => {
+                self.node.unfinished_event_tracker.finish_event(self.index);
                 tracing::debug!("event handle dropped during panic",);
             }
             _ if self.node.is_shutting_down() => {
+                self.node.unfinished_event_tracker.finish_event(self.index);
                 tracing::debug!("event handle dropped during shutdown",);
             }
             _ => {
@@ -134,6 +278,7 @@ impl Debug for EventHandle {
         f.debug_struct("EventHandle")
             .field("index", &self.index)
             .field("event_id", &self.event_id)
+            .field("event_type", &self.event_type)
             // Exclude `node` field.
             .field("can_be_dropped", &self.can_be_dropped)
             .finish()
@@ -278,6 +423,55 @@ impl EventRetentionManager for EventProcessor {
     ) -> anyhow::Result<(), anyhow::Error> {
         *self.event_store_commit_index.lock().await = cursor.element_index;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use walrus_utils::metrics::Registry;
+
+    use super::OldestUnfinishedEventTracker;
+    use crate::node::metrics::NodeMetricSet;
+
+    #[tokio::test]
+    async fn oldest_unfinished_metrics_follow_oldest_outstanding_event() {
+        let metrics = Arc::new(NodeMetricSet::new(&Registry::default()));
+        let tracker = OldestUnfinishedEventTracker::new(metrics.clone());
+
+        assert_eq!(metrics.oldest_unfinished_event_index(), -1);
+        assert_eq!(metrics.oldest_unfinished_event_age_seconds(), 0.0);
+
+        tracker.track_event(12, "epoch-change-start");
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert_eq!(metrics.oldest_unfinished_event_index(), 12);
+        assert!(metrics.oldest_unfinished_event_age_seconds() > 0.0);
+        assert_eq!(
+            metrics.oldest_unfinished_event_type("epoch-change-start"),
+            1
+        );
+
+        tracker.track_event(20, "certified");
+        assert_eq!(metrics.oldest_unfinished_event_index(), 12);
+        assert_eq!(
+            metrics.oldest_unfinished_event_type("epoch-change-start"),
+            1
+        );
+        assert_eq!(metrics.oldest_unfinished_event_type("certified"), 0);
+
+        tracker.finish_event(12);
+        assert_eq!(metrics.oldest_unfinished_event_index(), 20);
+        assert_eq!(
+            metrics.oldest_unfinished_event_type("epoch-change-start"),
+            0
+        );
+        assert_eq!(metrics.oldest_unfinished_event_type("certified"), 1);
+
+        tracker.finish_event(20);
+        assert_eq!(metrics.oldest_unfinished_event_index(), -1);
+        assert_eq!(metrics.oldest_unfinished_event_age_seconds(), 0.0);
+        assert_eq!(metrics.oldest_unfinished_event_type("certified"), 0);
     }
 }
 

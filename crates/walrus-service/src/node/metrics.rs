@@ -116,6 +116,16 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of Walrus events processed"]
         event_cursor_progress: U64GaugeVec["state"],
 
+        #[help = "Index of the oldest unfinished Walrus event, or -1 if there are none"]
+        event_oldest_unfinished_index: IntGauge[],
+
+        #[help = "Age in seconds of the oldest unfinished Walrus event"]
+        event_oldest_unfinished_age_seconds: Gauge[],
+
+        #[help = "Indicator for the type of the oldest unfinished Walrus event; exactly one \
+        observed label is 1 while an unfinished event exists, otherwise all observed labels are 0"]
+        event_oldest_unfinished_type: IntGaugeVec["event_type"],
+
         #[help = "The number of blob recoveries currently pending"]
         recover_blob_backlog: IntGaugeVec["state"],
 
@@ -264,6 +274,39 @@ walrus_utils::metrics::define_metric_set! {
 }
 
 impl NodeMetricSet {
+    pub fn set_oldest_unfinished_event_index(&self, index: i64) {
+        self.event_oldest_unfinished_index.set(index);
+    }
+
+    pub fn set_oldest_unfinished_event_age_seconds(&self, age_seconds: f64) {
+        self.event_oldest_unfinished_age_seconds.set(age_seconds);
+    }
+
+    pub fn set_oldest_unfinished_event_type(&self, event_type: &str, is_oldest: bool) {
+        walrus_utils::with_label!(self.event_oldest_unfinished_type, event_type)
+            .set(if is_oldest { 1 } else { 0 });
+    }
+
+    pub fn reset_oldest_unfinished_event_metrics(&self) {
+        self.set_oldest_unfinished_event_index(-1);
+        self.set_oldest_unfinished_event_age_seconds(0.0);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn oldest_unfinished_event_index(&self) -> i64 {
+        self.event_oldest_unfinished_index.get()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn oldest_unfinished_event_age_seconds(&self) -> f64 {
+        self.event_oldest_unfinished_age_seconds.get()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn oldest_unfinished_event_type(&self, event_type: &str) -> i64 {
+        walrus_utils::with_label!(self.event_oldest_unfinished_type, event_type).get()
+    }
+
     pub fn started_processing_event(&self, position: CheckpointEventPosition) {
         self.set_event_position(position, STATUS_IN_PROGRESS);
     }

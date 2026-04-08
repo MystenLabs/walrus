@@ -620,6 +620,7 @@ pub struct StorageNodeInner {
     committee_service: Arc<dyn CommitteeService>,
     start_time: Instant,
     metrics: Arc<NodeMetricSet>,
+    unfinished_event_tracker: system_events::OldestUnfinishedEventTracker,
     is_shutting_down: AtomicBool,
     blocklist: Arc<Blocklist>,
     node_capability: ObjectID,
@@ -812,6 +813,9 @@ impl StorageNode {
             contract_service: contract_service.clone(),
             committee_service,
             metrics: metrics.clone(),
+            unfinished_event_tracker: system_events::OldestUnfinishedEventTracker::new(
+                metrics.clone(),
+            ),
             start_time,
             is_shutting_down: false.into(),
             blocklist: blocklist.clone(),
@@ -1460,6 +1464,7 @@ impl StorageNode {
         let event_handle = EventHandle::new(
             element_index,
             stream_element.element.event_id(),
+            stream_element.element.label(),
             self.inner.clone(),
         );
         if self
