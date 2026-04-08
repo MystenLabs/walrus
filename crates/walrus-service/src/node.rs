@@ -4468,15 +4468,11 @@ impl ServiceState for StorageNodeInner {
                 let has_pooled_info = {
                     let storage = self.storage.clone();
                     let oid = sui_object_id;
-                    tokio::task::spawn_blocking(move || {
-                        storage.get_per_object_pooled_info(&oid)
-                    })
-                    .map(unwrap_or_resume_unwind)
-                    .await
-                    .context(
-                        "database error when checking per object pooled info",
-                    )?
-                    .is_some()
+                    tokio::task::spawn_blocking(move || storage.get_per_object_pooled_info(&oid))
+                        .map(unwrap_or_resume_unwind)
+                        .await
+                        .context("database error when checking per object pooled info")?
+                        .is_some()
                 };
                 if has_pooled_info {
                     // Entry exists in the pooled blob table — the blob is active.
@@ -4485,9 +4481,7 @@ impl ServiceState for StorageNodeInner {
                     // TODO(WAL-1174): check the expiration of the pool here once the
                     // storage pool end-epoch table is implemented.
                 } else {
-                    return Err(
-                        ComputeStorageConfirmationError::NotCurrentlyRegistered,
-                    );
+                    return Err(ComputeStorageConfirmationError::NotCurrentlyRegistered);
                 }
             }
         }

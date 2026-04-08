@@ -1209,10 +1209,7 @@ impl Storage {
 
                 // Scan certified slivers to fetch.
                 let blobs_to_fetch = blob_info
-                    .certified_blob_info_iter_before_epoch(
-                        current_epoch,
-                        starting_blob_id_bound,
-                    )
+                    .certified_blob_info_iter_before_epoch(current_epoch, starting_blob_id_bound)
                     .take(remaining_count)
                     .map_ok(|(blob_id, _)| blob_id)
                     .collect::<Result<Vec<_>, TypedStoreError>>()?;
