@@ -109,6 +109,10 @@ public fun contains_blob(self: &StoragePool, blob_id: u256): bool {
     self.inner().blobs.contains(blob_id)
 }
 
+public fun is_blob_certified(self: &StoragePool, blob_id: u256): bool {
+    self.inner().blobs.borrow(blob_id).is_certified()
+}
+
 public(package) fun borrow_blob(self: &StoragePool, blob_id: u256): &PooledBlob {
     self.inner().blobs.borrow(blob_id)
 }

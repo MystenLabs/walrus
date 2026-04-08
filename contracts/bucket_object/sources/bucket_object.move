@@ -4,6 +4,7 @@
 /// Shared per-key object wrapper on top of a linked BlobBucket.
 module bucket_object::bucket_object;
 
+use blob_bucket::blob_bucket::BlobBucket;
 use bucket_object::bucket_object_inner_v1::{Self, BucketObjectInnerV1};
 use bucket_object::object_version::{Self, ObjectVersion};
 use std::string::String;
@@ -21,6 +22,12 @@ const EPendingVersionAlreadyExists: u64 = 2;
 const EPendingVersionMissing: u64 = 3;
 /// A staged version must advance the generation by exactly one.
 const EGenerationMustAdvance: u64 = 4;
+/// The provided blob bucket does not match the object's linked bucket.
+const EBlobBucketMismatch: u64 = 5;
+/// The requested blob has not been registered in the linked blob bucket.
+const EBlobNotRegistered: u64 = 6;
+/// The pending version's blob has not been certified yet.
+const EPendingVersionNotCertified: u64 = 7;
 
 public struct BucketObject has key {
     id: UID,
@@ -89,6 +96,41 @@ public fun pending_version(self: &BucketObject): &ObjectVersion {
     self.inner().pending_version()
 }
 
+public fun stage_registered_blob_version(
+    self: &mut BucketObject,
+    blob_bucket: &BlobBucket,
+    blob_id: u256,
+    size: u64,
+    content_etag: String,
+    object_etag: String,
+) {
+    assert!(object::id(blob_bucket) == self.inner().blob_bucket_id(), EBlobBucketMismatch);
+    assert!(blob_bucket.has_blob(blob_id), EBlobNotRegistered);
+
+    let version = object_version::new(
+        object::id(self),
+        self.inner().generation() + 1,
+        blob_id,
+        blob_bucket.get_blob_object_id(blob_id),
+        size,
+        content_etag,
+        object_etag,
+        false,
+    );
+    stage_pending_version(self, version);
+}
+
+public fun finalize_pending_version_if_certified(self: &mut BucketObject, blob_bucket: &BlobBucket) {
+    assert!(object::id(blob_bucket) == self.inner().blob_bucket_id(), EBlobBucketMismatch);
+    assert!(self.inner().has_pending_version(), EPendingVersionMissing);
+    let pending_version = self.inner().pending_version();
+    assert!(
+        blob_bucket.is_blob_certified(object_version::blob_id(pending_version)),
+        EPendingVersionNotCertified,
+    );
+    self.inner_mut().promote_pending_version();
+}
+
 public(package) fun stage_pending_version(self: &mut BucketObject, version: ObjectVersion) {
     assert!(!self.inner().has_pending_version(), EPendingVersionAlreadyExists);
     assert!(
@@ -118,8 +160,28 @@ public fun stage_pending_version_for_testing(self: &mut BucketObject, version: O
 }
 
 #[test_only]
+public fun stage_registered_blob_version_for_testing(
+    self: &mut BucketObject,
+    blob_bucket: &BlobBucket,
+    blob_id: u256,
+    size: u64,
+    content_etag: String,
+    object_etag: String,
+) {
+    stage_registered_blob_version(self, blob_bucket, blob_id, size, content_etag, object_etag);
+}
+
+#[test_only]
 public fun promote_pending_version_for_testing(self: &mut BucketObject) {
     promote_pending_version(self);
+}
+
+#[test_only]
+public fun finalize_pending_version_if_certified_for_testing(
+    self: &mut BucketObject,
+    blob_bucket: &BlobBucket,
+) {
+    finalize_pending_version_if_certified(self, blob_bucket);
 }
 
 #[test_only]

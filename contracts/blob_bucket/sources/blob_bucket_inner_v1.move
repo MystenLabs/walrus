@@ -115,6 +115,10 @@ public(package) fun get_blob_object_id(self: &BlobBucketInnerV1, blob_id: u256):
     storage_pool(self).blob_object_id(blob_id)
 }
 
+public(package) fun is_blob_certified(self: &BlobBucketInnerV1, blob_id: u256): bool {
+    storage_pool(self).is_blob_certified(blob_id)
+}
+
 public(package) fun end_epoch(self: &BlobBucketInnerV1): u32 {
     storage_pool(self).end_epoch()
 }

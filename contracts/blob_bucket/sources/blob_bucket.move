@@ -164,12 +164,16 @@ public fun increase_storage_pool_capacity(
         );
 }
 
-public(package) fun has_blob(self: &BlobBucket, blob_id: u256): bool {
+public fun has_blob(self: &BlobBucket, blob_id: u256): bool {
     self.inner().has_blob(blob_id)
 }
 
-public(package) fun get_blob_object_id(self: &BlobBucket, blob_id: u256): ID {
+public fun get_blob_object_id(self: &BlobBucket, blob_id: u256): ID {
     self.inner().get_blob_object_id(blob_id)
+}
+
+public fun is_blob_certified(self: &BlobBucket, blob_id: u256): bool {
+    self.inner().is_blob_certified(blob_id)
 }
 
 public(package) fun end_epoch(self: &BlobBucket): u32 {
