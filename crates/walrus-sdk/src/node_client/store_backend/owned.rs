@@ -11,11 +11,9 @@ use super::{StoreBackend, StoreBackendKind};
 use crate::{
     error::ClientResult,
     node_client::{
-        EncodedBlob,
         StoreArgs,
         WalrusNodeClient,
-        WalrusStoreBlobFinished,
-        WalrusStoreBlobUnfinished,
+        client_types::{EncodedBlob, WalrusStoreBlobFinished, WalrusStoreBlobUnfinished},
     },
 };
 
