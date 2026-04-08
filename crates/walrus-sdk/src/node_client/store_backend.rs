@@ -3,7 +3,18 @@
 
 //! Internal store backend selection.
 
-use super::*;
+use std::{future::Future, pin::Pin};
+
+use walrus_sui::client::SuiContractClient;
+
+use crate::{
+    error::ClientResult,
+    node_client::{
+        StoreArgs,
+        WalrusNodeClient,
+        client_types::{EncodedBlob, WalrusStoreBlobFinished, WalrusStoreBlobUnfinished},
+    },
+};
 
 mod owned;
 
