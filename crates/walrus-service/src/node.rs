@@ -176,7 +176,7 @@ use self::{
     system_events::EventManager,
 };
 use crate::{
-    common::config::SuiConfig,
+    common::{config::SuiConfig, utils::unwrap_or_resume_unwind},
     event::{
         event_blob_downloader::{EventBlobDownloader, LastCertifiedEventBlob},
         event_processor::{
@@ -2635,8 +2635,8 @@ impl StorageNodeInner {
         let metadata_result = {
             let storage = self.storage.clone();
             tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
                 .await
-                .expect("spawn_blocking task panicked")
         };
         let deferral_from_size = match metadata_result {
             Ok(Some(metadata)) => {
@@ -3035,8 +3035,8 @@ impl StorageNodeInner {
             let storage = self.storage.clone();
             let blob_id = *blob_id;
             tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
-                .await
-                .expect("spawn_blocking task panicked")?
+                .map(unwrap_or_resume_unwind)
+                .await?
         };
         if let Some(metadata) = existing {
             tracing::debug!(%blob_id, "not syncing metadata: already stored");
@@ -3272,8 +3272,8 @@ impl StorageNodeInner {
             let storage = self.storage.clone();
             let blob_id = *blob_id;
             tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
                 .await
-                .expect("spawn_blocking task panicked")
                 .context("could not check metadata existence")?
         };
         if has_metadata {
@@ -3310,8 +3310,8 @@ impl StorageNodeInner {
             let storage = self.storage.clone();
             let blob_id = *blob_id;
             tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
                 .await
-                .expect("spawn_blocking task panicked")
                 .context("database error when storing sliver")?
         };
         if let Some(metadata) = persisted {
@@ -3336,8 +3336,8 @@ impl StorageNodeInner {
             let storage = self.storage.clone();
             let blob_id = *blob_id;
             tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
                 .await
-                .expect("spawn_blocking task panicked")
                 .context("could not check metadata existence")?
         };
         if has_metadata {
@@ -3411,8 +3411,8 @@ impl StorageNodeInner {
                 let storage = self.storage.clone();
                 let blob_id = *blob_id;
                 tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+                    .map(unwrap_or_resume_unwind)
                     .await
-                    .expect("spawn_blocking task panicked")
                     .context("unable to fetch metadata while flushing pending slivers")
                     .map_err(|error| PendingCacheError::Sliver(StoreSliverError::Internal(error)))?
             };
@@ -3478,8 +3478,8 @@ impl StorageNodeInner {
         let storage = self.storage.clone();
         let blob_id = *blob_id;
         let blob_info = tokio::task::spawn_blocking(move || storage.get_blob_info(&blob_id))
+            .map(unwrap_or_resume_unwind)
             .await
-            .expect("spawn_blocking task panicked")
             .context("could not retrieve blob info")?;
         let epoch = self.current_committee_epoch();
         Ok(blob_info.is_some_and(|blob_info| blob_info.is_registered(epoch)))
@@ -3783,8 +3783,8 @@ impl StorageNodeInner {
                         .get_metadata(&blob_id)
                         .map(|option| option.map(|metadata| metadata.metadata().encoding_type()))
                 })
+                .map(unwrap_or_resume_unwind)
                 .await
-                .expect("spawn_blocking task panicked")
             }
         }
     }
@@ -4193,8 +4193,8 @@ impl ServiceState for StorageNodeInner {
         let storage = self.storage.clone();
         let blob_id = *blob_id;
         let metadata = tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+            .map(unwrap_or_resume_unwind)
             .await
-            .expect("spawn_blocking task panicked")
             .context("database error when retrieving metadata")?
             .ok_or(RetrieveMetadataError::Unavailable)?;
         self.metrics.metadata_retrieved_total.inc();
@@ -4215,8 +4215,8 @@ impl ServiceState for StorageNodeInner {
         let blob_info = {
             let storage = self.storage.clone();
             tokio::task::spawn_blocking(move || storage.get_blob_info(&blob_id))
+                .map(unwrap_or_resume_unwind)
                 .await
-                .expect("spawn_blocking task panicked")
                 .context("could not retrieve blob info")?
         };
 
@@ -4230,8 +4230,8 @@ impl ServiceState for StorageNodeInner {
         let has_metadata = {
             let storage = self.storage.clone();
             tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
                 .await
-                .expect("spawn_blocking task panicked")
                 .context("could not check metadata existence")?
         };
         if has_metadata {
@@ -4305,8 +4305,8 @@ impl ServiceState for StorageNodeInner {
         let storage = self.storage.clone();
         let blob_id = *blob_id;
         match tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
+            .map(unwrap_or_resume_unwind)
             .await
-            .expect("spawn_blocking task panicked")
         {
             Ok(true) => Ok(StoredOnNodeStatus::Stored),
             Ok(false) => Ok(StoredOnNodeStatus::Nonexistent),
@@ -4455,8 +4455,8 @@ impl ServiceState for StorageNodeInner {
                 let storage = self.storage.clone();
                 let oid = sui_object_id;
                 tokio::task::spawn_blocking(move || storage.get_per_object_info(&oid))
+                    .map(unwrap_or_resume_unwind)
                     .await
-                    .expect("spawn_blocking task panicked")
                     .context("database error when checking per object info")?
             };
             if let Some(per_object_info) = per_object_info {
@@ -4471,8 +4471,8 @@ impl ServiceState for StorageNodeInner {
                     tokio::task::spawn_blocking(move || {
                         storage.get_per_object_pooled_info(&oid)
                     })
+                    .map(unwrap_or_resume_unwind)
                     .await
-                    .expect("spawn_blocking task panicked")
                     .context(
                         "database error when checking per object pooled info",
                     )?
@@ -4516,8 +4516,8 @@ impl ServiceState for StorageNodeInner {
         let storage = self.storage.clone();
         let blob_id = *blob_id;
         let blob_info = tokio::task::spawn_blocking(move || storage.get_blob_info(&blob_id))
+            .map(unwrap_or_resume_unwind)
             .await
-            .expect("spawn_blocking task panicked")
             .context("could not retrieve blob info")?;
         Ok(blob_info
             .map(|blob_info| blob_info.to_blob_status(self.current_committee_epoch()))

@@ -1229,8 +1229,8 @@ impl Storage {
             }
             Ok::<_, TypedStoreError>(fetched_blobs)
         })
-        .await
-        .expect("spawn_blocking task panicked")?;
+        .map(utils::unwrap_or_resume_unwind)
+        .await?;
 
         Ok(fetched_blobs.into())
     }

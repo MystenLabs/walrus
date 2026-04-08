@@ -50,7 +50,10 @@ use super::{
     storage::Storage,
     system_events::{CompletableHandle, EventHandle},
 };
-use crate::{common::utils::FutureHelpers as _, node::NodeStatus};
+use crate::{
+    common::utils::{self, FutureHelpers as _},
+    node::NodeStatus,
+};
 
 #[derive(Debug, Clone)]
 struct Permits {
@@ -840,8 +843,8 @@ impl BlobSynchronizer {
             let storage = self.storage().clone();
             let blob_id = self.blob_id;
             tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
-                .await
-                .expect("spawn_blocking task panicked")?
+                .map(utils::unwrap_or_resume_unwind)
+                .await?
         };
         if let Some(metadata) = existing {
             tracing::debug!("not syncing metadata: already stored");
