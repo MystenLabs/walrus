@@ -20,6 +20,7 @@ use walrus::{
 
 const RS2: u8 = 1;
 const ROOT_HASH: u256 = 0xABC;
+const NEXT_ROOT_HASH: u256 = 0xDEF;
 const SIZE: u64 = 5_000_000;
 const EPOCH: u32 = 0;
 const N_COINS: u64 = 1_000_000_000;
@@ -244,6 +245,210 @@ fun pending_version_must_match_bucket_object() {
 }
 
 #[test]
+fun put_object_if_absent_and_register_stages_pending_version() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+
+    bucket_object::put_object_if_absent_and_register(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        ROOT_HASH,
+        SIZE,
+        RS2,
+        true,
+        &mut write_payment,
+        b"content-etag-v1".to_string(),
+        b"object-etag-v1".to_string(),
+        ctx,
+    );
+
+    let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
+    assert!(blob_bucket::has_blob(&blob_bucket, blob_id));
+    assert!(bucket_object::has_pending_version(&bucket_object));
+    assert_eq!(object_version::blob_id(bucket_object::pending_version(&bucket_object)), blob_id);
+    assert_eq!(object_version::generation(bucket_object::pending_version(&bucket_object)), 1);
+    assert_eq!(
+        object_version::object_etag(bucket_object::pending_version(&bucket_object)),
+        b"object-etag-v1".to_string(),
+    );
+
+    write_payment.burn_for_testing();
+    destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
+}
+
+#[test, expected_failure(abort_code = bucket_object::EObjectAlreadyExists)]
+fun put_object_if_absent_requires_no_current_version() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+    let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+
+    bucket_object::put_object_if_absent_and_register(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        NEXT_ROOT_HASH,
+        SIZE,
+        RS2,
+        true,
+        &mut write_payment,
+        b"content-etag-v2".to_string(),
+        b"object-etag-v2".to_string(),
+        ctx,
+    );
+
+    abort
+}
+
+#[test]
+fun update_object_if_match_and_register_stages_next_generation() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size * 2,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+    let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+
+    bucket_object::update_object_if_match_and_register(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        b"object-etag-v1".to_string(),
+        NEXT_ROOT_HASH,
+        SIZE,
+        RS2,
+        true,
+        &mut write_payment,
+        b"content-etag-v2".to_string(),
+        b"object-etag-v2".to_string(),
+        ctx,
+    );
+
+    let next_blob_id = blob::derive_blob_id(NEXT_ROOT_HASH, RS2, SIZE);
+    assert_eq!(bucket_object::generation(&bucket_object), 1);
+    assert!(bucket_object::has_current_version(&bucket_object));
+    assert!(bucket_object::has_pending_version(&bucket_object));
+    assert_eq!(object_version::generation(bucket_object::pending_version(&bucket_object)), 2);
+    assert_eq!(object_version::blob_id(bucket_object::pending_version(&bucket_object)), next_blob_id);
+    assert_eq!(
+        object_version::object_etag(bucket_object::pending_version(&bucket_object)),
+        b"object-etag-v2".to_string(),
+    );
+
+    write_payment.burn_for_testing();
+    destroy_bucket_object_fixture(bucket_object, blob_bucket, blob_bucket_cap, pool_payment, system);
+}
+
+#[test, expected_failure(abort_code = bucket_object::EObjectEtagMismatch)]
+fun update_object_if_match_requires_matching_etag() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+    let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+
+    bucket_object::update_object_if_match_and_register(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        b"wrong-etag".to_string(),
+        NEXT_ROOT_HASH,
+        SIZE,
+        RS2,
+        true,
+        &mut write_payment,
+        b"content-etag-v2".to_string(),
+        b"object-etag-v2".to_string(),
+        ctx,
+    );
+
+    abort
+}
+
+#[test]
 fun stage_registered_blob_version_uses_registered_blob_state() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
@@ -422,6 +627,36 @@ fun destroy_bucket_object_fixture(
     storage_pool::destroy_for_testing(pool);
     pool_payment.burn_for_testing();
     system.destroy_for_testing();
+}
+
+fun register_and_finalize_initial_object_version(
+    bucket_object: &mut bucket_object::BucketObject,
+    blob_bucket: &mut blob_bucket::BlobBucket,
+    blob_bucket_cap: &blob_bucket::BlobBucketCap,
+    system: &mut system::System,
+    sk: &vector<u8>,
+    ctx: &mut TxContext,
+) {
+    let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
+    bucket_object::put_object_if_absent_and_register(
+        bucket_object,
+        blob_bucket,
+        blob_bucket_cap,
+        system,
+        ROOT_HASH,
+        SIZE,
+        RS2,
+        true,
+        &mut write_payment,
+        b"content-etag-v1".to_string(),
+        b"object-etag-v1".to_string(),
+        ctx,
+    );
+    write_payment.burn_for_testing();
+
+    let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
+    certify_blob_in_bucket(blob_bucket, system, blob_id, sk);
+    bucket_object::finalize_pending_version_if_certified_for_testing(bucket_object, blob_bucket);
 }
 
 fun new_id_for_testing(ctx: &mut TxContext): ID {

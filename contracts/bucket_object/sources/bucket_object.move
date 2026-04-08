@@ -4,11 +4,14 @@
 /// Shared per-key object wrapper on top of a linked BlobBucket.
 module bucket_object::bucket_object;
 
-use blob_bucket::blob_bucket::BlobBucket;
+use blob_bucket::blob_bucket::{Self as blob_bucket, BlobBucket, BlobBucketCap};
 use bucket_object::bucket_object_inner_v1::{Self, BucketObjectInnerV1};
 use bucket_object::object_version::{Self, ObjectVersion};
+use sui::coin::Coin;
 use std::string::String;
 use sui::dynamic_field as df;
+use wal::wal::WAL;
+use walrus::{blob, system::System};
 
 const VERSION: u64 = 1;
 
@@ -28,6 +31,12 @@ const EBlobBucketMismatch: u64 = 5;
 const EBlobNotRegistered: u64 = 6;
 /// The pending version's blob has not been certified yet.
 const EPendingVersionNotCertified: u64 = 7;
+/// The bucket object already has a current version.
+const EObjectAlreadyExists: u64 = 8;
+/// The bucket object does not have a current version yet.
+const ECurrentVersionMissing: u64 = 9;
+/// The expected object etag does not match the current version.
+const EObjectEtagMismatch: u64 = 10;
 
 public struct BucketObject has key {
     id: UID,
@@ -120,6 +129,73 @@ public fun stage_registered_blob_version(
     stage_pending_version(self, version);
 }
 
+public fun put_object_if_absent_and_register(
+    self: &mut BucketObject,
+    blob_bucket: &mut BlobBucket,
+    blob_bucket_cap: &BlobBucketCap,
+    system: &mut System,
+    root_hash: u256,
+    unencoded_size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    content_etag: String,
+    object_etag: String,
+    ctx: &mut TxContext,
+) {
+    assert!(!self.inner().has_current_version(), EObjectAlreadyExists);
+    register_and_stage_new_version(
+        self,
+        blob_bucket,
+        blob_bucket_cap,
+        system,
+        root_hash,
+        unencoded_size,
+        encoding_type,
+        deletable,
+        write_payment,
+        content_etag,
+        object_etag,
+        ctx,
+    );
+}
+
+public fun update_object_if_match_and_register(
+    self: &mut BucketObject,
+    blob_bucket: &mut BlobBucket,
+    blob_bucket_cap: &BlobBucketCap,
+    system: &mut System,
+    expected_object_etag: String,
+    root_hash: u256,
+    unencoded_size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    content_etag: String,
+    object_etag: String,
+    ctx: &mut TxContext,
+) {
+    assert!(self.inner().has_current_version(), ECurrentVersionMissing);
+    assert!(
+        object_version::object_etag(self.inner().current_version()) == expected_object_etag,
+        EObjectEtagMismatch,
+    );
+    register_and_stage_new_version(
+        self,
+        blob_bucket,
+        blob_bucket_cap,
+        system,
+        root_hash,
+        unencoded_size,
+        encoding_type,
+        deletable,
+        write_payment,
+        content_etag,
+        object_etag,
+        ctx,
+    );
+}
+
 public fun finalize_pending_version_if_certified(self: &mut BucketObject, blob_bucket: &BlobBucket) {
     assert!(object::id(blob_bucket) == self.inner().blob_bucket_id(), EBlobBucketMismatch);
     assert!(self.inner().has_pending_version(), EPendingVersionMissing);
@@ -187,6 +263,45 @@ public fun finalize_pending_version_if_certified_for_testing(
 #[test_only]
 public fun clear_pending_version_for_testing(self: &mut BucketObject): ObjectVersion {
     clear_pending_version(self)
+}
+
+fun register_and_stage_new_version(
+    self: &mut BucketObject,
+    blob_bucket: &mut BlobBucket,
+    blob_bucket_cap: &BlobBucketCap,
+    system: &mut System,
+    root_hash: u256,
+    unencoded_size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    content_etag: String,
+    object_etag: String,
+    ctx: &mut TxContext,
+) {
+    assert!(object::id(blob_bucket) == self.inner().blob_bucket_id(), EBlobBucketMismatch);
+
+    let blob_id = blob::derive_blob_id(root_hash, encoding_type, unencoded_size);
+    blob_bucket::register_blob(
+        blob_bucket,
+        blob_bucket_cap,
+        system,
+        blob_id,
+        root_hash,
+        unencoded_size,
+        encoding_type,
+        deletable,
+        write_payment,
+        ctx,
+    );
+    stage_registered_blob_version(
+        self,
+        blob_bucket,
+        blob_id,
+        unencoded_size,
+        content_etag,
+        object_etag,
+    );
 }
 
 fun inner(self: &BucketObject): &BucketObjectInnerV1 {
