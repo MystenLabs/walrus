@@ -28,12 +28,12 @@ use crate::{
     node_client::{
         client_types::{
             self,
-            BlobAwaitingUpload,
             BlobData,
-            BlobPendingCertifyAndExtend,
             BlobWithStatus,
             EncodedBlob,
-            RegisteredBlob,
+            OwnedBlobAwaitingUpload,
+            OwnedBlobPendingCertifyAndExtend,
+            OwnedRegisteredBlob,
             WalrusStoreBlobFinished,
             WalrusStoreBlobMaybeFinished,
             WalrusStoreBlobUnfinished,
@@ -542,7 +542,7 @@ impl WalrusNodeClient<SuiContractClient> {
                     BlobData::BlobForUploadRelay(blob, upload_relay_client) => upload_relay_client
                         .send_blob_data_and_get_certificate_with_relay(
                             &self.sui_client,
-                            blob,
+                            blob.as_ref(),
                             blob_object.blob_id,
                             store_args.encoding_type,
                             blob_object.blob_persistence_type(),
