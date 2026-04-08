@@ -14,6 +14,14 @@ The total size of all tags combined must not exceed 64 KB.
 
 ## Important considerations
 
+### Per-blob size limit
+
+Each individual blob within a quilt is limited to approximately 4 GiB. This limit is separate from the maximum blob size shown by `walrus info`, which applies to regular blobs and to the quilt as a whole. The per-blob limit comes from the quilt's internal header format, which uses a 4-byte field to store each blob's length. A small amount of this space is used for per-blob metadata (identifier and tags), so the usable data capacity is slightly less. You can check this limit by running `walrus info` and looking for the "Maximum blob size in quilt" field.
+
+If you need to store data larger than 4 GiB, store it as a regular blob instead of within a quilt.
+
+### Quilt patch IDs
+
 Blobs stored in a quilt are assigned a unique ID called `QuiltPatchId`, which differs from the `BlobId` used for regular Walrus blobs. A `QuiltPatchId` is determined by the composition of the entire quilt rather than the single blob, so it can change if the blob is stored in a different quilt. Individual blobs cannot be deleted, extended, or shared separately. These operations can only be applied to the entire quilt.
 
 ## Target use cases
