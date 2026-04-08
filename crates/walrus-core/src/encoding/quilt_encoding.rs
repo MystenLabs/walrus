@@ -3178,18 +3178,62 @@ mod tests {
 
     // -- blob exceeding MAX_SERIALIZED_BLOB_SIZE rejected on encode --
 
+    /// Returns an anonymous mmap of `len` zero bytes. The caller must `munmap` the pointer.
+    #[cfg(unix)]
+    unsafe fn mmap_zeroed(len: usize) -> *mut libc::c_void {
+        let ptr = unsafe {
+            libc::mmap(
+                core::ptr::null_mut(),
+                len,
+                libc::PROT_READ,
+                libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+                -1,
+                0,
+            )
+        };
+        assert_ne!(ptr, libc::MAP_FAILED, "mmap failed");
+        ptr
+    }
+
+    #[cfg(unix)]
     #[test]
-    fn test_encode_blob_exceeding_max_serialized_blob_size_rejected() {
-        // A blob whose serialized size (data + extensions) exceeds MAX_SERIALIZED_BLOB_SIZE
-        // must be rejected with a QuiltOversize error instead of silently truncating the
-        // header length.
-        let data = vec![0u8; BlobHeaderV1::MAX_SERIALIZED_BLOB_SIZE as usize + 1];
-        let blob = QuiltStoreBlob::new(&data, "oversized").expect("valid blob");
+    fn test_serialized_blob_size_rejects_oversized_blob() {
+        // Verify that serialized_blob_size (the early check) rejects blobs whose content
+        // (extensions + data) exceeds MAX_SERIALIZED_BLOB_SIZE.
+        //
+        // Uses an anonymous mmap to obtain a >4 GiB slice without heap-allocating physical
+        // memory. The kernel maps zero pages lazily; only the length is inspected.
+        let len = BlobHeaderV1::MAX_SERIALIZED_BLOB_SIZE as usize + 1;
+        let ptr = unsafe { mmap_zeroed(len) };
+        let data = unsafe { core::slice::from_raw_parts(ptr as *const u8, len) };
+
+        let blob = QuiltStoreBlob::new(data, "a").expect("valid blob");
+        let result = QuiltVersionV1::serialized_blob_size(&blob);
+        assert!(
+            matches!(result, Err(QuiltError::QuiltOversize(ref msg)) if msg.contains("exceeds")),
+            "expected QuiltOversize error, got: {result:?}"
+        );
+
+        unsafe { libc::munmap(ptr, len) };
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_get_header_and_extension_bytes_rejects_oversized_blob() {
+        // Verify that get_header_and_extension_bytes (the defense-in-depth check) also
+        // rejects blobs exceeding MAX_SERIALIZED_BLOB_SIZE.
+        let len = BlobHeaderV1::MAX_SERIALIZED_BLOB_SIZE as usize + 1;
+        let ptr = unsafe { mmap_zeroed(len) };
+        let data = unsafe { core::slice::from_raw_parts(ptr as *const u8, len) };
+
+        let blob = QuiltStoreBlob::new(data, "a").expect("valid blob");
         let result = QuiltEncoderV1::get_header_and_extension_bytes(&blob);
         assert!(
             matches!(result, Err(QuiltError::QuiltOversize(ref msg)) if msg.contains("exceeds")),
             "expected QuiltOversize error, got: {result:?}"
         );
+
+        unsafe { libc::munmap(ptr, len) };
     }
 
     // -- get_blobs_by_identifiers with bad index (index points to nonexistent column) --
