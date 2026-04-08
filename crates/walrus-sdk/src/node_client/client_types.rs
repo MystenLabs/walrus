@@ -10,7 +10,6 @@ use tracing::{Level, Span, field};
 use utoipa::ToSchema;
 use walrus_core::{
     BlobId,
-    EpochCount,
     QuiltPatchId,
     encoding::{
         EncodingConfigEnum,

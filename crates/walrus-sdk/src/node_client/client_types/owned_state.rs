@@ -3,16 +3,31 @@
 
 //! Owned-blob lifecycle states after registration.
 
-use walrus_core::messages::ConfirmationCertificate;
+use std::sync::Arc;
+
+use walrus_core::{BlobId, EpochCount, messages::ConfirmationCertificate};
+use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{
     client::{CertifyAndExtendBlobParams, CertifyAndExtendBlobResult},
     types::Blob,
 };
 
-use super::*;
-use crate::node_client::{
-    resource::{PriceComputation, RegisterBlobOp},
-    responses::EventOrObjectId,
+use crate::{
+    node_client::{
+        ClientResult,
+        client_types::{
+            BLOB_SPAN_LEVEL,
+            BlobWithStatus,
+            EncodedBlob,
+            WalrusStoreBlobMaybeFinished,
+            WalrusStoreBlobState,
+            WalrusStoreBlobUnfinished,
+            WalrusStoreEncodedBlobApi,
+        },
+        resource::{PriceComputation, RegisterBlobOp},
+        responses::{BlobStoreResult, EventOrObjectId},
+    },
+    utils::Either,
 };
 
 impl BlobWithStatus {
