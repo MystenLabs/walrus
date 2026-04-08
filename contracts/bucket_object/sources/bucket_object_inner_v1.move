@@ -32,6 +32,10 @@ public(package) fun key(self: &BucketObjectInnerV1): String {
     self.key
 }
 
+public(package) fun set_key(self: &mut BucketObjectInnerV1, key: String) {
+    self.key = key;
+}
+
 public(package) fun generation(self: &BucketObjectInnerV1): u64 {
     self.generation
 }

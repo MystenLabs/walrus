@@ -5,9 +5,11 @@
 module bucket_object::bucket_object;
 
 use blob_bucket::blob_bucket::{Self as blob_bucket, BlobBucket, BlobBucketCap};
+use bucket_object::bucket_object_events;
 use bucket_object::bucket_object_inner_v1::{Self, BucketObjectInnerV1};
 use bucket_object::object_headers::ObjectHeaders;
 use bucket_object::object_metadata::ObjectMetadata;
+use bucket_object::object_tags::ObjectTags;
 use bucket_object::object_version::{Self, ObjectVersion};
 use sui::coin::Coin;
 use std::string::String;
@@ -49,10 +51,7 @@ public struct BucketObject has key {
 
 /// Creates and shares a new bucket object bound to the provided blob bucket ID and key.
 public fun new(blob_bucket_id: ID, key: String, ctx: &mut TxContext): ID {
-    let bucket_object = new_impl(blob_bucket_id, key, ctx);
-    let bucket_object_id = object::id(&bucket_object);
-    transfer::share_object(bucket_object);
-    bucket_object_id
+    share(new_unshared(blob_bucket_id, key, ctx))
 }
 
 #[test_only]
@@ -61,10 +60,10 @@ public fun new_for_testing(
     key: String,
     ctx: &mut TxContext,
 ): BucketObject {
-    new_impl(blob_bucket_id, key, ctx)
+    new_unshared(blob_bucket_id, key, ctx)
 }
 
-fun new_impl(
+public(package) fun new_unshared(
     blob_bucket_id: ID,
     key: String,
     ctx: &mut TxContext,
@@ -79,6 +78,12 @@ fun new_impl(
         bucket_object_inner_v1::new(blob_bucket_id, key),
     );
     bucket_object
+}
+
+public(package) fun share(bucket_object: BucketObject): ID {
+    let bucket_object_id = object::id(&bucket_object);
+    transfer::share_object(bucket_object);
+    bucket_object_id
 }
 
 public fun blob_bucket_id(self: &BucketObject): ID {
@@ -106,6 +111,11 @@ public fun current_version(self: &BucketObject): &ObjectVersion {
     self.inner().current_version()
 }
 
+public fun current_object_etag(self: &BucketObject): String {
+    assert!(self.inner().has_current_version(), ECurrentVersionMissing);
+    object_version::object_etag(self.inner().current_version())
+}
+
 public fun has_pending_version(self: &BucketObject): bool {
     self.inner().has_pending_version()
 }
@@ -121,6 +131,7 @@ public fun stage_registered_blob_version(
     size: u64,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     content_etag: String,
     object_etag: String,
 ) {
@@ -135,6 +146,7 @@ public fun stage_registered_blob_version(
         size,
         headers,
         metadata,
+        tags,
         content_etag,
         object_etag,
         false,
@@ -154,6 +166,7 @@ public fun put_object_if_absent_and_register(
     write_payment: &mut Coin<WAL>,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     content_etag: String,
     object_etag: String,
     ctx: &mut TxContext,
@@ -175,6 +188,7 @@ public fun put_object_if_absent_and_register(
         write_payment,
         headers,
         metadata,
+        tags,
         content_etag,
         object_etag,
         ctx,
@@ -194,6 +208,7 @@ public fun update_object_if_match_and_register(
     write_payment: &mut Coin<WAL>,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     content_etag: String,
     object_etag: String,
     ctx: &mut TxContext,
@@ -215,6 +230,7 @@ public fun update_object_if_match_and_register(
         write_payment,
         headers,
         metadata,
+        tags,
         content_etag,
         object_etag,
         ctx,
@@ -225,16 +241,18 @@ public fun update_object_attributes(
     self: &mut BucketObject,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     object_etag: String,
 ) {
     let next_version = current_version_successor(
         self,
         headers,
         metadata,
+        tags,
         object_etag,
     );
     stage_pending_version(self, next_version);
-    self.inner_mut().promote_pending_version();
+    promote_pending_version(self);
 }
 
 public fun update_object_attributes_if_match(
@@ -242,6 +260,7 @@ public fun update_object_attributes_if_match(
     expected_object_etag: String,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     object_etag: String,
 ) {
     assert!(self.inner().has_current_version(), ECurrentVersionMissing);
@@ -249,7 +268,7 @@ public fun update_object_attributes_if_match(
         object_version::object_etag(self.inner().current_version()) == expected_object_etag,
         EObjectEtagMismatch,
     );
-    update_object_attributes(self, headers, metadata, object_etag);
+    update_object_attributes(self, headers, metadata, tags, object_etag);
 }
 
 public fun delete_object(self: &mut BucketObject, object_etag: String) {
@@ -264,7 +283,7 @@ public fun delete_object(self: &mut BucketObject, object_etag: String) {
             object_etag,
         ),
     );
-    self.inner_mut().promote_pending_version();
+    promote_pending_version(self);
 }
 
 public fun delete_object_if_match(
@@ -290,7 +309,7 @@ public fun finalize_pending_version_if_certified(self: &mut BucketObject, blob_b
             EPendingVersionNotCertified,
         );
     };
-    self.inner_mut().promote_pending_version();
+    promote_pending_version(self);
 }
 
 public(package) fun stage_pending_version(self: &mut BucketObject, version: ObjectVersion) {
@@ -303,12 +322,29 @@ public(package) fun stage_pending_version(self: &mut BucketObject, version: Obje
         object_version::generation(&version) == self.inner().generation() + 1,
         EGenerationMustAdvance,
     );
+    bucket_object_events::emit_object_version_staged(
+        object::id(self),
+        self.inner().blob_bucket_id(),
+        self.inner().key(),
+        object_version::generation(&version),
+        object_version::object_etag(&version),
+        object_version::delete_marker(&version),
+    );
     self.inner_mut().stage_pending_version(version);
 }
 
 public(package) fun promote_pending_version(self: &mut BucketObject) {
     assert!(self.inner().has_pending_version(), EPendingVersionMissing);
     self.inner_mut().promote_pending_version();
+    let current_version = self.inner().current_version();
+    bucket_object_events::emit_object_version_promoted(
+        object::id(self),
+        self.inner().blob_bucket_id(),
+        self.inner().key(),
+        object_version::generation(current_version),
+        object_version::object_etag(current_version),
+        object_version::delete_marker(current_version),
+    );
 }
 
 public(package) fun clear_pending_version(self: &mut BucketObject): ObjectVersion {
@@ -329,6 +365,7 @@ public fun stage_registered_blob_version_for_testing(
     size: u64,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     content_etag: String,
     object_etag: String,
 ) {
@@ -339,6 +376,7 @@ public fun stage_registered_blob_version_for_testing(
         size,
         headers,
         metadata,
+        tags,
         content_etag,
         object_etag,
     );
@@ -374,6 +412,7 @@ fun register_and_stage_new_version(
     write_payment: &mut Coin<WAL>,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     content_etag: String,
     object_etag: String,
     ctx: &mut TxContext,
@@ -400,6 +439,7 @@ fun register_and_stage_new_version(
         unencoded_size,
         headers,
         metadata,
+        tags,
         content_etag,
         object_etag,
     );
@@ -409,6 +449,7 @@ fun current_version_successor(
     self: &BucketObject,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     object_etag: String,
 ): ObjectVersion {
     assert!(self.inner().has_current_version(), ECurrentVersionMissing);
@@ -420,8 +461,42 @@ fun current_version_successor(
         self.inner().generation() + 1,
         headers,
         metadata,
+        tags,
         object_etag,
     )
+}
+
+fun current_live_version(self: &BucketObject): &ObjectVersion {
+    assert!(self.inner().has_current_version(), ECurrentVersionMissing);
+    let current_version = self.inner().current_version();
+    assert!(object_version::has_blob(current_version), ECurrentVersionHasNoBlob);
+    current_version
+}
+
+public(package) fun copy_current_version_to(
+    source: &BucketObject,
+    destination: &mut BucketObject,
+    object_etag: String,
+) {
+    assert!(source.inner().blob_bucket_id() == destination.inner().blob_bucket_id(), EBlobBucketMismatch);
+    assert!(!destination.inner().has_current_version(), EObjectAlreadyExists);
+    assert!(!destination.inner().has_pending_version(), EPendingVersionAlreadyExists);
+    let source_version = current_live_version(source);
+    let next_version = object_version::new_successor(
+        source_version,
+        object::id(destination),
+        destination.inner().generation() + 1,
+        object_version::headers(source_version),
+        object_version::metadata(source_version),
+        object_version::tags(source_version),
+        object_etag,
+    );
+    stage_pending_version(destination, next_version);
+    promote_pending_version(destination);
+}
+
+public(package) fun set_key(self: &mut BucketObject, key: String) {
+    self.inner_mut().set_key(key);
 }
 
 fun inner(self: &BucketObject): &BucketObjectInnerV1 {

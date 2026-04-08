@@ -5,6 +5,7 @@ module bucket_object::object_version;
 
 use bucket_object::object_headers::{Self as object_headers, ObjectHeaders};
 use bucket_object::object_metadata::{Self as object_metadata, ObjectMetadata};
+use bucket_object::object_tags::{Self as object_tags, ObjectTags};
 use std::string::String;
 
 public struct ObjectVersion has copy, store, drop {
@@ -15,6 +16,7 @@ public struct ObjectVersion has copy, store, drop {
     size: u64,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     content_etag: String,
     object_etag: String,
     delete_marker: bool,
@@ -28,6 +30,7 @@ public fun new(
     size: u64,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     content_etag: String,
     object_etag: String,
     delete_marker: bool,
@@ -40,6 +43,7 @@ public fun new(
         size,
         headers,
         metadata,
+        tags,
         content_etag,
         object_etag,
         delete_marker,
@@ -59,6 +63,7 @@ public fun new_delete_marker(
         size: 0,
         headers: object_headers::empty(),
         metadata: object_metadata::empty(),
+        tags: object_tags::empty(),
         content_etag: b"".to_string(),
         object_etag,
         delete_marker: true,
@@ -74,6 +79,7 @@ public fun new_for_testing(
     size: u64,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     content_etag: String,
     object_etag: String,
     delete_marker: bool,
@@ -86,6 +92,7 @@ public fun new_for_testing(
         size,
         headers,
         metadata,
+        tags,
         content_etag,
         object_etag,
         delete_marker,
@@ -98,6 +105,7 @@ public fun new_successor(
     generation: u64,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
+    tags: ObjectTags,
     object_etag: String,
 ): ObjectVersion {
     new(
@@ -108,6 +116,7 @@ public fun new_successor(
         size(self),
         headers,
         metadata,
+        tags,
         content_etag(self),
         object_etag,
         false,
@@ -146,6 +155,10 @@ public fun metadata(self: &ObjectVersion): ObjectMetadata {
     self.metadata
 }
 
+public fun tags(self: &ObjectVersion): ObjectTags {
+    self.tags
+}
+
 public fun content_etag(self: &ObjectVersion): String {
     self.content_etag
 }
@@ -168,6 +181,7 @@ public fun destroy_for_testing(self: ObjectVersion) {
         size: _,
         headers: _,
         metadata: _,
+        tags: _,
         content_etag: _,
         object_etag: _,
         delete_marker: _,
