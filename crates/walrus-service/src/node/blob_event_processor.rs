@@ -49,6 +49,7 @@ struct TrackedBackgroundTask {
 struct BackgroundEventProcessor {
     node: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,
+    pending_event_counter: PendingEventCounter,
     worker_index: usize,
 }
 
@@ -56,11 +57,13 @@ impl BackgroundEventProcessor {
     fn new(
         node: Arc<StorageNodeInner>,
         blob_sync_handler: Arc<BlobSyncHandler>,
+        pending_event_counter: PendingEventCounter,
         worker_index: usize,
     ) -> Self {
         Self {
             node,
             blob_sync_handler,
+            pending_event_counter,
             worker_index,
         }
     }
@@ -96,8 +99,11 @@ impl BackgroundEventProcessor {
                 blob_event,
                 checkpoint_position,
             } => {
+                let event_index = event_handle.index();
                 self.process_event(event_handle, blob_event, checkpoint_position)
-                    .await?
+                    .await?;
+                self.pending_event_counter
+                    .observe_processed_event(event_index, self.node.metrics.as_ref());
             }
             BackgroundTask::FlushPendingCaches { blob_id } => {
                 // Keep the worker busy until the flush completes so later events for this blob
@@ -380,6 +386,8 @@ impl BlobEventProcessor {
         num_workers: NonZeroUsize,
         pending_event_counter: PendingEventCounter,
     ) -> Self {
+        pending_event_counter.reset_highest_processed_event_index(node.metrics.as_ref());
+
         let num_workers = num_workers.get();
         let mut background_processor_senders = Vec::with_capacity(num_workers);
 
@@ -389,6 +397,7 @@ impl BlobEventProcessor {
             let mut background_processor = BackgroundEventProcessor::new(
                 node.clone(),
                 blob_sync_handler.clone(),
+                pending_event_counter.clone(),
                 worker_index,
             );
 
