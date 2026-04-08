@@ -1,0 +1,146 @@
+Walrus enables apps to store data from within end-user browsers that have low to moderate machine specifications (mobile devices, low-powered laptops, and so on). This browser-based scenario is difficult to achieve in practice with an in-browser process that directly communicates with the storage nodes because of the high number of network connections required to upload all slivers to all shards.
+
+The upload relay is a downloadable program that community members, Mysten Labs, and app developers can run on internet-facing hosts to facilitate storing blob slivers onto the storage nodes on behalf of end users. This mitigates browser resource consumption and enables web-based store operations.
+
+:::tip
+
+Mysten Labs runs 2 publicly available upload relays at the following addresses:
+
+- **Testnet:** `https://upload-relay.testnet.walrus.space`
+- **Mainnet:** `https://upload-relay.mainnet.walrus.space`
+
+:::
+
+## Understand the design
+
+At a high level, a client stores a blob using an upload relay as follows:
+
+1. The client locally encodes the blob and registers it on Sui.
+1. The client sends the blob to the upload relay through an HTTP POST request to the blob-relay endpoint `/v1/blob-upload-relay`.
+1. The upload relay encodes the blob, sends the slivers to the storage nodes, collects a storage confirmation certificate, and sends it back to the client.
+1. The client uses the confirmation certificate to certify the blob on Sui.
+
+The upload relay does not perform any onchain operation and only helps clients distribute the slivers of their blobs to storage nodes.
+
+The flow between clients and the upload relay is already implemented in the Walrus CLI, Rust SDK, and TypeScript SDK. Developers do not need to implement it themselves. For completeness, the following sections discuss how the service is implemented, paid for, and used by clients.
+
+### Operation modes
+
+You can operate the upload relay in 2 ways:
+
+- **Free service:** The relay accepts HTTP POST requests with blobs from clients and relays them to the storage nodes for free.
+- **Paid service:** In this configuration, the upload relay requires a tip to relay a blob. You can use the tip to cover the costs of running the infrastructure and earn revenue on the service. Currently, a constant tip and a tip that is linear in the unencoded data size are supported.
+
+Upload relays expose a tip-configuration endpoint `/v1/tip-config` that returns the tipping configuration. For example:
+
+```json
+{
+  "send_tip": {
+    "address": "0x1234...",
+    "kind": {
+    "const": 105
+    }
+  }
+}
+```
+
+The configuration above specifies that every store operation requires a tip of 105 MIST (arbitrary value), paid to the set address `0x1234..`. Free upload relays also return this configuration, but with a value of `"no_tip"`.
+
+### Pay the tip
+
+This step is only necessary if the relay requires a tip.
+
+To pay the tip, the client proceeds as follows:
+
+1. Computes the `blob_digest = SHA256(blob)`.
+1. Generates a random `nonce` and hashes it: `nonce_digest = SHA256(nonce)`.
+1. Computes the `unencoded_length = blob.len()`.
+
+Then, the client creates a [programmable transaction block (PTB)](https://docs.sui.io/concepts/transactions/prog-txn-blocks), where the first input `0` is the `bcs` encoded representation of `blob_digest || nonce_digest || unencoded_length`. The relay later uses this to authenticate the sender of the store request. In the same PTB, the client transfers the appropriate tip amount to the wallet of the relay. You can also find this address through the `/v1/tip-config` endpoint. Usually, the client also registers the blob in this transaction. This is not mandatory, and you can register the blob in another transaction, but it is commonly convenient and cheaper to perform all these operations together.
+
+After the transaction executes, the client keeps the transaction ID `tx_id`, the `nonce`, and the `blob_id`, which are required for the next phase.
+
+The relay enforces a freshness check on the transaction that paid the tip. The default threshold is 1 hour, but each relay can independently configure this value.
+
+### Send data to the upload relay
+
+See the full [OpenAPI specification](https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.html) for the upload relay for complete details.
+
+The client sends a POST request to the `/v1/blob-upload-relay` API endpoint on the relay, containing the bytes of the blob to be stored in the body.
+
+You must specify the following parameters in the query string of the URL:
+
+- `blob_id`: Required. The blob ID of the blob to be stored. Example: `blob_id=E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU`
+- `tx_id`: Required if the relay requires a tip. The transaction ID (base58 encoded) of the transaction that transferred the tip to the relay. Example: `tx_id=EmcFpdozbobqH61w76T4UehhC4UGaAv32uZpv6c4CNyg`
+- `nonce`: Required if the relay requires a tip. The nonce (the pre-image of the hash added to the transaction inputs created above) as a base64 URL-encoded string without padding. Example: `nonce=rw8xIuqxwMpdOcF_3jOprsD9TtPWfXK97tT_lWr1teQ`
+- `deletable_blob_object`: Required if the blob is registered as deletable. The object ID of the blob as a hexadecimal string. If the blob is to be stored as a permanent one, do not specify this parameter. Example: `deletable_blob_object=0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60`
+- `encoding_type`: Optional. The encoding type to be used for the blob. The default value (and currently the only value) is `RS2`.
+
+## Receive the certificate
+
+After the relay finishes storing the blob, it collects the confirmation certificate from the storage nodes.
+
+The relay then sends a response to the client containing the `blob_id` of the stored blob along with the `confirmation_certificate`. The client can then use this certificate to certify the blob onchain.
+
+## Install the relay
+
+To download a pre-built binary of `walrus-upload-relay`, go to the [releases page](https://github.com/MystenLabs/walrus/releases). The `walrus-upload-relay` binary does not daemonize itself and requires a supervisor process to ensure boot at startup, restart on failure, and so on.
+
+### Use Docker
+
+The Docker image for `walrus-upload-relay` is available on Docker Hub as `mysten/walrus-upload-relay`.
+
+```sh
+$ docker run -it --rm mysten/walrus-upload-relay --help
+```
+
+### Build from source
+
+The sources for `walrus-upload-relay` are available on [GitHub](https://github.com/MystenLabs/walrus) in the `crates/walrus-upload-relay` subdirectory. Run the following from the root of the Walrus repository:
+
+```sh
+$ cargo build --release --bin walrus-upload-relay
+./target/release/walrus-upload-relay --help
+```
+
+## Configure the relay
+
+The following example shows how to place the configuration so that it is reachable when invoking Docker to run the relay. This example assumes the following:
+
+- `$HOME/.config/walrus/walrus_upload_relay_config.yaml` exists on the host machine and contains the configuration for `walrus-upload-relay`, as described in [Configure relay-specific settings](#configure-relay-specific-settings).
+- `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client configuration as specified in the [CLI setup section](/docs/getting-started/advanced-setup#configuration).
+- **Port 3000** is available for the relay to bind to. Change this to whichever port you want to expose from your host.
+
+```sh
+$ docker run \
+    -p 3000:3000 \
+    -v $HOME/.config/walrus/walrus_upload_relay_config.yaml:/opt/walrus/walrus_upload_relay_config.yaml \
+    -v $HOME/.config/walrus/client_config.yaml:/opt/walrus/client_config.yaml \
+    mysten/walrus-upload-relay \
+    --context testnet \
+    --walrus-config /opt/walrus/client_config.yaml \
+    --server-address 0.0.0.0:3000 \
+    --relay-config /opt/walrus/walrus_upload_relay_config.yaml
+```
+
+### Configure relay-specific settings
+
+The following is an example of the `walrus-upload-relay` configuration file:
+
+<!-- IMPORT_CONTENT_RESOLVED source="/crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml" mode="code" -->
+```yaml title="crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml"
+tip_config: !send_tip
+  address: 0x2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a
+  kind: !const 42
+tx_freshness_threshold_secs: 36000
+tx_max_future_threshold:
+  secs: 30
+  nanos: 0
+```
+<!-- /IMPORT_CONTENT_RESOLVED -->
+
+The available options are:
+
+- `tip_config`: The configuration for the tip to be paid. Set this to `!no_tip` for the free service, or `!send_tip` to configure the requested tip. When using `!send_tip`, `address` contains the hex-encoded address of the upload relay owner where the tip should be sent, and `kind` specifies the type of tip. Set `kind` to `!const` for a constant tip for each store, or `!linear` for a tip that is linear in the unencoded blob size.
+- `tx_freshness_threshold_secs`: The maximum amount of time in seconds for which a transaction that pays the tip is considered valid.
+- `tx_max_future_threshold_secs`: The maximum amount of time in the future for which the tip-paying transaction is considered valid. This accounts for some clock skew.
