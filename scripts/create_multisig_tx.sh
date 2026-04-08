@@ -41,16 +41,9 @@ WAL_PKG_ADDR="356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59"
 
 all_wal_coins_for_addr() {
   ADDRESS=$1
-  sui client objects "$ADDRESS" --json \
-    | jq -r --arg wa "$WAL_PKG_ADDR" \
-      'def to_hex: (. / 16 | floor) as $hi | (. % 16) as $lo
-        | "0123456789abcdef"[$hi:$hi+1] + "0123456789abcdef"[$lo:$lo+1];
-      def bcs_u64: . as $a | reduce range(8) as $i (0; . + ($a[$i] * pow(256; $i)));
-      [.[] | select(.data.Move.type_ | type == "object"
-        and .Coin.struct.address == $wa and .Coin.struct.module == "wal")
-      | { id: ("0x" + (.data.Move.contents[0:32] | map(to_hex) | join(""))),
-          balance: (.data.Move.contents[32:40] | bcs_u64) }]
-      | sort_by(-.balance) | .[].id'
+  WAL_COIN_TYPE="0x${WAL_PKG_ADDR}::wal::WAL"
+  sui client balance "$ADDRESS" --coin-type "$WAL_COIN_TYPE" --with-coins --json \
+    | jq -r '.[0][0][1] | sort_by(-(.balance | tonumber)) | .[].coinObjectId'
 }
 
 gas_obj_for_addr() {
@@ -71,16 +64,12 @@ gas_budget_for_addr() {
 
 subsidies_pkg() {
   sui client object "$WALRUS_SUBSIDIES_UPGRADE_CAP" --json \
-    | jq -r 'def to_hex: (. / 16 | floor) as $hi | (. % 16) as $lo
-        | "0123456789abcdef"[$hi:$hi+1] + "0123456789abcdef"[$lo:$lo+1];
-      "0x" + (.data.Move.contents[32:64] | map(to_hex) | join(""))'
+    | jq -r '.content.package'
 }
 
 subsidies_object() {
   sui client object "$WALRUS_SUBSIDIES_ADMIN_CAP" --json \
-    | jq -r 'def to_hex: (. / 16 | floor) as $hi | (. % 16) as $lo
-        | "0123456789abcdef"[$hi:$hi+1] + "0123456789abcdef"[$lo:$lo+1];
-      "0x" + (.data.Move.contents[32:64] | map(to_hex) | join(""))'
+    | jq -r '.content.subsidies_id'
 }
 
 upgrade_walrus_subsidies() {
