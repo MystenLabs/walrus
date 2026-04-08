@@ -28,12 +28,12 @@ use crate::{
     node_client::{
         client_types::{
             self,
-            BlobAwaitingUpload,
             BlobData,
-            BlobPendingCertifyAndExtend,
             BlobWithStatus,
             EncodedBlob,
-            RegisteredBlob,
+            OwnedBlobAwaitingUpload,
+            OwnedBlobPendingCertifyAndExtend,
+            OwnedRegisteredBlob,
             WalrusStoreBlobFinished,
             WalrusStoreBlobMaybeFinished,
             WalrusStoreBlobUnfinished,
@@ -284,7 +284,7 @@ impl WalrusNodeClient<SuiContractClient> {
         committees: &ActiveCommittees,
         pending_blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
     ) -> ClientResult<(
-        Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>>,
+        Vec<WalrusStoreBlobMaybeFinished<OwnedRegisteredBlob>>,
         Option<RunOutput<Vec<BlobId>, StoreError>>,
     )> {
         let mut pending_upload_handle = self.start_pending_uploads(pending_blobs, store_args);
@@ -375,12 +375,12 @@ impl WalrusNodeClient<SuiContractClient> {
     }
 
     fn partition_registered_blobs(
-        registered_blobs: Vec<WalrusStoreBlobMaybeFinished<RegisteredBlob>>,
+        registered_blobs: Vec<WalrusStoreBlobMaybeFinished<OwnedRegisteredBlob>>,
         blobs_count: usize,
     ) -> (
         Vec<WalrusStoreBlobFinished>,
-        Vec<WalrusStoreBlobUnfinished<BlobAwaitingUpload>>,
-        Vec<WalrusStoreBlobUnfinished<BlobPendingCertifyAndExtend>>,
+        Vec<WalrusStoreBlobUnfinished<OwnedBlobAwaitingUpload>>,
+        Vec<WalrusStoreBlobUnfinished<OwnedBlobPendingCertifyAndExtend>>,
     ) {
         // Classify the blobs into to_be_certified and to_be_extended, and move completed blobs to
         // final_result.
@@ -444,10 +444,10 @@ impl WalrusNodeClient<SuiContractClient> {
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     async fn get_all_blob_certificates(
         &self,
-        blobs_to_be_certified: Vec<WalrusStoreBlobUnfinished<BlobAwaitingUpload>>,
+        blobs_to_be_certified: Vec<WalrusStoreBlobUnfinished<OwnedBlobAwaitingUpload>>,
         store_args: &StoreArgs,
         pending_context: &PendingUploadContext,
-    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<BlobPendingCertifyAndExtend>>> {
+    ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<OwnedBlobPendingCertifyAndExtend>>> {
         if blobs_to_be_certified.is_empty() {
             return Ok(vec![]);
         }
@@ -485,14 +485,14 @@ impl WalrusNodeClient<SuiContractClient> {
 
     async fn get_certificate(
         &self,
-        blob_to_be_certified: WalrusStoreBlobUnfinished<BlobAwaitingUpload>,
+        blob_to_be_certified: WalrusStoreBlobUnfinished<OwnedBlobAwaitingUpload>,
         multi_pb: &MultiProgress,
         store_args: &StoreArgs,
         pending_context: &PendingUploadContext,
-    ) -> ClientResult<WalrusStoreBlobMaybeFinished<BlobPendingCertifyAndExtend>> {
+    ) -> ClientResult<WalrusStoreBlobMaybeFinished<OwnedBlobPendingCertifyAndExtend>> {
         let committees = self.get_committees().await?;
 
-        let BlobAwaitingUpload {
+        let OwnedBlobAwaitingUpload {
             encoded_blob,
             status: blob_status,
             blob_object,
@@ -542,7 +542,7 @@ impl WalrusNodeClient<SuiContractClient> {
                     BlobData::BlobForUploadRelay(blob, upload_relay_client) => upload_relay_client
                         .send_blob_data_and_get_certificate_with_relay(
                             &self.sui_client,
-                            blob,
+                            blob.as_ref(),
                             blob_object.blob_id,
                             store_args.encoding_type,
                             blob_object.blob_persistence_type(),
@@ -568,7 +568,9 @@ impl WalrusNodeClient<SuiContractClient> {
 
     async fn certify_and_extend_blobs(
         &self,
-        blobs_to_certify_and_extend: Vec<WalrusStoreBlobUnfinished<BlobPendingCertifyAndExtend>>,
+        blobs_to_certify_and_extend: Vec<
+            WalrusStoreBlobUnfinished<OwnedBlobPendingCertifyAndExtend>,
+        >,
         store_args: &StoreArgs,
     ) -> ClientResult<Vec<WalrusStoreBlobFinished>> {
         let blobs_count = blobs_to_certify_and_extend.len();
