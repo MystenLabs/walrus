@@ -1168,7 +1168,10 @@ fn execute_response_to_transaction_response(
         sui_types::execution_status::ExecutionStatus::Success => TransactionEffectsStatus::Success,
         sui_types::execution_status::ExecutionStatus::Failure(failure) => {
             TransactionEffectsStatus::Failure {
-                error: format!("{:?}", failure.error),
+                error: match failure.command {
+                    Some(idx) => format!("{:?} in command {idx}", failure.error),
+                    None => format!("{:?}", failure.error),
+                },
             }
         }
     };
@@ -1561,6 +1564,38 @@ mod tests {
             &resp.effects_status,
             TransactionEffectsStatus::Failure { error }
                 if error.contains("InsufficientGas")
+        ));
+    }
+
+    #[test]
+    fn test_execute_response_failure_status_with_command_index() {
+        let mut effects = NativeTransactionEffects::default();
+        *effects.status_mut_for_testing() = sui_types::execution_status::ExecutionStatus::Failure(
+            sui_types::execution_status::ExecutionFailure {
+                error: sui_types::execution_status::ExecutionErrorKind::MoveAbort(
+                    sui_types::execution_status::MoveLocation {
+                        module: move_core_types::language_storage::ModuleId::new(
+                            move_core_types::account_address::AccountAddress::ZERO,
+                            move_core_types::identifier::Identifier::new("test_module").unwrap(),
+                        ),
+                        function: 0,
+                        instruction: 1,
+                        function_name: Some("test_fn".to_string()),
+                    },
+                    42,
+                ),
+                command: Some(0),
+            },
+        );
+
+        let executed_tx = make_executed_tx_with_effects(&effects);
+        let resp =
+            execute_response_to_transaction_response(&executed_tx, SuiAddress::default()).unwrap();
+
+        assert!(matches!(
+            &resp.effects_status,
+            TransactionEffectsStatus::Failure { error }
+                if error.contains("MoveAbort") && error.contains("in command 0")
         ));
     }
 
