@@ -3,7 +3,21 @@
 
 //! Owned blob store backend.
 
-use super::*;
+use std::{future::Future, pin::Pin};
+
+use walrus_sui::client::SuiContractClient;
+
+use super::{StoreBackend, StoreBackendKind};
+use crate::{
+    error::ClientResult,
+    node_client::{
+        EncodedBlob,
+        StoreArgs,
+        WalrusNodeClient,
+        WalrusStoreBlobFinished,
+        WalrusStoreBlobUnfinished,
+    },
+};
 
 pub(super) struct OwnedStoreBackend<'a> {
     client: &'a WalrusNodeClient<SuiContractClient>,
