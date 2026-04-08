@@ -14,7 +14,7 @@ env {
 arg working_dir {
   short = "w"
   description = "The working directory for the testbed"
-  default = "${procman.dir}/working_dir"
+  default = module.dir + "/working_dir"
 }
 
 arg existing {
@@ -46,7 +46,7 @@ arg rust_log {
 
 arg contract_dir {
   description = "Contract directory (use ./testnet-contracts for testnet)"
-  default = "./contracts"
+  default = module.dir + "/contracts"
 }
 
 service sui {
@@ -73,6 +73,10 @@ job deploy if !args.existing {
     http "http://localhost:9123/" { status = 200 }
     after @build
   }
+  env {
+    WALRUS_CONTRACT_DIR = args.contract_dir
+  }
+
   run """
 COMMITTEE_SIZE="${WALRUS_COMMITTEE_SIZE:-4}"
 SHARDS="${WALRUS_SHARDS:-10}"
@@ -91,7 +95,7 @@ NETWORK="${WALRUS_NETWORK:-localnet}"
 HOST_ADDRESS="${WALRUS_HOST_ADDRESS:-127.0.0.1}"
 
 # Clean old build artifacts and configs
-find contracts -name 'build' -type d -exec rm -rf {} +
+find $WALRUS_CONTRACT_DIR -name 'build' -type d -exec rm -rf {} +
 rm -f "$WORKING_DIR"/dryrun-node-*.yaml
 rm -f "$WORKING_DIR"/dryrun-node-*.log
 
@@ -102,7 +106,7 @@ for i in $(seq 1 "$COMMITTEE_SIZE"); do
 done
 
 # Deploy system contract
-./target/release/walrus-deploy deploy-system-contract \
+$WALRUS_DIR/target/release/walrus-deploy deploy-system-contract \
   --working-dir "$WORKING_DIR" \
   --sui-network "$NETWORK" \
   --n-shards "$SHARDS" \
@@ -114,7 +118,7 @@ done
   --with-wal-exchange
 
 # Generate per-node configs
-./target/release/walrus-deploy generate-dry-run-configs \
+$WALRUS_DIR/target/release/walrus-deploy generate-dry-run-configs \
   --working-dir "$WORKING_DIR"
 
 # Append event processor config to all node configs
@@ -151,7 +155,6 @@ job committee_report {
     after @deploy
   }
   run """
-    echo WORKING_DIR=$WORKING_DIR
     cd $WORKING_DIR
     $WALRUS_DIR/target/release/walrus info committee
   """
