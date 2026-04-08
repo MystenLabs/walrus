@@ -87,6 +87,9 @@ pub enum ObjectChangeEntry {
 }
 
 /// A protocol-agnostic transaction query response containing only the fields Walrus uses.
+///
+/// This type is for the read/query path. For execute responses, see
+/// [`ExecuteTransactionResponse`].
 #[derive(Debug, Clone)]
 pub struct TransactionResponse {
     /// The transaction digest.
@@ -101,12 +104,29 @@ pub struct TransactionResponse {
     pub balance_changes: Option<Vec<BalanceChange>>,
     /// Events emitted by the transaction.
     pub events: Option<Vec<EventEnvelope>>,
-    /// The execution status of the transaction effects.
-    pub effects_status: Option<TransactionEffectsStatus>,
+}
+
+/// A protocol-agnostic transaction execute response containing only the fields Walrus uses.
+///
+/// This type is for the execute path. For read/query responses, see [`TransactionResponse`].
+/// Unlike `TransactionResponse`, `effects_status` is non-optional because a failed execution
+/// should be detected immediately.
+#[derive(Debug, Clone)]
+pub struct ExecuteTransactionResponse {
+    /// The transaction digest.
+    pub digest: TransactionDigest,
+    /// The checkpoint number.
+    pub checkpoint: Option<u64>,
+    /// The timestamp in milliseconds.
+    pub timestamp_ms: Option<u64>,
+    /// Balance changes from the transaction.
+    pub balance_changes: Option<Vec<BalanceChange>>,
+    /// Events emitted by the transaction.
+    pub events: Option<Vec<EventEnvelope>>,
+    /// The execution status of the transaction effects (non-optional).
+    pub effects_status: TransactionEffectsStatus,
     /// Object changes from the transaction.
     pub object_changes: Option<Vec<ObjectChangeEntry>>,
-    /// Errors from the transaction.
-    pub errors: Vec<String>,
 }
 
 /// Options controlling which fields to include in a [`TransactionResponse`].
@@ -118,10 +138,6 @@ pub struct TransactionResponseOptions {
     pub show_balance_changes: bool,
     /// Whether to include events.
     pub show_events: bool,
-    /// Whether to include effects.
-    pub show_effects: bool,
-    /// Whether to include object changes.
-    pub show_object_changes: bool,
 }
 
 impl TransactionResponseOptions {
@@ -145,18 +161,6 @@ impl TransactionResponseOptions {
     /// Enables the events field.
     pub fn with_events(mut self) -> Self {
         self.show_events = true;
-        self
-    }
-
-    /// Enables the effects field.
-    pub fn with_effects(mut self) -> Self {
-        self.show_effects = true;
-        self
-    }
-
-    /// Enables the object changes field.
-    pub fn with_object_changes(mut self) -> Self {
-        self.show_object_changes = true;
         self
     }
 }

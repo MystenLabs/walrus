@@ -64,6 +64,7 @@ use crate::{
     types::{
         BalanceChange,
         EventEnvelope,
+        ExecuteTransactionResponse,
         ObjectChangeEntry,
         SuiCommitteeInfo,
         TransactionEffectsStatus,
@@ -689,8 +690,8 @@ impl DualClient {
         })
     }
 
-    /// Execute a signed transaction via gRPC and convert the response to a
-    /// [`TransactionResponse`].
+    /// Execute a signed transaction via gRPC and convert the response to an
+    /// [`ExecuteTransactionResponse`].
     ///
     /// Uses `Box::pin` to erase the future type and avoid `Send` recursion overflow
     /// from the deep `ExecutedTransaction` proto type tree.
@@ -699,7 +700,7 @@ impl DualClient {
         transaction: &Transaction,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<Output = Result<TransactionResponse, SuiClientError>>
+            dyn std::future::Future<Output = Result<ExecuteTransactionResponse, SuiClientError>>
                 + Send
                 + '_,
         >,
@@ -1023,9 +1024,6 @@ fn executed_transaction_to_response(
         raw_transaction,
         balance_changes,
         events,
-        effects_status: None,
-        object_changes: None,
-        errors: Vec::new(),
     })
 }
 
@@ -1127,12 +1125,12 @@ fn grpc_event_to_event_envelope(
     })
 }
 
-/// Convert a gRPC `ExecutedTransaction` from an execute response into a [`TransactionResponse`],
-/// handling effects, object changes, events, and balance changes.
+/// Convert a gRPC `ExecutedTransaction` from an execute response into an
+/// [`ExecuteTransactionResponse`], handling effects, object changes, events, and balance changes.
 fn execute_response_to_transaction_response(
     executed_tx: &ExecutedTransaction,
     sender: SuiAddress,
-) -> Result<TransactionResponse, SuiClientError> {
+) -> Result<ExecuteTransactionResponse, SuiClientError> {
     let digest: TransactionDigest = executed_tx
         .digest
         .as_ref()
@@ -1152,38 +1150,40 @@ fn execute_response_to_transaction_response(
         .transpose()?;
 
     // Deserialize effects from BCS to get the execution status.
-    let mut effects_status = None;
-    let mut object_changes = None;
-    if let Some(effects) = &executed_tx.effects {
-        if let Some(effects_bcs) = &effects.bcs {
-            let effects_bytes = effects_bcs
-                .value
-                .as_ref()
-                .context("no value in effects bcs")?;
-            let native_effects: NativeTransactionEffects =
-                bcs::from_bytes(effects_bytes).context("deserializing TransactionEffects BCS")?;
-            effects_status = Some(match native_effects.status() {
-                sui_types::execution_status::ExecutionStatus::Success => {
-                    TransactionEffectsStatus::Success
-                }
-                sui_types::execution_status::ExecutionStatus::Failure(failure) => {
-                    TransactionEffectsStatus::Failure {
-                        error: format!("{:?}", failure.error),
-                    }
-                }
-            });
+    let effects = executed_tx
+        .effects
+        .as_ref()
+        .context("no effects in execute transaction response")?;
+    let effects_bcs = effects
+        .bcs
+        .as_ref()
+        .context("no bcs in execute transaction effects")?;
+    let effects_bytes = effects_bcs
+        .value
+        .as_ref()
+        .context("no value in effects bcs")?;
+    let native_effects: NativeTransactionEffects =
+        bcs::from_bytes(effects_bytes).context("deserializing TransactionEffects BCS")?;
+    let effects_status = match native_effects.status() {
+        sui_types::execution_status::ExecutionStatus::Success => TransactionEffectsStatus::Success,
+        sui_types::execution_status::ExecutionStatus::Failure(failure) => {
+            TransactionEffectsStatus::Failure {
+                error: format!("{:?}", failure.error),
+            }
         }
+    };
 
-        // Convert changed_objects to ObjectChangeEntry.
-        let entries = grpc_changed_objects_to_object_change_entries(
-            &effects.changed_objects,
-            executed_tx.objects.as_ref(),
-            sender,
-        );
-        if !entries.is_empty() {
-            object_changes = Some(entries);
-        }
-    }
+    // Convert changed_objects to ObjectChangeEntry.
+    let entries = grpc_changed_objects_to_object_change_entries(
+        &effects.changed_objects,
+        executed_tx.objects.as_ref(),
+        sender,
+    );
+    let object_changes = if !entries.is_empty() {
+        Some(entries)
+    } else {
+        None
+    };
 
     // Convert balance changes.
     let balance_changes = if !executed_tx.balance_changes.is_empty() {
@@ -1212,16 +1212,14 @@ fn execute_response_to_transaction_response(
         None
     };
 
-    Ok(TransactionResponse {
+    Ok(ExecuteTransactionResponse {
         digest,
         checkpoint,
         timestamp_ms,
-        raw_transaction: Vec::new(),
         balance_changes,
         events,
         effects_status,
         object_changes,
-        errors: Vec::new(),
     })
 }
 
@@ -1433,6 +1431,11 @@ fn chain_identifier_from_base58(base58_digest: &str) -> anyhow::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use sui_types::effects::{
+        TransactionEffects as NativeTransactionEffects,
+        TransactionEffectsAPI,
+    };
+
     use super::*;
 
     #[test]
@@ -1454,5 +1457,254 @@ mod tests {
     #[test]
     fn test_chain_identifier_from_base58_invalid() {
         assert!(chain_identifier_from_base58("!!!invalid").is_err());
+    }
+
+    /// Helper: build a proto `Bcs` with the given bytes.
+    fn make_bcs(bytes: Vec<u8>) -> Bcs {
+        let mut bcs = Bcs::default();
+        bcs.value = Some(bytes.into());
+        bcs
+    }
+
+    /// Helper: build a proto `TransactionEffects` with BCS-encoded native
+    /// effects.
+    fn make_proto_effects(
+        native_effects: &NativeTransactionEffects,
+    ) -> sui_rpc::proto::sui::rpc::v2::TransactionEffects {
+        let bytes = bcs::to_bytes(native_effects).expect("effects serialization");
+        let mut effects = sui_rpc::proto::sui::rpc::v2::TransactionEffects::default();
+        effects.bcs = Some(make_bcs(bytes));
+        effects
+    }
+
+    /// Helper: build an `ExecutedTransaction` with BCS-encoded effects.
+    fn make_executed_tx_with_effects(
+        native_effects: &NativeTransactionEffects,
+    ) -> ExecutedTransaction {
+        let mut tx = ExecutedTransaction::default();
+        tx.digest = Some(TransactionDigest::default().to_string());
+        tx.checkpoint = Some(42);
+        tx.effects = Some(make_proto_effects(native_effects));
+        tx
+    }
+
+    /// Helper: build a `ChangedObject` with the given fields.
+    fn make_changed_object(
+        object_id: ObjectID,
+        id_op: changed_object::IdOperation,
+        output: changed_object::OutputObjectState,
+        input: Option<changed_object::InputObjectState>,
+        object_type: Option<&str>,
+        output_version: Option<u64>,
+    ) -> ChangedObject {
+        let mut co = ChangedObject::default();
+        co.object_id = Some(object_id.to_string());
+        co.id_operation = Some(id_op.into());
+        co.output_state = Some(output.into());
+        if let Some(input) = input {
+            co.input_state = Some(input.into());
+        }
+        co.object_type = object_type.map(str::to_string);
+        co.output_version = output_version;
+        co
+    }
+
+    const COIN_TYPE: &str = "0x2::coin::Coin<0x2::sui::SUI>";
+
+    #[test]
+    fn test_execute_response_success() {
+        let effects = NativeTransactionEffects::default();
+        assert!(matches!(
+            effects.status(),
+            sui_types::execution_status::ExecutionStatus::Success
+        ));
+
+        let executed_tx = make_executed_tx_with_effects(&effects);
+        let resp =
+            execute_response_to_transaction_response(&executed_tx, SuiAddress::default()).unwrap();
+
+        assert!(matches!(
+            resp.effects_status,
+            TransactionEffectsStatus::Success
+        ));
+        assert_eq!(resp.checkpoint, Some(42));
+    }
+
+    #[test]
+    fn test_execute_response_missing_effects() {
+        let mut tx = ExecutedTransaction::default();
+        tx.digest = Some(TransactionDigest::default().to_string());
+        let result = execute_response_to_transaction_response(&tx, SuiAddress::default());
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("no effects"),
+            "expected 'no effects' in error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_execute_response_failure_status() {
+        let mut effects = NativeTransactionEffects::default();
+        *effects.status_mut_for_testing() = sui_types::execution_status::ExecutionStatus::Failure(
+            sui_types::execution_status::ExecutionFailure {
+                error: sui_types::execution_status::ExecutionErrorKind::InsufficientGas,
+                command: None,
+            },
+        );
+
+        let executed_tx = make_executed_tx_with_effects(&effects);
+        let resp =
+            execute_response_to_transaction_response(&executed_tx, SuiAddress::default()).unwrap();
+
+        assert!(matches!(
+            &resp.effects_status,
+            TransactionEffectsStatus::Failure { error }
+                if error.contains("InsufficientGas")
+        ));
+    }
+
+    #[test]
+    fn test_convert_changed_object_created() {
+        let object_id = ObjectID::random();
+        let co = make_changed_object(
+            object_id,
+            changed_object::IdOperation::Created,
+            changed_object::OutputObjectState::ObjectWrite,
+            None,
+            Some(COIN_TYPE),
+            None,
+        );
+        let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
+        assert!(matches!(result, Some(ObjectChangeEntry::Created { .. })));
+    }
+
+    #[test]
+    fn test_convert_changed_object_published() {
+        let object_id = ObjectID::random();
+        let co = make_changed_object(
+            object_id,
+            changed_object::IdOperation::Created,
+            changed_object::OutputObjectState::PackageWrite,
+            None,
+            None,
+            Some(1),
+        );
+        let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
+        assert!(matches!(
+            result,
+            Some(ObjectChangeEntry::Published {
+                package_id,
+                version
+            }) if package_id == object_id && version == 1
+        ));
+    }
+
+    #[test]
+    fn test_convert_changed_object_mutated() {
+        let co = make_changed_object(
+            ObjectID::random(),
+            changed_object::IdOperation::None,
+            changed_object::OutputObjectState::ObjectWrite,
+            Some(changed_object::InputObjectState::Exists),
+            Some(COIN_TYPE),
+            None,
+        );
+        let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
+        assert!(matches!(result, Some(ObjectChangeEntry::Mutated { .. })));
+    }
+
+    #[test]
+    fn test_convert_changed_object_deleted() {
+        let co = make_changed_object(
+            ObjectID::random(),
+            changed_object::IdOperation::Deleted,
+            changed_object::OutputObjectState::DoesNotExist,
+            Some(changed_object::InputObjectState::Exists),
+            Some(COIN_TYPE),
+            None,
+        );
+        let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
+        assert!(matches!(result, Some(ObjectChangeEntry::Deleted { .. })));
+    }
+
+    #[test]
+    fn test_convert_changed_object_wrapped() {
+        let co = make_changed_object(
+            ObjectID::random(),
+            changed_object::IdOperation::None,
+            changed_object::OutputObjectState::DoesNotExist,
+            Some(changed_object::InputObjectState::Exists),
+            Some(COIN_TYPE),
+            None,
+        );
+        let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
+        assert!(matches!(result, Some(ObjectChangeEntry::Wrapped { .. })));
+    }
+
+    #[test]
+    fn test_convert_changed_object_unmapped() {
+        let co = make_changed_object(
+            ObjectID::random(),
+            changed_object::IdOperation::Created,
+            changed_object::OutputObjectState::DoesNotExist,
+            Some(changed_object::InputObjectState::DoesNotExist),
+            None,
+            None,
+        );
+        let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_changed_objects_skips_errors() {
+        let valid_co = make_changed_object(
+            ObjectID::random(),
+            changed_object::IdOperation::Created,
+            changed_object::OutputObjectState::PackageWrite,
+            None,
+            None,
+            Some(1),
+        );
+        // Created ObjectWrite but no object_type -> conversion error.
+        let invalid_co = make_changed_object(
+            ObjectID::random(),
+            changed_object::IdOperation::Created,
+            changed_object::OutputObjectState::ObjectWrite,
+            None,
+            None,
+            None,
+        );
+        let entries = grpc_changed_objects_to_object_change_entries(
+            &[valid_co, invalid_co],
+            None,
+            SuiAddress::default(),
+        );
+        assert_eq!(entries.len(), 1);
+        assert!(matches!(entries[0], ObjectChangeEntry::Published { .. }));
+    }
+
+    #[test]
+    fn test_changed_objects_type_from_object_set_fallback() {
+        let object_id = ObjectID::random();
+        // No object_type on the ChangedObject itself.
+        let co = make_changed_object(
+            object_id,
+            changed_object::IdOperation::Created,
+            changed_object::OutputObjectState::ObjectWrite,
+            None,
+            None,
+            None,
+        );
+        // Provide the type via ObjectSet fallback.
+        let mut obj = Object::default();
+        obj.object_id = Some(object_id.to_string());
+        obj.object_type = Some(COIN_TYPE.to_string());
+        let mut object_set = ObjectSet::default();
+        object_set.objects = vec![obj];
+
+        let result =
+            convert_single_changed_object(&co, Some(&object_set), SuiAddress::default()).unwrap();
+        assert!(matches!(result, Some(ObjectChangeEntry::Created { .. })));
     }
 }

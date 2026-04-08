@@ -55,6 +55,7 @@ use crate::{
         BlobEvent,
         Committee,
         ContractEvent,
+        ExecuteTransactionResponse,
         NodeRegistrationParams,
         NodeUpdateParams,
         ObjectChangeEntry,
@@ -62,7 +63,6 @@ use crate::{
         StorageNodeCap,
         StorageResource,
         TransactionEffectsStatus,
-        TransactionResponse,
         move_errors::{
             BlobError,
             MoveExecutionError,
@@ -1105,7 +1105,7 @@ impl SuiContractClient {
         &self,
         transaction: TransactionData,
         method: &'static str,
-    ) -> SuiClientResult<TransactionResponse> {
+    ) -> SuiClientResult<ExecuteTransactionResponse> {
         self.inner
             .lock()
             .await
@@ -1725,7 +1725,7 @@ impl SuiContractClientInner {
         &mut self,
         transaction: TransactionData,
         method: &'static str,
-    ) -> SuiClientResult<TransactionResponse> {
+    ) -> SuiClientResult<ExecuteTransactionResponse> {
         // Sign the transaction with the wallet's keys
         let signed_transaction = self.wallet.sign_transaction(&transaction).await;
 
@@ -1737,8 +1737,8 @@ impl SuiContractClientInner {
 
         // Check transaction execution status from effects
         match &response.effects_status {
-            Some(TransactionEffectsStatus::Success) | None => Ok(response),
-            Some(TransactionEffectsStatus::Failure { error }) => {
+            TransactionEffectsStatus::Success => Ok(response),
+            TransactionEffectsStatus::Failure { error } => {
                 // Convert execution error into client error
                 // Try parsing congestion error first, fallback to general execution error
                 Err(

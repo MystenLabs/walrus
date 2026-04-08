@@ -85,6 +85,7 @@ use crate::{
         BalanceChange,
         BlobEvent,
         EventEnvelope,
+        ExecuteTransactionResponse,
         ObjectChangeEntry,
         SuiCommitteeInfo,
         TransactionEffectsStatus,
@@ -1980,7 +1981,11 @@ impl RetriableSuiClient {
         transaction: Transaction,
         method: &'static str,
     ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = SuiClientResult<TransactionResponse>> + Send + '_>,
+        Box<
+            dyn std::future::Future<Output = SuiClientResult<ExecuteTransactionResponse>>
+                + Send
+                + '_,
+        >,
     > {
         Box::pin(async move {
             if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_WRITES {
@@ -1998,7 +2003,7 @@ impl RetriableSuiClient {
         &self,
         transaction: Transaction,
         method: &'static str,
-    ) -> SuiClientResult<TransactionResponse> {
+    ) -> SuiClientResult<ExecuteTransactionResponse> {
         let span = tracing::debug_span!("execute_transaction", method);
         async {
             async fn make_request(
@@ -2041,7 +2046,7 @@ impl RetriableSuiClient {
             if let Err(err) = &result {
                 tracing::error!(%err, "execute_transaction failed");
             }
-            result.and_then(convert_sui_response_to_transaction_response)
+            result.and_then(convert_sui_execute_response)
         }
         .instrument(span)
         .await
@@ -2052,7 +2057,7 @@ impl RetriableSuiClient {
         &self,
         transaction: Transaction,
         method: &'static str,
-    ) -> SuiClientResult<TransactionResponse> {
+    ) -> SuiClientResult<ExecuteTransactionResponse> {
         let span = tracing::debug_span!("execute_transaction", method);
         async {
             let request = move |client: Arc<DualClient>, method| {
@@ -2350,16 +2355,56 @@ impl RetriableSuiClient {
     }
 }
 
-/// Convert a JSON-RPC [`SuiTransactionBlockResponse`] to our [`TransactionResponse`].
+/// Convert a JSON-RPC [`SuiTransactionBlockResponse`] to our read-path [`TransactionResponse`].
 fn convert_sui_response_to_transaction_response(
     resp: SuiTransactionBlockResponse,
 ) -> SuiClientResult<TransactionResponse> {
-    let effects_status = resp.effects.as_ref().map(|effects| match effects.status() {
-        SuiExecutionStatus::Success => TransactionEffectsStatus::Success,
-        SuiExecutionStatus::Failure { error } => TransactionEffectsStatus::Failure {
-            error: error.clone(),
+    Ok(TransactionResponse {
+        digest: resp.digest,
+        checkpoint: resp.checkpoint,
+        timestamp_ms: resp.timestamp_ms,
+        raw_transaction: resp.raw_transaction,
+        balance_changes: resp
+            .balance_changes
+            .map(|changes| {
+                changes
+                    .into_iter()
+                    .map(|c| {
+                        Ok(BalanceChange {
+                            address: c.owner.get_owner_address().map_err(Box::new)?,
+                            coin_type: c.coin_type,
+                            amount: c.amount,
+                        })
+                    })
+                    .collect::<SuiClientResult<Vec<_>>>()
+            })
+            .transpose()?,
+        events: resp
+            .events
+            .map(|e| e.data.into_iter().map(EventEnvelope::from).collect()),
+    })
+}
+
+/// Convert a JSON-RPC [`SuiTransactionBlockResponse`] to our execute-path
+/// [`ExecuteTransactionResponse`].
+fn convert_sui_execute_response(
+    resp: SuiTransactionBlockResponse,
+) -> SuiClientResult<ExecuteTransactionResponse> {
+    let effects_status = match resp.effects.as_ref() {
+        Some(effects) => match effects.status() {
+            SuiExecutionStatus::Success => TransactionEffectsStatus::Success,
+            SuiExecutionStatus::Failure { error } => TransactionEffectsStatus::Failure {
+                error: error.clone(),
+            },
         },
-    });
+        None => {
+            return Err(anyhow::anyhow!(
+                "no effects in execute transaction response for digest {}",
+                resp.digest
+            )
+            .into());
+        }
+    };
 
     let object_changes = resp.object_changes.map(|changes| {
         changes
@@ -2418,11 +2463,10 @@ fn convert_sui_response_to_transaction_response(
             .collect()
     });
 
-    Ok(TransactionResponse {
+    Ok(ExecuteTransactionResponse {
         digest: resp.digest,
         checkpoint: resp.checkpoint,
         timestamp_ms: resp.timestamp_ms,
-        raw_transaction: resp.raw_transaction,
         balance_changes: resp
             .balance_changes
             .map(|changes| {
@@ -2443,7 +2487,6 @@ fn convert_sui_response_to_transaction_response(
             .map(|e| e.data.into_iter().map(EventEnvelope::from).collect()),
         effects_status,
         object_changes,
-        errors: resp.errors,
     })
 }
 
@@ -2555,5 +2598,104 @@ impl Ord for OrderedCoin {
 impl OrderedCoin {
     fn balance(&self) -> u64 {
         self.0.balance
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sui_sdk::rpc_types::{
+        OwnedObjectRef,
+        SuiObjectRef,
+        SuiTransactionBlockEffects,
+        SuiTransactionBlockEffectsV1,
+        SuiTransactionBlockResponse,
+    };
+    use sui_types::{
+        base_types::{ObjectID, SequenceNumber, TransactionDigest},
+        digests::ObjectDigest,
+        object::Owner,
+    };
+
+    use super::*;
+
+    /// Helper to build a minimal `SuiTransactionBlockResponse` with effects
+    /// indicating success.
+    fn make_sdk_response_with_effects() -> SuiTransactionBlockResponse {
+        let gas_object = OwnedObjectRef {
+            owner: Owner::AddressOwner(SuiAddress::default()),
+            reference: SuiObjectRef {
+                object_id: ObjectID::ZERO,
+                version: SequenceNumber::from_u64(1),
+                digest: ObjectDigest::MIN,
+            },
+        };
+        SuiTransactionBlockResponse {
+            effects: Some(SuiTransactionBlockEffects::V1(
+                SuiTransactionBlockEffectsV1 {
+                    status: SuiExecutionStatus::Success,
+                    executed_epoch: 0,
+                    gas_used: Default::default(),
+                    modified_at_versions: vec![],
+                    shared_objects: vec![],
+                    transaction_digest: TransactionDigest::default(),
+                    created: vec![],
+                    mutated: vec![],
+                    unwrapped: vec![],
+                    deleted: vec![],
+                    unwrapped_then_deleted: vec![],
+                    wrapped: vec![],
+                    accumulator_events: vec![],
+                    gas_object,
+                    events_digest: None,
+                    dependencies: vec![],
+                    abort_error: None,
+                },
+            )),
+            checkpoint: Some(99),
+            object_changes: Some(vec![]),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_convert_sui_execute_response_success() {
+        let resp = make_sdk_response_with_effects();
+        let result = convert_sui_execute_response(resp).unwrap();
+        assert!(matches!(
+            result.effects_status,
+            TransactionEffectsStatus::Success
+        ));
+        assert_eq!(result.checkpoint, Some(99));
+    }
+
+    #[test]
+    fn test_convert_sui_execute_response_missing_effects() {
+        let resp = SuiTransactionBlockResponse {
+            effects: None,
+            ..Default::default()
+        };
+        let result = convert_sui_execute_response(resp);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("no effects"),
+            "expected 'no effects' in error, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_convert_sui_read_response() {
+        let resp = SuiTransactionBlockResponse {
+            raw_transaction: vec![1, 2, 3],
+            checkpoint: Some(10),
+            timestamp_ms: Some(12345),
+            ..Default::default()
+        };
+        let result = convert_sui_response_to_transaction_response(resp).unwrap();
+        assert_eq!(result.raw_transaction, vec![1, 2, 3]);
+        assert_eq!(result.checkpoint, Some(10));
+        assert_eq!(result.timestamp_ms, Some(12345));
+        assert!(result.balance_changes.is_none());
+        assert!(result.events.is_none());
     }
 }

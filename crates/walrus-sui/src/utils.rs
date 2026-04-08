@@ -52,7 +52,7 @@ use crate::{
     coin::Coin,
     config::load_wallet_context_from_path,
     contracts::{AssociatedContractStruct, MoveConversionError},
-    types::{ObjectChangeEntry, TransactionResponse},
+    types::{ExecuteTransactionResponse, ObjectChangeEntry},
     wallet::Wallet,
 };
 
@@ -127,9 +127,9 @@ pub(crate) fn get_package_id_from_object(object: &sui_types::object::Object) -> 
 /// Gets the objects of the given type that were created in a transaction.
 ///
 /// All the object ids of the objects created in the transaction, and of type represented by the
-/// `struct_tag`, are taken from the [`TransactionResponse`].
+/// `struct_tag`, are taken from the [`ExecuteTransactionResponse`].
 pub(crate) fn get_created_sui_object_ids_by_type(
-    response: &TransactionResponse,
+    response: &ExecuteTransactionResponse,
     struct_tag: &StructTag,
 ) -> Result<Vec<ObjectID>> {
     match response.object_changes.as_ref() {
@@ -153,8 +153,8 @@ pub(crate) fn get_created_sui_object_ids_by_type(
             })
             .collect()),
         None => Err(anyhow!(
-            "No object changes in transaction response: {:?}",
-            response.errors
+            "no object changes in transaction response for digest {}",
+            response.digest
         )),
     }
 }

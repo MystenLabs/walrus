@@ -13,6 +13,7 @@ use super::{
     CertifyAndExtendBlobResult,
     ConfirmationCertificate,
     EpochCount,
+    ExecuteTransactionResponse,
     HashMap,
     InvalidBlobCertificate,
     Level,
@@ -30,7 +31,6 @@ use super::{
     SuiContractClient,
     SuiContractClientInner,
     SystemError,
-    TransactionResponse,
     anyhow,
     contracts,
     ensure,
@@ -689,11 +689,6 @@ impl SuiContractClientInner {
             .sign_and_send_transaction(transaction, "certify_blobs")
             .await?;
 
-        if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to certify blobs on Sui");
-            return Err(anyhow!("could not certify blob: {:?}", res.errors).into());
-        }
-
         if post_store != PostStoreAction::Share {
             return Ok(HashMap::new());
         }
@@ -962,11 +957,6 @@ impl SuiContractClientInner {
             .sign_and_send_transaction(transaction, "certify_and_extend_blobs")
             .await?;
 
-        if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to certify/extend blobs on Sui");
-            return Err(anyhow!("could not certify/extend blob: {:?}", res.errors).into());
-        }
-
         let post_store_action_results = self
             .get_post_store_action_results(&res, certify_and_extend_parameters, &post_store)
             .await
@@ -993,7 +983,7 @@ impl SuiContractClientInner {
     /// Helper function to create a mapping from blob IDs to shared blob object IDs.
     async fn get_post_store_action_results(
         &self,
-        res: &TransactionResponse,
+        res: &ExecuteTransactionResponse,
         certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
         post_store: &PostStoreAction,
     ) -> SuiClientResult<Vec<PostStoreActionResult>> {

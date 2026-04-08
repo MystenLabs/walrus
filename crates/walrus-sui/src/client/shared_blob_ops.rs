@@ -6,6 +6,7 @@ use super::{
     BlobId,
     CertifyAndExtendBlobParams,
     EpochCount,
+    ExecuteTransactionResponse,
     GetSharedBlobResult,
     HashMap,
     ObjectID,
@@ -14,7 +15,6 @@ use super::{
     SuiClientResult,
     SuiContractClient,
     SuiContractClientInner,
-    TransactionResponse,
     WalrusPtbBuilder,
     contracts,
     ensure,
@@ -147,7 +147,7 @@ impl SuiContractClientInner {
     pub(crate) async fn get_share_blob_result(
         &self,
         certify_and_extend_parameters: &[CertifyAndExtendBlobParams<'_>],
-        res: &TransactionResponse,
+        res: &ExecuteTransactionResponse,
     ) -> SuiClientResult<Vec<PostStoreActionResult>> {
         match self
             .get_shared_blob_mapping(certify_and_extend_parameters, res)
@@ -183,7 +183,7 @@ impl SuiContractClientInner {
     async fn get_shared_blob_mapping(
         &self,
         params: &[CertifyAndExtendBlobParams<'_>],
-        res: &TransactionResponse,
+        res: &ExecuteTransactionResponse,
     ) -> SuiClientResult<HashMap<ObjectID, ObjectID>> {
         let object_ids = get_created_sui_object_ids_by_type(
             res,
@@ -212,7 +212,7 @@ impl SuiContractClientInner {
     /// Helper function to create a mapping from blob IDs to shared blob object IDs.
     pub(crate) async fn create_blob_id_to_shared_mapping(
         &self,
-        res: &TransactionResponse,
+        res: &ExecuteTransactionResponse,
         blobs_ids: &[BlobId],
     ) -> SuiClientResult<HashMap<BlobId, ObjectID>> {
         let object_ids = get_created_sui_object_ids_by_type(

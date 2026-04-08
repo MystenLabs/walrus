@@ -49,6 +49,7 @@ pub use committee::SuiCommitteeInfo;
 pub mod transaction;
 pub use transaction::{
     BalanceChange,
+    ExecuteTransactionResponse,
     ObjectChangeEntry,
     TransactionEffectsStatus,
     TransactionResponse,
