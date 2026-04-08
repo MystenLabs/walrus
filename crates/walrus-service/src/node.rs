@@ -3464,12 +3464,12 @@ impl StorageNodeInner {
         shard_map_lock: StorageShardLock,
     ) -> Result<(), anyhow::Error> {
         let this = self.clone();
-        tokio::task::spawn_blocking(move || async move {
+        tokio::task::spawn_blocking(move || {
             this.storage
                 .create_storage_for_shards_locked(shard_map_lock, &new_shards)
         })
         .in_current_span()
-        .await?
+        .map(unwrap_or_resume_unwind)
         .await?;
         Ok(())
     }
