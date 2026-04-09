@@ -9,15 +9,24 @@ use anyhow::{Context, Result, bail};
 use bincode::Options;
 use clap::{Subcommand, ValueEnum};
 use rocksdb::{
-    BottommostLevelCompaction, ColumnFamilyDescriptor, CompactOptions, DB, DBRecoveryMode,
-    Options as RocksdbOptions, ReadOptions, WaitForCompactOptions, properties,
+    BottommostLevelCompaction,
+    ColumnFamilyDescriptor,
+    CompactOptions,
+    DB,
+    DBRecoveryMode,
+    Options as RocksdbOptions,
+    ReadOptions,
+    WaitForCompactOptions,
+    properties,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
 use typed_store::rocks::be_fix_int_ser;
 use walrus_core::{
-    BlobId, Epoch, ShardIndex,
+    BlobId,
+    Epoch,
+    ShardIndex,
     metadata::{BlobMetadata, BlobMetadataApi},
 };
 
@@ -30,21 +39,37 @@ use crate::{
     node::{
         DatabaseConfig,
         event_blob_writer::{
-            AttestedEventBlobMetadata, CertifiedEventBlobMetadata, FailedToAttestEventBlobMetadata,
-            PendingEventBlobMetadata, attested_cf_name, certified_cf_name,
-            failed_to_attest_cf_name, pending_cf_name,
+            AttestedEventBlobMetadata,
+            CertifiedEventBlobMetadata,
+            FailedToAttestEventBlobMetadata,
+            PendingEventBlobMetadata,
+            attested_cf_name,
+            certified_cf_name,
+            failed_to_attest_cf_name,
+            pending_cf_name,
         },
         storage::{
-            PrimarySliverData, SecondarySliverData,
+            PrimarySliverData,
+            SecondarySliverData,
             blob_info::{
-                BlobInfo, CertifiedBlobInfoApi, PerObjectBlobInfo, blob_info_cf_options,
-                per_object_blob_info_cf_options, per_object_pooled_blob_info_cf_options,
+                BlobInfo,
+                CertifiedBlobInfoApi,
+                PerObjectBlobInfo,
+                blob_info_cf_options,
+                per_object_blob_info_cf_options,
+                per_object_pooled_blob_info_cf_options,
             },
             constants::{
-                aggregate_blob_info_cf_name, event_cursor_cf_name, event_index_cf_name,
-                garbage_collector_table_cf_name, metadata_cf_name, node_status_cf_name,
-                per_object_blob_info_cf_name, per_object_pooled_blob_info_cf_name,
-                primary_slivers_column_family_name, secondary_slivers_column_family_name,
+                aggregate_blob_info_cf_name,
+                event_cursor_cf_name,
+                event_index_cf_name,
+                garbage_collector_table_cf_name,
+                metadata_cf_name,
+                node_status_cf_name,
+                per_object_blob_info_cf_name,
+                per_object_pooled_blob_info_cf_name,
+                primary_slivers_column_family_name,
+                secondary_slivers_column_family_name,
                 storage_pool_info_cf_name,
             },
         },
