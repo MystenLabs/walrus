@@ -4,7 +4,7 @@
 use std::{
     sync::{
         Arc,
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicI64, AtomicU32, Ordering},
     },
     time::Duration,
 };
@@ -14,14 +14,42 @@ use crate::node::metrics::NodeMetricSet;
 // Poll interval for checking pending background events.
 pub(crate) const PENDING_EVENTS_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
-/// A utility struct that wraps an `Arc<AtomicU32>` for tracking pending events.
-/// Provides convenient `inc()` and `dec()` methods that return the new value.
-#[derive(Default, Debug, Clone)]
+/// Tracks pending background tasks and the highest event index whose background processing has
+/// completed.
+#[derive(Debug, Clone)]
 pub struct PendingEventCounter {
     inner: Arc<AtomicU32>,
+    highest_processed_event_index: Arc<AtomicI64>,
+}
+
+impl Default for PendingEventCounter {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(AtomicU32::new(0)),
+            highest_processed_event_index: Arc::new(AtomicI64::new(-1)),
+        }
+    }
 }
 
 impl PendingEventCounter {
+    pub(crate) fn reset_highest_processed_event_index(&self, metrics: &NodeMetricSet) {
+        self.highest_processed_event_index
+            .store(-1, Ordering::SeqCst);
+        metrics.reset_highest_background_processed_event_index();
+    }
+
+    pub(crate) fn observe_processed_event(&self, event_index: u64, metrics: &NodeMetricSet) {
+        let event_index = event_index
+            .try_into()
+            .expect("event index should fit in i64");
+        let previous_highest = self
+            .highest_processed_event_index
+            .fetch_max(event_index, Ordering::SeqCst);
+        if event_index > previous_highest {
+            metrics.set_highest_background_processed_event_index(event_index);
+        }
+    }
+
     /// Increments the counter and returns a guard that will decrement it when dropped.
     #[must_use]
     pub(crate) fn track_event(&self, metrics: Arc<NodeMetricSet>) -> PendingEventGuard {
@@ -90,5 +118,33 @@ impl Drop for PendingEventGuard {
         self.metrics
             .pending_processing_blob_events_in_background_processors
             .set(current_pending_event_count.into());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use walrus_utils::metrics::Registry;
+
+    use super::PendingEventCounter;
+    use crate::node::metrics::NodeMetricSet;
+
+    #[test]
+    fn tracks_highest_processed_event_index() {
+        let metrics = Arc::new(NodeMetricSet::new(&Registry::default()));
+        let pending_event_counter = PendingEventCounter::default();
+        pending_event_counter.reset_highest_processed_event_index(metrics.as_ref());
+
+        assert_eq!(metrics.highest_background_processed_event_index(), -1);
+
+        pending_event_counter.observe_processed_event(12, metrics.as_ref());
+        assert_eq!(metrics.highest_background_processed_event_index(), 12);
+
+        pending_event_counter.observe_processed_event(7, metrics.as_ref());
+        assert_eq!(metrics.highest_background_processed_event_index(), 12);
+
+        pending_event_counter.observe_processed_event(20, metrics.as_ref());
+        assert_eq!(metrics.highest_background_processed_event_index(), 20);
     }
 }

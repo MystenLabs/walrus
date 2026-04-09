@@ -122,6 +122,10 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of Walrus events processed"]
         event_cursor_progress: U64GaugeVec["state"],
 
+        #[help = "Highest event index whose background blob-event processing has completed, or -1 \
+        if none have completed yet"]
+        event_highest_background_processed_index: IntGauge[],
+
         #[help = "The number of blob recoveries currently pending"]
         recover_blob_backlog: IntGaugeVec["state"],
 
@@ -276,6 +280,19 @@ walrus_utils::metrics::define_metric_set! {
 }
 
 impl NodeMetricSet {
+    pub fn set_highest_background_processed_event_index(&self, index: i64) {
+        self.event_highest_background_processed_index.set(index);
+    }
+
+    pub fn reset_highest_background_processed_event_index(&self) {
+        self.set_highest_background_processed_event_index(-1);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn highest_background_processed_event_index(&self) -> i64 {
+        self.event_highest_background_processed_index.get()
+    }
+
     pub fn started_processing_event(&self, position: CheckpointEventPosition) {
         self.set_event_position(position, STATUS_IN_PROGRESS);
     }
