@@ -3,6 +3,8 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
+use anyhow::Context as _;
+use futures::FutureExt as _;
 use sui_macros::fail_point_async;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use walrus_core::{BlobId, Epoch};
@@ -12,6 +14,7 @@ use walrus_utils::metrics::monitored_scope;
 use self::pending_events::{PendingEventCounter, PendingEventGuard};
 use super::{StorageNodeInner, blob_sync::BlobSyncHandler, metrics, system_events::EventHandle};
 use crate::{
+    common::utils::unwrap_or_resume_unwind,
     event::events::CheckpointEventPosition,
     node::{
         storage::blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
@@ -204,9 +207,29 @@ impl BackgroundEventProcessor {
             }
         );
 
+        let is_certified = {
+            let storage = self.node.storage.clone();
+            let blob_id = blob_id;
+            let epoch = self.node.current_committee_epoch();
+            tokio::task::spawn_blocking(move || {
+                storage
+                    .get_blob_info(&blob_id)
+                    .context("could not retrieve blob info")
+                    .map(|info| info.is_some_and(|info| info.is_certified(epoch)))
+            })
+            .map(unwrap_or_resume_unwind)
+            .await?
+        };
+        let is_catching_up = {
+            let storage = self.node.storage.clone();
+            tokio::task::spawn_blocking(move || storage.node_status())
+                .map(unwrap_or_resume_unwind)
+                .await?
+                .is_catching_up()
+        };
         if skip_blob_sync_in_test
-            || !self.node.is_blob_certified(&blob_id)?
-            || self.node.storage.node_status()?.is_catching_up()
+            || !is_certified
+            || is_catching_up
             || (current_event_epoch.is_some()
                 && self
                     .node
@@ -265,7 +288,13 @@ impl BackgroundEventProcessor {
         let current_committee_epoch = self.node.current_committee_epoch();
         tracing::Span::current().record("walrus.epoch", current_committee_epoch);
 
-        if let Some(blob_info) = self.node.storage.get_blob_info(&blob_id)? {
+        let blob_info = {
+            let storage = self.node.storage.clone();
+            tokio::task::spawn_blocking(move || storage.get_blob_info(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await?
+        };
+        if let Some(blob_info) = blob_info {
             if !blob_info.is_certified(current_committee_epoch) {
                 self.node
                     .blob_retirement_notifier
@@ -295,21 +324,25 @@ impl BackgroundEventProcessor {
             } else {
                 tracing::debug!("not deleting data for deleted blob");
             }
-        } else if self
-            .node
-            .storage
-            .node_status()?
-            .is_catching_up_with_incomplete_history()
-        {
-            tracing::debug!(
-                "handling a `BlobDeleted` event for an untracked blob while catching up with \
-                incomplete history; not deleting blob data"
-            );
         } else {
-            tracing::debug!(
-                "handling a `BlobDeleted` event for an untracked blob; this can happen when \
-                re-processing events after a node restart"
-            );
+            let is_catching_up_incomplete = {
+                let storage = self.node.storage.clone();
+                tokio::task::spawn_blocking(move || storage.node_status())
+                    .map(unwrap_or_resume_unwind)
+                    .await?
+                    .is_catching_up_with_incomplete_history()
+            };
+            if is_catching_up_incomplete {
+                tracing::debug!(
+                    "handling a `BlobDeleted` event for an untracked blob while catching up \
+                    with incomplete history; not deleting blob data"
+                );
+            } else {
+                tracing::debug!(
+                    "handling a `BlobDeleted` event for an untracked blob; this can happen \
+                    when re-processing events after a node restart"
+                );
+            }
         }
 
         event_handle.mark_as_complete();
