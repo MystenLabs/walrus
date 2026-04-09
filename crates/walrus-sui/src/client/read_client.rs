@@ -62,6 +62,8 @@ use crate::{
         move_structs::{
             Blob,
             BlobAttribute,
+            BlobBucket,
+            BlobBucketInnerV1,
             BlobWithAttribute,
             Credits,
             EpochState,
@@ -71,6 +73,7 @@ use crate::{
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
+            StoragePoolInnerV1,
             SubsidiesInnerKey,
             SystemObjectForDeserialization,
             SystemStateInnerV1,
@@ -1213,6 +1216,60 @@ impl SuiReadClient {
             .inner
             .ok_or_else(|| anyhow!("could not retrieve inner subsidies object"))?
             .last_subsidized)
+    }
+
+    /// Returns the package ID of the blob bucket package corresponding to the given bucket object.
+    pub(crate) async fn blob_bucket_package_id(
+        &self,
+        bucket_object_id: ObjectID,
+    ) -> SuiClientResult<ObjectID> {
+        self.sui_client
+            .get_package_id_from_object(bucket_object_id)
+            .await
+    }
+
+    /// Returns the object ID of the storage pool backing the given blob bucket.
+    pub(crate) async fn get_blob_bucket_storage_pool_id(
+        &self,
+        bucket_object_id: ObjectID,
+    ) -> SuiClientResult<ObjectID> {
+        Ok(self
+            .get_blob_bucket_inner(bucket_object_id)
+            .await?
+            .storage_pool
+            .id)
+    }
+
+    /// Returns the inner storage pool state backing the given blob bucket.
+    pub(crate) async fn get_blob_bucket_storage_pool_inner(
+        &self,
+        bucket_object_id: ObjectID,
+    ) -> SuiClientResult<StoragePoolInnerV1> {
+        let storage_pool = self
+            .get_blob_bucket_inner(bucket_object_id)
+            .await?
+            .storage_pool;
+        self.sui_client
+            .get_dynamic_field::<u64, StoragePoolInnerV1>(
+                storage_pool.id,
+                TypeTag::U64,
+                storage_pool.version,
+            )
+            .await
+    }
+
+    async fn get_blob_bucket_inner(
+        &self,
+        bucket_object_id: ObjectID,
+    ) -> SuiClientResult<BlobBucketInnerV1> {
+        let bucket: BlobBucket = self.sui_client.get_sui_object(bucket_object_id).await?;
+        self.sui_client
+            .get_dynamic_field::<u64, BlobBucketInnerV1>(
+                bucket_object_id,
+                TypeTag::U64,
+                bucket.version,
+            )
+            .await
     }
 }
 

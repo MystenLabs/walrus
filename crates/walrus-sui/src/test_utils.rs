@@ -848,6 +848,18 @@ impl TestNodeKeys {
         self.certificate_for_signers(&confirmation, signers)
     }
 
+    /// Returns a storage confirmation certificate with the provided persistence type.
+    pub fn blob_certificate_for_signers_with_persistence(
+        &self,
+        signers: &[u16],
+        blob_id: BlobId,
+        epoch: Epoch,
+        persistence_type: BlobPersistenceType,
+    ) -> anyhow::Result<ConfirmationCertificate> {
+        let confirmation = Confirmation::new(epoch, blob_id, persistence_type);
+        self.certificate_for_signers(&confirmation, signers)
+    }
+
     /// Returns a certificate from the test committee that marks `blob_id` as invalid, signed
     /// by the nodes with indices in `signers`.
     pub fn invalid_blob_certificate_for_signers(

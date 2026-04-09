@@ -82,6 +82,8 @@ fn project_root_dir() -> anyhow::Result<PathBuf> {
 pub struct SystemContext {
     /// The package ID of the walrus contracts.
     pub walrus_pkg_id: ObjectID,
+    /// The package ID of the blob bucket contracts.
+    pub blob_bucket_pkg_id: Option<ObjectID>,
     /// The ID of the system Object.
     pub system_object: ObjectID,
     /// The ID of the staking Object.
@@ -202,6 +204,7 @@ pub async fn create_and_init_system(
     let n_shards = init_system_params.n_shards;
     let PublishSystemPackageResult {
         walrus_pkg_id,
+        blob_bucket_pkg_id,
         init_cap_id,
         upgrade_cap_id,
         wal_exchange_pkg_id,
@@ -286,6 +289,7 @@ pub async fn create_and_init_system(
     Ok((
         SystemContext {
             walrus_pkg_id,
+            blob_bucket_pkg_id,
             system_object,
             staking_object,
             upgrade_manager_object,

@@ -238,7 +238,27 @@ pub mod system {
 pub mod storage_pool {
 
     contract_ident!(struct storage_pool::StoragePool);
+    contract_ident!(struct storage_pool::StoragePoolInnerV1);
     contract_ident!(struct storage_pool::PooledBlob);
+}
+
+/// Module for tags corresponding to the Move module `blob_bucket`.
+pub mod blob_bucket {
+
+    contract_ident!(struct blob_bucket::BlobBucket);
+    contract_ident!(struct blob_bucket::BlobBucketCap);
+    contract_ident!(fn blob_bucket::new);
+    contract_ident!(fn blob_bucket::register_blob);
+    contract_ident!(fn blob_bucket::certify_blob);
+    contract_ident!(fn blob_bucket::delete_blob);
+    contract_ident!(fn blob_bucket::extend_storage_pool);
+    contract_ident!(fn blob_bucket::increase_storage_pool_capacity);
+}
+
+/// Module for tags corresponding to the Move module `blob_bucket_inner_v1`.
+pub mod blob_bucket_inner_v1 {
+
+    contract_ident!(struct blob_bucket_inner_v1::BlobBucketInnerV1);
 }
 
 /// Module for tags corresponding to the Move module `system_state_inner`.

@@ -718,6 +718,22 @@ pub struct ExtendBlobOutput {
     pub epochs_extended: EpochCount,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// The output of the `walrus create-bucket` command.
+pub struct CreateBucketOutput {
+    /// The shared blob bucket object ID.
+    pub blob_bucket_object_id: ObjectID,
+    /// The blob bucket capability object ID.
+    pub blob_bucket_cap_object_id: ObjectID,
+    /// The backing storage pool object ID.
+    pub storage_pool_id: ObjectID,
+    /// The initial reserved encoded capacity in bytes.
+    pub reserved_encoded_capacity_bytes: u64,
+    /// The number of epochs ahead reserved for the bucket.
+    pub epochs_ahead: EpochCount,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// The health information of a storage node.

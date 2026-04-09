@@ -65,6 +65,7 @@ use crate::{
     utils::{TEN_THOUSAND_BASIS_POINTS, price_for_encoded_length, write_price_for_encoded_length},
 };
 
+mod blob_bucket_ops;
 mod owned_blob_ops;
 mod shared_blob_ops;
 

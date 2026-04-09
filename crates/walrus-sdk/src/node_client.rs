@@ -66,7 +66,13 @@ use walrus_core::{
 };
 use walrus_storage_node_client::{UploadIntent, api::BlobStatus, error::NodeError};
 use walrus_sui::{
-    client::{CertifyAndExtendBlobResult, ExpirySelectionPolicy, ReadClient, SuiContractClient},
+    client::{
+        BlobBucketHandle,
+        CertifyAndExtendBlobResult,
+        ExpirySelectionPolicy,
+        ReadClient,
+        SuiContractClient,
+    },
     types::{
         Blob,
         BlobEvent,
@@ -100,7 +106,7 @@ use crate::{
         quilt_client::QuiltClient,
         refresh::{CommitteesRefresherHandle, RequestKind, are_current_previous_different},
         resource::{PriceComputation, ResourceManager},
-        responses::{BlobStoreResult, BlobStoreResultWithPath},
+        responses::{BlobBucketStoreResult, BlobStoreResult, BlobStoreResultWithPath},
         upload_relay_client::UploadRelayClient,
     },
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
@@ -2879,6 +2885,60 @@ mod internal {
                 Ok(results.into_iter().map(|blob| blob.state).collect())
             }
         }
+
+        /// Encodes the blobs, stores them in the specified blob bucket, uploads the slivers to the
+        /// storage nodes, and certifies the pooled blobs.
+        fn reserve_and_store_blobs_in_bucket_inner(
+            &self,
+            walrus_store_blobs: Vec<
+                WalrusStoreBlobMaybeFinished<UnencodedBlob, BlobBucketStoreResult>,
+            >,
+            blob_bucket: BlobBucketHandle,
+            store_args: &StoreArgs,
+        ) -> impl Future<Output = ClientResult<Vec<BlobBucketStoreResult>>> + Send {
+            async move {
+                let blobs_count = walrus_store_blobs.len();
+                if blobs_count == 0 {
+                    tracing::debug!("no blobs provided to bucket store");
+                    return Ok(vec![]);
+                }
+                let start = Instant::now();
+
+                let upload_relay_client = store_args.upload_relay_client.clone();
+                let encoding_event_tx = store_args.encoding_event_tx.clone();
+                let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
+                    encode_blobs(
+                        walrus_store_blobs,
+                        upload_relay_client,
+                        encoding_event_tx.as_ref(),
+                    )
+                })
+                .await
+                .map_err(ClientError::other)??;
+                let (encoded_blobs, mut results) =
+                    client_types::partition_unfinished_finished(maybe_encoded_blobs);
+                store_args.maybe_observe_encoding_latency(start.elapsed());
+
+                let client = self.client().await?;
+
+                if !encoded_blobs.is_empty() {
+                    tracing::debug!(
+                        backend = ?client.blob_bucket_store_backend(blob_bucket).kind(),
+                        "selected blob bucket store backend"
+                    );
+                    let backend = client.blob_bucket_store_backend(blob_bucket);
+                    let store_results = backend
+                        .reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                        .await?;
+                    results.extend(store_results);
+                }
+
+                debug_assert_eq!(results.len(), blobs_count);
+                results.sort_by_key(|blob| blob.common.identifier.to_string());
+
+                Ok(results.into_iter().map(|blob| blob.state).collect())
+            }
+        }
     }
 }
 
@@ -3000,6 +3060,43 @@ impl StoreBlobsApi for WalrusNodeClient<SuiContractClient> {
     }
 }
 
+/// A trait containing functions to store blobs into a blob bucket.
+pub trait StoreBlobsInBucketApi: StoreBlobsApi + Sized {
+    /// Stores a list of blobs into the specified blob bucket.
+    ///
+    /// Unlike the owned-blob store path, this does not automatically retry across epoch changes:
+    /// pooled blob registration is not idempotent, so an automatic full retry could create
+    /// duplicate pooled blobs in the bucket.
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    fn reserve_and_store_blobs_in_bucket(
+        &self,
+        blobs: Vec<Vec<u8>>,
+        blob_bucket: BlobBucketHandle,
+        store_args: &StoreArgs,
+    ) -> impl Future<Output = ClientResult<Vec<BlobBucketStoreResult>>> + Send {
+        async {
+            let walrus_store_blobs =
+                WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
+                    blobs,
+                    vec![],
+                    self.encoding_config()
+                        .await?
+                        .get_for_type(store_args.encoding_type),
+                );
+            self.reserve_and_store_blobs_in_bucket_inner(
+                walrus_store_blobs,
+                blob_bucket,
+                store_args,
+            )
+            .await
+        }
+    }
+}
+
+impl StoreBlobsInBucketApi for WalrusNodeClientCreatedInBackground<SuiContractClient> {}
+
+impl StoreBlobsInBucketApi for WalrusNodeClient<SuiContractClient> {}
+
 /// Encodes multiple blobs.
 ///
 /// Returns a list of WalrusStoreBlob as the encoded result. The return list
@@ -3007,11 +3104,11 @@ impl StoreBlobsApi for WalrusNodeClient<SuiContractClient> {
 /// A WalrusStoreBlob::Encoded is returned if the blob is encoded successfully.
 /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
 #[tracing::instrument(skip_all, fields(count = walrus_store_blobs.len()))]
-pub fn encode_blobs(
-    walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
+pub fn encode_blobs<F: client_types::WalrusStoreFinalResultApi>(
+    walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob, F>>,
     upload_relay_client: Option<Arc<UploadRelayClient>>,
     encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
-) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<EncodedBlob>>> {
+) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<EncodedBlob, F>>> {
     let total_blobs_count = walrus_store_blobs.len();
     if total_blobs_count == 0 {
         return Ok(Vec::new());
