@@ -1142,12 +1142,24 @@ impl Storage {
             .shard_storage(shard)
             .await
             .ok_or(anyhow::anyhow!("shard {shard} does not exist"))?;
-        let blob_id = *blob_id;
-        Ok(
-            tokio::task::spawn_blocking(move || shard_storage.is_sliver_pair_stored(&blob_id))
-                .map(utils::unwrap_or_resume_unwind)
-                .await?,
-        )
+
+        // In msim, the consistency check calls this via futures::executor::block_on
+        // (inside an outer spawn_blocking), where nested spawn_blocking is not
+        // supported. Fall back to a direct call there; the outer spawn_blocking
+        // already keeps the work off the tokio runtime.
+        #[cfg(msim)]
+        {
+            Ok(shard_storage.is_sliver_pair_stored(blob_id)?)
+        }
+        #[cfg(not(msim))]
+        {
+            let blob_id = *blob_id;
+            Ok(
+                tokio::task::spawn_blocking(move || shard_storage.is_sliver_pair_stored(&blob_id))
+                    .map(utils::unwrap_or_resume_unwind)
+                    .await?,
+            )
+        }
     }
 
     /// Returns a list of identifiers of the shards that store their
