@@ -185,6 +185,7 @@ pub enum DbToolCommands {
 
     /// Open the RocksDB database read-only with a selectable WAL recovery mode and report what
     /// data is visible without persisting any recovery result.
+    #[command(hide = true)]
     ProbeRecovery {
         /// Path to the RocksDB database directory.
         #[arg(long)]
@@ -200,6 +201,7 @@ pub enum DbToolCommands {
 
     /// Open the RocksDB database read-write with a selectable WAL recovery mode and persist the
     /// recovery result without starting the full node.
+    #[command(hide = true)]
     RecoverDb {
         /// Path to the RocksDB database directory.
         #[arg(long)]
@@ -1263,13 +1265,23 @@ fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use clap::{CommandFactory, Parser};
+
     use super::{
+        DbToolCommands,
         ProbeDbKind,
         detect_probe_db_kind,
         event_processor_constants,
         parse_shard_cf_name,
     };
     use crate::node::storage::constants::{aggregate_blob_info_cf_name, metadata_cf_name};
+
+    #[derive(Parser)]
+    #[command(rename_all = "kebab-case")]
+    struct DbToolArgs {
+        #[command(subcommand)]
+        command: DbToolCommands,
+    }
 
     #[test]
     fn detect_storage_probe_db() {
@@ -1305,5 +1317,38 @@ mod tests {
         );
         assert_eq!(parse_shard_cf_name("metadata"), None);
         assert_eq!(parse_shard_cf_name("shard-x/primary-slivers"), None);
+    }
+
+    #[test]
+    fn recovery_commands_are_hidden_from_help() {
+        let mut command = DbToolArgs::command();
+        let help = command.render_long_help().to_string();
+
+        assert!(!help.contains("probe-recovery"));
+        assert!(!help.contains("recover-db"));
+    }
+
+    #[test]
+    fn hidden_recovery_commands_still_parse() {
+        let probe = DbToolArgs::try_parse_from([
+            "db-tool",
+            "probe-recovery",
+            "--db-path",
+            "/tmp/testdb",
+        ])
+        .expect("hidden probe-recovery command should still parse");
+        assert!(matches!(
+            probe.command,
+            DbToolCommands::ProbeRecovery { .. }
+        ));
+
+        let recover = DbToolArgs::try_parse_from([
+            "db-tool",
+            "recover-db",
+            "--db-path",
+            "/tmp/testdb",
+        ])
+        .expect("hidden recover-db command should still parse");
+        assert!(matches!(recover.command, DbToolCommands::RecoverDb { .. }));
     }
 }
