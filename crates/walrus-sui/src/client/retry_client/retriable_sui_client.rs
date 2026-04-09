@@ -1959,7 +1959,7 @@ impl RetriableSuiClient {
                     let transaction_data = transaction_data.clone();
                     async move {
                         client
-                            .simulate_transaction_for_gas_grpc(&transaction_data)
+                            .simulate_transaction_for_gas_grpc(&transaction_data)?
                             .await
                     }
                 },
@@ -2074,7 +2074,7 @@ impl RetriableSuiClient {
                                     &transaction,
                                 )?;
                             }
-                            client.execute_transaction_grpc(&transaction).await
+                            client.execute_transaction_grpc(&transaction)?.await
                         }
                     },
                     self.metrics.clone(),

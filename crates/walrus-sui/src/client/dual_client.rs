@@ -698,15 +698,18 @@ impl DualClient {
     pub fn execute_transaction_grpc(
         &self,
         transaction: &Transaction,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<ExecuteTransactionResponse, SuiClientError>>
-                + Send
-                + '_,
+    ) -> Result<
+        std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<ExecuteTransactionResponse, SuiClientError>>
+                    + Send
+                    + '_,
+            >,
         >,
+        SuiClientError,
     > {
         let tx_data_bytes = bcs::to_bytes(transaction.transaction_data())
-            .expect("TransactionData serialization cannot fail");
+            .context("failed to BCS-serialize TransactionData")?;
         let proto_tx =
             ProtoTransaction::default().with_bcs(Bcs::default().with_value(tx_data_bytes));
         let proto_sigs: Vec<ProtoUserSignature> = transaction
@@ -721,7 +724,7 @@ impl DualClient {
         let sender = transaction.transaction_data().sender();
         let mut grpc_client = self.grpc_client.clone();
 
-        Box::pin(async move {
+        Ok(Box::pin(async move {
             let request = ExecuteTransactionRequest::new(proto_tx)
                 .with_signatures(proto_sigs)
                 .with_read_mask(FieldMask::from_paths(&[
@@ -761,7 +764,7 @@ impl DualClient {
                 .context("no transaction in execute_transaction response")?;
 
             execute_response_to_transaction_response(&executed_tx, sender)
-        })
+        }))
     }
 
     /// Simulate a transaction via gRPC for gas estimation purposes.
@@ -771,15 +774,22 @@ impl DualClient {
     pub fn simulate_transaction_for_gas_grpc(
         &self,
         transaction_data: &TransactionData,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<GasCostSummary, SuiClientError>> + Send + '_>,
+    ) -> Result<
+        std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<GasCostSummary, SuiClientError>>
+                    + Send
+                    + '_,
+            >,
+        >,
+        SuiClientError,
     > {
         let tx_bytes =
-            bcs::to_bytes(transaction_data).expect("TransactionData serialization cannot fail");
+            bcs::to_bytes(transaction_data).context("failed to BCS-serialize TransactionData")?;
         let proto_tx = ProtoTransaction::default().with_bcs(Bcs::default().with_value(tx_bytes));
         let mut grpc_client = self.grpc_client.clone();
 
-        Box::pin(async move {
+        Ok(Box::pin(async move {
             let request =
                 SimulateTransactionRequest::new(proto_tx).with_read_mask(FieldMask::from_paths(&[
                     ExecutedTransaction::path_builder()
@@ -808,7 +818,7 @@ impl DualClient {
                 storage_rebate: gas_used.storage_rebate.unwrap_or(0),
                 non_refundable_storage_fee: gas_used.non_refundable_storage_fee.unwrap_or(0),
             })
-        })
+        }))
     }
 }
 
