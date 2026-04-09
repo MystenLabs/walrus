@@ -3224,10 +3224,16 @@ impl StorageNodeInner {
             );
         }
 
-        if shard_storage
-            .is_sliver_type_stored(metadata.blob_id(), sliver.r#type())
-            .context("database error when checking sliver existence")?
-        {
+        let is_stored = {
+            let shard = shard_storage.clone();
+            let blob_id = *metadata.blob_id();
+            let sliver_type = sliver.r#type();
+            tokio::task::spawn_blocking(move || shard.is_sliver_type_stored(&blob_id, sliver_type))
+                .map(unwrap_or_resume_unwind)
+                .await
+                .context("database error when checking sliver existence")?
+        };
+        if is_stored {
             return Ok(None);
         }
 
@@ -3458,6 +3464,8 @@ impl StorageNodeInner {
         }
     }
 
+    /// Note: if the parent future is dropped, the `spawn_blocking` task runs to completion
+    /// and holds the `StorageShardLock` until shard creation finishes.
     async fn create_storage_for_shards_in_background(
         self: &Arc<Self>,
         new_shards: Vec<ShardIndex>,
@@ -3525,6 +3533,8 @@ impl StorageNodeInner {
         }
     }
 
+    /// Note: This is intentionally kept synchronous because it is only called from
+    /// `is_blob_not_certified`, which runs from within rayon `par_iter_mut` in `cancel_syncs`.
     fn is_blob_certified(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
         Ok(self
             .storage
@@ -4728,7 +4738,14 @@ impl ServiceState for StorageNodeInner {
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
             .await?;
 
-        match shard_storage.is_sliver_stored::<A>(blob_id) {
+        let is_stored = {
+            let shard = shard_storage.clone();
+            let blob_id = *blob_id;
+            tokio::task::spawn_blocking(move || shard.is_sliver_stored::<A>(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await
+        };
+        match is_stored {
             Ok(true) => Ok(StoredOnNodeStatus::Stored),
             Ok(false) => {
                 if self

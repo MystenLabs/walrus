@@ -1138,11 +1138,16 @@ impl Storage {
         blob_id: &BlobId,
         shard: ShardIndex,
     ) -> anyhow::Result<bool> {
-        Ok(self
+        let shard_storage = self
             .shard_storage(shard)
             .await
-            .ok_or(anyhow::anyhow!("shard {shard} does not exist"))?
-            .is_sliver_pair_stored(blob_id)?)
+            .ok_or(anyhow::anyhow!("shard {shard} does not exist"))?;
+        let blob_id = *blob_id;
+        Ok(
+            tokio::task::spawn_blocking(move || shard_storage.is_sliver_pair_stored(&blob_id))
+                .map(utils::unwrap_or_resume_unwind)
+                .await?,
+        )
     }
 
     /// Returns a list of identifiers of the shards that store their
@@ -1171,6 +1176,10 @@ impl Storage {
 
     /// Handles a sync shard request. The validity of the request should be checked before calling
     /// this function.
+    ///
+    /// Note: the blocking batch fetch runs inside `spawn_blocking`. If the parent future is
+    /// dropped, the blocking task runs to completion — this is intentional to avoid partial
+    /// iterator state.
     pub async fn handle_sync_shard_request(
         &self,
         request: &SyncShardRequest,

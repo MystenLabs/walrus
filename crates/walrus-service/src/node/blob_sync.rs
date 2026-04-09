@@ -887,7 +887,14 @@ impl BlobSynchronizer {
 
             Span::current().record("walrus.sliver.pair_index", field::display(sliver_id));
 
-            if shard_storage.is_sliver_stored::<A>(&self.blob_id)? {
+            let is_stored = {
+                let shard = shard_storage.clone();
+                let blob_id = self.blob_id;
+                tokio::task::spawn_blocking(move || shard.is_sliver_stored::<A>(&blob_id))
+                    .map(utils::unwrap_or_resume_unwind)
+                    .await?
+            };
+            if is_stored {
                 tracing::debug!("not syncing sliver: already stored");
                 return Ok(false);
             }
