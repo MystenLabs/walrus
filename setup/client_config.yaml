@@ -32,4 +32,17 @@ contexts:
       # active_address: 0x0000000000000000000000000000000000000000000000000000000000000000
     rpc_urls:
       - https://fullnode.testnet.sui.io:443
+    communication_config:
+      tail_handling: detached
+      upload_mode: aggressive
+      data_in_flight_auto_tune:
+        enabled: false
+      pending_uploads_enabled: true
+      pending_upload_grace: 1000
+      confirmation_long_poll: 1000
+      optimistic_upload_max_blob_bytes: 1073741824
+      registration_delay: 1000
+      committee_change_backoff:
+        min_backoff: 1000
+        max_backoff: 30000
 default_context: testnet

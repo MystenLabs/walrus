@@ -25,6 +25,8 @@ use consistency_check::StorageNodeConsistencyCheckConfig;
 use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
 use fastcrypto::traits::KeyPair;
+#[cfg(not(msim))]
+use futures::stream::FuturesUnordered;
 use futures::{
     FutureExt as _,
     StreamExt,
@@ -2806,36 +2808,78 @@ impl StorageNodeInner {
         shard_storages: &[(ShardIndex, Arc<ShardStorage>)],
         check: fn(&ShardStorage, &BlobId) -> Result<bool, TypedStoreError>,
     ) -> anyhow::Result<Option<ShardIndex>> {
-        const MAX_CONCURRENT_SHARD_STORAGE_CHECKS: usize = 4;
-
-        let thread_pool = self.thread_pool.clone();
-        let mut checks = Vec::with_capacity(shard_storages.len());
-        for (shard, shard_storage) in shard_storages {
-            let shard = *shard;
-            let shard_storage = Arc::clone(shard_storage);
-            let thread_pool = thread_pool.clone();
-
-            checks.push(async move {
-                let passed = thread_pool
-                    .oneshot(move || check(shard_storage.as_ref(), &blob_id))
-                    .map(thread_pool::unwrap_or_resume_panic)
-                    .await
-                    .map_err(anyhow::Error::from)?;
-                Ok::<_, anyhow::Error>((shard, passed))
-            });
+        #[cfg(msim)]
+        {
+            for (shard, shard_storage) in shard_storages {
+                let passed =
+                    check(shard_storage.as_ref(), &blob_id).map_err(anyhow::Error::from)?;
+                if !passed {
+                    return Ok(Some(*shard));
+                }
+            }
+            return Ok(None);
         }
 
-        let mut checks = stream::iter(checks).buffer_unordered(MAX_CONCURRENT_SHARD_STORAGE_CHECKS);
+        #[cfg(not(msim))]
+        {
+            const MAX_CONCURRENT_SHARD_STORAGE_CHECKS: usize = 4;
 
-        while let Some(result) = checks.next().await {
-            match result {
-                Ok((shard, false)) => return Ok(Some(shard)),
-                Ok((_shard, true)) => continue,
-                Err(error) => return Err(error),
+            let thread_pool = self.thread_pool.clone();
+            let make_check = |shard: ShardIndex, shard_storage: Arc<ShardStorage>| {
+                let thread_pool = thread_pool.clone();
+
+                async move {
+                    let passed = thread_pool
+                        .oneshot(move || check(shard_storage.as_ref(), &blob_id))
+                        .map(thread_pool::unwrap_or_resume_panic)
+                        .await
+                        .map_err(anyhow::Error::from)?;
+                    Ok::<_, anyhow::Error>((shard, passed))
+                }
+            };
+
+            let mut shard_iter = shard_storages.iter();
+            let mut checks = FuturesUnordered::new();
+            for _ in 0..MAX_CONCURRENT_SHARD_STORAGE_CHECKS {
+                let Some((shard, shard_storage)) = shard_iter.next() else {
+                    break;
+                };
+                checks.push(make_check(*shard, Arc::clone(shard_storage)));
+            }
+
+            let mut first_failed_shard = None;
+            let mut first_error = None;
+
+            while let Some(result) = checks.next().await {
+                match result {
+                    Ok((shard, false)) if first_failed_shard.is_none() => {
+                        first_failed_shard = Some(shard);
+                    }
+                    Ok((_shard, true)) => {}
+                    Err(error) if first_error.is_none() => {
+                        first_error = Some(error);
+                    }
+                    Err(_) => {}
+                    Ok((_, false)) => {}
+                }
+
+                // `oneshot()` schedules detached blocking work underneath. Once a shard check
+                // fails, stop enqueueing new probes but still drain the ones already started so
+                // we don't leave background work behind.
+                if first_failed_shard.is_none()
+                    && first_error.is_none()
+                    && let Some((shard, shard_storage)) = shard_iter.next()
+                {
+                    checks.push(make_check(*shard, Arc::clone(shard_storage)));
+                }
+            }
+
+            if let Some(error) = first_error {
+                Err(error)
+            } else {
+                Ok(first_failed_shard)
             }
         }
-
-        Ok(None)
     }
 
     #[tracing::instrument(skip_all)]
