@@ -1522,7 +1522,7 @@ mod tests {
         co
     }
 
-    const COIN_TYPE: &str = "0x2::coin::Coin<0x2::sui::SUI>";
+    const SUI_COIN_OBJECT_TYPE: &str = "0x2::coin::Coin<0x2::sui::SUI>";
 
     #[test]
     fn test_execute_response_success() {
@@ -1617,7 +1617,7 @@ mod tests {
             changed_object::IdOperation::Created,
             changed_object::OutputObjectState::ObjectWrite,
             None,
-            Some(COIN_TYPE),
+            Some(SUI_COIN_OBJECT_TYPE),
             None,
         );
         let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
@@ -1652,7 +1652,7 @@ mod tests {
             changed_object::IdOperation::None,
             changed_object::OutputObjectState::ObjectWrite,
             Some(changed_object::InputObjectState::Exists),
-            Some(COIN_TYPE),
+            Some(SUI_COIN_OBJECT_TYPE),
             None,
         );
         let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
@@ -1666,7 +1666,7 @@ mod tests {
             changed_object::IdOperation::Deleted,
             changed_object::OutputObjectState::DoesNotExist,
             Some(changed_object::InputObjectState::Exists),
-            Some(COIN_TYPE),
+            Some(SUI_COIN_OBJECT_TYPE),
             None,
         );
         let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
@@ -1680,7 +1680,7 @@ mod tests {
             changed_object::IdOperation::None,
             changed_object::OutputObjectState::DoesNotExist,
             Some(changed_object::InputObjectState::Exists),
-            Some(COIN_TYPE),
+            Some(SUI_COIN_OBJECT_TYPE),
             None,
         );
         let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
@@ -1744,7 +1744,7 @@ mod tests {
         // Provide the type via ObjectSet fallback.
         let mut obj = Object::default();
         obj.object_id = Some(object_id.to_string());
-        obj.object_type = Some(COIN_TYPE.to_string());
+        obj.object_type = Some(SUI_COIN_OBJECT_TYPE.to_string());
         let mut object_set = ObjectSet::default();
         object_set.objects = vec![obj];
 
