@@ -54,9 +54,10 @@ fun resolve_or_create_returns_existing_bucket_object_id() {
     );
     let existing_id = object::id(&bucket_object_ref);
 
-    let resolved_id = bucket_object_registry::resolve_or_create_bucket_object(
-        &mut registry,
+    let resolved_id = blob_bucket::resolve_or_create_bucket_object(
+        &blob_bucket,
         &blob_bucket_cap,
+        &mut registry,
         b"index.html".to_string(),
         ctx,
     );
@@ -77,7 +78,7 @@ fun resolve_or_create_returns_existing_bucket_object_id() {
     );
 }
 
-#[test, expected_failure(abort_code = bucket_object_registry::EInvalidBlobBucketCap)]
+#[test, expected_failure(abort_code = blob_bucket::EInvalidBlobBucketCap)]
 fun resolve_or_create_requires_matching_blob_bucket_cap() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
@@ -100,9 +101,10 @@ fun resolve_or_create_requires_matching_blob_bucket_cap() {
     );
     let mut registry = bucket_object_registry::new_for_testing(object::id(&left_blob_bucket), ctx);
 
-    bucket_object_registry::resolve_or_create_bucket_object(
-        &mut registry,
+    blob_bucket::resolve_or_create_bucket_object(
+        &left_blob_bucket,
         &right_blob_bucket_cap,
+        &mut registry,
         b"index.html".to_string(),
         ctx,
     );
@@ -140,9 +142,10 @@ fun rename_object_if_match_updates_registry_lookup() {
     );
     let bucket_object_id = object::id(&bucket_object_ref);
 
-    bucket_object_registry::rename_object_if_match(
-        &mut registry,
+    blob_bucket::rename_object_if_match(
+        &blob_bucket,
         &blob_bucket_cap,
+        &mut registry,
         &mut bucket_object_ref,
         b"object-etag-v1".to_string(),
         b"home.html".to_string(),
@@ -264,10 +267,10 @@ fun register_and_finalize_initial_object_version(
     ctx: &mut TxContext,
 ) {
     let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
-    bucket_object::put_object_if_absent_and_register(
-        bucket_object_ref,
+    blob_bucket::put_object_if_absent_and_register(
         blob_bucket,
         blob_bucket_cap,
+        bucket_object_ref,
         system,
         ROOT_HASH,
         SIZE,
@@ -285,7 +288,7 @@ fun register_and_finalize_initial_object_version(
 
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
     certify_blob_in_bucket(blob_bucket, system, blob_id, sk);
-    bucket_object::finalize_pending_version_if_certified_for_testing(bucket_object_ref, blob_bucket);
+    blob_bucket::finalize_pending_version_if_certified(blob_bucket, bucket_object_ref);
 }
 
 fun certify_blob_in_bucket(
