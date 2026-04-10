@@ -7,16 +7,17 @@ module blob_bucket::bucket_object_registry_tests;
 use blob_bucket::{blob_bucket, blob_bucket_inner_v1};
 use blob_bucket::{
     bucket_object,
-    bucket_object_inner_v1,
     bucket_object_registry,
     object_headers,
     object_metadata,
     object_tags,
     object_version,
 };
+use std::string::String;
 use std::unit_test::assert_eq;
 use wal::wal::WAL;
 use sui::coin::Coin;
+use sui::vec_map;
 use walrus::{
     blob,
     encoding,
@@ -34,7 +35,7 @@ const N_COINS: u64 = 1_000_000_000;
 const WRITE_PAYMENT: u64 = 100_000_000_000;
 
 #[test]
-fun resolve_or_create_returns_existing_bucket_object_id() {
+fun resolve_or_create_creates_entry_once() {
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
     let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
@@ -47,30 +48,30 @@ fun resolve_or_create_returns_existing_bucket_object_id() {
         ctx,
     );
     let mut registry = bucket_object_registry::new_for_testing(object::id(&blob_bucket), ctx);
-    let bucket_object_ref = bucket_object_registry::create_bucket_object_for_testing(
-        &mut registry,
-        b"index.html".to_string(),
-        ctx,
-    );
-    let existing_id = object::id(&bucket_object_ref);
+    let key = b"index.html".to_string();
 
-    let resolved_id = blob_bucket::resolve_or_create_bucket_object(
+    let created = blob_bucket::resolve_or_create_bucket_object(
         &blob_bucket,
         &blob_bucket_cap,
         &mut registry,
-        b"index.html".to_string(),
-        ctx,
+        key,
+    );
+    let created_again = blob_bucket::resolve_or_create_bucket_object(
+        &blob_bucket,
+        &blob_bucket_cap,
+        &mut registry,
+        key,
     );
 
-    assert_eq!(resolved_id, existing_id);
-    assert_eq!(
-        bucket_object_registry::resolve(&registry, &b"index.html".to_string()),
-        option::some(existing_id),
-    );
+    assert!(created);
+    assert!(!created_again);
+    let object_entry = blob_bucket::resolve_object(&blob_bucket, &registry, &key).destroy_some();
+    assert_eq!(bucket_object::generation(&object_entry), 0);
+    assert!(!bucket_object::has_current_version(&object_entry));
+    assert!(!bucket_object::has_pending_version(&object_entry));
 
     destroy_registry_fixture(
         registry,
-        vector[bucket_object_ref],
         blob_bucket,
         blob_bucket_cap,
         pool_payment,
@@ -106,7 +107,6 @@ fun resolve_or_create_requires_matching_blob_bucket_cap() {
         &right_blob_bucket_cap,
         &mut registry,
         b"index.html".to_string(),
-        ctx,
     );
 
     abort
@@ -127,43 +127,38 @@ fun rename_object_if_match_updates_registry_lookup() {
         ctx,
     );
     let mut registry = bucket_object_registry::new_for_testing(object::id(&blob_bucket), ctx);
-    let mut bucket_object_ref = bucket_object_registry::create_bucket_object_for_testing(
-        &mut registry,
-        b"index.html".to_string(),
-        ctx,
-    );
+    let source_key = b"index.html".to_string();
+
     register_and_finalize_initial_object_version(
-        &mut bucket_object_ref,
+        &mut registry,
+        source_key,
         &mut blob_bucket,
         &blob_bucket_cap,
         &mut system,
         &sk,
         ctx,
     );
-    let bucket_object_id = object::id(&bucket_object_ref);
 
     blob_bucket::rename_object_if_match(
         &blob_bucket,
         &blob_bucket_cap,
         &mut registry,
-        &mut bucket_object_ref,
+        source_key,
         b"object-etag-v1".to_string(),
         b"home.html".to_string(),
     );
 
-    assert_eq!(bucket_object::key(&bucket_object_ref), b"home.html".to_string());
     assert_eq!(
-        bucket_object_registry::resolve(&registry, &b"index.html".to_string()),
+        blob_bucket::resolve_object(&blob_bucket, &registry, &b"index.html".to_string()),
         option::none(),
     );
     assert_eq!(
-        bucket_object_registry::resolve(&registry, &b"home.html".to_string()),
-        option::some(bucket_object_id),
+        blob_bucket::current_object_etag(&blob_bucket, &registry, &b"home.html".to_string()),
+        option::some(b"object-etag-v1".to_string()),
     );
 
     destroy_registry_fixture(
         registry,
-        vector[bucket_object_ref],
         blob_bucket,
         blob_bucket_cap,
         pool_payment,
@@ -186,71 +181,58 @@ fun copy_object_if_absent_reuses_live_payload_and_attributes() {
         ctx,
     );
     let mut registry = bucket_object_registry::new_for_testing(object::id(&blob_bucket), ctx);
-    let mut source = bucket_object_registry::create_bucket_object_for_testing(
-        &mut registry,
-        b"index.html".to_string(),
-        ctx,
-    );
+    let source_key = b"index.html".to_string();
+    let destination_key = b"app.js".to_string();
+
     register_and_finalize_initial_object_version(
-        &mut source,
+        &mut registry,
+        source_key,
         &mut blob_bucket,
         &blob_bucket_cap,
         &mut system,
         &sk,
         ctx,
     );
-    let source_blob_id = object_version::blob_id(bucket_object::current_version(&source));
-    let source_pooled_blob_object_id = object_version::pooled_blob_object_id(
-        bucket_object::current_version(&source),
-    );
-    let source_content_etag = object_version::content_etag(bucket_object::current_version(&source));
 
-    let copied = bucket_object_registry::copy_object_if_absent_for_testing(
+    let source_version = blob_bucket::current_version(&blob_bucket, &registry, &source_key)
+        .destroy_some();
+    let created = blob_bucket::copy_object_if_absent(
+        &blob_bucket,
+        &blob_bucket_cap,
         &mut registry,
-        &source,
-        b"app.js".to_string(),
+        source_key,
+        destination_key,
         b"object-etag-copy".to_string(),
-        ctx,
     );
-    let copied_id = object::id(&copied);
+    let copied_version = blob_bucket::current_version(&blob_bucket, &registry, &destination_key)
+        .destroy_some();
 
-    assert_eq!(bucket_object::key(&copied), b"app.js".to_string());
-    assert_eq!(bucket_object::generation(&copied), 1);
-    assert_eq!(object_version::blob_id(bucket_object::current_version(&copied)), source_blob_id);
+    assert!(created);
+    assert_eq!(object_version::generation(&copied_version), 1);
+    assert_eq!(object_version::blob_id(&copied_version), object_version::blob_id(&source_version));
     assert_eq!(
-        object_version::pooled_blob_object_id(bucket_object::current_version(&copied)),
-        source_pooled_blob_object_id,
+        object_version::pooled_blob_object_id(&copied_version),
+        object_version::pooled_blob_object_id(&source_version),
     );
     assert_eq!(
-        object_version::content_etag(bucket_object::current_version(&copied)),
-        source_content_etag,
+        object_version::content_etag(&copied_version),
+        object_version::content_etag(&source_version),
     );
     assert_eq!(
-        object_version::object_etag(bucket_object::current_version(&copied)),
+        object_version::object_etag(&copied_version),
         b"object-etag-copy".to_string(),
     );
     assert_eq!(
-        object_metadata::try_get(
-            &object_version::metadata(bucket_object::current_version(&copied)),
-            &b"site".to_string(),
-        ),
+        object_metadata::try_get(&object_version::metadata(&copied_version), &b"site".to_string()),
         option::some(b"marketing".to_string()),
     );
     assert_eq!(
-        object_tags::try_get(
-            &object_version::tags(bucket_object::current_version(&copied)),
-            &b"env".to_string(),
-        ),
+        object_tags::try_get(&object_version::tags(&copied_version), &b"env".to_string()),
         option::some(b"prod".to_string()),
-    );
-    assert_eq!(
-        bucket_object_registry::resolve(&registry, &b"app.js".to_string()),
-        option::some(copied_id),
     );
 
     destroy_registry_fixture(
         registry,
-        vector[source, copied],
         blob_bucket,
         blob_bucket_cap,
         pool_payment,
@@ -259,7 +241,8 @@ fun copy_object_if_absent_reuses_live_payload_and_attributes() {
 }
 
 fun register_and_finalize_initial_object_version(
-    bucket_object_ref: &mut bucket_object::BucketObject,
+    registry: &mut bucket_object_registry::BucketObjectRegistry,
+    key: String,
     blob_bucket: &mut blob_bucket::BlobBucket,
     blob_bucket_cap: &blob_bucket::BlobBucketCap,
     system: &mut system::System,
@@ -270,7 +253,8 @@ fun register_and_finalize_initial_object_version(
     blob_bucket::put_object_if_absent_and_register(
         blob_bucket,
         blob_bucket_cap,
-        bucket_object_ref,
+        registry,
+        key,
         system,
         ROOT_HASH,
         SIZE,
@@ -288,7 +272,7 @@ fun register_and_finalize_initial_object_version(
 
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
     certify_blob_in_bucket(blob_bucket, system, blob_id, sk);
-    blob_bucket::finalize_pending_version_if_certified(blob_bucket, bucket_object_ref);
+    blob_bucket::finalize_pending_version_if_certified(blob_bucket, registry, key);
 }
 
 fun certify_blob_in_bucket(
@@ -298,7 +282,11 @@ fun certify_blob_in_bucket(
     sk: &vector<u8>,
 ) {
     let object_id = blob_bucket::get_blob_object_id(blob_bucket, blob_id);
-    let confirmation_message = messages::certified_deletable_message_bytes(EPOCH, blob_id, object_id);
+    let confirmation_message = messages::certified_deletable_message_bytes(
+        EPOCH,
+        blob_id,
+        object_id,
+    );
     let signature = bls_min_pk_sign(&confirmation_message, sk);
     blob_bucket::certify_blob(
         blob_bucket,
@@ -312,23 +300,13 @@ fun certify_blob_in_bucket(
 
 fun destroy_registry_fixture(
     registry: bucket_object_registry::BucketObjectRegistry,
-    bucket_objects: vector<bucket_object::BucketObject>,
     blob_bucket: blob_bucket::BlobBucket,
     blob_bucket_cap: blob_bucket::BlobBucketCap,
     pool_payment: Coin<WAL>,
     system: system::System,
 ) {
-    let mut bucket_objects = bucket_objects;
-    while (!bucket_objects.is_empty()) {
-        let bucket_object_ref = bucket_objects.pop_back();
-        let inner = bucket_object::destroy_for_testing(bucket_object_ref);
-        bucket_object_inner_v1::destroy_for_testing(inner);
-    };
-    bucket_objects.destroy_empty();
     bucket_object_registry::destroy_for_testing(registry);
-
-    let blob_bucket_inner = blob_bucket::destroy_for_testing(blob_bucket);
-    let pool = blob_bucket_inner_v1::destroy_for_testing(blob_bucket_inner);
+    let pool = blob_bucket_inner_v1::destroy_for_testing(blob_bucket::destroy_for_testing(blob_bucket));
     blob_bucket::destroy_cap_for_testing(blob_bucket_cap);
     storage_pool::destroy_for_testing(pool);
     pool_payment.burn_for_testing();
@@ -339,22 +317,20 @@ fun html_headers(): object_headers::ObjectHeaders {
     object_headers::new_for_testing(
         option::some(b"text/html".to_string()),
         option::none(),
-        option::some(b"en".to_string()),
+        option::some(b"en-US".to_string()),
         option::none(),
         option::some(b"public, max-age=60".to_string()),
     )
 }
 
 fun html_metadata(): object_metadata::ObjectMetadata {
-    let mut metadata = object_metadata::empty();
-    object_metadata::insert_or_update(&mut metadata, b"site".to_string(), b"marketing".to_string());
-    object_metadata::insert_or_update(&mut metadata, b"owner".to_string(), b"walrus".to_string());
-    metadata
+    let mut entries = vec_map::empty();
+    entries.insert(b"site".to_string(), b"marketing".to_string());
+    object_metadata::new_for_testing(entries)
 }
 
 fun html_tags(): object_tags::ObjectTags {
-    let mut tags = object_tags::empty();
-    object_tags::insert_or_update(&mut tags, b"env".to_string(), b"prod".to_string());
-    object_tags::insert_or_update(&mut tags, b"surface".to_string(), b"web".to_string());
-    tags
+    let mut entries = vec_map::empty();
+    entries.insert(b"env".to_string(), b"prod".to_string());
+    object_tags::new_for_testing(entries)
 }
