@@ -43,6 +43,8 @@ const ECurrentVersionMissing: u64 = 9;
 const EObjectEtagMismatch: u64 = 10;
 /// The current version cannot be updated because it does not point to a live blob.
 const ECurrentVersionHasNoBlob: u64 = 11;
+/// The provided blob bucket capability does not belong to this bucket object's linked bucket.
+const EInvalidBlobBucketCap: u64 = 12;
 
 public struct BucketObject has key {
     id: UID,
@@ -50,8 +52,11 @@ public struct BucketObject has key {
 }
 
 /// Creates and shares a new bucket object bound to the provided blob bucket ID and key.
-public fun new(blob_bucket_id: ID, key: String, ctx: &mut TxContext): ID {
-    share(new_unshared(blob_bucket_id, key, ctx))
+public(package) fun new(blob_bucket_id: ID, key: String, ctx: &mut TxContext): ID {
+    let bucket_object = new_unshared(blob_bucket_id, key, ctx);
+    let bucket_object_id = object::id(&bucket_object);
+    transfer::share_object(bucket_object);
+    bucket_object_id
 }
 
 #[test_only]
@@ -124,7 +129,7 @@ public fun pending_version(self: &BucketObject): &ObjectVersion {
     self.inner().pending_version()
 }
 
-public fun stage_registered_blob_version(
+public(package) fun stage_registered_blob_version(
     self: &mut BucketObject,
     blob_bucket: &BlobBucket,
     blob_id: u256,
@@ -239,11 +244,13 @@ public fun update_object_if_match_and_register(
 
 public fun update_object_attributes(
     self: &mut BucketObject,
+    blob_bucket_cap: &BlobBucketCap,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
     tags: ObjectTags,
     object_etag: String,
 ) {
+    check_blob_bucket_cap(self, blob_bucket_cap);
     let next_version = current_version_successor(
         self,
         headers,
@@ -257,6 +264,7 @@ public fun update_object_attributes(
 
 public fun update_object_attributes_if_match(
     self: &mut BucketObject,
+    blob_bucket_cap: &BlobBucketCap,
     expected_object_etag: String,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
@@ -268,10 +276,15 @@ public fun update_object_attributes_if_match(
         object_version::object_etag(self.inner().current_version()) == expected_object_etag,
         EObjectEtagMismatch,
     );
-    update_object_attributes(self, headers, metadata, tags, object_etag);
+    update_object_attributes(self, blob_bucket_cap, headers, metadata, tags, object_etag);
 }
 
-public fun delete_object(self: &mut BucketObject, object_etag: String) {
+public fun delete_object(
+    self: &mut BucketObject,
+    blob_bucket_cap: &BlobBucketCap,
+    object_etag: String,
+) {
+    check_blob_bucket_cap(self, blob_bucket_cap);
     assert!(!self.inner().has_pending_version(), EPendingVersionAlreadyExists);
     let bucket_object_id = object::id(self);
     let next_generation = self.inner().generation() + 1;
@@ -288,6 +301,7 @@ public fun delete_object(self: &mut BucketObject, object_etag: String) {
 
 public fun delete_object_if_match(
     self: &mut BucketObject,
+    blob_bucket_cap: &BlobBucketCap,
     expected_object_etag: String,
     object_etag: String,
 ) {
@@ -296,7 +310,7 @@ public fun delete_object_if_match(
         object_version::object_etag(self.inner().current_version()) == expected_object_etag,
         EObjectEtagMismatch,
     );
-    delete_object(self, object_etag);
+    delete_object(self, blob_bucket_cap, object_etag);
 }
 
 public fun finalize_pending_version_if_certified(self: &mut BucketObject, blob_bucket: &BlobBucket) {
@@ -418,6 +432,7 @@ fun register_and_stage_new_version(
     ctx: &mut TxContext,
 ) {
     assert!(object::id(blob_bucket) == self.inner().blob_bucket_id(), EBlobBucketMismatch);
+    check_blob_bucket_cap(self, blob_bucket_cap);
 
     let blob_id = blob::derive_blob_id(root_hash, encoding_type, unencoded_size);
     blob_bucket::register_blob(
@@ -471,6 +486,13 @@ fun current_live_version(self: &BucketObject): &ObjectVersion {
     let current_version = self.inner().current_version();
     assert!(object_version::has_blob(current_version), ECurrentVersionHasNoBlob);
     current_version
+}
+
+fun check_blob_bucket_cap(self: &BucketObject, blob_bucket_cap: &BlobBucketCap) {
+    assert!(
+        blob_bucket::bucket_id(blob_bucket_cap) == self.inner().blob_bucket_id(),
+        EInvalidBlobBucketCap,
+    );
 }
 
 public(package) fun copy_current_version_to(
