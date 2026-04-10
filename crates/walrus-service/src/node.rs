@@ -2852,15 +2852,17 @@ impl StorageNodeInner {
 
             while let Some(result) = checks.next().await {
                 match result {
-                    Ok((shard, false)) if first_failed_shard.is_none() => {
-                        first_failed_shard = Some(shard);
+                    Ok((shard, false)) => {
+                        if first_failed_shard.is_none() {
+                            first_failed_shard = Some(shard);
+                        }
                     }
-                    Ok((_shard, true)) => {}
-                    Err(error) if first_error.is_none() => {
-                        first_error = Some(error);
+                    Ok((_, true)) => {}
+                    Err(error) => {
+                        if first_error.is_none() {
+                            first_error = Some(error);
+                        }
                     }
-                    Err(_) => {}
-                    Ok((_, false)) => {}
                 }
 
                 // `oneshot()` schedules detached blocking work underneath. Once a shard check

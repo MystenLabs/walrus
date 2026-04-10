@@ -546,7 +546,8 @@ impl ShardStorage {
         response
     }
 
-    /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
+    /// Returns false only if the shard can prove the sliver-pair is absent.
+    /// May return true for absent sliver-pairs due to bloom-filter false positives.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub(crate) fn may_have_sliver_pair(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
         Ok(self.may_have_sliver_type(blob_id, SliverType::Primary)?

@@ -180,10 +180,15 @@ async fn test_may_contain_key() {
         db.may_contain_key(&123456789)
             .expect("Failed to call may contain key")
     );
-    assert!(
-        !db.may_contain_key(&000000000)
-            .expect("Failed to call may contain key")
-    );
+    let may_contain_absent = db
+        .may_contain_key(&000000000)
+        .expect("Failed to call may contain key");
+    if !may_contain_absent {
+        assert!(
+            !db.contains_key(&000000000)
+                .expect("Failed to call contains key for absent key")
+        );
+    }
 }
 
 #[tokio::test]
