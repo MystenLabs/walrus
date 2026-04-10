@@ -790,13 +790,11 @@ impl DualClient {
         let mut grpc_client = self.grpc_client.clone();
 
         Ok(Box::pin(async move {
-            let request =
-                SimulateTransactionRequest::new(proto_tx).with_read_mask(FieldMask::from_paths(&[
-                    ExecutedTransaction::path_builder()
-                        .effects()
-                        .gas_used()
-                        .finish(),
-                ]));
+            // Field mask paths are relative to the `SimulateTransactionResponse` message,
+            // not the inner `ExecutedTransaction` — matches usage in
+            // sui-rust-sdk/crates/sui-rpc/src/client/staking_rewards.rs.
+            let request = SimulateTransactionRequest::new(proto_tx)
+                .with_read_mask(FieldMask::from_paths(["transaction.effects.gas_used"]));
 
             let response = grpc_client
                 .execution_client()
