@@ -172,6 +172,10 @@ public(package) fun get_blob_object_id(self: &BlobBucket, blob_id: u256): ID {
     self.inner().get_blob_object_id(blob_id)
 }
 
+public(package) fun is_blob_certified(self: &BlobBucket, blob_id: u256): bool {
+    self.inner().is_blob_certified(blob_id)
+}
+
 public(package) fun end_epoch(self: &BlobBucket): u32 {
     self.inner().end_epoch()
 }
