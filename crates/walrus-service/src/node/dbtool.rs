@@ -60,7 +60,6 @@ use crate::{
                 per_object_pooled_blob_info_cf_options,
                 storage_pool_info_cf_options,
             },
-            event_cursor_cf_options,
             constants::{
                 aggregate_blob_info_cf_name,
                 event_cursor_cf_name,
@@ -74,6 +73,7 @@ use crate::{
                 secondary_slivers_column_family_name,
                 storage_pool_info_cf_name,
             },
+            event_cursor_cf_options,
         },
     },
 };

@@ -109,7 +109,10 @@ impl EventCursorTable {
     }
 
     pub fn options(db_table_opts_factory: &DatabaseTableOptionsFactory) -> (&'static str, Options) {
-        (event_cursor_cf_name(), event_cursor_cf_options(db_table_opts_factory))
+        (
+            event_cursor_cf_name(),
+            event_cursor_cf_options(db_table_opts_factory),
+        )
     }
 
     pub fn reposition_event_cursor(
