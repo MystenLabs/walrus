@@ -73,6 +73,7 @@ pub use database_config::{DatabaseConfig, DatabaseTableOptionsFactory};
 
 mod event_cursor_table;
 pub(super) use event_cursor_table::EventProgress;
+pub(crate) use event_cursor_table::event_cursor_cf_options;
 
 mod event_sequencer;
 mod metrics;
