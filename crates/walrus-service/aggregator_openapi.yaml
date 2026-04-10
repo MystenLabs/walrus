@@ -74,6 +74,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '503':
+          description: 'The requested blob is currently not retrievable from the storage network. This is a transient condition: the blob may be mid-upload, mid-expiry, or enough storage nodes may be temporarily unreachable that the client cannot reconstruct the blob or determine a definitive status. Clients should retry with backoff.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /v1/blobs/by-quilt-id/{quilt_id}/{identifier}:
     get:
       tags:
@@ -155,6 +161,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '503':
+          description: 'The requested blob is currently not retrievable from the storage network. This is a transient condition: the blob may be mid-upload, mid-expiry, or enough storage nodes may be temporarily unreachable that the client cannot reconstruct the blob or determine a definitive status. Clients should retry with backoff.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /v1/blobs/by-quilt-patch-id/{quilt_patch_id}:
     get:
       tags:
@@ -226,6 +238,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         '500':
           description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '503':
+          description: 'The requested blob is currently not retrievable from the storage network. This is a transient condition: the blob may be mid-upload, mid-expiry, or enough storage nodes may be temporarily unreachable that the client cannot reconstruct the blob or determine a definitive status. Clients should retry with backoff.'
           content:
             application/json:
               schema:
@@ -337,6 +355,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         '500':
           description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '503':
+          description: 'The requested blob is currently not retrievable from the storage network. This is a transient condition: the blob may be mid-upload, mid-expiry, or enough storage nodes may be temporarily unreachable that the client cannot reconstruct the blob or determine a definitive status. Clients should retry with backoff.'
           content:
             application/json:
               schema:
@@ -507,6 +531,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         '500':
           description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '503':
+          description: 'The requested blob is currently not retrievable from the storage network. This is a transient condition: the blob may be mid-upload, mid-expiry, or enough storage nodes may be temporarily unreachable that the client cannot reconstruct the blob or determine a definitive status. Clients should retry with backoff.'
           content:
             application/json:
               schema:
