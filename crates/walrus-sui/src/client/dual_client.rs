@@ -5,7 +5,7 @@
 //! migration from Sui JSON RPC to gRPC by gradually migrating callsites away from the JSON RPC
 //! Client [`SuiClient`].
 
-use std::time::Duration;
+use std::{future::Future, pin::Pin, time::Duration};
 
 use anyhow::Context;
 use bytes::Bytes;
@@ -13,6 +13,7 @@ use fastcrypto::encoding::{Base58, Encoding, Hex};
 use move_core_types::{account_address::AccountAddress, language_storage::StructTag};
 use sui_rpc::{
     Client as GrpcClient,
+    client::ExecuteAndWaitError,
     field::{FieldMask, FieldMaskUtil},
     proto::sui::rpc::v2::{
         BatchGetObjectsRequest,
@@ -77,6 +78,16 @@ use crate::{
 pub const MAX_GET_OBJECTS_BATCH_SIZE: usize = 100;
 const MAX_OWNED_OBJECTS_BATCH_SIZE: u32 = 1000;
 const MAX_SELECT_COINS_BATCH_SIZE: u32 = 1000;
+
+/// The maximum time to wait for a transaction to appear in a checkpoint after executing it via
+/// gRPC. This ensures read-your-writes consistency for follow-up queries against the same
+/// fullnode.
+const WAIT_FOR_CHECKPOINT_TIMEOUT: Duration = Duration::from_secs(30);
+
+type BoxedExecuteTxFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<ExecuteTransactionResponse, SuiClientError>> + Send + 'a>>;
+type BoxedGasCostFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<GasCostSummary, SuiClientError>> + Send + 'a>>;
 
 /// A client that combines the Sui SDK client and a gRPC client in order to facilitate a migration
 /// from Sui JSON RPC to gRPC by gradually migrating callsites away from [`SuiClient`].
@@ -693,21 +704,14 @@ impl DualClient {
     /// Execute a signed transaction via gRPC and convert the response to an
     /// [`ExecuteTransactionResponse`].
     ///
-    /// Uses `Box::pin` to erase the future type and avoid `Send` recursion overflow
-    /// from the deep `ExecutedTransaction` proto type tree.
+    /// Returns a boxed future (via [`BoxedExecuteTxFuture`]) so the deep `ExecutedTransaction`
+    /// proto type tree does not force the compiler to recurse checking `Send` bounds through
+    /// the caller's impl-trait chain, and so the runtime state machine for the multi-step
+    /// execute-plus-wait-for-checkpoint flow is heap-allocated rather than held on the stack.
     pub fn execute_transaction_grpc(
         &self,
         transaction: &Transaction,
-    ) -> Result<
-        std::pin::Pin<
-            Box<
-                dyn std::future::Future<Output = Result<ExecuteTransactionResponse, SuiClientError>>
-                    + Send
-                    + '_,
-            >,
-        >,
-        SuiClientError,
-    > {
+    ) -> Result<BoxedExecuteTxFuture<'_>, SuiClientError> {
         let tx_data_bytes = bcs::to_bytes(transaction.transaction_data())
             .context("failed to BCS-serialize TransactionData")?;
         let proto_tx =
@@ -722,49 +726,41 @@ impl DualClient {
             .collect();
 
         let sender = transaction.transaction_data().sender();
-        let mut grpc_client = self.grpc_client.clone();
+        let grpc_client = self.grpc_client.clone();
 
-        Ok(Box::pin(async move {
-            let request = ExecuteTransactionRequest::new(proto_tx)
-                .with_signatures(proto_sigs)
-                .with_read_mask(FieldMask::from_paths(&[
-                    ExecutedTransaction::path_builder().effects().bcs().finish(),
-                    ExecutedTransaction::path_builder()
-                        .effects()
-                        .changed_objects()
-                        .finish(),
-                    ExecutedTransaction::path_builder()
-                        .events()
-                        .events()
-                        .finish(),
-                    ExecutedTransaction::path_builder()
-                        .balance_changes()
-                        .finish(),
-                    ExecutedTransaction::path_builder().digest(),
-                    ExecutedTransaction::path_builder().checkpoint(),
-                    ExecutedTransaction::path_builder().timestamp(),
-                    ExecutedTransaction::path_builder()
-                        .objects()
-                        .objects()
-                        .object_id(),
-                    ExecutedTransaction::path_builder()
-                        .objects()
-                        .objects()
-                        .object_type(),
-                ]));
+        let request = ExecuteTransactionRequest::new(proto_tx)
+            .with_signatures(proto_sigs)
+            .with_read_mask(FieldMask::from_paths(&[
+                ExecutedTransaction::path_builder().effects().bcs().finish(),
+                ExecutedTransaction::path_builder()
+                    .effects()
+                    .changed_objects()
+                    .finish(),
+                ExecutedTransaction::path_builder()
+                    .events()
+                    .events()
+                    .finish(),
+                ExecutedTransaction::path_builder()
+                    .balance_changes()
+                    .finish(),
+                ExecutedTransaction::path_builder().digest(),
+                ExecutedTransaction::path_builder().checkpoint(),
+                ExecutedTransaction::path_builder().timestamp(),
+                ExecutedTransaction::path_builder()
+                    .objects()
+                    .objects()
+                    .object_id(),
+                ExecutedTransaction::path_builder()
+                    .objects()
+                    .objects()
+                    .object_type(),
+            ]));
 
-            let response = grpc_client
-                .execution_client()
-                .execute_transaction(request)
-                .await?;
-
-            let executed_tx = response
-                .into_inner()
-                .transaction
-                .context("no transaction in execute_transaction response")?;
-
-            execute_response_to_transaction_response(&executed_tx, sender)
-        }))
+        Ok(Box::pin(execute_transaction_and_convert(
+            grpc_client,
+            request,
+            sender,
+        )))
     }
 
     /// Simulate a transaction via gRPC for gas estimation purposes.
@@ -774,16 +770,7 @@ impl DualClient {
     pub fn simulate_transaction_for_gas_grpc(
         &self,
         transaction_data: &TransactionData,
-    ) -> Result<
-        std::pin::Pin<
-            Box<
-                dyn std::future::Future<Output = Result<GasCostSummary, SuiClientError>>
-                    + Send
-                    + '_,
-            >,
-        >,
-        SuiClientError,
-    > {
+    ) -> Result<BoxedGasCostFuture<'_>, SuiClientError> {
         let tx_bytes =
             bcs::to_bytes(transaction_data).context("failed to BCS-serialize TransactionData")?;
         let proto_tx = ProtoTransaction::default().with_bcs(Bcs::default().with_value(tx_bytes));
@@ -818,6 +805,35 @@ impl DualClient {
             })
         }))
     }
+}
+
+/// Drive the gRPC execute flow with read-your-writes consistency.
+///
+/// Delegates to `Client::execute_transaction_and_wait_for_checkpoint`, which executes the
+/// transaction and waits for it to appear in a finalized checkpoint. This is the gRPC
+/// equivalent of the JSON-RPC `WaitForLocalExecution` flag: by the time it resolves, local
+/// indexes have been committed, so a follow-up `get_object` sees the new state.
+async fn execute_transaction_and_convert(
+    mut grpc_client: GrpcClient,
+    request: ExecuteTransactionRequest,
+    sender: SuiAddress,
+) -> Result<ExecuteTransactionResponse, SuiClientError> {
+    let response = grpc_client
+        .execute_transaction_and_wait_for_checkpoint(request, WAIT_FOR_CHECKPOINT_TIMEOUT)
+        .await
+        .map_err(|error| match error {
+            ExecuteAndWaitError::RpcError(status) => SuiClientError::from(status),
+            other => SuiClientError::Internal(anyhow::anyhow!(
+                "execute_transaction_and_wait_for_checkpoint failed: {other}"
+            )),
+        })?;
+
+    let executed_tx = response
+        .into_inner()
+        .transaction
+        .context("no transaction in execute_transaction response")?;
+
+    execute_response_to_transaction_response(&executed_tx, sender)
 }
 
 async fn list_owned_objects(
