@@ -797,6 +797,19 @@ pub(crate) enum GetBlobError {
     #[rest_api_error(reason = "BLOB_NOT_FOUND", status = ApiStatusCode::NotFound)]
     BlobNotFound,
 
+    /// The requested blob is currently not retrievable from the storage network.
+    ///
+    /// This is a transient condition: the blob may be mid-upload, mid-expiry,
+    /// or enough storage nodes may be temporarily unreachable that the client
+    /// cannot reconstruct the blob or determine a definitive status. Clients
+    /// should retry with backoff.
+    #[error(
+        "the requested blob is currently not retrievable from Walrus; \
+        this may be transient — retry with backoff"
+    )]
+    #[rest_api_error(reason = "BLOB_UNAVAILABLE", status = ApiStatusCode::Unavailable)]
+    BlobUnavailable,
+
     /// The requested quilt patch does not exist on Walrus.
     #[error("the requested quilt patch does not exist on Walrus")]
     #[rest_api_error(reason = "QUILT_PATCH_NOT_FOUND", status = ApiStatusCode::NotFound)]
@@ -831,6 +844,9 @@ impl From<ClientError> for GetBlobError {
     fn from(error: ClientError) -> Self {
         match error.kind() {
             ClientErrorKind::BlobIdDoesNotExist => Self::BlobNotFound,
+            ClientErrorKind::NotEnoughSlivers
+            | ClientErrorKind::NoMetadataReceived
+            | ClientErrorKind::NoValidStatusReceived => Self::BlobUnavailable,
             ClientErrorKind::BlobIdBlocked(_) => Self::Blocked,
             ClientErrorKind::QuiltError(QuiltError::BlobsNotFoundInQuilt(_)) => {
                 Self::QuiltPatchNotFound
@@ -1848,6 +1864,7 @@ where
 mod tests {
     use axum::http::{HeaderValue, Uri};
     use serde_test::{Token, assert_de_tokens};
+    use walrus_storage_node_client::api::errors::StatusCode as ApiStatusCode;
     use walrus_test_utils::param_test;
 
     use super::*;
@@ -2135,6 +2152,33 @@ mod tests {
         // All headers should be present when no filter is applied.
         assert_eq!(headers_all.len(), 5);
         assert!(headers_all.get("not-allowed-header").is_some());
+    }
+
+    #[test]
+    fn test_get_blob_error_maps_blob_id_does_not_exist_to_not_found() {
+        let error: GetBlobError = ClientError::from(ClientErrorKind::BlobIdDoesNotExist).into();
+        assert!(matches!(error, GetBlobError::BlobNotFound));
+        assert_eq!(error.status_code(), ApiStatusCode::NotFound);
+        assert_eq!(error.status_code().http_code(), StatusCode::NOT_FOUND);
+        assert_eq!(error.reason(), "BLOB_NOT_FOUND");
+    }
+
+    param_test! {
+        test_get_blob_error_maps_transient_kinds_to_unavailable: [
+            not_enough_slivers: (ClientErrorKind::NotEnoughSlivers),
+            no_metadata_received: (ClientErrorKind::NoMetadataReceived),
+            no_valid_status_received: (ClientErrorKind::NoValidStatusReceived),
+        ]
+    }
+    fn test_get_blob_error_maps_transient_kinds_to_unavailable(kind: ClientErrorKind) {
+        let error: GetBlobError = ClientError::from(kind).into();
+        assert!(matches!(error, GetBlobError::BlobUnavailable));
+        assert_eq!(error.status_code(), ApiStatusCode::Unavailable);
+        assert_eq!(
+            error.status_code().http_code(),
+            StatusCode::SERVICE_UNAVAILABLE,
+        );
+        assert_eq!(error.reason(), "BLOB_UNAVAILABLE");
     }
 
     #[test]
