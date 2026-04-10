@@ -3,7 +3,6 @@
 
 module blob_bucket::bucket_object_registry;
 
-use blob_bucket::blob_bucket::{Self as blob_bucket, BlobBucketCap};
 use blob_bucket::bucket_object::{Self as bucket_object, BucketObject};
 use blob_bucket::bucket_object_events;
 use std::string::String;
@@ -14,7 +13,6 @@ const EKeyAlreadyExists: u64 = 1;
 const ERegistryEntryMismatch: u64 = 2;
 const EDestinationObjectExists: u64 = 3;
 const ECurrentObjectEtagMismatch: u64 = 4;
-const EInvalidBlobBucketCap: u64 = 5;
 
 public struct BucketObjectRegistry has key {
     id: UID,
@@ -22,8 +20,8 @@ public struct BucketObjectRegistry has key {
     entries: VecMap<String, ID>,
 }
 
-public fun new(blob_bucket_cap: &BlobBucketCap, ctx: &mut TxContext): ID {
-    let registry = new_for_testing(blob_bucket::bucket_id(blob_bucket_cap), ctx);
+public(package) fun new(blob_bucket_id: ID, ctx: &mut TxContext): ID {
+    let registry = new_impl(blob_bucket_id, ctx);
     let registry_id = object::id(&registry);
     transfer::share_object(registry);
     registry_id
@@ -31,6 +29,10 @@ public fun new(blob_bucket_cap: &BlobBucketCap, ctx: &mut TxContext): ID {
 
 #[test_only]
 public fun new_for_testing(blob_bucket_id: ID, ctx: &mut TxContext): BucketObjectRegistry {
+    new_impl(blob_bucket_id, ctx)
+}
+
+fun new_impl(blob_bucket_id: ID, ctx: &mut TxContext): BucketObjectRegistry {
     BucketObjectRegistry {
         id: object::new(ctx),
         blob_bucket_id,
@@ -50,13 +52,11 @@ public fun resolve(self: &BucketObjectRegistry, key: &String): option::Option<ID
     self.entries.try_get(key)
 }
 
-public fun resolve_or_create_bucket_object(
+public(package) fun resolve_or_create_bucket_object(
     self: &mut BucketObjectRegistry,
-    blob_bucket_cap: &BlobBucketCap,
     key: String,
     ctx: &mut TxContext,
 ): ID {
-    check_blob_bucket_cap(self, blob_bucket_cap);
     if (self.entries.contains(&key)) {
         *self.entries.get(&key)
     } else {
@@ -64,25 +64,21 @@ public fun resolve_or_create_bucket_object(
     }
 }
 
-public fun copy_object_if_absent(
+public(package) fun copy_object_if_absent(
     self: &mut BucketObjectRegistry,
-    blob_bucket_cap: &BlobBucketCap,
     source: &BucketObject,
     destination_key: String,
     object_etag: String,
     ctx: &mut TxContext,
 ): ID {
-    check_blob_bucket_cap(self, blob_bucket_cap);
     bucket_object::share(copy_object_if_absent_impl(self, source, destination_key, object_etag, ctx))
 }
 
-public fun rename_object(
+public(package) fun rename_object(
     self: &mut BucketObjectRegistry,
-    blob_bucket_cap: &BlobBucketCap,
     bucket_object_ref: &mut BucketObject,
     new_key: String,
 ) {
-    check_blob_bucket_cap(self, blob_bucket_cap);
     assert!(self.blob_bucket_id == bucket_object::blob_bucket_id(bucket_object_ref), EBlobBucketMismatch);
     let old_key = bucket_object::key(bucket_object_ref);
     let bucket_object_id = object::id(bucket_object_ref);
@@ -102,9 +98,8 @@ public fun rename_object(
     );
 }
 
-public fun rename_object_if_match(
+public(package) fun rename_object_if_match(
     self: &mut BucketObjectRegistry,
-    blob_bucket_cap: &BlobBucketCap,
     bucket_object_ref: &mut BucketObject,
     expected_object_etag: String,
     new_key: String,
@@ -113,7 +108,7 @@ public fun rename_object_if_match(
         bucket_object::current_object_etag(bucket_object_ref) == expected_object_etag,
         ECurrentObjectEtagMismatch,
     );
-    rename_object(self, blob_bucket_cap, bucket_object_ref, new_key);
+    rename_object(self, bucket_object_ref, new_key);
 }
 
 #[test_only]
@@ -195,14 +190,4 @@ fun copy_object_if_absent_impl(
         bucket_object::current_object_etag(&destination),
     );
     destination
-}
-
-fun check_blob_bucket_cap(
-    self: &BucketObjectRegistry,
-    blob_bucket_cap: &BlobBucketCap,
-) {
-    assert!(
-        blob_bucket::bucket_id(blob_bucket_cap) == self.blob_bucket_id,
-        EInvalidBlobBucketCap,
-    );
 }
