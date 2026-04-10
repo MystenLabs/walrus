@@ -413,13 +413,14 @@ fun emit_object_version_promoted(
 
 fun shard_index(self: &BucketObjectRegistry, key: &String): u64 {
     let bytes = string::as_bytes(key);
+    let shard_count = self.shards.length();
     let mut hash = 0;
     let mut i = 0;
     while (i < bytes.length()) {
-        hash = hash * 131 + (bytes[i] as u64);
+        hash = (hash + (bytes[i] as u64)) % shard_count;
         i = i + 1;
     };
-    hash % self.shards.length()
+    hash
 }
 
 fun shard(self: &BucketObjectRegistry, key: &String): &BucketNamespaceShard {
