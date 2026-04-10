@@ -56,6 +56,7 @@ fun resolve_or_create_returns_existing_bucket_object_id() {
 
     let resolved_id = bucket_object_registry::resolve_or_create_bucket_object(
         &mut registry,
+        &blob_bucket_cap,
         b"index.html".to_string(),
         ctx,
     );
@@ -74,6 +75,39 @@ fun resolve_or_create_returns_existing_bucket_object_id() {
         pool_payment,
         system,
     );
+}
+
+#[test, expected_failure(abort_code = bucket_object_registry::EInvalidBlobBucketCap)]
+fun resolve_or_create_requires_matching_blob_bucket_cap() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut left_pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (left_blob_bucket, _left_blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut left_pool_payment,
+        ctx,
+    );
+    let mut right_pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (_right_blob_bucket, right_blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut right_pool_payment,
+        ctx,
+    );
+    let mut registry = bucket_object_registry::new_for_testing(object::id(&left_blob_bucket), ctx);
+
+    bucket_object_registry::resolve_or_create_bucket_object(
+        &mut registry,
+        &right_blob_bucket_cap,
+        b"index.html".to_string(),
+        ctx,
+    );
+
+    abort
 }
 
 #[test]
@@ -108,6 +142,7 @@ fun rename_object_if_match_updates_registry_lookup() {
 
     bucket_object_registry::rename_object_if_match(
         &mut registry,
+        &blob_bucket_cap,
         &mut bucket_object_ref,
         b"object-etag-v1".to_string(),
         b"home.html".to_string(),

@@ -507,7 +507,11 @@ fun delete_object_promotes_delete_marker() {
         ctx,
     );
 
-    bucket_object::delete_object(&mut bucket_object, b"object-etag-delete".to_string());
+    bucket_object::delete_object(
+        &mut bucket_object,
+        &blob_bucket_cap,
+        b"object-etag-delete".to_string(),
+    );
 
     assert_eq!(bucket_object::generation(&bucket_object), 2);
     assert!(bucket_object::has_current_version(&bucket_object));
@@ -562,6 +566,7 @@ fun delete_object_if_match_requires_matching_etag() {
 
     bucket_object::delete_object_if_match(
         &mut bucket_object,
+        &blob_bucket_cap,
         b"wrong-etag".to_string(),
         b"object-etag-delete".to_string(),
     );
@@ -596,7 +601,11 @@ fun put_object_if_absent_allows_current_delete_marker() {
         &sk,
         ctx,
     );
-    bucket_object::delete_object(&mut bucket_object, b"object-etag-delete".to_string());
+    bucket_object::delete_object(
+        &mut bucket_object,
+        &blob_bucket_cap,
+        b"object-etag-delete".to_string(),
+    );
 
     let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
     bucket_object::put_object_if_absent_and_register(
@@ -715,6 +724,7 @@ fun update_object_attributes_if_match_promotes_new_generation() {
 
     bucket_object::update_object_attributes_if_match(
         &mut bucket_object,
+        &blob_bucket_cap,
         b"object-etag-v1".to_string(),
         js_headers(),
         js_metadata(),
@@ -791,6 +801,7 @@ fun update_object_attributes_if_match_requires_matching_etag() {
 
     bucket_object::update_object_attributes_if_match(
         &mut bucket_object,
+        &blob_bucket_cap,
         b"wrong-etag".to_string(),
         js_headers(),
         js_metadata(),
@@ -828,14 +839,64 @@ fun update_object_attributes_requires_live_current_blob() {
         &sk,
         ctx,
     );
-    bucket_object::delete_object(&mut bucket_object, b"object-etag-delete".to_string());
+    bucket_object::delete_object(
+        &mut bucket_object,
+        &blob_bucket_cap,
+        b"object-etag-delete".to_string(),
+    );
 
     bucket_object::update_object_attributes(
         &mut bucket_object,
+        &blob_bucket_cap,
         js_headers(),
         js_metadata(),
         js_tags(),
         b"object-etag-v2".to_string(),
+    );
+
+    abort
+}
+
+#[test, expected_failure(abort_code = bucket_object::EInvalidBlobBucketCap)]
+fun delete_object_requires_matching_blob_bucket_cap() {
+    let sk = test_utils::bls_sk_for_testing();
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
+    let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (mut blob_bucket, blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut pool_payment,
+        ctx,
+    );
+    let mut other_pool_payment = test_utils::mint_frost(N_COINS, ctx);
+    let (_other_blob_bucket, other_blob_bucket_cap) = blob_bucket::new_for_testing(
+        &mut system,
+        encoded_size,
+        3,
+        &mut other_pool_payment,
+        ctx,
+    );
+    let mut bucket_object = bucket_object::new_for_testing(
+        object::id(&blob_bucket),
+        b"index.html".to_string(),
+        ctx,
+    );
+    register_and_finalize_initial_object_version(
+        &mut bucket_object,
+        &mut blob_bucket,
+        &blob_bucket_cap,
+        &mut system,
+        &sk,
+        ctx,
+    );
+
+    bucket_object::delete_object(
+        &mut bucket_object,
+        &other_blob_bucket_cap,
+        b"object-etag-delete".to_string(),
     );
 
     abort
