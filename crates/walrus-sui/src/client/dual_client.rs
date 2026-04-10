@@ -84,9 +84,11 @@ const MAX_SELECT_COINS_BATCH_SIZE: u32 = 1000;
 /// fullnode.
 const WAIT_FOR_CHECKPOINT_TIMEOUT: Duration = Duration::from_secs(30);
 
-type BoxedExecuteTxFuture<'a> =
+/// Boxed future returned by [`DualClient::execute_transaction_grpc`].
+pub type BoxedExecuteTxFuture<'a> =
     Pin<Box<dyn Future<Output = Result<ExecuteTransactionResponse, SuiClientError>> + Send + 'a>>;
-type BoxedGasCostFuture<'a> =
+/// Boxed future returned by [`DualClient::simulate_transaction_for_gas_grpc`].
+pub type BoxedGasCostFuture<'a> =
     Pin<Box<dyn Future<Output = Result<GasCostSummary, SuiClientError>> + Send + 'a>>;
 
 /// A client that combines the Sui SDK client and a gRPC client in order to facilitate a migration
