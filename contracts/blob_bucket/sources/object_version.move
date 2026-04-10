@@ -9,7 +9,6 @@ use blob_bucket::object_tags::{Self as object_tags, ObjectTags};
 use std::string::String;
 
 public struct ObjectVersion has copy, store, drop {
-    bucket_object_id: ID,
     generation: u64,
     blob_id: option::Option<u256>,
     pooled_blob_object_id: option::Option<ID>,
@@ -23,7 +22,6 @@ public struct ObjectVersion has copy, store, drop {
 }
 
 public fun new(
-    bucket_object_id: ID,
     generation: u64,
     blob_id: u256,
     pooled_blob_object_id: ID,
@@ -36,7 +34,6 @@ public fun new(
     delete_marker: bool,
 ): ObjectVersion {
     ObjectVersion {
-        bucket_object_id,
         generation,
         blob_id: option::some(blob_id),
         pooled_blob_object_id: option::some(pooled_blob_object_id),
@@ -50,13 +47,8 @@ public fun new(
     }
 }
 
-public fun new_delete_marker(
-    bucket_object_id: ID,
-    generation: u64,
-    object_etag: String,
-): ObjectVersion {
+public fun new_delete_marker(generation: u64, object_etag: String): ObjectVersion {
     ObjectVersion {
-        bucket_object_id,
         generation,
         blob_id: option::none(),
         pooled_blob_object_id: option::none(),
@@ -72,7 +64,6 @@ public fun new_delete_marker(
 
 #[test_only]
 public fun new_for_testing(
-    bucket_object_id: ID,
     generation: u64,
     blob_id: u256,
     pooled_blob_object_id: ID,
@@ -85,7 +76,6 @@ public fun new_for_testing(
     delete_marker: bool,
 ): ObjectVersion {
     new(
-        bucket_object_id,
         generation,
         blob_id,
         pooled_blob_object_id,
@@ -101,7 +91,6 @@ public fun new_for_testing(
 
 public fun new_successor(
     self: &ObjectVersion,
-    bucket_object_id: ID,
     generation: u64,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
@@ -109,7 +98,6 @@ public fun new_successor(
     object_etag: String,
 ): ObjectVersion {
     new(
-        bucket_object_id,
         generation,
         blob_id(self),
         pooled_blob_object_id(self),
@@ -121,10 +109,6 @@ public fun new_successor(
         object_etag,
         false,
     )
-}
-
-public fun bucket_object_id(self: &ObjectVersion): ID {
-    self.bucket_object_id
 }
 
 public fun generation(self: &ObjectVersion): u64 {
@@ -174,7 +158,6 @@ public fun delete_marker(self: &ObjectVersion): bool {
 #[test_only]
 public fun destroy_for_testing(self: ObjectVersion) {
     let ObjectVersion {
-        bucket_object_id: _,
         generation: _,
         blob_id: _,
         pooled_blob_object_id: _,

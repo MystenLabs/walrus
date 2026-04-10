@@ -5,12 +5,12 @@
 module blob_bucket::blob_bucket;
 
 use blob_bucket::blob_bucket_inner_v1::{Self, BlobBucketInnerV1};
-use blob_bucket::bucket_object::{Self as bucket_object, BucketObject};
+use blob_bucket::bucket_object::ObjectEntryState;
 use blob_bucket::bucket_object_registry::{Self as bucket_object_registry, BucketObjectRegistry};
 use blob_bucket::object_headers::ObjectHeaders;
 use blob_bucket::object_metadata::ObjectMetadata;
 use blob_bucket::object_tags::ObjectTags;
-use blob_bucket::object_version;
+use blob_bucket::object_version::{Self as object_version, ObjectVersion};
 use std::string::String;
 use sui::{coin::Coin, dynamic_field as df};
 use wal::wal::WAL;
@@ -22,10 +22,8 @@ const VERSION: u64 = 1;
 const EInvalidBlobBucketCap: u64 = 0;
 /// The blob bucket object version does not match the package version.
 const EWrongVersion: u64 = 1;
-/// The provided bucket object does not belong to this blob bucket.
-const EBucketObjectMismatch: u64 = 2;
 /// The provided bucket object registry does not belong to this blob bucket.
-const EBucketObjectRegistryMismatch: u64 = 3;
+const EBucketObjectRegistryMismatch: u64 = 2;
 
 public struct BlobBucket has key {
     id: UID,
@@ -129,69 +127,60 @@ public fun create_object_registry(
     bucket_object_registry::new(object::id(self), ctx)
 }
 
+public fun contains_object(
+    self: &BlobBucket,
+    registry: &BucketObjectRegistry,
+    key: &String,
+): bool {
+    check_registry(self, registry);
+    bucket_object_registry::contains(registry, key)
+}
+
+public fun resolve_object(
+    self: &BlobBucket,
+    registry: &BucketObjectRegistry,
+    key: &String,
+): option::Option<ObjectEntryState> {
+    check_registry(self, registry);
+    bucket_object_registry::resolve(registry, key)
+}
+
+public fun current_version(
+    self: &BlobBucket,
+    registry: &BucketObjectRegistry,
+    key: &String,
+): option::Option<ObjectVersion> {
+    check_registry(self, registry);
+    bucket_object_registry::current_version(registry, key)
+}
+
+public fun pending_version(
+    self: &BlobBucket,
+    registry: &BucketObjectRegistry,
+    key: &String,
+): option::Option<ObjectVersion> {
+    check_registry(self, registry);
+    bucket_object_registry::pending_version(registry, key)
+}
+
+public fun current_object_etag(
+    self: &BlobBucket,
+    registry: &BucketObjectRegistry,
+    key: &String,
+): option::Option<String> {
+    check_registry(self, registry);
+    bucket_object_registry::current_object_etag(registry, key)
+}
+
 public fun resolve_or_create_bucket_object(
     self: &BlobBucket,
     cap: &BlobBucketCap,
     registry: &mut BucketObjectRegistry,
     key: String,
-    ctx: &mut TxContext,
-): ID {
+): bool {
     check_cap(self, cap);
     check_registry(self, registry);
-    bucket_object_registry::resolve_or_create_bucket_object(registry, key, ctx)
-}
-
-public fun copy_object_if_absent(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    source: &BucketObject,
-    destination_key: String,
-    object_etag: String,
-    ctx: &mut TxContext,
-): ID {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    check_bucket_object(self, source);
-    bucket_object_registry::copy_object_if_absent(
-        registry,
-        source,
-        destination_key,
-        object_etag,
-        ctx,
-    )
-}
-
-public fun rename_object(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    bucket_object_ref: &mut BucketObject,
-    new_key: String,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    check_bucket_object(self, bucket_object_ref);
-    bucket_object_registry::rename_object(registry, bucket_object_ref, new_key);
-}
-
-public fun rename_object_if_match(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    bucket_object_ref: &mut BucketObject,
-    expected_object_etag: String,
-    new_key: String,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    check_bucket_object(self, bucket_object_ref);
-    bucket_object_registry::rename_object_if_match(
-        registry,
-        bucket_object_ref,
-        expected_object_etag,
-        new_key,
-    );
+    bucket_object_registry::resolve_or_create_bucket_object(registry, key)
 }
 
 public fun register_blob(
@@ -224,7 +213,8 @@ public fun register_blob(
 public fun put_object_if_absent_and_register(
     self: &mut BlobBucket,
     cap: &BlobBucketCap,
-    bucket_object_ref: &mut BucketObject,
+    registry: &mut BucketObjectRegistry,
+    key: String,
     system: &mut System,
     root_hash: u256,
     unencoded_size: u64,
@@ -239,8 +229,7 @@ public fun put_object_if_absent_and_register(
     ctx: &mut TxContext,
 ) {
     check_cap(self, cap);
-    check_bucket_object(self, bucket_object_ref);
-    bucket_object::assert_can_put_object_if_absent(bucket_object_ref);
+    check_registry(self, registry);
 
     let blob_id = blob::derive_blob_id(root_hash, encoding_type, unencoded_size);
     register_blob(
@@ -255,9 +244,9 @@ public fun put_object_if_absent_and_register(
         write_payment,
         ctx,
     );
-    bucket_object::stage_registered_blob_version(
-        bucket_object_ref,
-        object::id(self),
+    bucket_object_registry::put_object_if_absent(
+        registry,
+        key,
         blob_id,
         get_blob_object_id(self, blob_id),
         unencoded_size,
@@ -272,7 +261,8 @@ public fun put_object_if_absent_and_register(
 public fun update_object_if_match_and_register(
     self: &mut BlobBucket,
     cap: &BlobBucketCap,
-    bucket_object_ref: &mut BucketObject,
+    registry: &mut BucketObjectRegistry,
+    key: String,
     system: &mut System,
     expected_object_etag: String,
     root_hash: u256,
@@ -288,11 +278,7 @@ public fun update_object_if_match_and_register(
     ctx: &mut TxContext,
 ) {
     check_cap(self, cap);
-    check_bucket_object(self, bucket_object_ref);
-    bucket_object::assert_can_update_object_if_match(
-        bucket_object_ref,
-        expected_object_etag,
-    );
+    check_registry(self, registry);
 
     let blob_id = blob::derive_blob_id(root_hash, encoding_type, unencoded_size);
     register_blob(
@@ -307,9 +293,10 @@ public fun update_object_if_match_and_register(
         write_payment,
         ctx,
     );
-    bucket_object::stage_registered_blob_version(
-        bucket_object_ref,
-        object::id(self),
+    bucket_object_registry::update_object_if_match(
+        registry,
+        key,
+        expected_object_etag,
         blob_id,
         get_blob_object_id(self, blob_id),
         unencoded_size,
@@ -324,16 +311,18 @@ public fun update_object_if_match_and_register(
 public fun update_object_attributes(
     self: &BlobBucket,
     cap: &BlobBucketCap,
-    bucket_object_ref: &mut BucketObject,
+    registry: &mut BucketObjectRegistry,
+    key: String,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
     tags: ObjectTags,
     object_etag: String,
 ) {
     check_cap(self, cap);
-    check_bucket_object(self, bucket_object_ref);
-    bucket_object::update_object_attributes(
-        bucket_object_ref,
+    check_registry(self, registry);
+    bucket_object_registry::update_object_attributes(
+        registry,
+        key,
         headers,
         metadata,
         tags,
@@ -344,7 +333,8 @@ public fun update_object_attributes(
 public fun update_object_attributes_if_match(
     self: &BlobBucket,
     cap: &BlobBucketCap,
-    bucket_object_ref: &mut BucketObject,
+    registry: &mut BucketObjectRegistry,
+    key: String,
     expected_object_etag: String,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
@@ -352,9 +342,10 @@ public fun update_object_attributes_if_match(
     object_etag: String,
 ) {
     check_cap(self, cap);
-    check_bucket_object(self, bucket_object_ref);
-    bucket_object::update_object_attributes_if_match(
-        bucket_object_ref,
+    check_registry(self, registry);
+    bucket_object_registry::update_object_attributes_if_match(
+        registry,
+        key,
         expected_object_etag,
         headers,
         metadata,
@@ -366,27 +357,78 @@ public fun update_object_attributes_if_match(
 public fun delete_object(
     self: &BlobBucket,
     cap: &BlobBucketCap,
-    bucket_object_ref: &mut BucketObject,
+    registry: &mut BucketObjectRegistry,
+    key: String,
     object_etag: String,
 ) {
     check_cap(self, cap);
-    check_bucket_object(self, bucket_object_ref);
-    bucket_object::delete_object(bucket_object_ref, object_etag);
+    check_registry(self, registry);
+    bucket_object_registry::delete_object(registry, key, object_etag);
 }
 
 public fun delete_object_if_match(
     self: &BlobBucket,
     cap: &BlobBucketCap,
-    bucket_object_ref: &mut BucketObject,
+    registry: &mut BucketObjectRegistry,
+    key: String,
     expected_object_etag: String,
     object_etag: String,
 ) {
     check_cap(self, cap);
-    check_bucket_object(self, bucket_object_ref);
-    bucket_object::delete_object_if_match(
-        bucket_object_ref,
+    check_registry(self, registry);
+    bucket_object_registry::delete_object_if_match(
+        registry,
+        key,
         expected_object_etag,
         object_etag,
+    );
+}
+
+public fun copy_object_if_absent(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    source_key: String,
+    destination_key: String,
+    object_etag: String,
+): bool {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::copy_object_if_absent(
+        registry,
+        source_key,
+        destination_key,
+        object_etag,
+    )
+}
+
+public fun rename_object(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    new_key: String,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::rename_object(registry, key, new_key);
+}
+
+public fun rename_object_if_match(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    expected_object_etag: String,
+    new_key: String,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::rename_object_if_match(
+        registry,
+        key,
+        expected_object_etag,
+        new_key,
     );
 }
 
@@ -403,17 +445,22 @@ public fun certify_blob(
 
 public fun finalize_pending_version_if_certified(
     self: &BlobBucket,
-    bucket_object_ref: &mut BucketObject,
+    registry: &mut BucketObjectRegistry,
+    key: String,
 ) {
-    check_bucket_object(self, bucket_object_ref);
-    let pending_blob_is_certified = {
-        let pending_version = bucket_object::pending_version(bucket_object_ref);
-        object_version::delete_marker(pending_version)
-            || is_blob_certified(self, object_version::blob_id(pending_version))
+    check_registry(self, registry);
+    let pending_version = bucket_object_registry::pending_version(registry, &key);
+    let pending_blob_is_certified = if (pending_version.is_some()) {
+        let pending_version = pending_version.destroy_some();
+        object_version::delete_marker(&pending_version)
+            || is_blob_certified(self, object_version::blob_id(&pending_version))
+    } else {
+        pending_version.destroy_none();
+        false
     };
-    bucket_object::finalize_pending_version_if_certified(
-        bucket_object_ref,
-        object::id(self),
+    bucket_object_registry::finalize_pending_version_if_certified(
+        registry,
+        key,
         pending_blob_is_certified,
     );
 }
@@ -491,13 +538,6 @@ fun check_cap(self: &BlobBucket, cap: &BlobBucketCap) {
     assert!(object::id(self) == cap.bucket_id, EInvalidBlobBucketCap);
 }
 
-fun check_bucket_object(self: &BlobBucket, bucket_object_ref: &BucketObject) {
-    assert!(
-        object::id(self) == bucket_object::blob_bucket_id(bucket_object_ref),
-        EBucketObjectMismatch,
-    );
-}
-
 fun check_registry(self: &BlobBucket, registry: &BucketObjectRegistry) {
     assert!(
         object::id(self) == bucket_object_registry::blob_bucket_id(registry),
@@ -518,12 +558,13 @@ fun inner_mut(self: &mut BlobBucket): &mut BlobBucketInnerV1 {
 #[test_only]
 public fun destroy_for_testing(self: BlobBucket): BlobBucketInnerV1 {
     let BlobBucket { mut id, version } = self;
-    let inner = df::remove(&mut id, version);
+    let inner = df::remove<u64, BlobBucketInnerV1>(&mut id, version);
     id.delete();
     inner
 }
 
 #[test_only]
 public fun destroy_cap_for_testing(self: BlobBucketCap) {
-    std::unit_test::destroy(self);
+    let BlobBucketCap { id, bucket_id: _ } = self;
+    id.delete();
 }
