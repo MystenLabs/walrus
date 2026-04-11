@@ -79,6 +79,7 @@ use crate::{
             EpochState,
             SharedBlob,
             StorageNode,
+            StoragePoolResource,
         },
     },
     utils::get_created_sui_object_ids_by_type,
@@ -1117,6 +1118,123 @@ impl SuiContractClient {
             .await?
             .filter(|storage| selection_policy.matches(storage.end_epoch, current_epoch))
             .collect())
+    }
+
+    // ---- Storage Pool operations ----
+
+    /// Creates a new storage pool with the specified capacity and duration.
+    /// Returns the object ID of the created `StoragePool`.
+    pub async fn create_storage_pool(
+        &self,
+        reserved_encoded_capacity_bytes: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<ObjectID> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .create_storage_pool(reserved_encoded_capacity_bytes, epochs_ahead)
+                .await
+        })
+        .await
+    }
+
+    /// Registers a pooled blob in the given storage pool.
+    /// Returns the object ID of the created `PooledBlob`.
+    pub async fn register_pooled_blob(
+        &self,
+        storage_pool_id: ObjectID,
+        blob_metadata: BlobObjectMetadata,
+        deletable: bool,
+    ) -> SuiClientResult<ObjectID> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .register_pooled_blob(storage_pool_id, blob_metadata.clone(), deletable)
+                .await
+        })
+        .await
+    }
+
+    /// Certifies a pooled blob using a confirmation certificate from storage nodes.
+    pub async fn certify_pooled_blob(
+        &self,
+        storage_pool_id: ObjectID,
+        blob_id: &BlobId,
+        certificate: &ConfirmationCertificate,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .certify_pooled_blob(storage_pool_id, blob_id, certificate)
+                .await
+        })
+        .await
+    }
+
+    /// Deletes a pooled blob from the storage pool, freeing its capacity.
+    pub async fn delete_pooled_blob(
+        &self,
+        storage_pool_id: ObjectID,
+        blob_id: &BlobId,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .delete_pooled_blob(storage_pool_id, blob_id)
+                .await
+        })
+        .await
+    }
+
+    /// Extends the lifetime of a storage pool by `extended_epochs` epochs.
+    pub async fn extend_storage_pool(
+        &self,
+        storage_pool_id: ObjectID,
+        extended_epochs: EpochCount,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .extend_storage_pool(storage_pool_id, extended_epochs)
+                .await
+        })
+        .await
+    }
+
+    /// Increases the reserved capacity of a storage pool by
+    /// `additional_encoded_capacity_bytes` for the remainder of its lifetime.
+    pub async fn increase_storage_pool_capacity(
+        &self,
+        storage_pool_id: ObjectID,
+        additional_encoded_capacity_bytes: u64,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .increase_storage_pool_capacity(storage_pool_id, additional_encoded_capacity_bytes)
+                .await
+        })
+        .await
+    }
+
+    /// Destroys an empty storage pool. The recovered `Storage` reservation is
+    /// auto-transferred to the sender's wallet by the transaction builder, mirroring
+    /// the [`Self::delete_blob`] flow.
+    pub async fn destroy_storage_pool(&self, storage_pool_id: ObjectID) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .destroy_storage_pool(storage_pool_id)
+                .await
+        })
+        .await
     }
 
     /// Deletes the specified blob from the wallet's storage.
@@ -2478,6 +2596,165 @@ impl SuiContractClientInner {
         pt_builder.delete_blob(blob_object_id.into()).await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "delete_blob")
+            .await?;
+        Ok(())
+    }
+
+    // ---- Storage Pool operations ----
+
+    /// Creates a new storage pool and returns its object ID.
+    pub async fn create_storage_pool(
+        &mut self,
+        reserved_encoded_capacity_bytes: u64,
+        epochs_ahead: EpochCount,
+    ) -> SuiClientResult<ObjectID> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .create_storage_pool(reserved_encoded_capacity_bytes, epochs_ahead)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "create_storage_pool")
+            .await?;
+        let pool_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::storage_pool::StoragePool
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            pool_ids.len() == 1,
+            "expected 1 storage pool object, got {}",
+            pool_ids.len()
+        );
+        Ok(pool_ids[0])
+    }
+
+    /// Registers a pooled blob in the given storage pool.
+    /// Returns the object ID of the created `PooledBlob`.
+    pub async fn register_pooled_blob(
+        &mut self,
+        storage_pool_id: ObjectID,
+        blob_metadata: BlobObjectMetadata,
+        deletable: bool,
+    ) -> SuiClientResult<ObjectID> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .register_pooled_blob(storage_pool_id.into(), blob_metadata, deletable)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        let res = self
+            .sign_and_send_transaction(transaction, "register_pooled_blob")
+            .await?;
+        let pooled_blob_ids = get_created_sui_object_ids_by_type(
+            &res,
+            &contracts::storage_pool::PooledBlob
+                .to_move_struct_tag_with_type_map(&self.read_client.type_origin_map(), &[])?,
+        )?;
+        ensure!(
+            pooled_blob_ids.len() == 1,
+            "expected 1 PooledBlob object, got {}",
+            pooled_blob_ids.len()
+        );
+        Ok(pooled_blob_ids[0])
+    }
+
+    /// Certifies a pooled blob.
+    pub async fn certify_pooled_blob(
+        &mut self,
+        storage_pool_id: ObjectID,
+        blob_id: &BlobId,
+        certificate: &ConfirmationCertificate,
+    ) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .certify_pooled_blob(storage_pool_id.into(), blob_id, certificate)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "certify_pooled_blob")
+            .await?;
+        Ok(())
+    }
+
+    /// Deletes a pooled blob from the storage pool.
+    pub async fn delete_pooled_blob(
+        &mut self,
+        storage_pool_id: ObjectID,
+        blob_id: &BlobId,
+    ) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .delete_pooled_blob(storage_pool_id.into(), blob_id)
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "delete_pooled_blob")
+            .await?;
+        Ok(())
+    }
+
+    /// Extends a storage pool's lifetime.
+    pub async fn extend_storage_pool(
+        &mut self,
+        storage_pool_id: ObjectID,
+        extended_epochs: EpochCount,
+    ) -> SuiClientResult<()> {
+        let pool: StoragePoolResource = self
+            .read_client
+            .retriable_sui_client()
+            .get_sui_object(storage_pool_id)
+            .await?;
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .extend_storage_pool(
+                storage_pool_id.into(),
+                extended_epochs,
+                pool.reserved_encoded_capacity_bytes,
+            )
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "extend_storage_pool")
+            .await?;
+        Ok(())
+    }
+
+    /// Increases the reserved capacity of a storage pool for the remainder of its
+    /// lifetime. Fetches the pool object and the current system epoch to derive
+    /// `remaining_epochs` for price computation.
+    pub async fn increase_storage_pool_capacity(
+        &mut self,
+        storage_pool_id: ObjectID,
+        additional_encoded_capacity_bytes: u64,
+    ) -> SuiClientResult<()> {
+        let pool: StoragePoolResource = self
+            .read_client
+            .retriable_sui_client()
+            .get_sui_object(storage_pool_id)
+            .await?;
+        let current_epoch = self.read_client.current_epoch().await?;
+        let remaining_epochs = pool.end_epoch.saturating_sub(current_epoch);
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .increase_storage_pool_capacity(
+                storage_pool_id.into(),
+                additional_encoded_capacity_bytes,
+                remaining_epochs,
+            )
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "increase_storage_pool_capacity")
+            .await?;
+        Ok(())
+    }
+
+    /// Destroys an empty storage pool. The recovered `Storage` reservation is auto-
+    /// transferred to the sender's wallet by `transfer_remaining_outputs` at build
+    /// time, mirroring `delete_blob`.
+    pub async fn destroy_storage_pool(&mut self, storage_pool_id: ObjectID) -> SuiClientResult<()> {
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .destroy_storage_pool(storage_pool_id.into())
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "destroy_storage_pool")
             .await?;
         Ok(())
     }
