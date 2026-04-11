@@ -2919,10 +2919,7 @@ impl StorageNodeInner {
                     return Ok(false);
                 }
                 Ok(None) => {}
-                Err(error) => {
-                    tracing::warn!(?error, "failed to check if blob is stored at shard");
-                    return Ok(false);
-                }
+                Err(error) => return Err(error),
             }
         }
 
@@ -2942,10 +2939,7 @@ impl StorageNodeInner {
                 Ok(false)
             }
             Ok(None) => Ok(true),
-            Err(error) => {
-                tracing::warn!(?error, "failed to check if blob is stored at shard");
-                Ok(false)
-            }
+            Err(error) => Err(error),
         }
     }
 
