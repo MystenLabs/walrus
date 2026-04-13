@@ -113,7 +113,7 @@ fun resolve_or_create_requires_matching_blob_bucket_cap() {
 }
 
 #[test]
-fun rename_object_if_match_updates_registry_lookup() {
+fun rename_object_updates_registry_lookup() {
     let sk = test_utils::bls_sk_for_testing();
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
@@ -139,7 +139,7 @@ fun rename_object_if_match_updates_registry_lookup() {
         ctx,
     );
 
-    blob_bucket::rename_object_if_match(
+    blob_bucket::rename_object(
         &blob_bucket,
         &blob_bucket_cap,
         &mut registry,
@@ -167,7 +167,7 @@ fun rename_object_if_match_updates_registry_lookup() {
 }
 
 #[test]
-fun copy_object_if_absent_reuses_live_payload_and_attributes() {
+fun copy_object_reuses_live_payload_and_attributes() {
     let sk = test_utils::bls_sk_for_testing();
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
@@ -196,7 +196,7 @@ fun copy_object_if_absent_reuses_live_payload_and_attributes() {
 
     let source_version = blob_bucket::current_version(&blob_bucket, &registry, &source_key)
         .destroy_some();
-    let created = blob_bucket::copy_object_if_absent(
+    let created = blob_bucket::copy_object(
         &blob_bucket,
         &blob_bucket_cap,
         &mut registry,
@@ -250,7 +250,7 @@ fun register_and_finalize_initial_object_version(
     ctx: &mut TxContext,
 ) {
     let mut write_payment = test_utils::mint_frost(WRITE_PAYMENT, ctx);
-    blob_bucket::put_object_if_absent_and_register(
+    blob_bucket::put_object(
         blob_bucket,
         blob_bucket_cap,
         registry,
@@ -272,7 +272,7 @@ fun register_and_finalize_initial_object_version(
 
     let blob_id = blob::derive_blob_id(ROOT_HASH, RS2, SIZE);
     certify_blob_in_bucket(blob_bucket, system, blob_id, sk);
-    blob_bucket::finalize_pending_version_if_certified(blob_bucket, registry, key);
+    blob_bucket::finalize_pending_version(blob_bucket, registry, key);
 }
 
 fun certify_blob_in_bucket(

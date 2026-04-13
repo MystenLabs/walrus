@@ -59,14 +59,14 @@ fun stage_and_promote_pending_version() {
 }
 
 #[test]
-fun put_object_if_absent_allows_recreate_after_delete_marker() {
+fun put_object_allows_recreate_after_delete_marker() {
     let mut object_entry = bucket_object::empty_for_testing();
 
-    bucket_object::delete_object(&mut object_entry, b"delete-marker-v1".to_string());
+    bucket_object::delete_object_unchecked(&mut object_entry, b"delete-marker-v1".to_string());
     assert!(bucket_object::is_deleted(&object_entry));
     assert_eq!(bucket_object::generation(&object_entry), 1);
 
-    bucket_object::put_object_if_absent(
+    bucket_object::put_object(
         &mut object_entry,
         0x222,
         new_id_for_testing(),
@@ -94,7 +94,7 @@ fun put_object_if_absent_allows_recreate_after_delete_marker() {
 #[test]
 fun copy_current_version_to_allows_deleted_destination() {
     let mut source = bucket_object::empty_for_testing();
-    bucket_object::put_object_if_absent(
+    bucket_object::put_object(
         &mut source,
         0x333,
         new_id_for_testing(),
@@ -108,7 +108,7 @@ fun copy_current_version_to_allows_deleted_destination() {
     bucket_object::promote_pending_version_for_testing(&mut source);
 
     let mut destination = bucket_object::empty_for_testing();
-    bucket_object::delete_object(&mut destination, b"delete-marker-v1".to_string());
+    bucket_object::delete_object_unchecked(&mut destination, b"delete-marker-v1".to_string());
 
     bucket_object::copy_current_version_to(
         &source,
@@ -139,7 +139,7 @@ fun copy_current_version_to_allows_deleted_destination() {
 #[test, expected_failure(abort_code = bucket_object::EPendingVersionNotCertified)]
 fun finalize_requires_certified_live_blob() {
     let mut object_entry = bucket_object::empty_for_testing();
-    bucket_object::put_object_if_absent(
+    bucket_object::put_object(
         &mut object_entry,
         0x444,
         new_id_for_testing(),
@@ -151,7 +151,7 @@ fun finalize_requires_certified_live_blob() {
         b"object-etag-v1".to_string(),
     );
 
-    bucket_object::finalize_pending_version_if_certified_for_testing(&mut object_entry, false);
+    bucket_object::finalize_pending_version_for_testing(&mut object_entry, false);
 
     abort
 }
