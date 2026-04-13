@@ -23,17 +23,19 @@ use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::types::move_structs::BlobAttribute;
 
 mod owned_state;
+mod pooled_state;
 
 pub(crate) use owned_state::{
     OwnedBlobAwaitingUpload,
     OwnedBlobPendingCertifyAndExtend,
     OwnedRegisteredBlob,
 };
+pub(crate) use pooled_state::{PooledBlobAwaitingUpload, PooledBlobPendingCertify};
 
 use super::{
     ClientError,
     ClientResult,
-    responses::{BlobStoreResult, EventOrObjectId},
+    responses::{BlobStoreResult, EventOrObjectId, PooledBlobStoreResult},
 };
 use crate::{
     node_client::{store_args::StoreArgs, upload_relay_client::UploadRelayClient},
@@ -84,8 +86,44 @@ impl WalrusStoreBlobStateApi for BlobStoreResult {
     }
 }
 
-impl<S> From<BlobStoreResult> for WalrusStoreBlobState<S> {
-    fn from(value: BlobStoreResult) -> Self {
+/// A final store result type for a blob lifecycle.
+pub trait WalrusStoreFinalResultApi: WalrusStoreBlobStateApi {
+    /// Creates a finished error result for the specified failure phase.
+    fn new_failure(error: ClientError, failure_phase: &str, blob_id: Option<BlobId>) -> Self;
+}
+
+impl WalrusStoreFinalResultApi for BlobStoreResult {
+    fn new_failure(error: ClientError, failure_phase: &str, blob_id: Option<BlobId>) -> Self {
+        BlobStoreResult::Error {
+            blob_id,
+            failure_phase: failure_phase.to_string(),
+            error_msg: error.to_string(),
+        }
+    }
+}
+
+impl WalrusStoreBlobStateApi for PooledBlobStoreResult {
+    fn state(&self) -> &'static str {
+        "Finished"
+    }
+
+    fn maybe_blob_id(&self) -> Option<BlobId> {
+        self.blob_id()
+    }
+}
+
+impl WalrusStoreFinalResultApi for PooledBlobStoreResult {
+    fn new_failure(error: ClientError, failure_phase: &str, blob_id: Option<BlobId>) -> Self {
+        PooledBlobStoreResult::Error {
+            blob_id,
+            failure_phase: failure_phase.to_string(),
+            error_msg: error.to_string(),
+        }
+    }
+}
+
+impl<S, F> From<F> for WalrusStoreBlobState<S, F> {
+    fn from(value: F) -> Self {
         WalrusStoreBlobState::Finished(value)
     }
 }
@@ -141,16 +179,17 @@ pub type WalrusStoreBlobUnfinished<S = UnencodedBlob> = WalrusStoreBlob<S>;
 /// (successfully or with an error).
 ///
 /// See also [`WalrusStoreBlobState`].
-pub type WalrusStoreBlobMaybeFinished<S = UnencodedBlob> = WalrusStoreBlob<WalrusStoreBlobState<S>>;
+pub type WalrusStoreBlobMaybeFinished<S = UnencodedBlob, F = BlobStoreResult> =
+    WalrusStoreBlob<WalrusStoreBlobState<S, F>>;
 
 /// A blob that is being stored in Walrus, and has been finished (successfully or with an error).
-pub type WalrusStoreBlobFinished = WalrusStoreBlob<BlobStoreResult>;
+pub type WalrusStoreBlobFinished<F = BlobStoreResult> = WalrusStoreBlob<F>;
 
-impl<S: WalrusStoreBlobStateApi> From<WalrusStoreBlobUnfinished<S>>
-    for WalrusStoreBlobMaybeFinished<S>
+impl<S: WalrusStoreBlobStateApi, F: WalrusStoreFinalResultApi> From<WalrusStoreBlobUnfinished<S>>
+    for WalrusStoreBlobMaybeFinished<S, F>
 {
     fn from(value: WalrusStoreBlobUnfinished<S>) -> Self {
-        value.into_maybe_finished()
+        value.into_maybe_finished_as()
     }
 }
 
@@ -225,6 +264,14 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobUnfinished<S> {
     ///
     /// This can be used to subsequently apply a fallible state transition.
     pub(crate) fn into_maybe_finished(self) -> WalrusStoreBlobMaybeFinished<S> {
+        self.into_maybe_finished_as()
+    }
+
+    /// Converts the blob state into a new blob state that is either unfinished or finished,
+    /// using the specified final result type.
+    pub(crate) fn into_maybe_finished_as<FinalResult: WalrusStoreFinalResultApi>(
+        self,
+    ) -> WalrusStoreBlobMaybeFinished<S, FinalResult> {
         WalrusStoreBlobMaybeFinished {
             common: self.common,
             state: WalrusStoreBlobState::new(self.state),
@@ -232,11 +279,11 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobUnfinished<S> {
     }
 
     /// Converts the blob state into a new blob state that is finished with the given error.
-    pub(crate) fn fail_with<T: WalrusStoreBlobStateApi>(
+    pub(crate) fn fail_with<T: WalrusStoreBlobStateApi, FinalResult: WalrusStoreFinalResultApi>(
         self,
         error: ClientError,
         failure_phase: &str,
-    ) -> WalrusStoreBlobMaybeFinished<T> {
+    ) -> WalrusStoreBlobMaybeFinished<T, FinalResult> {
         WalrusStoreBlobMaybeFinished {
             common: self.common,
             state: WalrusStoreBlobState::new_failure(
@@ -248,31 +295,32 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobUnfinished<S> {
     }
 }
 
-impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
+impl<S: WalrusStoreBlobStateApi, FinalResult: WalrusStoreFinalResultApi>
+    WalrusStoreBlobMaybeFinished<S, FinalResult>
+{
     /// A state-transition helper that transforms the blob state into a new one using a function
     /// that can fail.
-    pub(crate) fn map<T, F>(
+    pub(crate) fn map<T, Func>(
         self,
-        f: F,
+        f: Func,
         phase: &'static str,
-    ) -> ClientResult<WalrusStoreBlobMaybeFinished<T>>
+    ) -> ClientResult<WalrusStoreBlobMaybeFinished<T, FinalResult>>
     where
         T: WalrusStoreBlobStateApi,
-        F: FnOnce(S) -> Result<T, ClientError>,
+        Func: FnOnce(S) -> Result<T, ClientError>,
     {
         let was_blob_id_known = self.state.maybe_blob_id().is_some();
-        let new_state =
-            self.common
-                .span
-                .in_scope(|| -> ClientResult<WalrusStoreBlobState<T>> {
-                    tracing::event!(BLOB_SPAN_LEVEL, phase, "entering map");
+        let new_state = self.common.span.in_scope(
+            || -> ClientResult<WalrusStoreBlobState<T, FinalResult>> {
+                tracing::event!(BLOB_SPAN_LEVEL, phase, "entering map");
 
-                    let new_state = self.state.map(f, phase)?;
-                    if !was_blob_id_known && let Some(blob_id) = new_state.maybe_blob_id() {
-                        self.common.span.record("blob_id", blob_id.to_string());
-                    }
-                    Ok(new_state)
-                })?;
+                let new_state = self.state.map(f, phase)?;
+                if !was_blob_id_known && let Some(blob_id) = new_state.maybe_blob_id() {
+                    self.common.span.record("blob_id", blob_id.to_string());
+                }
+                Ok(new_state)
+            },
+        )?;
 
         let new_blob = WalrusStoreBlobMaybeFinished {
             common: self.common,
@@ -286,7 +334,7 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
     ///
     /// If the blob state is unfinished, the original blob is returned as a
     /// [`WalrusStoreBlobUnfinished`].
-    pub(crate) fn try_finish<T: From<BlobStoreResult>>(
+    pub(crate) fn try_finish<T: From<FinalResult>>(
         self,
     ) -> Result<WalrusStoreBlob<T>, WalrusStoreBlobUnfinished<S>> {
         let WalrusStoreBlob { common, state } = self;
@@ -303,12 +351,13 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
 }
 
 /// Partitions a vector of maybe finished blobs into unfinished and finished blobs.
-pub fn partition_unfinished_finished<S, T>(
-    maybe_finished_blobs: Vec<WalrusStoreBlobMaybeFinished<S>>,
+pub fn partition_unfinished_finished<S, T, F>(
+    maybe_finished_blobs: Vec<WalrusStoreBlobMaybeFinished<S, F>>,
 ) -> (Vec<WalrusStoreBlobUnfinished<S>>, Vec<WalrusStoreBlob<T>>)
 where
     S: WalrusStoreBlobStateApi,
-    T: From<BlobStoreResult>,
+    F: WalrusStoreFinalResultApi,
+    T: From<F>,
 {
     let mut unfinished_blobs = Vec::new();
     let mut finished_blobs = Vec::new();
@@ -330,14 +379,16 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlob<S> {
 
 /// A blob that is being stored in Walrus, representing its current phase in the lifecycle.
 #[derive(Debug, Clone, PartialEq)]
-pub enum WalrusStoreBlobState<S> {
+pub enum WalrusStoreBlobState<S, F = BlobStoreResult> {
     /// A blob in a specific state.
     Unfinished(S),
     /// Final phase with the complete result.
-    Finished(BlobStoreResult),
+    Finished(F),
 }
 
-impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobStateApi for WalrusStoreBlobState<S> {
+impl<S: WalrusStoreBlobStateApi, F: WalrusStoreFinalResultApi> WalrusStoreBlobStateApi
+    for WalrusStoreBlobState<S, F>
+{
     fn state(&self) -> &'static str {
         match self {
             Self::Unfinished(state) => state.state(),
@@ -361,22 +412,23 @@ impl<S: WalrusStoreEncodedBlobApi> WalrusStoreEncodedBlobApi for WalrusStoreBlob
     }
 }
 
-impl<S> WalrusStoreBlobState<S> {
+impl<S, F> WalrusStoreBlobState<S, F> {
     /// Creates a new blob state.
     pub fn new(state: S) -> Self {
         Self::Unfinished(state)
     }
 
     /// Creates a new blob state with an error.
-    pub fn new_failure(error: ClientError, failure_phase: &str, blob_id: Option<BlobId>) -> Self {
-        Self::Finished(BlobStoreResult::Error {
-            blob_id,
-            failure_phase: failure_phase.to_string(),
-            error_msg: error.to_string(),
-        })
+    pub fn new_failure(error: ClientError, failure_phase: &str, blob_id: Option<BlobId>) -> Self
+    where
+        F: WalrusStoreFinalResultApi,
+    {
+        Self::Finished(F::new_failure(error, failure_phase, blob_id))
     }
 }
-impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobState<S> {
+impl<S: WalrusStoreBlobStateApi, FinalResult: WalrusStoreFinalResultApi>
+    WalrusStoreBlobState<S, FinalResult>
+{
     /// Maps the blob state to a new blob state with the given function.
     ///
     /// If the blob state is already in a [WalrusStoreBlobState::Finished], it is returned
@@ -384,13 +436,13 @@ impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobState<S> {
     /// state. If the function returns an error, the blob state is set to
     /// [WalrusStoreBlobState::Finished] with an error, unless the error indicates that the
     /// operation should fail immediately, in which case the error is returned.
-    pub(crate) fn map<T, F>(
+    pub(crate) fn map<T, Func>(
         self,
-        f: F,
+        f: Func,
         phase: &'static str,
-    ) -> ClientResult<WalrusStoreBlobState<T>>
+    ) -> ClientResult<WalrusStoreBlobState<T, FinalResult>>
     where
-        F: FnOnce(S) -> Result<T, ClientError>,
+        Func: FnOnce(S) -> Result<T, ClientError>,
     {
         Ok(match self {
             Self::Unfinished(state) => {
@@ -416,7 +468,7 @@ fn should_fail_early(error: &ClientError) -> bool {
     error.may_be_caused_by_epoch_change() || error.is_no_valid_status_received()
 }
 
-impl WalrusStoreBlobMaybeFinished {
+impl<F: WalrusStoreFinalResultApi> WalrusStoreBlobMaybeFinished<UnencodedBlob, F> {
     /// Creates a new unencoded blob.
     pub fn new_unencoded(
         blob: Vec<u8>,
@@ -473,7 +525,7 @@ impl WalrusStoreBlobMaybeFinished {
     }
 }
 
-impl<S: WalrusStoreBlobStateApi> WalrusStoreBlobMaybeFinished<S> {
+impl<S: WalrusStoreBlobStateApi, F: WalrusStoreFinalResultApi> WalrusStoreBlobMaybeFinished<S, F> {
     /// Returns true if the store blob operation is completed.
     pub fn is_finished(&self) -> bool {
         matches!(self.state, WalrusStoreBlobState::Finished(..))

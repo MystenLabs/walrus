@@ -3,18 +3,14 @@
 
 //! Owned blob store backend.
 
-use std::{future::Future, pin::Pin};
-
 use walrus_sui::client::SuiContractClient;
 
 use super::{StoreBackend, StoreBackendKind};
-use crate::{
-    error::ClientResult,
-    node_client::{
-        StoreArgs,
-        WalrusNodeClient,
-        client_types::{EncodedBlob, WalrusStoreBlobFinished, WalrusStoreBlobUnfinished},
-    },
+use crate::node_client::{
+    StoreArgs,
+    WalrusNodeClient,
+    client_types::{EncodedBlob, WalrusStoreBlobUnfinished},
+    responses::BlobStoreResult,
 };
 
 pub(super) struct OwnedStoreBackend<'a> {
@@ -28,6 +24,8 @@ impl<'a> OwnedStoreBackend<'a> {
 }
 
 impl StoreBackend for OwnedStoreBackend<'_> {
+    type FinalResult = BlobStoreResult;
+
     fn kind(&self) -> StoreBackendKind {
         StoreBackendKind::Owned
     }
@@ -36,7 +34,7 @@ impl StoreBackend for OwnedStoreBackend<'_> {
         &'a self,
         encoded_blobs: Vec<WalrusStoreBlobUnfinished<EncodedBlob>>,
         store_args: &'a StoreArgs,
-    ) -> Pin<Box<dyn Future<Output = ClientResult<Vec<WalrusStoreBlobFinished>>> + Send + 'a>> {
+    ) -> super::StoreBackendFuture<'a, Self::FinalResult> {
         Box::pin(async move {
             self.client
                 .reserve_and_store_encoded_blobs(encoded_blobs, store_args)
