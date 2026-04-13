@@ -2895,8 +2895,10 @@ impl StorageNodeInner {
 
         for shard in shards {
             let Some(shard_storage) = self.storage.shard_storage(*shard).await else {
-                let error = anyhow!("shard {shard} does not exist");
-                tracing::warn!(?error, "failed to check if blob is stored at shard");
+                tracing::warn!(
+                    %shard,
+                    "failed to check if blob is stored at shard: shard does not exist"
+                );
                 return Ok(false);
             };
             shard_storages.push((*shard, shard_storage));
