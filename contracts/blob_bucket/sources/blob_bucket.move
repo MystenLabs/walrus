@@ -35,27 +35,8 @@ public struct BlobBucketCap has key, store {
     bucket_id: ID,
 }
 
-/// Creates and shares a new blob bucket, returning the capability required for admin actions.
-public fun new(
-    system: &mut System,
-    reserved_encoded_capacity_bytes: u64,
-    epochs_ahead: u32,
-    payment: &mut Coin<WAL>,
-    ctx: &mut TxContext,
-): BlobBucketCap {
-    let (bucket, cap) = new_impl(
-        system,
-        reserved_encoded_capacity_bytes,
-        epochs_ahead,
-        payment,
-        ctx,
-    );
-    transfer::share_object(bucket);
-    cap
-}
-
 /// Creates and shares a new blob bucket together with its shared object registry.
-public fun new_with_object_registry(
+public fun new_with_registry(
     system: &mut System,
     reserved_encoded_capacity_bytes: u64,
     epochs_ahead: u32,
@@ -116,15 +97,6 @@ fun new_impl(
 
 public fun bucket_id(self: &BlobBucketCap): ID {
     self.bucket_id
-}
-
-public fun create_object_registry(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    ctx: &mut TxContext,
-): ID {
-    check_cap(self, cap);
-    bucket_object_registry::new(object::id(self), ctx)
 }
 
 public fun contains_object(

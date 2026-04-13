@@ -5,6 +5,7 @@
 module blob_bucket::blob_bucket_tests;
 
 use blob_bucket::{blob_bucket::{Self, BlobBucket}, blob_bucket_inner_v1};
+use blob_bucket::bucket_object_registry;
 use std::unit_test::assert_eq;
 use sui::test_scenario as test;
 use walrus::{
@@ -24,7 +25,7 @@ const N_COINS: u64 = 1_000_000_000;
 const WRITE_PAYMENT: u64 = 100_000_000_000;
 
 #[test]
-fun new_shares_bucket_and_records_bucket_id() {
+fun new_with_registry_shares_bucket_and_records_bucket_id() {
     let user = @0xA11CE;
     let mut test = test::begin(user);
     let ctx = test.ctx();
@@ -32,7 +33,7 @@ fun new_shares_bucket_and_records_bucket_id() {
 
     let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
     let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
-    let cap = blob_bucket::new(
+    let (cap, registry_id) = blob_bucket::new_with_registry(
         &mut system,
         encoded_size,
         3,
@@ -45,8 +46,12 @@ fun new_shares_bucket_and_records_bucket_id() {
 
     test.next_tx(user);
     let bucket = test.take_shared<BlobBucket>();
+    let registry = test.take_shared<bucket_object_registry::BucketObjectRegistry>();
     assert_eq!(blob_bucket::bucket_id(&cap), object::id(&bucket));
+    assert_eq!(registry_id, object::id(&registry));
+    assert_eq!(bucket_object_registry::blob_bucket_id(&registry), object::id(&bucket));
 
+    bucket_object_registry::destroy_for_testing(registry);
     let inner = blob_bucket::destroy_for_testing(bucket);
     let pool = blob_bucket_inner_v1::destroy_for_testing(inner);
     blob_bucket::destroy_cap_for_testing(cap);
