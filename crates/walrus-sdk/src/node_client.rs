@@ -2823,7 +2823,7 @@ mod internal {
                 let upload_relay_client = store_args.upload_relay_client.clone();
                 let encoding_event_tx = store_args.encoding_event_tx.clone();
                 let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
-                    encode_blobs(
+                    encode_blobs_as(
                         walrus_store_blobs,
                         upload_relay_client,
                         encoding_event_tx.as_ref(),
@@ -2893,7 +2893,7 @@ mod internal {
                 let upload_relay_client = store_args.upload_relay_client.clone();
                 let encoding_event_tx = store_args.encoding_event_tx.clone();
                 let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
-                    encode_blobs(
+                    encode_blobs_as(
                         walrus_store_blobs,
                         upload_relay_client,
                         encoding_event_tx.as_ref(),
@@ -3064,7 +3064,7 @@ pub trait StoreBlobsInStoragePoolApi: StoreBlobsApi + Sized {
             let walrus_store_blobs = WalrusStoreBlobMaybeFinished::<
                 UnencodedBlob,
                 PooledBlobStoreResult,
-            >::unencoded_blobs_with_default_identifiers(
+            >::unencoded_blobs_with_default_identifiers_as(
                 blobs,
                 vec![],
                 self.encoding_config()
@@ -3092,7 +3092,17 @@ impl StoreBlobsInStoragePoolApi for WalrusNodeClient<SuiContractClient> {}
 /// A WalrusStoreBlob::Encoded is returned if the blob is encoded successfully.
 /// A WalrusStoreBlob::Failed is returned if the blob fails to encode.
 #[tracing::instrument(skip_all, fields(count = walrus_store_blobs.len()))]
-pub fn encode_blobs<F: client_types::WalrusStoreFinalResultApi>(
+pub fn encode_blobs(
+    walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob>>,
+    upload_relay_client: Option<Arc<UploadRelayClient>>,
+    encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
+) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<EncodedBlob>>> {
+    encode_blobs_as(walrus_store_blobs, upload_relay_client, encoding_event_tx)
+}
+
+/// Encodes multiple blobs using the specified final result type.
+#[tracing::instrument(skip_all, fields(count = walrus_store_blobs.len()))]
+pub fn encode_blobs_as<F: client_types::WalrusStoreFinalResultApi>(
     walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob, F>>,
     upload_relay_client: Option<Arc<UploadRelayClient>>,
     encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,

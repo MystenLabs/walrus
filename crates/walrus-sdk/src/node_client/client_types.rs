@@ -468,9 +468,35 @@ fn should_fail_early(error: &ClientError) -> bool {
     error.may_be_caused_by_epoch_change() || error.is_no_valid_status_received()
 }
 
-impl<F: WalrusStoreFinalResultApi> WalrusStoreBlobMaybeFinished<UnencodedBlob, F> {
+impl WalrusStoreBlobMaybeFinished<UnencodedBlob> {
     /// Creates a new unencoded blob.
     pub fn new_unencoded(
+        blob: Vec<u8>,
+        identifier: String,
+        attribute: BlobAttribute,
+        encoding_config: EncodingConfigEnum,
+    ) -> Self {
+        Self::new_unencoded_as(blob, identifier, attribute, encoding_config)
+    }
+
+    /// Create a list of UnencodedBlobs with default identifiers in the form of "blob_{:06}".
+    ///
+    /// The `attributes` vector must be either empty or have the same length as the `blobs` vector.
+    /// If it is empty, a default (empty) attribute will be used for each blob.
+    ///
+    /// The length of the output vector is the same as the input vector.
+    pub(crate) fn unencoded_blobs_with_default_identifiers(
+        blobs: Vec<Vec<u8>>,
+        attributes: Vec<BlobAttribute>,
+        encoding_config: EncodingConfigEnum,
+    ) -> Vec<Self> {
+        Self::unencoded_blobs_with_default_identifiers_as(blobs, attributes, encoding_config)
+    }
+}
+
+impl<F: WalrusStoreFinalResultApi> WalrusStoreBlobMaybeFinished<UnencodedBlob, F> {
+    /// Creates a new unencoded blob with the specified final result type.
+    pub fn new_unencoded_as(
         blob: Vec<u8>,
         identifier: String,
         attribute: BlobAttribute,
@@ -503,7 +529,7 @@ impl<F: WalrusStoreFinalResultApi> WalrusStoreBlobMaybeFinished<UnencodedBlob, F
     /// If it is empty, a default (empty) attribute will be used for each blob.
     ///
     /// The length of the output vector is the same as the input vector.
-    pub(crate) fn unencoded_blobs_with_default_identifiers(
+    pub(crate) fn unencoded_blobs_with_default_identifiers_as(
         blobs: Vec<Vec<u8>>,
         mut attributes: Vec<BlobAttribute>,
         encoding_config: EncodingConfigEnum,
@@ -519,7 +545,7 @@ impl<F: WalrusStoreFinalResultApi> WalrusStoreBlobMaybeFinished<UnencodedBlob, F
             .zip(attributes)
             .enumerate()
             .map(|(i, (blob, attribute))| {
-                Self::new_unencoded(blob, format!("blob_{i:06}"), attribute, encoding_config)
+                Self::new_unencoded_as(blob, format!("blob_{i:06}"), attribute, encoding_config)
             })
             .collect()
     }
