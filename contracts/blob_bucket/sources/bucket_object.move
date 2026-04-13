@@ -7,7 +7,7 @@ module blob_bucket::bucket_object;
 use blob_bucket::object_headers::ObjectHeaders;
 use blob_bucket::object_metadata::ObjectMetadata;
 use blob_bucket::object_tags::ObjectTags;
-use blob_bucket::object_version::{Self, ObjectVersion};
+use blob_bucket::object_version::{Self as object_version, ObjectVersion};
 use std::string::String;
 
 /// A pending version is already staged for this object entry.
@@ -46,37 +46,9 @@ public fun empty_for_testing(): ObjectEntryState {
     empty()
 }
 
-public fun generation(self: &ObjectEntryState): u64 {
-    self.generation
-}
+// Write functions.
 
-public fun has_current_version(self: &ObjectEntryState): bool {
-    self.current_version.is_some()
-}
-
-public fun is_deleted(self: &ObjectEntryState): bool {
-    self.current_version.is_some()
-        && object_version::delete_marker(self.current_version.borrow())
-}
-
-public fun current_version(self: &ObjectEntryState): &ObjectVersion {
-    self.current_version.borrow()
-}
-
-public fun current_object_etag(self: &ObjectEntryState): String {
-    assert!(self.current_version.is_some(), ECurrentVersionMissing);
-    object_version::object_etag(self.current_version.borrow())
-}
-
-public fun has_pending_version(self: &ObjectEntryState): bool {
-    self.pending_version.is_some()
-}
-
-public fun pending_version(self: &ObjectEntryState): &ObjectVersion {
-    self.pending_version.borrow()
-}
-
-public(package) fun assert_can_put_object_if_absent(self: &ObjectEntryState) {
+public(package) fun assert_can_put_object(self: &ObjectEntryState) {
     assert!(
         !self.current_version.is_some()
             || object_version::delete_marker(self.current_version.borrow()),
@@ -84,7 +56,7 @@ public(package) fun assert_can_put_object_if_absent(self: &ObjectEntryState) {
     );
 }
 
-public(package) fun assert_can_update_object_if_match(
+public(package) fun assert_can_update_object(
     self: &ObjectEntryState,
     expected_object_etag: String,
 ) {
@@ -124,7 +96,7 @@ public(package) fun stage_registered_blob_version(
     );
 }
 
-public(package) fun put_object_if_absent(
+public(package) fun put_object(
     self: &mut ObjectEntryState,
     blob_id: u256,
     pooled_blob_object_id: ID,
@@ -135,7 +107,7 @@ public(package) fun put_object_if_absent(
     content_etag: String,
     object_etag: String,
 ) {
-    assert_can_put_object_if_absent(self);
+    assert_can_put_object(self);
     stage_registered_blob_version(
         self,
         blob_id,
@@ -149,7 +121,7 @@ public(package) fun put_object_if_absent(
     );
 }
 
-public(package) fun update_object_if_match(
+public(package) fun update_object(
     self: &mut ObjectEntryState,
     expected_object_etag: String,
     blob_id: u256,
@@ -161,7 +133,7 @@ public(package) fun update_object_if_match(
     content_etag: String,
     object_etag: String,
 ) {
-    assert_can_update_object_if_match(self, expected_object_etag);
+    assert_can_update_object(self, expected_object_etag);
     stage_registered_blob_version(
         self,
         blob_id,
@@ -175,7 +147,7 @@ public(package) fun update_object_if_match(
     );
 }
 
-public(package) fun update_object_attributes(
+public(package) fun update_object_attributes_unchecked(
     self: &mut ObjectEntryState,
     headers: ObjectHeaders,
     metadata: ObjectMetadata,
@@ -193,7 +165,7 @@ public(package) fun update_object_attributes(
     promote_pending_version(self);
 }
 
-public(package) fun update_object_attributes_if_match(
+public(package) fun update_object_attributes(
     self: &mut ObjectEntryState,
     expected_object_etag: String,
     headers: ObjectHeaders,
@@ -201,11 +173,14 @@ public(package) fun update_object_attributes_if_match(
     tags: ObjectTags,
     object_etag: String,
 ) {
-    assert_can_update_object_if_match(self, expected_object_etag);
-    update_object_attributes(self, headers, metadata, tags, object_etag);
+    assert_can_update_object(self, expected_object_etag);
+    update_object_attributes_unchecked(self, headers, metadata, tags, object_etag);
 }
 
-public(package) fun delete_object(self: &mut ObjectEntryState, object_etag: String) {
+public(package) fun delete_object_unchecked(
+    self: &mut ObjectEntryState,
+    object_etag: String,
+) {
     assert!(!self.pending_version.is_some(), EPendingVersionAlreadyExists);
     let next_generation = self.generation + 1;
     stage_pending_version(
@@ -215,16 +190,16 @@ public(package) fun delete_object(self: &mut ObjectEntryState, object_etag: Stri
     promote_pending_version(self);
 }
 
-public(package) fun delete_object_if_match(
+public(package) fun delete_object(
     self: &mut ObjectEntryState,
     expected_object_etag: String,
     object_etag: String,
 ) {
-    assert_can_update_object_if_match(self, expected_object_etag);
-    delete_object(self, object_etag);
+    assert_can_update_object(self, expected_object_etag);
+    delete_object_unchecked(self, object_etag);
 }
 
-public(package) fun finalize_pending_version_if_certified(
+public(package) fun finalize_pending_version(
     self: &mut ObjectEntryState,
     pending_blob_is_certified: bool,
 ) {
@@ -254,6 +229,80 @@ public(package) fun promote_pending_version(self: &mut ObjectEntryState) {
 public(package) fun clear_pending_version(self: &mut ObjectEntryState): ObjectVersion {
     assert!(self.pending_version.is_some(), EPendingVersionMissing);
     self.pending_version.extract()
+}
+
+public(package) fun copy_current_version_to(
+    source: &ObjectEntryState,
+    destination: &mut ObjectEntryState,
+    object_etag: String,
+) {
+    assert!(source.current_version.is_some(), ECurrentVersionMissing);
+    assert_can_put_object(destination);
+    assert!(!destination.pending_version.is_some(), EPendingVersionAlreadyExists);
+    let source_version = source.current_version.borrow();
+    assert!(object_version::has_blob(source_version), ECurrentVersionHasNoBlob);
+    let next_version = object_version::new_successor(
+        source_version,
+        destination.generation + 1,
+        object_version::headers(source_version),
+        object_version::metadata(source_version),
+        object_version::tags(source_version),
+        object_etag,
+    );
+    stage_pending_version(destination, next_version);
+    promote_pending_version(destination);
+}
+
+fun current_version_successor(
+    self: &ObjectEntryState,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    tags: ObjectTags,
+    object_etag: String,
+): ObjectVersion {
+    assert!(self.current_version.is_some(), ECurrentVersionMissing);
+    let current_version = self.current_version.borrow();
+    assert!(object_version::has_blob(current_version), ECurrentVersionHasNoBlob);
+    object_version::new_successor(
+        current_version,
+        self.generation + 1,
+        headers,
+        metadata,
+        tags,
+        object_etag,
+    )
+}
+
+// Read functions.
+
+public fun generation(self: &ObjectEntryState): u64 {
+    self.generation
+}
+
+public fun has_current_version(self: &ObjectEntryState): bool {
+    self.current_version.is_some()
+}
+
+public fun is_deleted(self: &ObjectEntryState): bool {
+    self.current_version.is_some()
+        && object_version::delete_marker(self.current_version.borrow())
+}
+
+public fun current_version(self: &ObjectEntryState): &ObjectVersion {
+    self.current_version.borrow()
+}
+
+public fun current_object_etag(self: &ObjectEntryState): String {
+    assert!(self.current_version.is_some(), ECurrentVersionMissing);
+    object_version::object_etag(self.current_version.borrow())
+}
+
+public fun has_pending_version(self: &ObjectEntryState): bool {
+    self.pending_version.is_some()
+}
+
+public fun pending_version(self: &ObjectEntryState): &ObjectVersion {
+    self.pending_version.borrow()
 }
 
 #[test_only]
@@ -295,56 +344,14 @@ public fun promote_pending_version_for_testing(self: &mut ObjectEntryState) {
 }
 
 #[test_only]
-public fun finalize_pending_version_if_certified_for_testing(
+public fun finalize_pending_version_for_testing(
     self: &mut ObjectEntryState,
     pending_blob_is_certified: bool,
 ) {
-    finalize_pending_version_if_certified(self, pending_blob_is_certified);
+    finalize_pending_version(self, pending_blob_is_certified);
 }
 
 #[test_only]
 public fun clear_pending_version_for_testing(self: &mut ObjectEntryState): ObjectVersion {
     clear_pending_version(self)
-}
-
-fun current_version_successor(
-    self: &ObjectEntryState,
-    headers: ObjectHeaders,
-    metadata: ObjectMetadata,
-    tags: ObjectTags,
-    object_etag: String,
-): ObjectVersion {
-    assert!(self.current_version.is_some(), ECurrentVersionMissing);
-    let current_version = self.current_version.borrow();
-    assert!(object_version::has_blob(current_version), ECurrentVersionHasNoBlob);
-    object_version::new_successor(
-        current_version,
-        self.generation + 1,
-        headers,
-        metadata,
-        tags,
-        object_etag,
-    )
-}
-
-public(package) fun copy_current_version_to(
-    source: &ObjectEntryState,
-    destination: &mut ObjectEntryState,
-    object_etag: String,
-) {
-    assert!(source.current_version.is_some(), ECurrentVersionMissing);
-    assert_can_put_object_if_absent(destination);
-    assert!(!destination.pending_version.is_some(), EPendingVersionAlreadyExists);
-    let source_version = source.current_version.borrow();
-    assert!(object_version::has_blob(source_version), ECurrentVersionHasNoBlob);
-    let next_version = object_version::new_successor(
-        source_version,
-        destination.generation + 1,
-        object_version::headers(source_version),
-        object_version::metadata(source_version),
-        object_version::tags(source_version),
-        object_etag,
-    );
-    stage_pending_version(destination, next_version);
-    promote_pending_version(destination);
 }

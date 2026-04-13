@@ -70,6 +70,212 @@ fun new_impl(
     }
 }
 
+// Write functions.
+
+public(package) fun resolve_or_create_bucket_object(
+    self: &mut BucketObjectRegistry,
+    key: String,
+): bool {
+    ensure_entry(self, key)
+}
+
+public(package) fun put_object(
+    self: &mut BucketObjectRegistry,
+    key: String,
+    blob_id: u256,
+    pooled_blob_object_id: ID,
+    size: u64,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    tags: ObjectTags,
+    content_etag: String,
+    object_etag: String,
+) {
+    let blob_bucket_id = self.blob_bucket_id;
+    let _ = ensure_entry(self, key);
+    let object_entry = borrow_entry_mut(self, &key);
+    bucket_object::put_object(
+        object_entry,
+        blob_id,
+        pooled_blob_object_id,
+        size,
+        headers,
+        metadata,
+        tags,
+        content_etag,
+        object_etag,
+    );
+    emit_object_version_staged(blob_bucket_id, key, object_entry);
+}
+
+public(package) fun update_object(
+    self: &mut BucketObjectRegistry,
+    key: String,
+    expected_object_etag: String,
+    blob_id: u256,
+    pooled_blob_object_id: ID,
+    size: u64,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    tags: ObjectTags,
+    content_etag: String,
+    object_etag: String,
+) {
+    let blob_bucket_id = self.blob_bucket_id;
+    let object_entry = borrow_entry_mut(self, &key);
+    bucket_object::update_object(
+        object_entry,
+        expected_object_etag,
+        blob_id,
+        pooled_blob_object_id,
+        size,
+        headers,
+        metadata,
+        tags,
+        content_etag,
+        object_etag,
+    );
+    emit_object_version_staged(blob_bucket_id, key, object_entry);
+}
+
+public(package) fun update_object_attributes_unchecked(
+    self: &mut BucketObjectRegistry,
+    key: String,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    tags: ObjectTags,
+    object_etag: String,
+) {
+    let blob_bucket_id = self.blob_bucket_id;
+    let object_entry = borrow_entry_mut(self, &key);
+    bucket_object::update_object_attributes_unchecked(
+        object_entry,
+        headers,
+        metadata,
+        tags,
+        object_etag,
+    );
+    emit_object_version_promoted(blob_bucket_id, key, object_entry);
+}
+
+public(package) fun update_object_attributes(
+    self: &mut BucketObjectRegistry,
+    key: String,
+    expected_object_etag: String,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    tags: ObjectTags,
+    object_etag: String,
+) {
+    let blob_bucket_id = self.blob_bucket_id;
+    let object_entry = borrow_entry_mut(self, &key);
+    bucket_object::update_object_attributes(
+        object_entry,
+        expected_object_etag,
+        headers,
+        metadata,
+        tags,
+        object_etag,
+    );
+    emit_object_version_promoted(blob_bucket_id, key, object_entry);
+}
+
+public(package) fun delete_object_unchecked(
+    self: &mut BucketObjectRegistry,
+    key: String,
+    object_etag: String,
+) {
+    let blob_bucket_id = self.blob_bucket_id;
+    let _ = ensure_entry(self, key);
+    let object_entry = borrow_entry_mut(self, &key);
+    bucket_object::delete_object_unchecked(object_entry, object_etag);
+    emit_object_version_promoted(blob_bucket_id, key, object_entry);
+}
+
+public(package) fun delete_object(
+    self: &mut BucketObjectRegistry,
+    key: String,
+    expected_object_etag: String,
+    object_etag: String,
+) {
+    let blob_bucket_id = self.blob_bucket_id;
+    let object_entry = borrow_entry_mut(self, &key);
+    bucket_object::delete_object(
+        object_entry,
+        expected_object_etag,
+        object_etag,
+    );
+    emit_object_version_promoted(blob_bucket_id, key, object_entry);
+}
+
+public(package) fun finalize_pending_version(
+    self: &mut BucketObjectRegistry,
+    key: String,
+    pending_blob_is_certified: bool,
+) {
+    let blob_bucket_id = self.blob_bucket_id;
+    let object_entry = borrow_entry_mut(self, &key);
+    bucket_object::finalize_pending_version(
+        object_entry,
+        pending_blob_is_certified,
+    );
+    emit_object_version_promoted(blob_bucket_id, key, object_entry);
+}
+
+public(package) fun copy_object(
+    self: &mut BucketObjectRegistry,
+    source_key: String,
+    destination_key: String,
+    object_etag: String,
+): bool {
+    let blob_bucket_id = self.blob_bucket_id;
+    let source_entry = *borrow_entry(self, &source_key);
+    let created = ensure_entry(self, destination_key);
+    let destination = borrow_entry_mut(self, &destination_key);
+    bucket_object::copy_current_version_to(&source_entry, destination, object_etag);
+    emit_object_version_promoted(blob_bucket_id, destination_key, destination);
+    bucket_object_events::emit_object_copied(
+        blob_bucket_id,
+        source_key,
+        destination_key,
+        bucket_object::generation(destination),
+        bucket_object::current_object_etag(destination),
+    );
+    created
+}
+
+public(package) fun rename_object_unchecked(
+    self: &mut BucketObjectRegistry,
+    key: String,
+    new_key: String,
+) {
+    assert!(contains(self, &key), EObjectMissing);
+    if (key == new_key) {
+        return
+    };
+    assert!(!contains(self, &new_key), EObjectAlreadyExists);
+
+    let blob_bucket_id = self.blob_bucket_id;
+    let (_, object_entry) = shard_mut(self, &key).entries.remove(&key);
+    shard_mut(self, &new_key).entries.insert(new_key, object_entry);
+    bucket_object_events::emit_object_renamed(blob_bucket_id, key, new_key);
+}
+
+public(package) fun rename_object(
+    self: &mut BucketObjectRegistry,
+    key: String,
+    expected_object_etag: String,
+    new_key: String,
+) {
+    assert!(
+        current_object_etag(self, &key) == option::some(expected_object_etag),
+        ECurrentObjectEtagMismatch,
+    );
+    rename_object_unchecked(self, key, new_key);
+}
+
+// Read functions.
+
 public fun blob_bucket_id(self: &BucketObjectRegistry): ID {
     self.blob_bucket_id
 }
@@ -143,208 +349,6 @@ public fun current_object_etag(
         object_entry.destroy_none();
         option::none()
     }
-}
-
-public(package) fun resolve_or_create_bucket_object(
-    self: &mut BucketObjectRegistry,
-    key: String,
-): bool {
-    ensure_entry(self, key)
-}
-
-public(package) fun put_object_if_absent(
-    self: &mut BucketObjectRegistry,
-    key: String,
-    blob_id: u256,
-    pooled_blob_object_id: ID,
-    size: u64,
-    headers: ObjectHeaders,
-    metadata: ObjectMetadata,
-    tags: ObjectTags,
-    content_etag: String,
-    object_etag: String,
-) {
-    let blob_bucket_id = self.blob_bucket_id;
-    let _ = ensure_entry(self, key);
-    let object_entry = borrow_entry_mut(self, &key);
-    bucket_object::put_object_if_absent(
-        object_entry,
-        blob_id,
-        pooled_blob_object_id,
-        size,
-        headers,
-        metadata,
-        tags,
-        content_etag,
-        object_etag,
-    );
-    emit_object_version_staged(blob_bucket_id, key, object_entry);
-}
-
-public(package) fun update_object_if_match(
-    self: &mut BucketObjectRegistry,
-    key: String,
-    expected_object_etag: String,
-    blob_id: u256,
-    pooled_blob_object_id: ID,
-    size: u64,
-    headers: ObjectHeaders,
-    metadata: ObjectMetadata,
-    tags: ObjectTags,
-    content_etag: String,
-    object_etag: String,
-) {
-    let blob_bucket_id = self.blob_bucket_id;
-    let object_entry = borrow_entry_mut(self, &key);
-    bucket_object::update_object_if_match(
-        object_entry,
-        expected_object_etag,
-        blob_id,
-        pooled_blob_object_id,
-        size,
-        headers,
-        metadata,
-        tags,
-        content_etag,
-        object_etag,
-    );
-    emit_object_version_staged(blob_bucket_id, key, object_entry);
-}
-
-public(package) fun update_object_attributes(
-    self: &mut BucketObjectRegistry,
-    key: String,
-    headers: ObjectHeaders,
-    metadata: ObjectMetadata,
-    tags: ObjectTags,
-    object_etag: String,
-) {
-    let blob_bucket_id = self.blob_bucket_id;
-    let object_entry = borrow_entry_mut(self, &key);
-    bucket_object::update_object_attributes(
-        object_entry,
-        headers,
-        metadata,
-        tags,
-        object_etag,
-    );
-    emit_object_version_promoted(blob_bucket_id, key, object_entry);
-}
-
-public(package) fun update_object_attributes_if_match(
-    self: &mut BucketObjectRegistry,
-    key: String,
-    expected_object_etag: String,
-    headers: ObjectHeaders,
-    metadata: ObjectMetadata,
-    tags: ObjectTags,
-    object_etag: String,
-) {
-    let blob_bucket_id = self.blob_bucket_id;
-    let object_entry = borrow_entry_mut(self, &key);
-    bucket_object::update_object_attributes_if_match(
-        object_entry,
-        expected_object_etag,
-        headers,
-        metadata,
-        tags,
-        object_etag,
-    );
-    emit_object_version_promoted(blob_bucket_id, key, object_entry);
-}
-
-public(package) fun delete_object(
-    self: &mut BucketObjectRegistry,
-    key: String,
-    object_etag: String,
-) {
-    let blob_bucket_id = self.blob_bucket_id;
-    let _ = ensure_entry(self, key);
-    let object_entry = borrow_entry_mut(self, &key);
-    bucket_object::delete_object(object_entry, object_etag);
-    emit_object_version_promoted(blob_bucket_id, key, object_entry);
-}
-
-public(package) fun delete_object_if_match(
-    self: &mut BucketObjectRegistry,
-    key: String,
-    expected_object_etag: String,
-    object_etag: String,
-) {
-    let blob_bucket_id = self.blob_bucket_id;
-    let object_entry = borrow_entry_mut(self, &key);
-    bucket_object::delete_object_if_match(
-        object_entry,
-        expected_object_etag,
-        object_etag,
-    );
-    emit_object_version_promoted(blob_bucket_id, key, object_entry);
-}
-
-public(package) fun finalize_pending_version_if_certified(
-    self: &mut BucketObjectRegistry,
-    key: String,
-    pending_blob_is_certified: bool,
-) {
-    let blob_bucket_id = self.blob_bucket_id;
-    let object_entry = borrow_entry_mut(self, &key);
-    bucket_object::finalize_pending_version_if_certified(
-        object_entry,
-        pending_blob_is_certified,
-    );
-    emit_object_version_promoted(blob_bucket_id, key, object_entry);
-}
-
-public(package) fun copy_object_if_absent(
-    self: &mut BucketObjectRegistry,
-    source_key: String,
-    destination_key: String,
-    object_etag: String,
-): bool {
-    let blob_bucket_id = self.blob_bucket_id;
-    let source_entry = *borrow_entry(self, &source_key);
-    let created = ensure_entry(self, destination_key);
-    let destination = borrow_entry_mut(self, &destination_key);
-    bucket_object::copy_current_version_to(&source_entry, destination, object_etag);
-    emit_object_version_promoted(blob_bucket_id, destination_key, destination);
-    bucket_object_events::emit_object_copied(
-        blob_bucket_id,
-        source_key,
-        destination_key,
-        bucket_object::generation(destination),
-        bucket_object::current_object_etag(destination),
-    );
-    created
-}
-
-public(package) fun rename_object(
-    self: &mut BucketObjectRegistry,
-    key: String,
-    new_key: String,
-) {
-    assert!(contains(self, &key), EObjectMissing);
-    if (key == new_key) {
-        return
-    };
-    assert!(!contains(self, &new_key), EObjectAlreadyExists);
-
-    let blob_bucket_id = self.blob_bucket_id;
-    let (_, object_entry) = shard_mut(self, &key).entries.remove(&key);
-    shard_mut(self, &new_key).entries.insert(new_key, object_entry);
-    bucket_object_events::emit_object_renamed(blob_bucket_id, key, new_key);
-}
-
-public(package) fun rename_object_if_match(
-    self: &mut BucketObjectRegistry,
-    key: String,
-    expected_object_etag: String,
-    new_key: String,
-) {
-    assert!(
-        current_object_etag(self, &key) == option::some(expected_object_etag),
-        ECurrentObjectEtagMismatch,
-    );
-    rename_object(self, key, new_key);
 }
 
 #[test_only]

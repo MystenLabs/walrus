@@ -4,7 +4,7 @@
 /// BlobBucket built on top of `StoragePool`.
 module blob_bucket::blob_bucket;
 
-use blob_bucket::blob_bucket_inner_v1::{Self, BlobBucketInnerV1};
+use blob_bucket::blob_bucket_inner_v1::{Self as blob_bucket_inner_v1, BlobBucketInnerV1};
 use blob_bucket::bucket_object::ObjectEntryState;
 use blob_bucket::bucket_object_registry::{Self as bucket_object_registry, BucketObjectRegistry};
 use blob_bucket::object_headers::ObjectHeaders;
@@ -95,6 +95,341 @@ fun new_impl(
     (bucket, cap)
 }
 
+// Write functions.
+
+public fun resolve_or_create_bucket_object(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+): bool {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::resolve_or_create_bucket_object(registry, key)
+}
+
+public fun register_blob(
+    self: &mut BlobBucket,
+    cap: &BlobBucketCap,
+    system: &mut System,
+    blob_id: u256,
+    root_hash: u256,
+    unencoded_size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+) {
+    check_cap(self, cap);
+    self
+        .inner_mut()
+        .register_blob(
+            system,
+            blob_id,
+            root_hash,
+            unencoded_size,
+            encoding_type,
+            deletable,
+            write_payment,
+            ctx,
+        );
+}
+
+public fun put_object(
+    self: &mut BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    system: &mut System,
+    root_hash: u256,
+    unencoded_size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    tags: ObjectTags,
+    content_etag: String,
+    object_etag: String,
+    ctx: &mut TxContext,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+
+    let blob_id = blob::derive_blob_id(root_hash, encoding_type, unencoded_size);
+    register_blob(
+        self,
+        cap,
+        system,
+        blob_id,
+        root_hash,
+        unencoded_size,
+        encoding_type,
+        deletable,
+        write_payment,
+        ctx,
+    );
+    bucket_object_registry::put_object(
+        registry,
+        key,
+        blob_id,
+        get_blob_object_id(self, blob_id),
+        unencoded_size,
+        headers,
+        metadata,
+        tags,
+        content_etag,
+        object_etag,
+    );
+}
+
+public fun update_object(
+    self: &mut BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    system: &mut System,
+    expected_object_etag: String,
+    root_hash: u256,
+    unencoded_size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    tags: ObjectTags,
+    content_etag: String,
+    object_etag: String,
+    ctx: &mut TxContext,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+
+    let blob_id = blob::derive_blob_id(root_hash, encoding_type, unencoded_size);
+    register_blob(
+        self,
+        cap,
+        system,
+        blob_id,
+        root_hash,
+        unencoded_size,
+        encoding_type,
+        deletable,
+        write_payment,
+        ctx,
+    );
+    bucket_object_registry::update_object(
+        registry,
+        key,
+        expected_object_etag,
+        blob_id,
+        get_blob_object_id(self, blob_id),
+        unencoded_size,
+        headers,
+        metadata,
+        tags,
+        content_etag,
+        object_etag,
+    );
+}
+
+public fun update_object_attributes_unchecked(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    tags: ObjectTags,
+    object_etag: String,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::update_object_attributes_unchecked(
+        registry,
+        key,
+        headers,
+        metadata,
+        tags,
+        object_etag,
+    );
+}
+
+public fun update_object_attributes(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    expected_object_etag: String,
+    headers: ObjectHeaders,
+    metadata: ObjectMetadata,
+    tags: ObjectTags,
+    object_etag: String,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::update_object_attributes(
+        registry,
+        key,
+        expected_object_etag,
+        headers,
+        metadata,
+        tags,
+        object_etag,
+    );
+}
+
+public fun delete_object_unchecked(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    object_etag: String,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::delete_object_unchecked(registry, key, object_etag);
+}
+
+public fun delete_object(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    expected_object_etag: String,
+    object_etag: String,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::delete_object(
+        registry,
+        key,
+        expected_object_etag,
+        object_etag,
+    );
+}
+
+public fun copy_object(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    source_key: String,
+    destination_key: String,
+    object_etag: String,
+): bool {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::copy_object(
+        registry,
+        source_key,
+        destination_key,
+        object_etag,
+    )
+}
+
+public fun rename_object_unchecked(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    new_key: String,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::rename_object_unchecked(registry, key, new_key);
+}
+
+public fun rename_object(
+    self: &BlobBucket,
+    cap: &BlobBucketCap,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+    expected_object_etag: String,
+    new_key: String,
+) {
+    check_cap(self, cap);
+    check_registry(self, registry);
+    bucket_object_registry::rename_object(
+        registry,
+        key,
+        expected_object_etag,
+        new_key,
+    );
+}
+
+public fun certify_blob(
+    self: &mut BlobBucket,
+    system: &System,
+    blob_id: u256,
+    signature: vector<u8>,
+    signers_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self.inner_mut().certify_blob(system, blob_id, signature, signers_bitmap, message);
+}
+
+public fun finalize_pending_version(
+    self: &BlobBucket,
+    registry: &mut BucketObjectRegistry,
+    key: String,
+) {
+    check_registry(self, registry);
+    let pending_version = bucket_object_registry::pending_version(registry, &key);
+    let pending_blob_is_certified = if (pending_version.is_some()) {
+        let pending_version = pending_version.destroy_some();
+        object_version::delete_marker(&pending_version)
+            || is_blob_certified(self, object_version::blob_id(&pending_version))
+    } else {
+        pending_version.destroy_none();
+        false
+    };
+    bucket_object_registry::finalize_pending_version(
+        registry,
+        key,
+        pending_blob_is_certified,
+    );
+}
+
+public fun delete_blob(
+    self: &mut BlobBucket,
+    cap: &BlobBucketCap,
+    system: &System,
+    blob_id: u256,
+) {
+    check_cap(self, cap);
+    self.inner_mut().delete_blob(system, blob_id);
+}
+
+public fun extend_storage_pool(
+    self: &mut BlobBucket,
+    cap: &BlobBucketCap,
+    system: &mut System,
+    extended_epochs: u32,
+    payment: &mut Coin<WAL>,
+) {
+    check_cap(self, cap);
+    self.inner_mut().extend_storage_pool(system, extended_epochs, payment);
+}
+
+public fun increase_storage_pool_capacity(
+    self: &mut BlobBucket,
+    cap: &BlobBucketCap,
+    system: &mut System,
+    additional_encoded_capacity_bytes: u64,
+    payment: &mut Coin<WAL>,
+) {
+    check_cap(self, cap);
+    self
+        .inner_mut()
+        .increase_storage_pool_capacity(
+            system,
+            additional_encoded_capacity_bytes,
+            payment,
+        );
+}
+
+// Read functions.
+
 public fun bucket_id(self: &BlobBucketCap): ID {
     self.bucket_id
 }
@@ -144,334 +479,8 @@ public fun current_object_etag(
     bucket_object_registry::current_object_etag(registry, key)
 }
 
-public fun resolve_or_create_bucket_object(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-): bool {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    bucket_object_registry::resolve_or_create_bucket_object(registry, key)
-}
-
-public fun register_blob(
-    self: &mut BlobBucket,
-    cap: &BlobBucketCap,
-    system: &mut System,
-    blob_id: u256,
-    root_hash: u256,
-    unencoded_size: u64,
-    encoding_type: u8,
-    deletable: bool,
-    write_payment: &mut Coin<WAL>,
-    ctx: &mut TxContext,
-) {
-    check_cap(self, cap);
-    self
-        .inner_mut()
-        .register_blob(
-            system,
-            blob_id,
-            root_hash,
-            unencoded_size,
-            encoding_type,
-            deletable,
-            write_payment,
-            ctx,
-        );
-}
-
-public fun put_object_if_absent_and_register(
-    self: &mut BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-    system: &mut System,
-    root_hash: u256,
-    unencoded_size: u64,
-    encoding_type: u8,
-    deletable: bool,
-    write_payment: &mut Coin<WAL>,
-    headers: ObjectHeaders,
-    metadata: ObjectMetadata,
-    tags: ObjectTags,
-    content_etag: String,
-    object_etag: String,
-    ctx: &mut TxContext,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-
-    let blob_id = blob::derive_blob_id(root_hash, encoding_type, unencoded_size);
-    register_blob(
-        self,
-        cap,
-        system,
-        blob_id,
-        root_hash,
-        unencoded_size,
-        encoding_type,
-        deletable,
-        write_payment,
-        ctx,
-    );
-    bucket_object_registry::put_object_if_absent(
-        registry,
-        key,
-        blob_id,
-        get_blob_object_id(self, blob_id),
-        unencoded_size,
-        headers,
-        metadata,
-        tags,
-        content_etag,
-        object_etag,
-    );
-}
-
-public fun update_object_if_match_and_register(
-    self: &mut BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-    system: &mut System,
-    expected_object_etag: String,
-    root_hash: u256,
-    unencoded_size: u64,
-    encoding_type: u8,
-    deletable: bool,
-    write_payment: &mut Coin<WAL>,
-    headers: ObjectHeaders,
-    metadata: ObjectMetadata,
-    tags: ObjectTags,
-    content_etag: String,
-    object_etag: String,
-    ctx: &mut TxContext,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-
-    let blob_id = blob::derive_blob_id(root_hash, encoding_type, unencoded_size);
-    register_blob(
-        self,
-        cap,
-        system,
-        blob_id,
-        root_hash,
-        unencoded_size,
-        encoding_type,
-        deletable,
-        write_payment,
-        ctx,
-    );
-    bucket_object_registry::update_object_if_match(
-        registry,
-        key,
-        expected_object_etag,
-        blob_id,
-        get_blob_object_id(self, blob_id),
-        unencoded_size,
-        headers,
-        metadata,
-        tags,
-        content_etag,
-        object_etag,
-    );
-}
-
-public fun update_object_attributes(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-    headers: ObjectHeaders,
-    metadata: ObjectMetadata,
-    tags: ObjectTags,
-    object_etag: String,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    bucket_object_registry::update_object_attributes(
-        registry,
-        key,
-        headers,
-        metadata,
-        tags,
-        object_etag,
-    );
-}
-
-public fun update_object_attributes_if_match(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-    expected_object_etag: String,
-    headers: ObjectHeaders,
-    metadata: ObjectMetadata,
-    tags: ObjectTags,
-    object_etag: String,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    bucket_object_registry::update_object_attributes_if_match(
-        registry,
-        key,
-        expected_object_etag,
-        headers,
-        metadata,
-        tags,
-        object_etag,
-    );
-}
-
-public fun delete_object(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-    object_etag: String,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    bucket_object_registry::delete_object(registry, key, object_etag);
-}
-
-public fun delete_object_if_match(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-    expected_object_etag: String,
-    object_etag: String,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    bucket_object_registry::delete_object_if_match(
-        registry,
-        key,
-        expected_object_etag,
-        object_etag,
-    );
-}
-
-public fun copy_object_if_absent(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    source_key: String,
-    destination_key: String,
-    object_etag: String,
-): bool {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    bucket_object_registry::copy_object_if_absent(
-        registry,
-        source_key,
-        destination_key,
-        object_etag,
-    )
-}
-
-public fun rename_object(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-    new_key: String,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    bucket_object_registry::rename_object(registry, key, new_key);
-}
-
-public fun rename_object_if_match(
-    self: &BlobBucket,
-    cap: &BlobBucketCap,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-    expected_object_etag: String,
-    new_key: String,
-) {
-    check_cap(self, cap);
-    check_registry(self, registry);
-    bucket_object_registry::rename_object_if_match(
-        registry,
-        key,
-        expected_object_etag,
-        new_key,
-    );
-}
-
-public fun certify_blob(
-    self: &mut BlobBucket,
-    system: &System,
-    blob_id: u256,
-    signature: vector<u8>,
-    signers_bitmap: vector<u8>,
-    message: vector<u8>,
-) {
-    self.inner_mut().certify_blob(system, blob_id, signature, signers_bitmap, message);
-}
-
-public fun finalize_pending_version_if_certified(
-    self: &BlobBucket,
-    registry: &mut BucketObjectRegistry,
-    key: String,
-) {
-    check_registry(self, registry);
-    let pending_version = bucket_object_registry::pending_version(registry, &key);
-    let pending_blob_is_certified = if (pending_version.is_some()) {
-        let pending_version = pending_version.destroy_some();
-        object_version::delete_marker(&pending_version)
-            || is_blob_certified(self, object_version::blob_id(&pending_version))
-    } else {
-        pending_version.destroy_none();
-        false
-    };
-    bucket_object_registry::finalize_pending_version_if_certified(
-        registry,
-        key,
-        pending_blob_is_certified,
-    );
-}
-
-public fun delete_blob(self: &mut BlobBucket, cap: &BlobBucketCap, system: &System, blob_id: u256) {
-    check_cap(self, cap);
-    self.inner_mut().delete_blob(system, blob_id);
-}
-
-public fun extend_storage_pool(
-    self: &mut BlobBucket,
-    cap: &BlobBucketCap,
-    system: &mut System,
-    extended_epochs: u32,
-    payment: &mut Coin<WAL>,
-) {
-    check_cap(self, cap);
-    self.inner_mut().extend_storage_pool(system, extended_epochs, payment);
-}
-
 public fun storage_pool_id(self: &BlobBucket): ID {
     self.inner().storage_pool_id()
-}
-
-public fun increase_storage_pool_capacity(
-    self: &mut BlobBucket,
-    cap: &BlobBucketCap,
-    system: &mut System,
-    additional_encoded_capacity_bytes: u64,
-    payment: &mut Coin<WAL>,
-) {
-    check_cap(self, cap);
-    self
-        .inner_mut()
-        .increase_storage_pool_capacity(
-            system,
-            additional_encoded_capacity_bytes,
-            payment,
-        );
 }
 
 public(package) fun has_blob(self: &BlobBucket, blob_id: u256): bool {
