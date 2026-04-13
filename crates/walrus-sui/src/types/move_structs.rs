@@ -88,32 +88,6 @@ impl AssociatedContractStruct for StoragePoolResource {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePool;
 }
 
-/// Sui object for a blob bucket.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct BlobBucket {
-    /// Object ID of the Sui object.
-    pub id: ObjectID,
-    /// The versioned inner-state selector for the bucket.
-    pub version: u64,
-}
-
-impl AssociatedContractStruct for BlobBucket {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::blob_bucket::BlobBucket;
-}
-
-/// Sui object for a blob bucket capability.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct BlobBucketCap {
-    /// Object ID of the Sui object.
-    pub id: ObjectID,
-    /// The object ID of the corresponding blob bucket.
-    pub bucket_id: ObjectID,
-}
-
-impl AssociatedContractStruct for BlobBucketCap {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::blob_bucket::BlobBucketCap;
-}
-
 /// Sui object for a pooled blob in a storage pool.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,11 +133,16 @@ impl AssociatedContractStruct for PooledBlob {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::PooledBlob;
 }
 
-/// Sui type for the outer storage pool object. Used for deserialization of bucket inner state.
+/// Sui type for the outer storage pool object.
+#[allow(dead_code)] // The outer object ID is only needed for exact BCS layout matching.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct StoragePoolObject {
     pub(crate) id: ObjectID,
     pub(crate) version: u64,
+}
+
+impl AssociatedContractStruct for StoragePoolObject {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePool;
 }
 
 /// Sui type for the inner storage pool state.
@@ -181,16 +160,6 @@ pub(crate) struct StoragePoolInnerV1 {
 
 impl AssociatedContractStruct for StoragePoolInnerV1 {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePoolInnerV1;
-}
-
-/// Sui type for the bucket inner state.
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct BlobBucketInnerV1 {
-    pub(crate) storage_pool: StoragePoolObject,
-}
-
-impl AssociatedContractStruct for BlobBucketInnerV1 {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::blob_bucket_inner_v1::BlobBucketInnerV1;
 }
 
 /// Sui object for a blob.

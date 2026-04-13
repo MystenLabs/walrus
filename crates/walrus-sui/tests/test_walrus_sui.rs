@@ -327,15 +327,12 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
 
 #[tokio::test]
 #[ignore = "ignore integration tests by default"]
-async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
+async fn test_storage_pool_pooled_blob_lifecycle() -> anyhow::Result<()> {
     walrus_test_utils::init_tracing();
     let encoding_type = EncodingType::RS2;
 
-    let (_sui_cluster_handle, walrus_client, system_context, test_node_keys) =
+    let (_sui_cluster_handle, walrus_client, _system_context, test_node_keys) =
         initialize_contract_and_wallet_with_single_node().await?;
-    let blob_bucket_pkg_id = system_context
-        .blob_bucket_pkg_id
-        .expect("blob bucket package is published for tests");
 
     let polling_duration = std::time::Duration::from_millis(50);
     let mut events = walrus_client
@@ -351,24 +348,21 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
         .encoded_blob_length(size)
         .unwrap();
 
-    let blob_bucket = walrus_client
+    let storage_pool_object_id = walrus_client
         .as_ref()
-        .create_blob_bucket(blob_bucket_pkg_id, encoded_size, 3)
+        .create_storage_pool(encoded_size, 3)
         .await?;
 
     let storage_pool_created = next_matching_event(&mut events, |event| match event {
         ContractEvent::StoragePoolEvent(StoragePoolEvent::StoragePoolCreated(event))
-            if event.storage_pool_id == blob_bucket.storage_pool_id =>
+            if event.storage_pool_id == storage_pool_object_id =>
         {
             Some(event)
         }
         _ => None,
     })
     .await?;
-    assert_eq!(
-        storage_pool_created.storage_pool_id,
-        blob_bucket.storage_pool_id
-    );
+    assert_eq!(storage_pool_created.storage_pool_id, storage_pool_object_id);
     assert_eq!(
         storage_pool_created.reserved_encoded_capacity_bytes,
         encoded_size
@@ -386,9 +380,8 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
 
     let first_pooled_blob = walrus_client
         .as_ref()
-        .register_blobs_in_bucket(
-            blob_bucket.bucket_object_id,
-            blob_bucket.cap_object_id,
+        .register_pooled_blobs(
+            storage_pool_object_id,
             vec![first_blob_metadata],
             BlobPersistence::Deletable,
         )
@@ -398,10 +391,7 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
         .expect("expected one pooled blob object");
     assert_eq!(first_pooled_blob.blob_id, first_blob_id);
     assert_eq!(first_pooled_blob.unencoded_size, size);
-    assert_eq!(
-        first_pooled_blob.storage_pool_id,
-        blob_bucket.storage_pool_id
-    );
+    assert_eq!(first_pooled_blob.storage_pool_id, storage_pool_object_id);
     assert!(first_pooled_blob.deletable);
     assert!(!first_pooled_blob.is_certified());
     assert_eq!(
@@ -423,7 +413,7 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
     assert_eq!(pooled_blob_registered.blob_id, first_blob_id);
     assert_eq!(
         pooled_blob_registered.storage_pool_id,
-        blob_bucket.storage_pool_id
+        storage_pool_object_id
     );
     assert!(pooled_blob_registered.deletable);
 
@@ -437,10 +427,7 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
     )?;
     walrus_client
         .as_ref()
-        .certify_blobs_in_bucket(
-            blob_bucket.bucket_object_id,
-            &[(&first_pooled_blob, certificate)],
-        )
+        .certify_pooled_blobs(storage_pool_object_id, &[(&first_pooled_blob, certificate)])
         .await?;
 
     let pooled_blob_certified = next_matching_event(&mut events, |event| match event {
@@ -455,18 +442,18 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
     assert_eq!(pooled_blob_certified.blob_id, first_blob_id);
     assert_eq!(
         pooled_blob_certified.storage_pool_id,
-        blob_bucket.storage_pool_id
+        storage_pool_object_id
     );
     assert!(pooled_blob_certified.deletable);
 
     walrus_client
         .as_ref()
-        .extend_blob_bucket_storage_pool(blob_bucket.bucket_object_id, blob_bucket.cap_object_id, 2)
+        .extend_storage_pool(storage_pool_object_id, 2)
         .await?;
 
     let storage_pool_extended = next_matching_event(&mut events, |event| match event {
         ContractEvent::StoragePoolEvent(StoragePoolEvent::StoragePoolExtended(event))
-            if event.storage_pool_id == blob_bucket.storage_pool_id =>
+            if event.storage_pool_id == storage_pool_object_id =>
         {
             Some(event)
         }
@@ -475,17 +462,13 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
     .await?;
     assert_eq!(
         storage_pool_extended.storage_pool_id,
-        blob_bucket.storage_pool_id
+        storage_pool_object_id
     );
     assert!(storage_pool_extended.new_end_epoch > storage_pool_created.end_epoch);
 
     walrus_client
         .as_ref()
-        .increase_blob_bucket_storage_pool_capacity(
-            blob_bucket.bucket_object_id,
-            blob_bucket.cap_object_id,
-            encoded_size,
-        )
+        .increase_storage_pool_capacity(storage_pool_object_id, encoded_size)
         .await?;
 
     let second_root_hash = Node::from([9; 32]);
@@ -500,9 +483,8 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
 
     let second_pooled_blob = walrus_client
         .as_ref()
-        .register_blobs_in_bucket(
-            blob_bucket.bucket_object_id,
-            blob_bucket.cap_object_id,
+        .register_pooled_blobs(
+            storage_pool_object_id,
             vec![second_blob_metadata],
             BlobPersistence::Permanent,
         )
@@ -511,10 +493,7 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
         .next()
         .expect("expected one pooled blob object after increasing capacity");
     assert_eq!(second_pooled_blob.blob_id, second_blob_id);
-    assert_eq!(
-        second_pooled_blob.storage_pool_id,
-        blob_bucket.storage_pool_id
-    );
+    assert_eq!(second_pooled_blob.storage_pool_id, storage_pool_object_id);
     assert!(!second_pooled_blob.deletable);
 
     let second_pooled_blob_registered = next_matching_event(&mut events, |event| match event {
@@ -529,17 +508,13 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
     assert_eq!(second_pooled_blob_registered.blob_id, second_blob_id);
     assert_eq!(
         second_pooled_blob_registered.storage_pool_id,
-        blob_bucket.storage_pool_id
+        storage_pool_object_id
     );
     assert!(!second_pooled_blob_registered.deletable);
 
     walrus_client
         .as_ref()
-        .delete_blob_from_bucket(
-            blob_bucket.bucket_object_id,
-            blob_bucket.cap_object_id,
-            first_blob_id,
-        )
+        .delete_pooled_blob(storage_pool_object_id, first_blob_id)
         .await?;
 
     let pooled_blob_deleted = next_matching_event(&mut events, |event| match event {
@@ -552,10 +527,7 @@ async fn test_blob_bucket_lifecycle() -> anyhow::Result<()> {
     })
     .await?;
     assert_eq!(pooled_blob_deleted.blob_id, first_blob_id);
-    assert_eq!(
-        pooled_blob_deleted.storage_pool_id,
-        blob_bucket.storage_pool_id
-    );
+    assert_eq!(pooled_blob_deleted.storage_pool_id, storage_pool_object_id);
     assert!(pooled_blob_deleted.was_certified);
 
     Ok(())

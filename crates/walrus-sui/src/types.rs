@@ -52,14 +52,13 @@ pub use transaction::{BalanceChange, TransactionResponse, TransactionResponseOpt
 pub mod move_structs;
 pub use move_structs::{
     Blob,
-    BlobBucket,
-    BlobBucketCap,
     NodeMetadata,
     PooledBlob,
     StakedWal,
     StakingObject,
     StorageNode,
     StorageNodeCap,
+    StoragePoolResource,
     StorageResource,
     SystemObject,
 };
