@@ -48,7 +48,7 @@ fun new_with_registry_shares_bucket_and_records_bucket_id() {
     let bucket = test.take_shared<BlobBucket>();
     let registry = test.take_shared<BucketObjectRegistry>();
     assert_eq!(blob_bucket::bucket_id(&cap), object::id(&bucket));
-    assert_eq!(registry_id, object::id(&registry));
+    assert_eq!(blob_bucket::registry_id(&cap), option::some(object::id(&registry)));
     assert_eq!(bucket_object_registry::blob_bucket_id(&registry), object::id(&bucket));
 
     bucket_object_registry::destroy_for_testing(registry);
@@ -68,7 +68,7 @@ fun new_with_registry_shares_both_objects() {
 
     let encoded_size = encoding::encoded_blob_length(SIZE, RS2, system.n_shards());
     let mut pool_payment = test_utils::mint_frost(N_COINS, ctx);
-    let (cap, registry_id) = blob_bucket::new_with_registry(
+    let cap = blob_bucket::new_with_registry(
         &mut system,
         encoded_size,
         3,
