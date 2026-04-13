@@ -33,6 +33,7 @@ public struct BlobBucket has key {
 public struct BlobBucketCap has key, store {
     id: UID,
     bucket_id: ID,
+    registry_id: option::Option<ID>,
 }
 
 /// Creates and shares a new blob bucket together with its shared object registry.
@@ -42,8 +43,8 @@ public fun new_with_registry(
     epochs_ahead: u32,
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
-): (BlobBucketCap, ID) {
-    let (bucket, cap) = new_impl(
+): BlobBucketCap {
+    let bucket = new_bucket_impl(
         system,
         reserved_encoded_capacity_bytes,
         epochs_ahead,
@@ -51,8 +52,9 @@ public fun new_with_registry(
         ctx,
     );
     let registry_id = bucket_object_registry::new(object::id(&bucket), ctx);
+    let cap = new_cap(object::id(&bucket), option::some(registry_id), ctx);
     transfer::share_object(bucket);
-    (cap, registry_id)
+    cap
 }
 
 #[test_only]
@@ -63,23 +65,27 @@ public fun new_for_testing(
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
 ): (BlobBucket, BlobBucketCap) {
-    new_impl(system, reserved_encoded_capacity_bytes, epochs_ahead, payment, ctx)
+    let bucket = new_bucket_impl(
+        system,
+        reserved_encoded_capacity_bytes,
+        epochs_ahead,
+        payment,
+        ctx,
+    );
+    let cap = new_cap(object::id(&bucket), option::none(), ctx);
+    (bucket, cap)
 }
 
-fun new_impl(
+fun new_bucket_impl(
     system: &mut System,
     reserved_encoded_capacity_bytes: u64,
     epochs_ahead: u32,
     payment: &mut Coin<WAL>,
     ctx: &mut TxContext,
-): (BlobBucket, BlobBucketCap) {
+): BlobBucket {
     let mut bucket = BlobBucket {
         id: object::new(ctx),
         version: VERSION,
-    };
-    let cap = BlobBucketCap {
-        id: object::new(ctx),
-        bucket_id: object::id(&bucket),
     };
     df::add(
         &mut bucket.id,
@@ -92,7 +98,19 @@ fun new_impl(
             ctx,
         ),
     );
-    (bucket, cap)
+    bucket
+}
+
+fun new_cap(
+    bucket_id: ID,
+    registry_id: option::Option<ID>,
+    ctx: &mut TxContext,
+): BlobBucketCap {
+    BlobBucketCap {
+        id: object::new(ctx),
+        bucket_id,
+        registry_id,
+    }
 }
 
 // Write functions.
@@ -434,6 +452,10 @@ public fun bucket_id(self: &BlobBucketCap): ID {
     self.bucket_id
 }
 
+public fun registry_id(self: &BlobBucketCap): option::Option<ID> {
+    copy self.registry_id
+}
+
 public fun contains_object(
     self: &BlobBucket,
     registry: &BucketObjectRegistry,
@@ -546,6 +568,10 @@ public fun destroy_for_testing(self: BlobBucket): BlobBucketInnerV1 {
 
 #[test_only]
 public fun destroy_cap_for_testing(self: BlobBucketCap) {
-    let BlobBucketCap { id, bucket_id: _ } = self;
+    let BlobBucketCap {
+        id,
+        bucket_id: _,
+        registry_id: _,
+    } = self;
     id.delete();
 }
