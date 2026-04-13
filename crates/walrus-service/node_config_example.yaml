@@ -136,6 +136,7 @@ sui:
   rpc_fallback_config: null
   additional_rpc_endpoints: []
   request_timeout: null
+  checkpoint_wait_timeout: null
 blob_recovery:
   max_concurrent_blob_syncs: 100
   max_concurrent_sliver_syncs: 2000

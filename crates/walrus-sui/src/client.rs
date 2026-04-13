@@ -534,11 +534,17 @@ impl SuiContractClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
+        checkpoint_wait_timeout: Duration,
     ) -> SuiClientResult<Self> {
         tracing::debug!("creating a new `SuiContractClient`");
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?,
+                RetriableSuiClient::new_for_rpc_urls(
+                    rpc_urls,
+                    backoff_config.clone(),
+                    None,
+                    checkpoint_wait_timeout,
+                )?,
                 contract_config,
             )
             .await?,
@@ -553,12 +559,18 @@ impl SuiContractClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
+        checkpoint_wait_timeout: Duration,
         metrics: Arc<SuiClientMetricSet>,
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?
-                    .with_metrics(Some(metrics)),
+                RetriableSuiClient::new_for_rpc_urls(
+                    rpc_urls,
+                    backoff_config.clone(),
+                    None,
+                    checkpoint_wait_timeout,
+                )?
+                .with_metrics(Some(metrics)),
                 contract_config,
             )
             .await?,

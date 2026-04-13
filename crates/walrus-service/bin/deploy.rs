@@ -313,6 +313,7 @@ mod commands {
             SuiContractClient,
             UpgradeType,
             contract_config::ContractConfig,
+            dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
             transaction_builder::WalrusPtbBuilder,
         },
         config::load_wallet_context_from_path,
@@ -519,6 +520,7 @@ mod commands {
                 rpc_urls,
                 ExponentialBackoffConfig::default(),
                 None,
+                DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
             )
             .await?;
 
@@ -624,9 +626,15 @@ mod commands {
 
         let rpc_urls = &[wallet.get_rpc_url().to_string()];
 
-        let contract_client =
-            SuiContractClient::new(wallet, rpc_urls, &contract_config, Default::default(), None)
-                .await?;
+        let contract_client = SuiContractClient::new(
+            wallet,
+            rpc_urls,
+            &contract_config,
+            Default::default(),
+            None,
+            DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+        )
+        .await?;
         if serialize_unsigned {
             // Compile package
             let (compiled_package, _build_config, _root_package) = contract_client
@@ -683,9 +691,15 @@ mod commands {
 
         let rpc_urls = &[wallet.get_rpc_url().to_string()];
 
-        let contract_client =
-            SuiContractClient::new(wallet, rpc_urls, &contract_config, Default::default(), None)
-                .await?;
+        let contract_client = SuiContractClient::new(
+            wallet,
+            rpc_urls,
+            &contract_config,
+            Default::default(),
+            None,
+            DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+        )
+        .await?;
 
         contract_client.migrate_contracts(new_package_id).await?;
         println!(

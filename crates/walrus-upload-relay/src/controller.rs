@@ -582,6 +582,7 @@ pub async fn get_client_with_config(
         &client_config.rpc_urls,
         client_config.backoff_config().clone(),
         None,
+        client_config.checkpoint_wait_timeout(),
     )?
     .with_metrics(Some(Arc::new(SuiClientMetricSet::new(registry))));
 

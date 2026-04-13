@@ -60,6 +60,7 @@ use walrus_sui::{
         BlobObjectMetadata,
         FixedSystemParameters,
         SuiClientError,
+        dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         retry_client::RetriableRpcClient,
     },
     test_utils::system_setup::{DEFAULT_MAX_EPOCHS_AHEAD, SystemContext},
@@ -2923,7 +2924,13 @@ pub mod test_cluster {
                     .and_then_async(async |wallet| {
                         let rpc_urls = &[wallet.get_rpc_url().to_string()];
                         system_ctx
-                            .new_contract_client(wallet, rpc_urls, Default::default(), None)
+                            .new_contract_client(
+                                wallet,
+                                rpc_urls,
+                                Default::default(),
+                                None,
+                                DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+                            )
                             .await
                     })
                     .await?;

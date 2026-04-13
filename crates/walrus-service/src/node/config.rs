@@ -1944,6 +1944,7 @@ mod tests {
                 rpc_fallback_config: None,
                 additional_rpc_endpoints: Default::default(),
                 request_timeout: None,
+                checkpoint_wait_timeout: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(defaults::CONFIG_SYNCHRONIZER_INTERVAL_SECS),

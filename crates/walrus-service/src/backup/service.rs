@@ -595,6 +595,7 @@ async fn backup_fetcher(
             ),
             backup_config.sui.backoff_config.clone(),
             None,
+            backup_config.sui.checkpoint_wait_timeout(),
         )
         .context("[backup_fetcher] cannot create RetriableSuiClient")?,
         &backup_config.sui.contract_config,

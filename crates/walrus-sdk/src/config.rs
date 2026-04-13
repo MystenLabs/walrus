@@ -7,6 +7,7 @@ use std::{
     iter::once,
     path::{Path, PathBuf},
     sync::{Arc, OnceLock},
+    time::Duration,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -226,6 +227,7 @@ impl ClientConfig {
             &self.contract_config,
             self.backoff_config().clone(),
             gas_budget,
+            self.checkpoint_wait_timeout(),
         )
         .await
     }
@@ -249,6 +251,13 @@ impl ClientConfig {
     /// Returns a reference to the backoff configuration.
     pub fn backoff_config(&self) -> &ExponentialBackoffConfig {
         &self.communication_config.request_rate_config.backoff_config
+    }
+
+    /// Returns the checkpoint wait timeout, falling back to the default.
+    pub fn checkpoint_wait_timeout(&self) -> Duration {
+        self.communication_config
+            .checkpoint_wait_timeout
+            .unwrap_or(walrus_sui::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT)
     }
 
     /// Builds a new [`CommitteesRefresher`], spawns it on a separate task, and

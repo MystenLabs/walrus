@@ -79,10 +79,8 @@ pub const MAX_GET_OBJECTS_BATCH_SIZE: usize = 100;
 const MAX_OWNED_OBJECTS_BATCH_SIZE: u32 = 1000;
 const MAX_SELECT_COINS_BATCH_SIZE: u32 = 1000;
 
-/// The maximum time to wait for a transaction to appear in a checkpoint after executing it via
-/// gRPC. This ensures read-your-writes consistency for follow-up queries against the same
-/// fullnode.
-const WAIT_FOR_CHECKPOINT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Default timeout for waiting for checkpoint inclusion after gRPC transaction execution.
+pub const DEFAULT_CHECKPOINT_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Boxed future returned by [`DualClient::execute_transaction_grpc`].
 pub type BoxedExecuteTxFuture<'a> =
@@ -98,6 +96,8 @@ pub struct DualClient {
     /// The Sui SDK client for JSON RPC calls. This will eventually be removed.
     sui_client: Option<SuiClient>,
     grpc_client: GrpcClient,
+    /// Timeout for waiting for checkpoint inclusion after gRPC transaction execution.
+    checkpoint_wait_timeout: Duration,
 }
 
 impl std::fmt::Debug for DualClient {
@@ -144,6 +144,7 @@ impl DualClient {
     pub async fn new(
         rpc_url: impl AsRef<str>,
         request_timeout: Option<Duration>,
+        checkpoint_wait_timeout: Duration,
     ) -> Result<Self, SuiClientError> {
         let mut client_builder = SuiClientBuilder::default();
         if let Some(request_timeout) = request_timeout {
@@ -155,6 +156,7 @@ impl DualClient {
         Ok(Self {
             sui_client,
             grpc_client,
+            checkpoint_wait_timeout,
         })
     }
 
@@ -758,10 +760,12 @@ impl DualClient {
                     .object_type(),
             ]));
 
+        let checkpoint_wait_timeout = self.checkpoint_wait_timeout;
         Ok(Box::pin(execute_transaction_and_convert(
             grpc_client,
             request,
             sender,
+            checkpoint_wait_timeout,
         )))
     }
 
@@ -819,9 +823,10 @@ async fn execute_transaction_and_convert(
     mut grpc_client: GrpcClient,
     request: ExecuteTransactionRequest,
     sender: SuiAddress,
+    checkpoint_wait_timeout: Duration,
 ) -> Result<ExecuteTransactionResponse, SuiClientError> {
     let response = grpc_client
-        .execute_transaction_and_wait_for_checkpoint(request, WAIT_FOR_CHECKPOINT_TIMEOUT)
+        .execute_transaction_and_wait_for_checkpoint(request, checkpoint_wait_timeout)
         .await
         .map_err(|error| match error {
             ExecuteAndWaitError::RpcError(status) => SuiClientError::from(status),

@@ -153,6 +153,7 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
         &rpc_urls,
         backoff_config,
         config.communication_config.sui_client_request_timeout,
+        config.checkpoint_wait_timeout(),
     )
     .context(format!(
         "cannot connect to Sui RPC nodes at {}",

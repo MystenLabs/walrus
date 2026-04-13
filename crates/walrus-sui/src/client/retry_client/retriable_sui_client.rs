@@ -129,14 +129,22 @@ pub struct LazySuiClientBuilder {
     rpc_url: String,
     /// Override the default timeout for any requests.
     request_timeout: Option<Duration>,
+    /// Timeout for waiting for checkpoint inclusion after gRPC transaction execution.
+    checkpoint_wait_timeout: Duration,
 }
 
 impl LazySuiClientBuilder {
-    /// Creates a new [`LazySuiClientBuilder`] from a URL and an optional `request_timeout`.
-    pub fn new(rpc_url: impl AsRef<str>, request_timeout: Option<Duration>) -> Self {
+    /// Creates a new [`LazySuiClientBuilder`] from a URL, an optional `request_timeout`, and a
+    /// `checkpoint_wait_timeout`.
+    pub fn new(
+        rpc_url: impl AsRef<str>,
+        request_timeout: Option<Duration>,
+        checkpoint_wait_timeout: Duration,
+    ) -> Self {
         Self {
             rpc_url: rpc_url.as_ref().to_string(),
             request_timeout,
+            checkpoint_wait_timeout,
         }
     }
 }
@@ -176,7 +184,14 @@ impl LazyClientBuilder<DualClient> for LazySuiClientBuilder {
                 Some(RPC_MAX_TRIES),
             )
             .get_strategy(StdRng::from_entropy().next_u64()),
-            || async { DualClient::new(self.rpc_url.as_str(), self.request_timeout).await },
+            || async {
+                DualClient::new(
+                    self.rpc_url.as_str(),
+                    self.request_timeout,
+                    self.checkpoint_wait_timeout,
+                )
+                .await
+            },
             None,
             "build_sui_client",
         )
@@ -310,10 +325,13 @@ impl RetriableSuiClient {
         rpc_addresses: &[S],
         backoff_config: ExponentialBackoffConfig,
         request_timeout: Option<Duration>,
+        checkpoint_wait_timeout: Duration,
     ) -> SuiClientResult<Self> {
         let failover_clients = rpc_addresses
             .iter()
-            .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, request_timeout))
+            .map(|rpc_url| {
+                LazySuiClientBuilder::new(rpc_url, request_timeout, checkpoint_wait_timeout)
+            })
             .collect::<Vec<_>>();
         Ok(Self::new(failover_clients, backoff_config)?)
     }

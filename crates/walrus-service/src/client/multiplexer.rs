@@ -503,6 +503,7 @@ impl<'a> SubClientLoader<'a> {
             rpc_urls,
             self.config.backoff_config().clone(),
             self.config.communication_config.sui_client_request_timeout,
+            self.config.checkpoint_wait_timeout(),
         )?;
 
         if should_refill(&sui_client, address, Coin::SUI, min_balance).await {
