@@ -1,11 +1,13 @@
 [package]
-name = "WAL"
+name = "wal"
 license = "Apache-2.0"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
-edition = "2024.beta"
+edition = "2024"
+implicit-dependencies = false
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.70.2" }
+std = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "testnet-v1.70.2" }
+sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.70.2" }
 
-[addresses]
-wal = "0x0"
+[environments]
+localnet = "4c78adac"

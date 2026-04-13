@@ -13,6 +13,7 @@ use walrus::{
     epoch_parameters::EpochParams,
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
+    storage_pool::StoragePool,
     storage_resource::Storage,
     system_state_inner::{Self, SystemStateInnerV1}
 };
@@ -23,9 +24,11 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the system object.
 const EWrongVersion: u64 = 1;
+/// The extracted storage size is zero (nothing to extract).
+const EZeroExtractSize: u64 = 2;
 
 /// Flag to indicate the version of the system.
-const VERSION: u64 = 2;
+const VERSION: u64 = 3;
 
 /// The one and only system object.
 public struct System has key {
@@ -49,6 +52,18 @@ public(package) fun create_empty(max_epochs_ahead: u32, package_id: ID, ctx: &mu
     transfer::share_object(system);
 }
 
+/// Sets the storage price per unit size. Called when a price vote is cast and the quorum
+/// price is recalculated from the current committee.
+public(package) fun set_storage_price(self: &mut System, price: u64) {
+    self.inner_mut().set_storage_price(price);
+}
+
+/// Sets the write price per unit size. Called when a price vote is cast and the quorum
+/// price is recalculated from the current committee.
+public(package) fun set_write_price(self: &mut System, price: u64) {
+    self.inner_mut().set_write_price(price);
+}
+
 /// Update epoch to next epoch, and update the committee, price and capacity.
 ///
 /// Called by the epoch change function that connects `Staking` and `System`. Returns
@@ -59,6 +74,12 @@ public(package) fun advance_epoch(
     new_epoch_params: &EpochParams,
 ): VecMap<ID, Balance<WAL>> {
     self.inner_mut().advance_epoch(new_committee, new_epoch_params)
+}
+
+/// Extracts the balance that will be burned for the current epoch. This function is used when
+/// executing the epoch change.
+public(package) fun extract_burn_balance(self: &mut System): Balance<WAL> {
+    self.inner_mut().extract_burn_balance()
 }
 
 /// === Public Functions ===
@@ -189,6 +210,151 @@ public fun extend_blob(
     self.inner_mut().extend_blob(blob, extended_epochs, payment);
 }
 
+// === Storage Pool ===
+
+/// Creates a new storage pool with the given capacity and epoch range.
+public fun create_storage_pool(
+    self: &mut System,
+    reserved_encoded_capacity_bytes: u64,
+    epochs_ahead: u32,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): StoragePool {
+    self
+        .inner_mut()
+        .create_storage_pool(reserved_encoded_capacity_bytes, epochs_ahead, payment, ctx)
+}
+
+/// Creates a new storage pool backed by an existing `Storage` reservation.
+public fun create_storage_pool_with_storage(
+    self: &System,
+    storage: Storage,
+    ctx: &mut TxContext,
+): StoragePool {
+    self.inner().create_storage_pool_with_storage(storage, ctx)
+}
+
+/// Registers a new blob against a storage pool.
+public fun register_pooled_blob(
+    self: &mut System,
+    storage_pool: &mut StoragePool,
+    blob_id: u256,
+    root_hash: u256,
+    unencoded_size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+) {
+    self
+        .inner_mut()
+        .register_pooled_blob(
+            storage_pool,
+            blob_id,
+            root_hash,
+            unencoded_size,
+            encoding_type,
+            deletable,
+            write_payment,
+            ctx,
+        )
+}
+
+/// Deletes a blob from a storage pool and frees its capacity.
+public fun delete_pooled_blob(self: &System, storage_pool: &mut StoragePool, blob_id: u256) {
+    self.inner().delete_pooled_blob(storage_pool, blob_id)
+}
+
+/// Burns a blob from an expired storage pool, regardless of the `deletable` flag.
+/// The pool must have expired (`end_epoch <= current_epoch`).
+public fun burn_expired_pooled_blob(self: &System, storage_pool: &mut StoragePool, blob_id: u256) {
+    self.inner().burn_expired_pooled_blob(storage_pool, blob_id)
+}
+
+/// Extends the lifetime of a storage pool by `extended_epochs`.
+public fun extend_storage_pool(
+    self: &mut System,
+    storage_pool: &mut StoragePool,
+    extended_epochs: u32,
+    payment: &mut Coin<WAL>,
+) {
+    self.inner_mut().extend_storage_pool(storage_pool, extended_epochs, payment)
+}
+
+/// Increases the reserved capacity of a storage pool for the remainder of its lifetime.
+public fun increase_storage_pool_capacity(
+    self: &mut System,
+    storage_pool: &mut StoragePool,
+    additional_encoded_capacity_bytes: u64,
+    payment: &mut Coin<WAL>,
+) {
+    self
+        .inner_mut()
+        .increase_storage_pool_capacity(
+            storage_pool,
+            additional_encoded_capacity_bytes,
+            payment,
+        )
+}
+
+/// Increases the pool's capacity by absorbing an existing `Storage` object.
+public fun increase_storage_pool_capacity_with_storage(
+    self: &System,
+    storage_pool: &mut StoragePool,
+    storage: Storage,
+) {
+    self.inner().increase_storage_pool_capacity_with_storage(storage_pool, storage)
+}
+
+/// Reduces the pool's capacity by extracting a `Storage` object of the given size.
+/// Aborts with `EZeroExtractSize` if `size` is zero.
+public fun decrease_storage_pool_capacity_by_size(
+    self: &System,
+    storage_pool: &mut StoragePool,
+    size: u64,
+    ctx: &mut TxContext,
+): Storage {
+    let result = self.inner().decrease_storage_pool_capacity_by_size(storage_pool, size, ctx);
+    assert!(result.is_some(), EZeroExtractSize);
+    result.destroy_some()
+}
+
+/// Reduces the pool's capacity by extracting `percent` of the unused capacity as a `Storage`
+/// object. Aborts with `EZeroExtractSize` if the computed extract size is zero (for example
+/// from rounding or zero unused capacity).
+public fun decrease_storage_pool_unused_capacity_by_percent(
+    self: &System,
+    storage_pool: &mut StoragePool,
+    percent: u8,
+    ctx: &mut TxContext,
+): Storage {
+    let result = self
+        .inner()
+        .decrease_storage_pool_unused_capacity_by_percent(storage_pool, percent, ctx);
+    assert!(result.is_some(), EZeroExtractSize);
+    result.destroy_some()
+}
+
+/// Certifies a blob within a storage pool.
+public fun certify_pooled_blob(
+    self: &System,
+    storage_pool: &mut StoragePool,
+    blob_id: u256,
+    signature: vector<u8>,
+    signers_bitmap: vector<u8>,
+    message: vector<u8>,
+) {
+    self
+        .inner()
+        .certify_pooled_blob(
+            storage_pool,
+            blob_id,
+            signature,
+            signers_bitmap,
+            message,
+        )
+}
+
 /// Adds rewards to the system for the specified number of epochs ahead.
 /// The rewards are split equally across the future accounting ring buffer up to the
 /// specified epoch.
@@ -296,7 +462,10 @@ public(package) fun set_new_package_id(system: &mut System, new_package_id: ID) 
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `system_state_inner` object if needed.
 public(package) fun migrate(system: &mut System) {
+    // Below logic is for upgrading to version 3. When upgrading to future versions, this function
+    // needs to be revisited to perform correct migration steps.
     assert!(system.version < VERSION, EInvalidMigration);
+    assert!(VERSION == 3, EInvalidMigration);
 
     // Move the old system state inner to the new version.
     let system_state_inner: SystemStateInnerV1 = dynamic_field::remove(
@@ -375,8 +544,20 @@ public(package) fun new_package_id(system: &System): Option<ID> {
 }
 
 #[test_only]
-public(package) fun destroy_for_testing(self: System) {
-    sui::test_utils::destroy(self);
+/// Returns the raw storage price per unit size.
+public fun storage_price_per_unit_size(self: &System): u64 {
+    self.inner().storage_price_per_unit_size()
+}
+
+#[test_only]
+/// Returns the raw write price per unit size.
+public fun write_price_per_unit_size(self: &System): u64 {
+    self.inner().write_price_per_unit_size()
+}
+
+#[test_only]
+public fun destroy_for_testing(self: System) {
+    std::unit_test::destroy(self);
 }
 
 #[test_only]
