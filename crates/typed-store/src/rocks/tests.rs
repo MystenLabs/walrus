@@ -171,6 +171,27 @@ async fn test_contains_key() {
 }
 
 #[tokio::test]
+async fn test_may_contain_key() {
+    let db = open_map(temp_dir(), None, None);
+
+    db.insert(&123456789, &"123456789".to_string())
+        .expect("Failed to insert");
+    assert!(
+        db.may_contain_key(&123456789)
+            .expect("Failed to call may contain key")
+    );
+    let may_contain_absent = db
+        .may_contain_key(&000000000)
+        .expect("Failed to call may contain key");
+    if !may_contain_absent {
+        assert!(
+            !db.contains_key(&000000000)
+                .expect("Failed to call contains key for absent key")
+        );
+    }
+}
+
+#[tokio::test]
 async fn test_multi_contain() {
     let db = open_map(temp_dir(), None, None);
 

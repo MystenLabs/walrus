@@ -1051,6 +1051,31 @@ impl<K, V> DBMap<K, V> {
             .ok_or_else(|| TypedStoreError::UnregisteredColumn(self.cf.clone()))
     }
 
+    fn key_may_exist(&self, key_buf: &[u8]) -> Result<bool, TypedStoreError> {
+        let readopts = self.opts.readopts();
+        let may_exist = self
+            .rocksdb
+            .key_may_exist_cf(&self.cf()?, key_buf, &readopts);
+        if may_exist {
+            self.db_metrics
+                .op_metrics
+                .rocksdb_bloom_filter_may_exist_true_total
+                .with_label_values(&[&self.cf_class])
+                .inc();
+        }
+        Ok(may_exist)
+    }
+
+    /// Returns false only if RocksDB can prove the key is absent using its bloom filter path.
+    #[tracing::instrument(level = "trace", skip_all, err)]
+    pub fn may_contain_key(&self, key: &K) -> Result<bool, TypedStoreError>
+    where
+        K: Serialize,
+    {
+        let key_buf = be_fix_int_ser(key)?;
+        self.key_may_exist(&key_buf)
+    }
+
     fn read_value_with_metrics<'a>(
         &self,
         key_buf: Vec<u8>,
@@ -1802,16 +1827,7 @@ where
         // [`rocksdb::DBWithThreadMode::key_may_exist_cf`] can have false positives,
         // but no false negatives. We use it to short-circuit the absent case.
         let readopts = self.opts.readopts();
-        let may_exist = self
-            .rocksdb
-            .key_may_exist_cf(&self.cf()?, &key_buf, &readopts);
-        if may_exist {
-            self.db_metrics
-                .op_metrics
-                .rocksdb_bloom_filter_may_exist_true_total
-                .with_label_values(&[&self.cf_class])
-                .inc();
-        }
+        let may_exist = self.key_may_exist(&key_buf)?;
         let found = if may_exist {
             let pinned = self
                 .rocksdb
