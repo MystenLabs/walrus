@@ -820,6 +820,163 @@ fun increase_capacity_with_storage_expired_pool() {
     abort
 }
 
+// === decrease_capacity_by_size tests ===
+
+/// Extract capacity from a pool with blobs; verify sizes, epochs, and available drops correctly.
+#[test]
+fun decrease_capacity_by_size_happy_path() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    // Pool has 3x capacity, register a blob that uses 1x.
+    let mut pool = system.create_storage_pool(capacity * 3, 3, &mut fake_coin, ctx);
+    register_blob_in_pool(&mut system, &mut pool, default_blob_id(), SIZE, false, ctx);
+
+    // Extract exactly all unused capacity (2x).
+    let extracted = pool.decrease_capacity_by_size(capacity * 2, ctx).destroy_some();
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), capacity);
+    assert_eq!(pool.available_encoded_bytes(), 0);
+    assert_eq!(extracted.size(), capacity * 2);
+    assert_eq!(extracted.start_epoch(), pool.start_epoch());
+    assert_eq!(extracted.end_epoch(), pool.end_epoch());
+
+    fake_coin.burn_for_testing();
+    extracted.destroy();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+/// Cannot extract more than unused capacity — blobs must remain backed.
+#[test, expected_failure(abort_code = storage_pool::EInsufficientCapacity)]
+fun decrease_capacity_by_size_exceeds_available() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    register_blob_in_pool(&mut system, &mut pool, default_blob_id(), SIZE, false, ctx);
+
+    // Pool is fully used — even 1 byte should fail.
+    let _storage = pool.decrease_capacity_by_size(1, ctx);
+    abort
+}
+
+/// Cannot extract more than total capacity.
+#[test, expected_failure(abort_code = storage_pool::EInsufficientCapacity)]
+fun decrease_capacity_by_size_exceeds_total() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    let _storage = pool.decrease_capacity_by_size(capacity + 1, ctx);
+    abort
+}
+
+/// After splitting, the reduced pool correctly enforces its new capacity limit.
+#[test, expected_failure(abort_code = storage_pool::EInsufficientCapacity)]
+fun decrease_capacity_by_size_then_register_blob_fails() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity * 2, 3, &mut fake_coin, ctx);
+
+    // Leave less than 1x capacity.
+    let _extracted = pool.decrease_capacity_by_size(capacity + 1, ctx);
+    // Blob needs 1x — should fail.
+    register_blob_in_pool(&mut system, &mut pool, default_blob_id(), SIZE, false, ctx);
+    abort
+}
+
+// === decrease_storage_pool_unused_capacity_by_percent tests ===
+
+/// 50% with rounding (available=99, extracts 49 not 50), then 100% of remainder; verifies
+/// no overdrawing with blob present.
+#[test]
+fun decrease_unused_by_percent_happy_path() {
+    use walrus::storage_resource;
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+    // Pool with capacity + 99: blob uses capacity, leaving 99 available (odd, for rounding).
+    let storage = storage_resource::create_for_test(0, 3, capacity + 99, ctx);
+    let mut pool = system.create_storage_pool_with_storage(storage, ctx);
+    register_blob_in_pool(&mut system, &mut pool, default_blob_id(), SIZE, false, ctx);
+
+    // 50% of 99 = 49 (floor, not 50).
+    let first = system.decrease_storage_pool_unused_capacity_by_percent(&mut pool, 50, ctx);
+    assert_eq!(first.size(), 49);
+    assert_eq!(pool.available_encoded_bytes(), 50);
+
+    // 100% of remaining 50.
+    let second = system.decrease_storage_pool_unused_capacity_by_percent(&mut pool, 100, ctx);
+    assert_eq!(second.size(), 50);
+    assert_eq!(pool.available_encoded_bytes(), 0);
+
+    first.destroy();
+    second.destroy();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+/// Rounding to zero (available=99, 1% → 0) aborts with EZeroExtractSize.
+#[test, expected_failure(abort_code = system::EZeroExtractSize)]
+fun decrease_unused_by_percent_rounds_to_zero() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(99, 3, &mut fake_coin, ctx);
+
+    let _s = system.decrease_storage_pool_unused_capacity_by_percent(&mut pool, 1, ctx);
+    abort
+}
+
+/// Percentage > 100 is rejected.
+#[test, expected_failure(abort_code = storage_pool::EInvalidPercent)]
+fun decrease_unused_by_percent_over_100() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(99, 3, &mut fake_coin, ctx);
+
+    let _s = system.decrease_storage_pool_unused_capacity_by_percent(&mut pool, 101, ctx);
+    abort
+}
+
+/// No overflow: near-u64::MAX available × 100 computed safely via u128.
+#[test]
+fun decrease_unused_by_percent_large_available() {
+    use walrus::storage_resource;
+    let ctx = &mut tx_context::dummy();
+    let system = system::new_for_testing(ctx);
+    let large: u64 = 18_446_744_073_709_551_000;
+    let storage = storage_resource::create_for_test(0, 3, large, ctx);
+    let mut pool = system.create_storage_pool_with_storage(storage, ctx);
+
+    let extracted = system.decrease_storage_pool_unused_capacity_by_percent(&mut pool, 100, ctx);
+    assert_eq!(extracted.size(), large);
+
+    extracted.destroy();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+/// Expired pool is rejected.
+#[test, expected_failure(abort_code = system_state_inner::EInvalidEpochsAhead)]
+fun decrease_unused_by_percent_expired_pool() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(99, 1, &mut fake_coin, ctx);
+
+    advance_epoch(&mut system);
+    let _s = system.decrease_storage_pool_unused_capacity_by_percent(&mut pool, 50, ctx);
+    abort
+}
+
 // === Capacity accounting and reward distribution tests ===
 
 // Test that the capacity and rewards are accounted for the correct epochs when creating and

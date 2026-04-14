@@ -988,6 +988,30 @@ public(package) fun increase_storage_pool_capacity_with_storage(
     storage_pool.increase_capacity_with_storage(storage, self.epoch());
 }
 
+/// Reduces the pool's capacity by extracting a `Storage` object of the given size.
+/// Returns `none` when `size` is zero.
+public(package) fun decrease_storage_pool_capacity_by_size(
+    self: &SystemStateInnerV1,
+    storage_pool: &mut StoragePool,
+    size: u64,
+    ctx: &mut TxContext,
+): Option<Storage> {
+    assert!(storage_pool.end_epoch() > self.epoch(), EInvalidEpochsAhead);
+    storage_pool.decrease_capacity_by_size(size, ctx)
+}
+
+/// Reduces the pool's capacity by extracting `percent` of the unused capacity as a `Storage`
+/// object. Returns `none` when the computed extract size is zero.
+public(package) fun decrease_storage_pool_unused_capacity_by_percent(
+    self: &SystemStateInnerV1,
+    storage_pool: &mut StoragePool,
+    percent: u8,
+    ctx: &mut TxContext,
+): Option<Storage> {
+    assert!(storage_pool.end_epoch() > self.epoch(), EInvalidEpochsAhead);
+    storage_pool.decrease_unused_capacity_by_percent(percent, ctx)
+}
+
 /// Certifies a blob within a `StoragePool`.
 public(package) fun certify_pooled_blob(
     self: &SystemStateInnerV1,

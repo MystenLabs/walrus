@@ -47,6 +47,8 @@ const EIncompatibleEndEpoch: u64 = 11;
 const EDuplicateMetadata: u64 = 12;
 /// The blob does not have any metadata.
 const EMissingMetadata: u64 = 13;
+/// The percent value is out of the allowed 0..=100 range.
+const EInvalidPercent: u64 = 14;
 
 /// Version of the pool outer object.
 const VERSION: u64 = 1;
@@ -245,6 +247,42 @@ public(package) fun increase_capacity_with_storage(
     assert!(other.end_epoch() == inner.storage.end_epoch(), EIncompatibleEndEpoch);
     inner.storage.increase_size(other.size());
     other.destroy();
+}
+
+/// Reduces the pool's capacity by splitting off a `Storage` object of the given size.
+/// The remaining capacity in the pool must be sufficient to cover `used_encoded_bytes`,
+/// ensuring all active blobs remain backed by storage. Returns `none` when `extract_size`
+/// is zero.
+public(package) fun decrease_capacity_by_size(
+    self: &mut StoragePool,
+    extract_size: u64,
+    ctx: &mut TxContext,
+): Option<Storage> {
+    if (extract_size == 0) {
+        return option::none()
+    };
+    let inner = self.inner_mut();
+    // Ensure there is enough unused capacity to extract.
+    assert!(inner.storage.size() - inner.used_encoded_bytes >= extract_size, EInsufficientCapacity);
+    // split_by_size keeps `keep_size` in the pool's storage and returns a new Storage with the
+    // remainder.
+    let keep_size = inner.storage.size() - extract_size;
+    option::some(inner.storage.split_by_size(keep_size, ctx))
+}
+
+/// Reduces the pool's capacity by extracting `percent` of the currently unused capacity as a
+/// `Storage` object. `percent` must be in the range `0..=100`. Returns `none` when the computed
+/// extract size is zero (for example when `percent == 0` or there is no unused capacity).
+public(package) fun decrease_unused_capacity_by_percent(
+    self: &mut StoragePool,
+    percent: u8,
+    ctx: &mut TxContext,
+): Option<Storage> {
+    assert!(percent <= 100, EInvalidPercent);
+    let inner = self.inner();
+    let unused = inner.storage.size() - inner.used_encoded_bytes;
+    let extract_size = ((unused as u128) * (percent as u128) / 100 as u64);
+    self.decrease_capacity_by_size(extract_size, ctx)
 }
 
 /// Destroys the pool and returns the embedded `Storage` reservation.
