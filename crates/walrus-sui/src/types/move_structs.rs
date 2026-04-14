@@ -149,9 +149,7 @@ impl AssociatedContractStruct for StoragePoolObject {
 #[allow(dead_code)] // Some fields are only needed for selective off-chain inspection.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct StoragePoolInnerV1 {
-    pub(crate) start_epoch: Epoch,
-    pub(crate) end_epoch: Epoch,
-    pub(crate) reserved_encoded_capacity_bytes: u64,
+    pub(crate) storage: StorageResource,
     pub(crate) used_encoded_bytes: u64,
     pub(crate) blob_count: u64,
     #[serde(deserialize_with = "deserialize_bag_or_table")]

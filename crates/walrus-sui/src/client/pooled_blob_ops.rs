@@ -139,9 +139,7 @@ impl SuiContractClient {
         storage_pool_object_id: ObjectID,
     ) -> SuiClientResult<StoragePoolStatus> {
         let StoragePoolInnerV1 {
-            start_epoch,
-            end_epoch,
-            reserved_encoded_capacity_bytes,
+            storage,
             used_encoded_bytes,
             blob_count,
             blobs: _,
@@ -151,9 +149,9 @@ impl SuiContractClient {
             .await?;
         Ok(StoragePoolStatus {
             storage_pool_object_id,
-            start_epoch,
-            end_epoch,
-            reserved_encoded_capacity_bytes,
+            start_epoch: storage.start_epoch,
+            end_epoch: storage.end_epoch,
+            reserved_encoded_capacity_bytes: storage.storage_size,
             used_encoded_bytes,
             blob_count,
         })
@@ -279,10 +277,7 @@ impl SuiContractClientInner {
         storage_pool_object_id: ObjectID,
         epochs_extended: EpochCount,
     ) -> SuiClientResult<()> {
-        let StoragePoolInnerV1 {
-            reserved_encoded_capacity_bytes,
-            ..
-        } = self
+        let StoragePoolInnerV1 { storage, .. } = self
             .read_client
             .get_storage_pool_inner(storage_pool_object_id)
             .await?;
@@ -292,7 +287,7 @@ impl SuiContractClientInner {
             .extend_storage_pool(
                 storage_pool_object_id,
                 epochs_extended,
-                reserved_encoded_capacity_bytes,
+                storage.storage_size,
             )
             .await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -313,10 +308,10 @@ impl SuiContractClientInner {
             .await?;
         let current_epoch = self.read_client.current_epoch().await?;
         ensure!(
-            storage_pool_inner.end_epoch > current_epoch,
+            storage_pool_inner.storage.end_epoch > current_epoch,
             anyhow!("storage pool is not active").into()
         );
-        let remaining_epochs = storage_pool_inner.end_epoch - current_epoch;
+        let remaining_epochs = storage_pool_inner.storage.end_epoch - current_epoch;
 
         let mut pt_builder = self.transaction_builder();
         pt_builder
