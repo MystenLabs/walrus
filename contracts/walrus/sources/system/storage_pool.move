@@ -251,19 +251,23 @@ public(package) fun increase_capacity_with_storage(
 
 /// Reduces the pool's capacity by splitting off a `Storage` object of the given size.
 /// The remaining capacity in the pool must be sufficient to cover `used_encoded_bytes`,
-/// ensuring all active blobs remain backed by storage.
+/// ensuring all active blobs remain backed by storage. Returns `none` when `extract_size`
+/// is zero.
 public(package) fun decrease_capacity_by_size(
     self: &mut StoragePool,
     extract_size: u64,
     ctx: &mut TxContext,
-): Storage {
+): Option<Storage> {
+    if (extract_size == 0) {
+        return option::none()
+    };
     let inner = self.inner_mut();
     // Ensure there is enough unused capacity to extract.
     assert!(inner.storage.size() - inner.used_encoded_bytes >= extract_size, EInsufficientCapacity);
     // split_by_size keeps `keep_size` in the pool's storage and returns a new Storage with the
     // remainder.
     let keep_size = inner.storage.size() - extract_size;
-    inner.storage.split_by_size(keep_size, ctx)
+    option::some(inner.storage.split_by_size(keep_size, ctx))
 }
 
 /// Reduces the pool's capacity by extracting `percent` of the currently unused capacity as a
@@ -277,12 +281,8 @@ public(package) fun decrease_unused_capacity_by_percent(
     assert!(percent <= 100, EInvalidPercent);
     let inner = self.inner();
     let unused = inner.storage.size() - inner.used_encoded_bytes;
-    let extract_size = (unused * (percent as u64)) / 100;
-    if (extract_size == 0) {
-        option::none()
-    } else {
-        option::some(self.decrease_capacity_by_size(extract_size, ctx))
-    }
+    let extract_size = ((unused as u128) * (percent as u128) / 100 as u64);
+    self.decrease_capacity_by_size(extract_size, ctx)
 }
 
 /// Destroys the pool and returns the embedded `Storage` reservation.
