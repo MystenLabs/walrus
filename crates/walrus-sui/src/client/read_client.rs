@@ -70,6 +70,9 @@ use crate::{
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
+            StoragePoolForDeserialization,
+            StoragePoolInnerV1,
+            StoragePoolResource,
             SubsidiesInnerKey,
             SystemObjectForDeserialization,
             SystemStateInnerV1,
@@ -477,6 +480,29 @@ impl SuiReadClient {
     /// Flushes the cached system and staking objects.
     pub async fn flush_cache(&self) {
         *self.cached_walrus_objects.write().await = None;
+    }
+
+    /// Fetches a storage pool by id, returning the combined outer + inner state.
+    ///
+    /// The outer `StoragePool` Sui object only carries `id` and `version`; the rest of
+    /// the pool state lives in a dynamic field keyed by `version`. This helper performs
+    /// both reads and assembles them into a [`StoragePoolResource`], mirroring how
+    /// `get_full_system_object` handles the system object.
+    #[tracing::instrument(skip(self), level = Level::DEBUG)]
+    pub async fn get_storage_pool(
+        &self,
+        pool_id: ObjectID,
+    ) -> SuiClientResult<StoragePoolResource> {
+        let outer: StoragePoolForDeserialization = self.sui_client.get_sui_object(pool_id).await?;
+        let inner = self
+            .sui_client
+            .get_dynamic_field::<u64, StoragePoolInnerV1>(outer.id, TypeTag::U64, outer.version)
+            .await?;
+        Ok(StoragePoolResource {
+            id: outer.id,
+            version: outer.version,
+            inner,
+        })
     }
 
     pub(crate) async fn object_arg_for_shared_obj(

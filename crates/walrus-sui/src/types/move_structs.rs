@@ -64,17 +64,27 @@ impl AssociatedContractStruct for StorageResource {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_resource::Storage;
 }
 
-/// Sui object for a storage pool.
-#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
-pub struct StoragePoolResource {
-    /// Object ID of the Sui object.
-    pub id: ObjectID,
-    /// The start epoch of the pool (inclusive).
-    pub start_epoch: Epoch,
-    /// The end epoch of the pool (exclusive).
-    pub end_epoch: Epoch,
-    /// The total reserved capacity in encoded bytes.
-    pub reserved_encoded_capacity_bytes: u64,
+/// Sui type for the outer storage pool object. Used for deserialization.
+///
+/// The outer object only contains `id` and `version`; the rest of the pool state lives
+/// in the dynamic-field-backed [`StoragePoolInnerV1`], keyed by `version`. Use
+/// `SuiReadClient::get_storage_pool` to fetch the combined [`StoragePoolResource`].
+#[derive(Debug, Deserialize)]
+pub struct StoragePoolForDeserialization {
+    pub(crate) id: ObjectID,
+    pub(crate) version: u64,
+}
+
+impl AssociatedContractStruct for StoragePoolForDeserialization {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePool;
+}
+
+/// Sui type for the inner storage pool state. Stored as a dynamic field on the outer
+/// `StoragePool` object, keyed by the pool's `version`.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct StoragePoolInnerV1 {
+    /// The storage reservation backing the pool.
+    pub storage: StorageResource,
     /// Sum of all active blobs' encoded sizes.
     pub used_encoded_bytes: u64,
     /// Number of blobs in the table.
@@ -84,8 +94,43 @@ pub struct StoragePoolResource {
     pub blobs: ObjectID,
 }
 
-impl AssociatedContractStruct for StoragePoolResource {
-    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePool;
+/// Combined view of a storage pool: the outer object plus its dynamic-field-backed
+/// inner state. Constructed by `SuiReadClient::get_storage_pool`.
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct StoragePoolResource {
+    /// Object id of the Sui object.
+    pub id: ObjectID,
+    /// The version of the storage pool.
+    pub version: u64,
+    /// The inner pool state.
+    pub inner: StoragePoolInnerV1,
+}
+
+impl StoragePoolResource {
+    /// Returns the start epoch of the pool (inclusive).
+    pub fn start_epoch(&self) -> Epoch {
+        self.inner.storage.start_epoch
+    }
+
+    /// Returns the end epoch of the pool (exclusive).
+    pub fn end_epoch(&self) -> Epoch {
+        self.inner.storage.end_epoch
+    }
+
+    /// Returns the total reserved capacity in encoded bytes.
+    pub fn reserved_encoded_capacity_bytes(&self) -> u64 {
+        self.inner.storage.storage_size
+    }
+
+    /// Returns the sum of all active blobs' encoded sizes.
+    pub fn used_encoded_bytes(&self) -> u64 {
+        self.inner.used_encoded_bytes
+    }
+
+    /// Returns the number of blobs currently in the pool.
+    pub fn blob_count(&self) -> u64 {
+        self.inner.blob_count
+    }
 }
 
 /// Sui object for a blob.

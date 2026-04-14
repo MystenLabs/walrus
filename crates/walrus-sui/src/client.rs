@@ -79,7 +79,6 @@ use crate::{
             EpochState,
             SharedBlob,
             StorageNode,
-            StoragePoolResource,
         },
     },
     utils::get_created_sui_object_ids_by_type,
@@ -2697,17 +2696,13 @@ impl SuiContractClientInner {
         storage_pool_id: ObjectID,
         extended_epochs: EpochCount,
     ) -> SuiClientResult<()> {
-        let pool: StoragePoolResource = self
-            .read_client
-            .retriable_sui_client()
-            .get_sui_object(storage_pool_id)
-            .await?;
+        let pool = self.read_client.get_storage_pool(storage_pool_id).await?;
         let mut pt_builder = self.transaction_builder();
         pt_builder
             .extend_storage_pool(
                 storage_pool_id.into(),
                 extended_epochs,
-                pool.reserved_encoded_capacity_bytes,
+                pool.reserved_encoded_capacity_bytes(),
             )
             .await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
@@ -2724,13 +2719,9 @@ impl SuiContractClientInner {
         storage_pool_id: ObjectID,
         additional_encoded_capacity_bytes: u64,
     ) -> SuiClientResult<()> {
-        let pool: StoragePoolResource = self
-            .read_client
-            .retriable_sui_client()
-            .get_sui_object(storage_pool_id)
-            .await?;
+        let pool = self.read_client.get_storage_pool(storage_pool_id).await?;
         let current_epoch = self.read_client.current_epoch().await?;
-        let remaining_epochs = pool.end_epoch.saturating_sub(current_epoch);
+        let remaining_epochs = pool.end_epoch().saturating_sub(current_epoch);
         let mut pt_builder = self.transaction_builder();
         pt_builder
             .increase_storage_pool_capacity(
