@@ -10385,7 +10385,7 @@ dependencies = [
  "sui-macros",
  "sui-network",
  "sui-protocol-config",
- "sui-rpc 0.2.2",
+ "sui-rpc",
  "sui-simulator",
  "sui-storage",
  "sui-swarm-config",
@@ -10428,7 +10428,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signature 2.2.0",
- "sui-sdk-types 0.2.2",
+ "sui-sdk-types",
 ]
 
 [[package]]
@@ -10963,7 +10963,7 @@ dependencies = [
  "sui-http",
  "sui-macros",
  "sui-protocol-config",
- "sui-rpc 0.2.2",
+ "sui-rpc",
  "sui-simulator",
  "sui-storage",
  "sui-swarm-config",
@@ -11170,27 +11170,6 @@ dependencies = [
 
 [[package]]
 name = "sui-rpc"
-version = "0.2.1"
-source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=9d9539e620b8b668c1a19528d9700be3f35f269e#9d9539e620b8b668c1a19528d9700be3f35f269e"
-dependencies = [
- "base64 0.22.1",
- "bcs",
- "bytes",
- "futures",
- "http 1.4.0",
- "prost 0.14.3",
- "prost-types 0.14.1",
- "serde",
- "serde_json",
- "sui-sdk-types 0.2.1",
- "tap",
- "tokio",
- "tonic 0.14.5",
- "tonic-prost",
-]
-
-[[package]]
-name = "sui-rpc"
 version = "0.2.2"
 source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=e5c53de2e9570229b63bd0508b43f27c11cb5f76#e5c53de2e9570229b63bd0508b43f27c11cb5f76"
 dependencies = [
@@ -11203,7 +11182,7 @@ dependencies = [
  "prost-types 0.14.1",
  "serde",
  "serde_json",
- "sui-sdk-types 0.2.2",
+ "sui-sdk-types",
  "tap",
  "tokio",
  "tonic 0.14.5",
@@ -11246,8 +11225,8 @@ dependencies = [
  "sui-name-service",
  "sui-package-resolver",
  "sui-protocol-config",
- "sui-rpc 0.2.2",
- "sui-sdk-types 0.2.2",
+ "sui-rpc",
+ "sui-sdk-types",
  "sui-transaction-builder",
  "sui-types",
  "tap",
@@ -11294,35 +11273,14 @@ dependencies = [
  "sui-json-rpc-api",
  "sui-json-rpc-types",
  "sui-keys",
- "sui-rpc 0.2.2",
+ "sui-rpc",
  "sui-rpc-api",
- "sui-sdk-types 0.2.2",
+ "sui-sdk-types",
  "sui-transaction-builder",
  "sui-types",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "sui-sdk-types"
-version = "0.2.1"
-source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=9d9539e620b8b668c1a19528d9700be3f35f269e#9d9539e620b8b668c1a19528d9700be3f35f269e"
-dependencies = [
- "base64ct",
- "bcs",
- "blake2",
- "bnum",
- "bs58 0.5.1",
- "bytes",
- "bytestring",
- "itertools 0.14.0",
- "roaring 0.11.2",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_with",
- "winnow 0.7.12",
 ]
 
 [[package]]
@@ -11649,8 +11607,8 @@ dependencies = [
  "sui-enum-compat-util",
  "sui-macros",
  "sui-protocol-config",
- "sui-rpc 0.2.2",
- "sui-sdk-types 0.2.2",
+ "sui-rpc",
+ "sui-sdk-types",
  "tap",
  "thiserror 1.0.69",
  "tonic 0.14.5",
@@ -13747,6 +13705,7 @@ dependencies = [
  "move-package-alt-compilation",
  "mysten-metrics",
  "prometheus",
+ "prost 0.14.3",
  "rand 0.8.5",
  "regex",
  "reqwest",
@@ -13761,10 +13720,10 @@ dependencies = [
  "sui-move-build",
  "sui-package-alt",
  "sui-package-management",
- "sui-rpc 0.2.1",
+ "sui-rpc",
  "sui-rpc-api",
  "sui-sdk",
- "sui-sdk-types 0.2.1",
+ "sui-sdk-types",
  "sui-simulator",
  "sui-storage",
  "sui-types",
@@ -13783,6 +13742,7 @@ dependencies = [
  "walrus-core",
  "walrus-test-utils",
  "walrus-utils",
+ "zstd 0.13.3",
 ]
 
 [[package]]
