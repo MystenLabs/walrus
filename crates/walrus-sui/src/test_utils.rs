@@ -848,6 +848,27 @@ impl TestNodeKeys {
         self.certificate_for_signers(&confirmation, signers)
     }
 
+    /// Returns a storage confirmation certificate on the provided `blob_id` and `epoch` from
+    /// the test committee, signed by the nodes with indices in `signers`.
+    ///
+    /// The blob is certified as deletable with the given `object_id`.
+    pub fn deletable_blob_certificate_for_signers(
+        &self,
+        signers: &[u16],
+        blob_id: BlobId,
+        epoch: Epoch,
+        object_id: ObjectID,
+    ) -> anyhow::Result<ConfirmationCertificate> {
+        let confirmation = Confirmation::new(
+            epoch,
+            blob_id,
+            BlobPersistenceType::Deletable {
+                object_id: object_id.into(),
+            },
+        );
+        self.certificate_for_signers(&confirmation, signers)
+    }
+
     /// Returns a certificate from the test committee that marks `blob_id` as invalid, signed
     /// by the nodes with indices in `signers`.
     pub fn invalid_blob_certificate_for_signers(

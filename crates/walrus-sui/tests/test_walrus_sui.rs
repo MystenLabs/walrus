@@ -663,3 +663,140 @@ async fn test_automatic_wal_coin_squashing(
     );
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_storage_pool_lifecycle() -> anyhow::Result<()> {
+    walrus_test_utils::init_tracing();
+    let encoding_type = EncodingType::RS2;
+
+    let (_sui_cluster_handle, walrus_client, _, _) =
+        initialize_contract_and_wallet_with_single_node().await?;
+
+    let encoding_config = EncodingConfig::new(NonZeroU16::new(1000).unwrap());
+    let capacity = encoding_config
+        .get_for_type(encoding_type)
+        .encoded_blob_length(10_000)
+        .unwrap();
+    let epochs_ahead = 3;
+
+    let pool_id = walrus_client
+        .as_ref()
+        .create_storage_pool(capacity, epochs_ahead)
+        .await?;
+
+    // Exercises the two-step dynamic-field fetch.
+    let pool = walrus_client
+        .as_ref()
+        .read_client
+        .get_storage_pool(pool_id)
+        .await?;
+    assert_eq!(pool.id, pool_id);
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), capacity);
+    assert_eq!(pool.start_epoch(), 1);
+    assert_eq!(pool.end_epoch(), 1 + epochs_ahead);
+    assert_eq!(pool.used_encoded_bytes(), 0);
+    assert_eq!(pool.blob_count(), 0);
+
+    let additional_capacity = capacity;
+    walrus_client
+        .as_ref()
+        .increase_storage_pool_capacity(pool_id, additional_capacity)
+        .await?;
+
+    let extend_epochs = 2;
+    walrus_client
+        .as_ref()
+        .extend_storage_pool(pool_id, extend_epochs)
+        .await?;
+
+    let pool = walrus_client
+        .as_ref()
+        .read_client
+        .get_storage_pool(pool_id)
+        .await?;
+    assert_eq!(
+        pool.reserved_encoded_capacity_bytes(),
+        capacity + additional_capacity
+    );
+    assert_eq!(pool.end_epoch(), 1 + epochs_ahead + extend_epochs);
+
+    walrus_client.as_ref().destroy_storage_pool(pool_id).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_register_certify_delete_pooled_blob() -> anyhow::Result<()> {
+    walrus_test_utils::init_tracing();
+    let encoding_type = EncodingType::RS2;
+
+    let (_sui_cluster_handle, walrus_client, _, test_node_keys) =
+        initialize_contract_and_wallet_with_single_node().await?;
+
+    let encoding_config = EncodingConfig::new(NonZeroU16::new(1000).unwrap());
+    let size = 10_000;
+    let encoded_size = encoding_config
+        .get_for_type(encoding_type)
+        .encoded_blob_length(size)
+        .unwrap();
+
+    let pool_id = walrus_client
+        .as_ref()
+        .create_storage_pool(encoded_size, 3)
+        .await?;
+
+    #[rustfmt::skip]
+    let root_hash = [
+        9, 8, 7, 6, 5, 4, 3, 2,
+        9, 8, 7, 6, 5, 4, 3, 2,
+        9, 8, 7, 6, 5, 4, 3, 2,
+        9, 8, 7, 6, 5, 4, 3, 2,
+    ];
+    let blob_id = BlobId::from_metadata(Node::from(root_hash), encoding_type, size);
+    let blob_metadata = BlobObjectMetadata {
+        blob_id,
+        root_hash: Node::from(root_hash),
+        unencoded_size: size,
+        encoded_size,
+        encoding_type,
+    };
+
+    let pooled_blob_id = walrus_client
+        .as_ref()
+        .register_pooled_blob(pool_id, blob_metadata, true)
+        .await?;
+
+    let pool = walrus_client
+        .as_ref()
+        .read_client
+        .get_storage_pool(pool_id)
+        .await?;
+    assert_eq!(pool.blob_count(), 1);
+    assert_eq!(pool.used_encoded_bytes(), encoded_size);
+
+    // Deletable certificate must embed the pooled blob's object id; the contract asserts
+    // both the persistence type and the object id match the registration.
+    let certificate =
+        test_node_keys.deletable_blob_certificate_for_signers(&[0], blob_id, 1, pooled_blob_id)?;
+    walrus_client
+        .as_ref()
+        .certify_pooled_blob(pool_id, &blob_id, &certificate)
+        .await?;
+
+    walrus_client
+        .as_ref()
+        .delete_pooled_blob(pool_id, &blob_id)
+        .await?;
+
+    let pool = walrus_client
+        .as_ref()
+        .read_client
+        .get_storage_pool(pool_id)
+        .await?;
+    assert_eq!(pool.blob_count(), 0);
+    assert_eq!(pool.used_encoded_bytes(), 0);
+
+    walrus_client.as_ref().destroy_storage_pool(pool_id).await?;
+    Ok(())
+}
