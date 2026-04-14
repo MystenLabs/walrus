@@ -820,6 +820,77 @@ fun increase_capacity_with_storage_expired_pool() {
     abort
 }
 
+// === decrease_capacity_by_size tests ===
+
+/// Extract capacity from a pool with blobs; verify sizes, epochs, and available drops correctly.
+#[test]
+fun decrease_capacity_by_size_happy_path() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    // Pool has 3x capacity, register a blob that uses 1x.
+    let mut pool = system.create_storage_pool(capacity * 3, 3, &mut fake_coin, ctx);
+    register_blob_in_pool(&mut system, &mut pool, default_blob_id(), SIZE, false, ctx);
+
+    // Extract exactly all unused capacity (2x).
+    let extracted = pool.decrease_capacity_by_size(capacity * 2, ctx);
+    assert_eq!(pool.reserved_encoded_capacity_bytes(), capacity);
+    assert_eq!(pool.available_encoded_bytes(), 0);
+    assert_eq!(extracted.size(), capacity * 2);
+    assert_eq!(extracted.start_epoch(), pool.start_epoch());
+    assert_eq!(extracted.end_epoch(), pool.end_epoch());
+
+    fake_coin.burn_for_testing();
+    extracted.destroy();
+    pool.destroy_for_testing();
+    system.destroy_for_testing();
+}
+
+/// Cannot extract more than unused capacity — blobs must remain backed.
+#[test, expected_failure(abort_code = storage_pool::EInsufficientCapacity)]
+fun decrease_capacity_by_size_exceeds_available() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+    register_blob_in_pool(&mut system, &mut pool, default_blob_id(), SIZE, false, ctx);
+
+    // Pool is fully used — even 1 byte should fail.
+    let _storage = pool.decrease_capacity_by_size(1, ctx);
+    abort
+}
+
+/// Cannot extract more than total capacity.
+#[test, expected_failure(abort_code = storage_pool::EInsufficientCapacity)]
+fun decrease_capacity_by_size_exceeds_total() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity, 3, &mut fake_coin, ctx);
+
+    let _storage = pool.decrease_capacity_by_size(capacity + 1, ctx);
+    abort
+}
+
+/// After splitting, the reduced pool correctly enforces its new capacity limit.
+#[test, expected_failure(abort_code = storage_pool::EInsufficientCapacity)]
+fun decrease_capacity_by_size_then_register_blob_fails() {
+    let ctx = &mut tx_context::dummy();
+    let mut system = system::new_for_testing(ctx);
+    let capacity = encoded_size(&system, SIZE);
+    let mut fake_coin = test_utils::mint_frost(N_COINS * 10, ctx);
+    let mut pool = system.create_storage_pool(capacity * 2, 3, &mut fake_coin, ctx);
+
+    // Leave less than 1x capacity.
+    let _extracted = pool.decrease_capacity_by_size(capacity + 1, ctx);
+    // Blob needs 1x — should fail.
+    register_blob_in_pool(&mut system, &mut pool, default_blob_id(), SIZE, false, ctx);
+    abort
+}
+
 // === Capacity accounting and reward distribution tests ===
 
 // Test that the capacity and rewards are accounted for the correct epochs when creating and

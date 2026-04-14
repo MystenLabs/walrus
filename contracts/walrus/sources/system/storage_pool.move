@@ -247,6 +247,23 @@ public(package) fun increase_capacity_with_storage(
     other.destroy();
 }
 
+/// Reduces the pool's capacity by splitting off a `Storage` object of the given size.
+/// The remaining capacity in the pool must be sufficient to cover `used_encoded_bytes`,
+/// ensuring all active blobs remain backed by storage.
+public(package) fun decrease_capacity_by_size(
+    self: &mut StoragePool,
+    extract_size: u64,
+    ctx: &mut TxContext,
+): Storage {
+    let inner = self.inner_mut();
+    // Ensure there is enough unused capacity to extract.
+    assert!(inner.storage.size() - inner.used_encoded_bytes >= extract_size, EInsufficientCapacity);
+    // split_by_size keeps `keep_size` in the pool's storage and returns a new Storage with the
+    // remainder.
+    let keep_size = inner.storage.size() - extract_size;
+    inner.storage.split_by_size(keep_size, ctx)
+}
+
 /// Destroys the pool and returns the embedded `Storage` reservation.
 /// Asserts the blobs table is empty and `blob_count == 0`.
 public fun destroy(self: StoragePool): Storage {

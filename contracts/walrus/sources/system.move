@@ -304,6 +304,16 @@ public fun increase_storage_pool_capacity_with_storage(
     self.inner().increase_storage_pool_capacity_with_storage(storage_pool, storage)
 }
 
+/// Reduces the pool's capacity by extracting a `Storage` object of the given size.
+public fun decrease_storage_pool_capacity_by_size(
+    self: &System,
+    storage_pool: &mut StoragePool,
+    size: u64,
+    ctx: &mut TxContext,
+): Storage {
+    self.inner().decrease_storage_pool_capacity_by_size(storage_pool, size, ctx)
+}
+
 /// Certifies a blob within a storage pool.
 public fun certify_pooled_blob(
     self: &System,
