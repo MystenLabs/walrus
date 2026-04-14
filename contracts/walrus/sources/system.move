@@ -314,6 +314,17 @@ public fun decrease_storage_pool_capacity_by_size(
     self.inner().decrease_storage_pool_capacity_by_size(storage_pool, size, ctx)
 }
 
+/// Reduces the pool's capacity by extracting `percent` of the unused capacity as a `Storage`
+/// object. Returns `none` when the computed extract size is zero.
+public fun decrease_storage_pool_unused_capacity_by_percent(
+    self: &System,
+    storage_pool: &mut StoragePool,
+    percent: u8,
+    ctx: &mut TxContext,
+): Option<Storage> {
+    self.inner().decrease_storage_pool_unused_capacity_by_percent(storage_pool, percent, ctx)
+}
+
 /// Certifies a blob within a storage pool.
 public fun certify_pooled_blob(
     self: &System,

@@ -47,6 +47,8 @@ const EIncompatibleEndEpoch: u64 = 11;
 const EDuplicateMetadata: u64 = 12;
 /// The blob does not have any metadata.
 const EMissingMetadata: u64 = 13;
+/// The percent value is out of the allowed 0..=100 range.
+const EInvalidPercent: u64 = 14;
 
 /// Version of the pool outer object.
 const VERSION: u64 = 1;
@@ -262,6 +264,25 @@ public(package) fun decrease_capacity_by_size(
     // remainder.
     let keep_size = inner.storage.size() - extract_size;
     inner.storage.split_by_size(keep_size, ctx)
+}
+
+/// Reduces the pool's capacity by extracting `percent` of the currently unused capacity as a
+/// `Storage` object. `percent` must be in the range `0..=100`. Returns `none` when the computed
+/// extract size is zero (for example when `percent == 0` or there is no unused capacity).
+public(package) fun decrease_unused_capacity_by_percent(
+    self: &mut StoragePool,
+    percent: u8,
+    ctx: &mut TxContext,
+): Option<Storage> {
+    assert!(percent <= 100, EInvalidPercent);
+    let inner = self.inner();
+    let unused = inner.storage.size() - inner.used_encoded_bytes;
+    let extract_size = (unused * (percent as u64)) / 100;
+    if (extract_size == 0) {
+        option::none()
+    } else {
+        option::some(self.decrease_capacity_by_size(extract_size, ctx))
+    }
 }
 
 /// Destroys the pool and returns the embedded `Storage` reservation.
