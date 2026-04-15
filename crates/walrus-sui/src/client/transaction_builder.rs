@@ -60,7 +60,7 @@ use crate::{
         NodeUpdateParams,
         SystemObject,
         UpdatePublicKeyParams,
-        move_structs::{Authorized, BlobAttribute, EmergencyUpgradeCap, NodeMetadata, WalExchange},
+        move_structs::{Authorized, EmergencyUpgradeCap, NodeMetadata, WalExchange},
     },
     utils::{TEN_THOUSAND_BASIS_POINTS, price_for_encoded_length, write_price_for_encoded_length},
 };

@@ -77,7 +77,6 @@ use crate::{
             BlobAttribute,
             BlobWithAttribute,
             EpochState,
-            SharedBlob,
             StorageNode,
         },
     },

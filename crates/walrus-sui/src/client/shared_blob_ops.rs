@@ -1,7 +1,27 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use super::*;
+use sui_sdk::rpc_types::SuiTransactionBlockResponse;
+
+use super::{
+    Blob,
+    BlobId,
+    CertifyAndExtendBlobParams,
+    EpochCount,
+    GetSharedBlobResult,
+    HashMap,
+    ObjectID,
+    PostStoreAction,
+    PostStoreActionResult,
+    SuiClientResult,
+    SuiContractClient,
+    SuiContractClientInner,
+    WalrusPtbBuilder,
+    contracts,
+    ensure,
+    get_created_sui_object_ids_by_type,
+};
+use crate::types::move_structs::SharedBlob;
 
 impl SuiContractClient {
     /// Funds the shared blob object.

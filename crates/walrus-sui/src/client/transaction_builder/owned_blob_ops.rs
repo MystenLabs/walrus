@@ -1,7 +1,23 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use super::*;
+use fastcrypto::traits::ToFromBytes;
+
+use super::{
+    Argument,
+    ArgumentOrOwnedObject,
+    BlobObjectMetadata,
+    BlobPersistence,
+    ConfirmationCertificate,
+    EpochCount,
+    Level,
+    SharedObjectMutability,
+    SuiClientError,
+    SuiClientResult,
+    WalrusPtbBuilder,
+    contracts,
+};
+use crate::types::move_structs::BlobAttribute;
 
 impl WalrusPtbBuilder {
     /// Adds a call to `reserve_space` to the `pt_builder` and returns the result [`Argument`].
