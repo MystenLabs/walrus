@@ -38,9 +38,9 @@ INITIAL_WAIT="${INITIAL_WAIT:-180}"
 # Consecutive rounds a soft-invariant violation must persist before crashing.
 FULLY_STORED_PATIENCE="${FULLY_STORED_PATIENCE:-3}"
 # Rounds before we escalate "no event source data" from info to warning.
-# Event source metric requires 20k events (~1.5h). With 60s intervals,
-# 120 rounds ≈ 2 hours — enough time for the metric to appear.
-EVENT_SOURCE_WARN_AFTER="${EVENT_SOURCE_WARN_AFTER:-120}"
+# Event source metric requires 2k events (~9 min). With 60s intervals,
+# 20 rounds ≈ 20 minutes — enough time for the metric to appear.
+EVENT_SOURCE_WARN_AFTER="${EVENT_SOURCE_WARN_AFTER:-20}"
 # Must match EPOCH_BUCKET_COUNT in consistency_check.rs. When a node has this
 # many epoch labels, buckets will start being reused and comparisons become
 # unreliable.
@@ -334,10 +334,10 @@ while true; do
         "$EVENT_SOURCE" "bucket" \
         "$WORK_DIR/details_event_source.txt")
     if [ "$v" -eq -1 ]; then
-        # No data yet — the metric is recorded every 20k events (~1.5h).
+        # No data yet — the metric is recorded every 2k events (~9 min).
         if [ "$round" -lt "$EVENT_SOURCE_WARN_AFTER" ]; then
             log "${EVENT_SOURCE}: no data yet" \
-                "(expected — metric requires ~20k events, round ${round}/${EVENT_SOURCE_WARN_AFTER})"
+                "(expected — metric requires ~2k events, round ${round}/${EVENT_SOURCE_WARN_AFTER})"
         else
             log "WARNING: ${EVENT_SOURCE}: still no data" \
                 "after ${round} rounds — expected by now, check event processing"

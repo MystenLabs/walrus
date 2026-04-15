@@ -238,9 +238,11 @@ pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfi
 pub use garbage_collector::GarbageCollectionConfig;
 
 // The number of events are dominated by the checkpoints, as we don't expect all checkpoints
-// contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
+// contain Walrus events. 2K events per recording is roughly 1 recording per 9 minutes, which
+// gives a 3-hour Antithesis test ~20 recordings to cross-check across nodes while keeping the
+// metric label cardinality bounded at 10 rotating buckets.
 #[cfg(not(msim))]
-const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
+const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 2_000;
 
 // In simtest, we record event source for events to make event index consistency checking more
 // accurate.
@@ -2486,8 +2488,8 @@ impl StorageNode {
         event_source: &CheckpointEventPosition,
     ) -> Result<(), TypedStoreError> {
         // Only record every Nth event.
-        // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen in a way that a node produces a recording
-        // every few hours.
+        // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen so a node produces a recording roughly
+        // every ~9 minutes, giving a 3-hour Antithesis test ~20 recordings to cross-check.
 
         if !event_index.is_multiple_of(NUM_EVENTS_PER_DIGEST_RECORDING) {
             return Ok(());
