@@ -3,7 +3,6 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
-use anyhow::Context as _;
 use futures::FutureExt as _;
 use sui_macros::fail_point_async;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -208,17 +207,11 @@ impl BackgroundEventProcessor {
         );
 
         let is_certified = {
-            let storage = self.node.storage.clone();
+            let node = self.node.clone();
             let blob_id = blob_id;
-            let epoch = self.node.current_committee_epoch();
-            tokio::task::spawn_blocking(move || {
-                storage
-                    .get_blob_info(&blob_id)
-                    .context("could not retrieve blob info")
-                    .map(|info| info.is_some_and(|info| info.is_certified(epoch)))
-            })
-            .map(unwrap_or_resume_unwind)
-            .await?
+            tokio::task::spawn_blocking(move || node.is_blob_certified(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await?
         };
         let is_catching_up = {
             let storage = self.node.storage.clone();
