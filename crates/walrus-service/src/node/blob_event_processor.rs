@@ -302,13 +302,13 @@ impl BackgroundEventProcessor {
             .is_catching_up_with_incomplete_history()
         {
             tracing::debug!(
-                "handling a `BlobDeleted` event for an untracked blob while catching up \
-                with incomplete history; not deleting blob data"
+                "handling a `BlobDeleted` event for an untracked blob while catching up with \
+                incomplete history; not deleting blob data"
             );
         } else {
             tracing::debug!(
-                "handling a `BlobDeleted` event for an untracked blob; this can happen \
-                when re-processing events after a node restart"
+                "handling a `BlobDeleted` event for an untracked blob; this can happen when \
+                re-processing events after a node restart"
             );
         }
 

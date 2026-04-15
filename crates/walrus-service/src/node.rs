@@ -3527,8 +3527,6 @@ impl StorageNodeInner {
         }
     }
 
-    /// Note: This is intentionally kept synchronous because it is only called from
-    /// `is_blob_not_certified`, which runs from within rayon `par_iter_mut` in `cancel_syncs`.
     fn is_blob_certified(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
         Ok(self
             .storage
@@ -3542,9 +3540,6 @@ impl StorageNodeInner {
     /// If an error occurs while retrieving the blob info, this returns `false`. The intention
     /// is that if this is used to cancel a blob sync or to delete blob data, we need to be *sure*
     /// that the blob is not certified.
-    ///
-    /// Note: This is intentionally kept synchronous because it is called from within rayon
-    /// `par_iter_mut` in `cancel_syncs`, which already runs off the tokio runtime.
     fn is_blob_not_certified(&self, blob_id: &BlobId) -> bool {
         if let Ok(false) = self.is_blob_certified(blob_id) {
             return true;
@@ -4444,41 +4439,31 @@ impl ServiceState for StorageNodeInner {
         );
 
         if let BlobPersistenceType::Deletable { object_id } = blob_persistence_type {
-            let sui_object_id: sui_types::base_types::ObjectID = object_id.into();
+            let sui_object_id = object_id.into();
 
             // Check the regular per-object table first.
-            let per_object_info = {
-                let storage = self.storage.clone();
-                let oid = sui_object_id;
-                tokio::task::spawn_blocking(move || storage.get_per_object_info(&oid))
-                    .map(unwrap_or_resume_unwind)
-                    .await
-                    .context("database error when checking per object info")?
-            };
-            if let Some(per_object_info) = per_object_info {
+            if let Some(per_object_info) = self
+                .storage
+                .get_per_object_info(&sui_object_id)
+                .context("database error when checking per object info")?
+            {
                 ensure!(
                     per_object_info.is_registered(self.current_committee_epoch()),
                     ComputeStorageConfirmationError::NotCurrentlyRegistered,
                 );
+            } else if self
+                .storage
+                .get_per_object_pooled_info(&sui_object_id)
+                .context("database error when checking per object pooled info")?
+                .is_some()
+            {
+                // Entry exists in the pooled blob table — the blob is active.
+                // Deleted pooled blobs are removed from the table entirely, so presence implies
+                // the blob is registered.
+                // TODO(WAL-1174): check the expiration of the pool here once the storage pool
+                // end-epoch table is implemented.
             } else {
-                let has_pooled_info = {
-                    let storage = self.storage.clone();
-                    let oid = sui_object_id;
-                    tokio::task::spawn_blocking(move || storage.get_per_object_pooled_info(&oid))
-                        .map(unwrap_or_resume_unwind)
-                        .await
-                        .context("database error when checking per object pooled info")?
-                        .is_some()
-                };
-                if has_pooled_info {
-                    // Entry exists in the pooled blob table — the blob is active.
-                    // Deleted pooled blobs are removed from the table entirely, so
-                    // presence implies the blob is registered.
-                    // TODO(WAL-1174): check the expiration of the pool here once the
-                    // storage pool end-epoch table is implemented.
-                } else {
-                    return Err(ComputeStorageConfirmationError::NotCurrentlyRegistered);
-                }
+                return Err(ComputeStorageConfirmationError::NotCurrentlyRegistered);
             }
         }
 
@@ -8707,7 +8692,6 @@ mod tests {
                     .storage_node
                     .inner
                     .blob_status(&OTHER_BLOB_ID)
-                    .await
                     .expect("getting blob status should succeed"),
                 BlobStatus::Nonexistent
             );
