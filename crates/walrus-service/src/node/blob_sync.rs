@@ -404,14 +404,12 @@ impl BlobSyncHandler {
         // Note that if the node status is not in recovery catch up, it is safe to start the sync
         // without further status checking since node entering recovery catch up will cancel all
         // the blob syncs, including this one.
-        let node_status = {
-            let storage = synchronizer.node.storage.clone();
-            tokio::task::spawn_blocking(move || storage.node_status())
-                .map(utils::unwrap_or_resume_unwind)
-                .await
-                .expect("node status should be set")
-        };
-        let (label, _guard) = match node_status {
+        let (label, _guard) = match synchronizer
+            .node
+            .storage
+            .node_status()
+            .expect("node status should be set")
+        {
             NodeStatus::RecoveryCatchUp => {
                 tracing::debug!(
                     "about to start blob sync, but node is in recovery catch up, skipping blob sync"

@@ -213,16 +213,9 @@ impl BackgroundEventProcessor {
                 .map(unwrap_or_resume_unwind)
                 .await?
         };
-        let is_catching_up = {
-            let storage = self.node.storage.clone();
-            tokio::task::spawn_blocking(move || storage.node_status())
-                .map(unwrap_or_resume_unwind)
-                .await?
-                .is_catching_up()
-        };
         if skip_blob_sync_in_test
             || !is_certified
-            || is_catching_up
+            || self.node.storage.node_status()?.is_catching_up()
             || (current_event_epoch.is_some()
                 && self
                     .node
@@ -317,25 +310,21 @@ impl BackgroundEventProcessor {
             } else {
                 tracing::debug!("not deleting data for deleted blob");
             }
+        } else if self
+            .node
+            .storage
+            .node_status()?
+            .is_catching_up_with_incomplete_history()
+        {
+            tracing::debug!(
+                "handling a `BlobDeleted` event for an untracked blob while catching up \
+                with incomplete history; not deleting blob data"
+            );
         } else {
-            let is_catching_up_incomplete = {
-                let storage = self.node.storage.clone();
-                tokio::task::spawn_blocking(move || storage.node_status())
-                    .map(unwrap_or_resume_unwind)
-                    .await?
-                    .is_catching_up_with_incomplete_history()
-            };
-            if is_catching_up_incomplete {
-                tracing::debug!(
-                    "handling a `BlobDeleted` event for an untracked blob while catching up \
-                    with incomplete history; not deleting blob data"
-                );
-            } else {
-                tracing::debug!(
-                    "handling a `BlobDeleted` event for an untracked blob; this can happen \
-                    when re-processing events after a node restart"
-                );
-            }
+            tracing::debug!(
+                "handling a `BlobDeleted` event for an untracked blob; this can happen \
+                when re-processing events after a node restart"
+            );
         }
 
         event_handle.mark_as_complete();
