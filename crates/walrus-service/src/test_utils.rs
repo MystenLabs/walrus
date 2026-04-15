@@ -1311,6 +1311,7 @@ impl StorageNodeHandleBuilder {
                 rpc_fallback_config: None,
                 additional_rpc_endpoints: sui_rpc_urls,
                 request_timeout: None,
+                checkpoint_wait_timeout: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(5),
