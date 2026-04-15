@@ -746,7 +746,7 @@ pub async fn get_blob_status<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<ApiSuccess<BlobStatus>, BlobStatusError> {
-    Ok(ApiSuccess::ok(state.service.blob_status(&blob_id).await?))
+    Ok(ApiSuccess::ok(state.service.blob_status(&blob_id)?))
 }
 
 #[derive(Debug, Clone, serde::Deserialize, utoipa::IntoParams)]

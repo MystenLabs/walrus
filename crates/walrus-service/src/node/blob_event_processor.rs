@@ -3,7 +3,6 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
-use futures::FutureExt as _;
 use sui_macros::fail_point_async;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 use walrus_core::{BlobId, Epoch};
@@ -13,7 +12,6 @@ use walrus_utils::metrics::monitored_scope;
 use self::pending_events::{PendingEventCounter, PendingEventGuard};
 use super::{StorageNodeInner, blob_sync::BlobSyncHandler, metrics, system_events::EventHandle};
 use crate::{
-    common::utils::unwrap_or_resume_unwind,
     event::events::CheckpointEventPosition,
     node::{
         storage::blob_info::{BlobInfoApi, CertifiedBlobInfoApi},
@@ -206,15 +204,8 @@ impl BackgroundEventProcessor {
             }
         );
 
-        let is_certified = {
-            let node = self.node.clone();
-            let blob_id = blob_id;
-            tokio::task::spawn_blocking(move || node.is_blob_certified(&blob_id))
-                .map(unwrap_or_resume_unwind)
-                .await?
-        };
         if skip_blob_sync_in_test
-            || !is_certified
+            || !self.node.is_blob_certified(&blob_id)?
             || self.node.storage.node_status()?.is_catching_up()
             || (current_event_epoch.is_some()
                 && self
@@ -274,13 +265,7 @@ impl BackgroundEventProcessor {
         let current_committee_epoch = self.node.current_committee_epoch();
         tracing::Span::current().record("walrus.epoch", current_committee_epoch);
 
-        let blob_info = {
-            let storage = self.node.storage.clone();
-            tokio::task::spawn_blocking(move || storage.get_blob_info(&blob_id))
-                .map(unwrap_or_resume_unwind)
-                .await?
-        };
-        if let Some(blob_info) = blob_info {
+        if let Some(blob_info) = self.node.storage.get_blob_info(&blob_id)? {
             if !blob_info.is_certified(current_committee_epoch) {
                 self.node
                     .blob_retirement_notifier
