@@ -4709,20 +4709,27 @@ impl ServiceState for StorageNodeInner {
         let latest_checkpoint_sequence_number =
             self.event_manager.latest_checkpoint_sequence_number();
 
+        let (node_status, event_progress) = {
+            let storage = self.storage.clone();
+            tokio::task::spawn_blocking(move || {
+                let node_status = storage
+                    .node_status()
+                    .expect("fetching node status should not fail");
+                let event_progress = storage
+                    .get_event_cursor_progress()
+                    .expect("get cursor progress should not fail");
+                (node_status, event_progress)
+            })
+            .await
+            .expect("spawn_blocking task panicked")
+        };
+
         ServiceHealthInfo {
             uptime: self.start_time.elapsed(),
             epoch: self.current_committee_epoch(),
             public_key: self.public_key().clone(),
-            node_status: self
-                .storage
-                .node_status()
-                .expect("fetching node status should not fail")
-                .to_string(),
-            event_progress: self
-                .storage
-                .get_event_cursor_progress()
-                .expect("get cursor progress should not fail")
-                .into(),
+            node_status: node_status.to_string(),
+            event_progress: event_progress.into(),
             shard_detail,
             shard_summary,
             latest_checkpoint_sequence_number,
