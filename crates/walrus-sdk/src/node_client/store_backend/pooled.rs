@@ -7,6 +7,11 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 
 use indicatif::MultiProgress;
 use sui_types::base_types::ObjectID;
+use walrus_core::{
+    BlobId,
+    encoding::SliverPair,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
+};
 use walrus_sui::{
     client::{BlobObjectMetadata, PostStoreAction, StoragePoolStatus, SuiContractClient},
     types::PooledBlob,
@@ -17,7 +22,9 @@ use crate::{
     error::{ClientError, ClientErrorKind, ClientResult},
     node_client::{
         PendingUploadContext,
+        RunOutput,
         StoreArgs,
+        StoreError,
         WalrusNodeClient,
         client_types::{
             BlobData,
@@ -78,7 +85,13 @@ impl<'a> PooledStoreBackend<'a> {
         self.ensure_storage_pool_ready(&blobs_to_register, &committees, &store_args)
             .await?;
 
-        let registered_blobs = self.register_blobs(blobs_to_register, &store_args).await?;
+        let pending_blobs = self.pending_upload_candidates(&blobs_to_register, &store_args);
+        let (registered_blobs, pending_upload_result) = self
+            .register_with_pending_uploads(blobs_to_register, &store_args, &pending_blobs)
+            .await?;
+        let pending_context = self
+            .client
+            .apply_pending_upload_outcome(pending_upload_result);
         let (blobs_awaiting_upload, completed_blobs) =
             partition_unfinished_finished(registered_blobs);
         final_results.extend(completed_blobs);
@@ -92,7 +105,7 @@ impl<'a> PooledStoreBackend<'a> {
         }
 
         let blobs_with_certificates = self
-            .get_all_blob_certificates(blobs_awaiting_upload, &store_args)
+            .get_all_blob_certificates(blobs_awaiting_upload, &store_args, &pending_context)
             .await?;
         let (blobs_pending_certify, completed_blobs) =
             partition_unfinished_finished(blobs_with_certificates);
@@ -113,14 +126,7 @@ impl<'a> PooledStoreBackend<'a> {
             ));
         }
 
-        let mut store_args = store_args.clone();
-        if store_args.store_optimizations.optimistic_uploads_enabled() {
-            tracing::debug!("disabling optimistic uploads for pooled blob store");
-        }
-        store_args.store_optimizations = store_args
-            .store_optimizations
-            .with_optimistic_uploads(false);
-        Ok(store_args)
+        Ok(self.client.pending_upload_store_args(store_args))
     }
 
     fn prepare_register_blobs(
@@ -150,6 +156,112 @@ impl<'a> PooledStoreBackend<'a> {
         }
 
         (blobs_to_register, final_results)
+    }
+
+    fn pending_upload_candidates(
+        &self,
+        encoded_blobs: &[WalrusStoreBlobUnfinished<EncodedBlob>],
+        store_args: &StoreArgs,
+    ) -> Vec<(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)> {
+        let pending_upload_max_blob_bytes = self.client.pending_upload_max_blob_bytes();
+        let pending_uploads_enabled = self
+            .client
+            .config
+            .communication_config
+            .pending_uploads_enabled;
+
+        let pending: Vec<_> = encoded_blobs
+            .iter()
+            .filter_map(|blob| {
+                if !pending_uploads_enabled
+                    || !store_args.store_optimizations.pending_uploads_enabled()
+                {
+                    return None;
+                }
+
+                let BlobData::SliverPairs(sliver_pairs) = &blob.state.data else {
+                    return None;
+                };
+
+                let unencoded_len = blob.state.metadata.metadata().unencoded_length();
+                if unencoded_len > pending_upload_max_blob_bytes {
+                    return None;
+                }
+
+                Some((blob.state.metadata.as_ref().clone(), sliver_pairs.clone()))
+            })
+            .collect();
+
+        tracing::debug!(
+            pending_candidates = pending.len(),
+            pending_enabled = pending_uploads_enabled,
+            pending_uploads = store_args.store_optimizations.pending_uploads_enabled(),
+            max_blob_bytes = pending_upload_max_blob_bytes,
+            "computed pooled pending upload candidates",
+        );
+
+        pending
+    }
+
+    async fn register_with_pending_uploads(
+        &self,
+        encoded_blobs: Vec<WalrusStoreBlobUnfinished<EncodedBlob>>,
+        store_args: &StoreArgs,
+        pending_blobs: &[(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
+    ) -> ClientResult<(
+        Vec<WalrusStoreBlobMaybeFinished<PooledBlobAwaitingUpload, PooledBlobStoreResult>>,
+        Option<RunOutput<Vec<BlobId>, StoreError>>,
+    )> {
+        let mut pending_upload_handle =
+            self.client.start_pending_uploads(pending_blobs, store_args);
+        let registration_fut = self.register_blobs(encoded_blobs, store_args);
+
+        if let Some(ref mut pending) = pending_upload_handle {
+            tokio::pin!(registration_fut);
+            let mut pending_upload_result = None;
+            let pending_grace = self.client.config.communication_config.pending_upload_grace;
+            let registered_blobs = tokio::select! {
+                reg = &mut registration_fut => {
+                    pending.stop_scheduling.cancel();
+                    reg
+                }
+                pending_res = pending.future.as_mut() => {
+                    pending_upload_result = Some(pending_res?);
+                    registration_fut.await
+                }
+            }?;
+
+            if pending_upload_result.is_none() {
+                pending.stop_scheduling.cancel();
+                if pending_grace.is_zero() {
+                    pending.cancel.cancel();
+                    match pending.future.as_mut().await {
+                        Ok(res) => pending_upload_result = Some(res),
+                        Err(err) => {
+                            tracing::debug!(?err, "pooled pending upload task failed or cancelled")
+                        }
+                    }
+                } else {
+                    match tokio::time::timeout(pending_grace, pending.future.as_mut()).await {
+                        Ok(res) => pending_upload_result = Some(res?),
+                        Err(_) => {
+                            pending.cancel.cancel();
+                            match pending.future.as_mut().await {
+                                Ok(res) => pending_upload_result = Some(res),
+                                Err(err) => tracing::debug!(
+                                    ?err,
+                                    "pooled pending upload failed or cancelled",
+                                ),
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok((registered_blobs, pending_upload_result))
+        } else {
+            Ok((registration_fut.await?, None))
+        }
     }
 
     async fn ensure_storage_pool_ready(
@@ -304,6 +416,7 @@ impl<'a> PooledStoreBackend<'a> {
         &self,
         blobs_to_be_certified: Vec<WalrusStoreBlobUnfinished<PooledBlobAwaitingUpload>>,
         store_args: &StoreArgs,
+        pending_context: &PendingUploadContext,
     ) -> ClientResult<
         Vec<WalrusStoreBlobMaybeFinished<PooledBlobPendingCertify, PooledBlobStoreResult>>,
     > {
@@ -313,7 +426,6 @@ impl<'a> PooledStoreBackend<'a> {
 
         let get_cert_timer = Instant::now();
         let multi_pb = Arc::new(MultiProgress::new());
-        let pending_context = PendingUploadContext::default();
         let blobs = futures::future::try_join_all(blobs_to_be_certified.into_iter().map(
             |blob_to_be_certified| {
                 let multi_pb = Arc::clone(&multi_pb);
