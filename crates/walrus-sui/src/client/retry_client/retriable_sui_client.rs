@@ -54,6 +54,7 @@ use sui_types::{
     base_types::{ObjectID, ObjectRef, ObjectType, SequenceNumber, SuiAddress, TransactionDigest},
     dynamic_field::derive_dynamic_field_id,
     event::EventID,
+    gas::GasCostSummary,
     object::Owner,
     sui_serde::BigInt,
     transaction::{Transaction, TransactionData, TransactionKind},
@@ -262,6 +263,34 @@ pub(crate) fn get_initial_version_from_object_response(
             "trying to get the initial version of a non-shared object; object_id: {:?}",
             object_response.object_id(),
         )))
+    }
+}
+
+/// Build the dry-run [`TransactionData`] used by both JSON-RPC and gRPC gas-budget paths.
+fn dry_run_transaction_data(kind: TransactionKind, signer: SuiAddress) -> TransactionData {
+    TransactionData::new_with_gas_coins_allow_sponsor(
+        kind,
+        signer,
+        vec![],
+        MAX_GAS_BUDGET,
+        DUMMY_GAS_PRICE,
+        signer,
+    )
+}
+
+/// Apply the standard Sui gas-budget formula: scale computation cost to the real gas price,
+/// take the max of computation vs. net usage (computation + storage - rebate), and add a
+/// safe overhead. Matches the Sui CLI and TypeScript SDK behavior.
+fn compute_gas_budget(gas_cost_summary: &GasCostSummary, gas_price: u64) -> GasBudgetAndPrice {
+    let computation_cost =
+        (gas_cost_summary.computation_cost * gas_price).div_ceil(DUMMY_GAS_PRICE);
+    let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
+    let net_gas_usage_non_negative = (computation_cost + gas_cost_summary.storage_cost)
+        .saturating_sub(gas_cost_summary.storage_rebate);
+    let gas_budget = computation_cost.max(net_gas_usage_non_negative) + safe_overhead;
+    GasBudgetAndPrice {
+        gas_budget,
+        gas_price,
     }
 }
 
@@ -1903,31 +1932,16 @@ impl RetriableSuiClient {
         signer: SuiAddress,
         kind: TransactionKind,
     ) -> SuiClientResult<GasBudgetAndPrice> {
-        let dry_run_tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
-            kind,
-            signer,
-            vec![],
-            MAX_GAS_BUDGET,
-            DUMMY_GAS_PRICE,
-            signer,
-        );
+        let dry_run_tx_data = dry_run_transaction_data(kind, signer);
         let dry_run_future = self.dry_run_transaction_block(dry_run_tx_data);
 
         let (gas_price, dry_run_result) =
             tokio::try_join!(self.get_reference_gas_price(), dry_run_future)?;
-        let gas_cost_summary = dry_run_result.effects.gas_cost_summary();
 
-        let computation_cost =
-            (gas_cost_summary.computation_cost * gas_price).div_ceil(DUMMY_GAS_PRICE);
-        let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
-        let net_gas_usage_non_negative = (computation_cost + gas_cost_summary.storage_cost)
-            .saturating_sub(gas_cost_summary.storage_rebate);
-        let gas_budget = computation_cost.max(net_gas_usage_non_negative) + safe_overhead;
-
-        Ok(GasBudgetAndPrice {
-            gas_budget,
+        Ok(compute_gas_budget(
+            dry_run_result.effects.gas_cost_summary(),
             gas_price,
-        })
+        ))
     }
 
     /// gRPC implementation of `estimate_gas_budget`.
@@ -1936,37 +1950,20 @@ impl RetriableSuiClient {
         signer: SuiAddress,
         kind: TransactionKind,
     ) -> SuiClientResult<GasBudgetAndPrice> {
-        let dry_run_tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
-            kind,
-            signer,
-            vec![],
-            MAX_GAS_BUDGET,
-            DUMMY_GAS_PRICE,
-            signer,
-        );
+        let dry_run_tx_data = dry_run_transaction_data(kind, signer);
         let simulate_future = self.simulate_transaction_for_gas(dry_run_tx_data);
 
         let (gas_price, gas_cost_summary) =
             tokio::try_join!(self.get_reference_gas_price(), simulate_future)?;
 
-        let computation_cost =
-            (gas_cost_summary.computation_cost * gas_price).div_ceil(DUMMY_GAS_PRICE);
-        let safe_overhead = GAS_SAFE_OVERHEAD * gas_price;
-        let net_gas_usage_non_negative = (computation_cost + gas_cost_summary.storage_cost)
-            .saturating_sub(gas_cost_summary.storage_rebate);
-        let gas_budget = computation_cost.max(net_gas_usage_non_negative) + safe_overhead;
-
-        Ok(GasBudgetAndPrice {
-            gas_budget,
-            gas_price,
-        })
+        Ok(compute_gas_budget(&gas_cost_summary, gas_price))
     }
 
     /// gRPC wrapper for `DualClient::simulate_transaction_for_gas_grpc` with failover and retry.
     async fn simulate_transaction_for_gas(
         &self,
         transaction_data: TransactionData,
-    ) -> SuiClientResult<sui_types::gas::GasCostSummary> {
+    ) -> SuiClientResult<GasCostSummary> {
         let transaction_data = Arc::new(transaction_data);
         let request = move |client: Arc<DualClient>, method| {
             let transaction_data = transaction_data.clone();
