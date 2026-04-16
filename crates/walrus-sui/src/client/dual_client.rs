@@ -819,21 +819,34 @@ impl DualClient {
 /// transaction and waits for it to appear in a finalized checkpoint. This is the gRPC
 /// equivalent of the JSON-RPC `WaitForLocalExecution` flag: by the time it resolves, local
 /// indexes have been committed, so a follow-up `get_object` sees the new state.
+///
+/// Error handling preserves retriability: a checkpoint stream error forwards the inner
+/// `tonic::Status` so `retry_rpc_errors` can classify it (re-executing the signed transaction
+/// is idempotent — Sui dedupes by digest). A checkpoint-wait timeout is treated as success
+/// because the transaction executed before the wait began; callers that want to skip the
+/// checkpoint wait entirely can set `checkpoint_wait_timeout` to `Duration::ZERO`.
 async fn execute_transaction_and_convert(
     mut grpc_client: GrpcClient,
     request: ExecuteTransactionRequest,
     sender: SuiAddress,
     checkpoint_wait_timeout: Duration,
 ) -> Result<ExecuteTransactionResponse, SuiClientError> {
-    let response = grpc_client
+    let response = match grpc_client
         .execute_transaction_and_wait_for_checkpoint(request, checkpoint_wait_timeout)
         .await
-        .map_err(|error| match error {
-            ExecuteAndWaitError::RpcError(status) => SuiClientError::from(status),
-            other => SuiClientError::Internal(anyhow::anyhow!(
+    {
+        Ok(response) => response,
+        Err(ExecuteAndWaitError::CheckpointTimeout(response)) => response,
+        Err(ExecuteAndWaitError::RpcError(status)) => return Err(SuiClientError::from(status)),
+        Err(ExecuteAndWaitError::CheckpointStreamError { error, .. }) => {
+            return Err(SuiClientError::from(error));
+        }
+        Err(other) => {
+            return Err(SuiClientError::Internal(anyhow::anyhow!(
                 "execute_transaction_and_wait_for_checkpoint failed: {other}"
-            )),
-        })?;
+            )));
+        }
+    };
 
     let executed_tx = response
         .into_inner()
