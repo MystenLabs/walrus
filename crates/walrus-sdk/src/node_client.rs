@@ -2081,8 +2081,32 @@ impl<T> WalrusNodeClient<T> {
         })
     }
 
-    /// Fetches confirmations for a blob from a quorum of nodes and returns the certificate.
-    async fn get_certificate_standalone(
+    /// Fetches storage confirmations from a quorum of nodes and aggregates them into a
+    /// [`ConfirmationCertificate`] without uploading any slivers.
+    ///
+    /// Unlike the regular certification flow ([`send_blob_data_and_get_certificate`]), this
+    /// assumes the storage nodes already hold all slivers for `blob_id` — either because the blob
+    /// was previously certified on chain (and we are registering a new on-chain [`Blob`] pointing
+    /// at the same content) or because nothing has changed since an earlier upload. The caller is
+    /// responsible for having already registered the new on-chain [`Blob`] object it wants to
+    /// certify; pass the resulting `ObjectID` via
+    /// [`BlobPersistenceType::Deletable { object_id }`] (or use
+    /// [`BlobPersistenceType::Permanent`] for permanent blobs) so that storage nodes sign the
+    /// confirmation against the correct on-chain identity.
+    ///
+    /// Storage nodes sign confirmations for the **current** epoch regardless of
+    /// `certified_epoch`; that argument is only used to route the request to the correct
+    /// historical committee when the blob was first certified in a past epoch.
+    ///
+    /// Typical caller pattern:
+    /// 1. Fetch source `BlobObjectMetadata` (for example via [`Self::retrieve_metadata`]).
+    /// 2. Build a PTB: `reserve_space` → `register_blob` → submit; extract the new `ObjectID`.
+    /// 3. Call this method with the new `ObjectID` inside `blob_persistence_type`.
+    /// 4. Build a PTB: `certify_blob` → submit.
+    ///
+    /// [`send_blob_data_and_get_certificate`]: Self::send_blob_data_and_get_certificate
+    /// [`Blob`]: walrus_sui::types::Blob
+    pub async fn get_certificate_standalone(
         &self,
         blob_id: &BlobId,
         certified_epoch: Epoch,
