@@ -644,7 +644,7 @@ mod tests {
             Ok(true)
         }
 
-        async fn metadata_status(
+        fn metadata_status(
             &self,
             blob_id: &BlobId,
         ) -> Result<walrus_storage_node_client::api::StoredOnNodeStatus, RetrieveMetadataError>

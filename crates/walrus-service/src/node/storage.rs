@@ -1224,7 +1224,7 @@ impl Storage {
             while fetched_blobs.len() < sliver_count {
                 let remaining_count = sliver_count - fetched_blobs.len();
 
-                // Set starting point: initial request start or after last fetched blob.
+                // Set starting point - either the initial request start or after last fetched blob
                 let starting_blob_id_bound =
                     last_fetched_blob_id.map_or(Included(starting_blob_id), Excluded);
 
@@ -1236,10 +1236,11 @@ impl Storage {
                     .collect::<Result<Vec<_>, TypedStoreError>>()?;
 
                 if blobs_to_fetch.is_empty() {
+                    // No more blobs to fetch.
                     break;
                 }
 
-                // Update last fetched ID for next iteration.
+                // Update last fetched ID for next iteration
                 last_fetched_blob_id = blobs_to_fetch.last().cloned();
 
                 let mut slivers = shard.fetch_slivers(sliver_type, &blobs_to_fetch)?;

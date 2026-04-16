@@ -297,7 +297,7 @@ pub trait ServiceState {
     fn metadata_status(
         &self,
         blob_id: &BlobId,
-    ) -> impl Future<Output = Result<StoredOnNodeStatus, RetrieveMetadataError>> + Send;
+    ) -> Result<StoredOnNodeStatus, RetrieveMetadataError>;
 
     /// Retrieves a primary or secondary sliver for a blob for a shard held by this storage node.
     fn retrieve_sliver(
@@ -3271,15 +3271,11 @@ impl StorageNodeInner {
         blob_id: &BlobId,
         verified: Arc<VerifiedBlobMetadataWithId>,
     ) -> Result<bool, StoreMetadataError> {
-        let has_metadata = {
-            let storage = self.storage.clone();
-            let blob_id = *blob_id;
-            tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
-                .map(unwrap_or_resume_unwind)
-                .await
-                .context("could not check metadata existence")?
-        };
-        if has_metadata {
+        if self
+            .storage
+            .has_metadata(blob_id)
+            .context("could not check metadata existence")?
+        {
             return Ok(false);
         }
 
@@ -3335,15 +3331,11 @@ impl StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> Result<(), StoreMetadataError> {
-        let has_metadata = {
-            let storage = self.storage.clone();
-            let blob_id = *blob_id;
-            tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
-                .map(unwrap_or_resume_unwind)
-                .await
-                .context("could not check metadata existence")?
-        };
-        if has_metadata {
+        if self
+            .storage
+            .has_metadata(blob_id)
+            .context("could not check metadata existence")?
+        {
             return Ok(());
         }
 
@@ -4051,7 +4043,7 @@ impl ServiceState for StorageNode {
     fn metadata_status(
         &self,
         blob_id: &BlobId,
-    ) -> impl Future<Output = Result<StoredOnNodeStatus, RetrieveMetadataError>> + Send {
+    ) -> Result<StoredOnNodeStatus, RetrieveMetadataError> {
         self.inner.metadata_status(blob_id)
     }
 
@@ -4187,13 +4179,12 @@ impl ServiceState for StorageNodeInner {
 
         let storage = self.storage.clone();
         let blob_id = *blob_id;
-        let metadata = tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+        tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
             .map(unwrap_or_resume_unwind)
             .await
             .context("database error when retrieving metadata")?
-            .ok_or(RetrieveMetadataError::Unavailable)?;
-        self.metrics.metadata_retrieved_total.inc();
-        Ok(metadata)
+            .ok_or(RetrieveMetadataError::Unavailable)
+            .inspect(|_| self.metrics.metadata_retrieved_total.inc())
     }
 
     /// Stores metadata for a blob.
@@ -4219,14 +4210,11 @@ impl ServiceState for StorageNodeInner {
             return Err(StoreMetadataError::InvalidBlob(event));
         }
 
-        let has_metadata = {
-            let storage = self.storage.clone();
-            tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
-                .map(unwrap_or_resume_unwind)
-                .await
-                .context("could not check metadata existence")?
-        };
-        if has_metadata {
+        if self
+            .storage
+            .has_metadata(&blob_id)
+            .context("could not check metadata existence")?
+        {
             return Ok(false);
         }
 
@@ -4290,16 +4278,11 @@ impl ServiceState for StorageNodeInner {
         Ok(true)
     }
 
-    async fn metadata_status(
+    fn metadata_status(
         &self,
         blob_id: &BlobId,
     ) -> Result<StoredOnNodeStatus, RetrieveMetadataError> {
-        let storage = self.storage.clone();
-        let blob_id = *blob_id;
-        match tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
-            .map(unwrap_or_resume_unwind)
-            .await
-        {
+        match self.storage.has_metadata(blob_id) {
             Ok(true) => Ok(StoredOnNodeStatus::Stored),
             Ok(false) => Ok(StoredOnNodeStatus::Nonexistent),
             Err(err) => Err(RetrieveMetadataError::Internal(err.into())),
@@ -5602,8 +5585,7 @@ mod tests {
         let metadata_status = storage_node
             .as_ref()
             .inner
-            .metadata_status(metadata.blob_id())
-            .await?;
+            .metadata_status(metadata.blob_id())?;
         assert_eq!(metadata_status, StoredOnNodeStatus::Stored);
         Ok(())
     }

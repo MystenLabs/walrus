@@ -171,9 +171,7 @@ pub async fn get_metadata_status<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<ApiSuccess<StoredOnNodeStatus>, RetrieveMetadataError> {
-    Ok(ApiSuccess::ok(
-        state.service.metadata_status(&blob_id).await?,
-    ))
+    Ok(ApiSuccess::ok(state.service.metadata_status(&blob_id)?))
 }
 
 /// Store blob metadata.
