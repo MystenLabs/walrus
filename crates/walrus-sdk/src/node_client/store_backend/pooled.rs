@@ -290,20 +290,21 @@ impl<'a> PooledStoreBackend<'a> {
         let current_epoch = committees.write_committee().epoch;
         let target_end_epoch = current_epoch + store_args.epochs_ahead;
 
-        let mut storage_pool_status = self
+        let storage_pool_status = self
             .client
             .sui_client
             .storage_pool_status(self.storage_pool_object_id)
             .await?;
-        self.ensure_storage_pool_active(storage_pool_status, current_epoch)?;
+        self.ensure_storage_pool_active(&storage_pool_status, current_epoch)?;
 
         if storage_pool_status.end_epoch < target_end_epoch {
-            let epochs_extended = target_end_epoch - storage_pool_status.end_epoch;
-            self.client
-                .sui_client
-                .extend_storage_pool(self.storage_pool_object_id, epochs_extended)
-                .await?;
-            storage_pool_status.end_epoch = target_end_epoch;
+            return Err(ClientErrorKind::StoragePoolInsufficientLifetime {
+                storage_pool_object_id: storage_pool_status.storage_pool_object_id,
+                current_epoch,
+                end_epoch: storage_pool_status.end_epoch,
+                requested_end_epoch: target_end_epoch,
+            }
+            .into());
         }
 
         let available_encoded_capacity_bytes =
@@ -325,14 +326,16 @@ impl<'a> PooledStoreBackend<'a> {
 
     fn ensure_storage_pool_active(
         &self,
-        storage_pool_status: StoragePoolStatus,
+        storage_pool_status: &StoragePoolStatus,
         current_epoch: walrus_core::Epoch,
     ) -> ClientResult<()> {
         if storage_pool_status.end_epoch <= current_epoch {
-            return Err(ClientError::store_blob_internal(format!(
-                "storage pool {} is not active at epoch {}",
-                storage_pool_status.storage_pool_object_id, current_epoch
-            )));
+            return Err(ClientErrorKind::StoragePoolExpired {
+                storage_pool_object_id: storage_pool_status.storage_pool_object_id,
+                current_epoch,
+                end_epoch: storage_pool_status.end_epoch,
+            }
+            .into());
         }
         Ok(())
     }

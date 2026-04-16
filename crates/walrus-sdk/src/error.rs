@@ -3,6 +3,7 @@
 
 //! The errors for the storage client and the communication with storage nodes.
 
+use sui_types::base_types::ObjectID;
 use walrus_core::{
     BlobId,
     EncodingType,
@@ -256,6 +257,35 @@ pub enum ClientErrorKind {
     /// The client was notified that the committee has changed.
     #[error("the client was notified that the committee has changed")]
     CommitteeChangeNotified,
+    /// The target storage pool has already expired.
+    #[error(
+        "storage pool {storage_pool_object_id} expired at epoch {end_epoch}, current epoch is \
+        {current_epoch}"
+    )]
+    StoragePoolExpired {
+        /// The storage pool object ID.
+        storage_pool_object_id: ObjectID,
+        /// The current epoch.
+        current_epoch: Epoch,
+        /// The pool end epoch.
+        end_epoch: Epoch,
+    },
+    /// The target storage pool does not satisfy the requested retention.
+    #[error(
+        "storage pool {storage_pool_object_id} ends at epoch {end_epoch}, but the store request \
+        requires availability through epoch {requested_end_epoch}; extend the pool explicitly \
+        before storing"
+    )]
+    StoragePoolInsufficientLifetime {
+        /// The storage pool object ID.
+        storage_pool_object_id: ObjectID,
+        /// The current epoch.
+        current_epoch: Epoch,
+        /// The pool end epoch.
+        end_epoch: Epoch,
+        /// The requested end epoch for the write.
+        requested_end_epoch: Epoch,
+    },
     /// The committee has no members.
     #[error("the committee has no members; most likely, the system is in the genesis epoch")]
     EmptyCommittee,

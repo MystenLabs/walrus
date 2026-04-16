@@ -3052,7 +3052,9 @@ pub trait StoreBlobsInStoragePoolApi: StoreBlobsApi + Sized {
     ///
     /// Unlike the owned-blob store path, this does not automatically retry across epoch changes:
     /// pooled blob registration is not idempotent, so an automatic full retry could create
-    /// duplicate pooled blobs in the storage pool.
+    /// duplicate pooled blobs in the storage pool. This path also does not extend the storage pool
+    /// lifetime automatically; callers must provision a pool whose end epoch already satisfies the
+    /// requested `store_args.epochs_ahead`.
     #[tracing::instrument(skip_all, fields(blob_id))]
     fn reserve_and_store_blobs_in_storage_pool(
         &self,

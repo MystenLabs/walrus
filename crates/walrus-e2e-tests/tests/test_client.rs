@@ -53,7 +53,7 @@ use walrus_core::{
 };
 use walrus_proc_macros::walrus_simtest;
 use walrus_sdk::{
-    config::ClientConfig,
+    config::{ClientConfig, communication_config::ClientCommunicationConfig},
     error::{
         ClientError,
         ClientErrorKind::{self, NoMetadataReceived, NotEnoughConfirmations, NotEnoughSlivers},
@@ -62,11 +62,12 @@ use walrus_sdk::{
         Blocklist,
         StoreArgs,
         StoreBlobsApi as _,
+        StoreBlobsInStoragePoolApi as _,
         WalrusNodeClient,
         byte_range_read_client::{ByteRangeReadClient, ByteRangeReadClientConfig},
         client_types::WalrusStoreBlob,
         quilt_client::QuiltClientConfig,
-        responses::{BlobStoreResult, QuiltStoreResult},
+        responses::{BlobStoreResult, PooledBlobStoreResult, QuiltStoreResult},
         streaming::start_streaming_blob,
         upload_relay_client::UploadRelayClient,
     },
@@ -212,6 +213,125 @@ where
             path.display()
         );
     }
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_pooled_blob_with_pending_uploads() -> TestResult {
+    Box::pin(run_test_store_pooled_blob_with_pending_uploads()).await
+}
+
+async fn run_test_store_pooled_blob_with_pending_uploads() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    // `default_for_test` enables pending uploads, so this exercises the pooled pending-upload
+    // path instead of the plain register -> upload -> certify sequence.
+    let communication_config = ClientCommunicationConfig::default_for_test();
+    assert!(communication_config.pending_uploads_enabled);
+
+    let (_sui_cluster_handle, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_communication_config(communication_config)
+        .build()
+        .await?;
+    let client = client.as_ref();
+
+    let blob = walrus_test_utils::random_data(31_415);
+    let reserved_encoded_capacity_bytes = encoded_blob_length_for_n_shards(
+        client.encoding_config().n_shards(),
+        blob.len() as u64,
+        DEFAULT_ENCODING,
+    )
+    .expect("encoded length should be computable");
+    let storage_pool_object_id = client
+        .sui_client()
+        .create_storage_pool(reserved_encoded_capacity_bytes, 2)
+        .await?;
+
+    let results = client
+        .reserve_and_store_blobs_in_storage_pool(
+            vec![blob.clone()],
+            storage_pool_object_id,
+            &StoreArgs::default_with_epochs(1).with_encoding_type(DEFAULT_ENCODING),
+        )
+        .await?;
+
+    let [PooledBlobStoreResult::NewlyCreated { pooled_blob_object }] = &results[..] else {
+        panic!("expected exactly one newly created pooled blob, got {results:?}");
+    };
+
+    assert_eq!(pooled_blob_object.storage_pool_id, storage_pool_object_id);
+    assert!(pooled_blob_object.is_certified());
+    assert_eq!(
+        client
+            .read_blob::<Primary>(&pooled_blob_object.blob_id)
+            .await?,
+        blob
+    );
+
+    Ok(())
+}
+
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_pooled_blob_does_not_extend_storage_pool_lifetime() -> TestResult {
+    Box::pin(run_test_store_pooled_blob_does_not_extend_storage_pool_lifetime()).await
+}
+
+async fn run_test_store_pooled_blob_does_not_extend_storage_pool_lifetime() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
+        .with_communication_config(ClientCommunicationConfig::default_for_test())
+        .build()
+        .await?;
+    let client = client.as_ref();
+
+    let blob = walrus_test_utils::random_data(1_024);
+    let reserved_encoded_capacity_bytes = encoded_blob_length_for_n_shards(
+        client.encoding_config().n_shards(),
+        blob.len() as u64,
+        DEFAULT_ENCODING,
+    )
+    .expect("encoded length should be computable");
+    let storage_pool_object_id = client
+        .sui_client()
+        .create_storage_pool(reserved_encoded_capacity_bytes, 1)
+        .await?;
+    let initial_status = client
+        .sui_client()
+        .storage_pool_status(storage_pool_object_id)
+        .await?;
+
+    let error = client
+        .reserve_and_store_blobs_in_storage_pool(
+            vec![blob],
+            storage_pool_object_id,
+            &StoreArgs::default_with_epochs(2).with_encoding_type(DEFAULT_ENCODING),
+        )
+        .await
+        .expect_err("pooled store should not auto-extend storage pool lifetime");
+
+    match error.kind() {
+        ClientErrorKind::StoragePoolInsufficientLifetime {
+            storage_pool_object_id: actual_storage_pool_id,
+            current_epoch: _,
+            end_epoch,
+            requested_end_epoch,
+        } => {
+            assert_eq!(*actual_storage_pool_id, storage_pool_object_id);
+            assert_eq!(*end_epoch, initial_status.end_epoch);
+            assert!(*requested_end_epoch > *end_epoch);
+        }
+        other => panic!("unexpected pooled store error: {other:?}"),
+    }
+
+    let status_after = client
+        .sui_client()
+        .storage_pool_status(storage_pool_object_id)
+        .await?;
+    assert_eq!(status_after.end_epoch, initial_status.end_epoch);
 
     Ok(())
 }

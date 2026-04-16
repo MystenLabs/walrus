@@ -511,6 +511,10 @@ impl TelemetryLabel for ClientErrorKind {
             ClientErrorKind::FailedToLoadCerts(_) => "failed-to-load-certs",
             ClientErrorKind::Other(_) => "unknown",
             ClientErrorKind::StoreBlobInternal(_) => "store-blob-internal",
+            ClientErrorKind::StoragePoolExpired { .. } => "storage-pool-expired",
+            ClientErrorKind::StoragePoolInsufficientLifetime { .. } => {
+                "storage-pool-insufficient-lifetime"
+            }
             ClientErrorKind::QuiltError(_) => "quilt-error",
             ClientErrorKind::UploadRelayError(_) => "upload-relay-error",
             ClientErrorKind::BlobTooLarge(_) => "blob-too-large",
