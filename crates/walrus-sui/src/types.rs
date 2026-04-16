@@ -53,10 +53,12 @@ pub mod move_structs;
 pub use move_structs::{
     Blob,
     NodeMetadata,
+    PooledBlob,
     StakedWal,
     StakingObject,
     StorageNode,
     StorageNodeCap,
+    StoragePoolResource,
     StorageResource,
     SystemObject,
 };

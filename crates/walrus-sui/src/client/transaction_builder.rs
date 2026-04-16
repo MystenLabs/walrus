@@ -66,6 +66,7 @@ use crate::{
 };
 
 mod owned_blob_ops;
+mod pooled_blob_ops;
 mod shared_blob_ops;
 
 const CLOCK_OBJECT_ARG: ObjectArg = ObjectArg::SharedObject {

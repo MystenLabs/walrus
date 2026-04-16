@@ -238,6 +238,7 @@ pub mod system {
 pub mod storage_pool {
 
     contract_ident!(struct storage_pool::StoragePool);
+    contract_ident!(struct storage_pool::StoragePoolInnerV1);
     contract_ident!(struct storage_pool::PooledBlob);
 }
 

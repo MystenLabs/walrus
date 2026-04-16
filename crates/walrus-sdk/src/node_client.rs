@@ -93,7 +93,7 @@ use crate::{
         quilt_client::QuiltClient,
         refresh::{CommitteesRefresherHandle, RequestKind},
         resource::{PriceComputation, ResourceManager},
-        responses::{BlobStoreResult, BlobStoreResultWithPath},
+        responses::{BlobStoreResult, BlobStoreResultWithPath, PooledBlobStoreResult},
         upload_relay_client::UploadRelayClient,
     },
     uploader::{DistributedUploader, RunOutput, TailHandling, UploaderEvent},
@@ -2823,7 +2823,7 @@ mod internal {
                 let upload_relay_client = store_args.upload_relay_client.clone();
                 let encoding_event_tx = store_args.encoding_event_tx.clone();
                 let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
-                    encode_blobs(
+                    encode_blobs_as(
                         walrus_store_blobs,
                         upload_relay_client,
                         encoding_event_tx.as_ref(),
@@ -2866,6 +2866,60 @@ mod internal {
 
                 debug_assert_eq!(results.len(), blobs_count);
                 // Make sure the output order is the same as the input order.
+                results.sort_by_key(|blob| blob.common.identifier.to_string());
+
+                Ok(results.into_iter().map(|blob| blob.state).collect())
+            }
+        }
+
+        /// Encodes the blobs, stores them in the specified storage pool, uploads the slivers to
+        /// the storage nodes, and certifies the pooled blobs.
+        fn reserve_and_store_blobs_in_storage_pool_inner(
+            &self,
+            walrus_store_blobs: Vec<
+                WalrusStoreBlobMaybeFinished<UnencodedBlob, PooledBlobStoreResult>,
+            >,
+            storage_pool_object_id: ObjectID,
+            store_args: &StoreArgs,
+        ) -> impl Future<Output = ClientResult<Vec<PooledBlobStoreResult>>> + Send {
+            async move {
+                let blobs_count = walrus_store_blobs.len();
+                if blobs_count == 0 {
+                    tracing::debug!("no blobs provided to pooled store");
+                    return Ok(vec![]);
+                }
+                let start = Instant::now();
+
+                let upload_relay_client = store_args.upload_relay_client.clone();
+                let encoding_event_tx = store_args.encoding_event_tx.clone();
+                let maybe_encoded_blobs = tokio::task::spawn_blocking(move || {
+                    encode_blobs_as(
+                        walrus_store_blobs,
+                        upload_relay_client,
+                        encoding_event_tx.as_ref(),
+                    )
+                })
+                .await
+                .map_err(ClientError::other)??;
+                let (encoded_blobs, mut results) =
+                    client_types::partition_unfinished_finished(maybe_encoded_blobs);
+                store_args.maybe_observe_encoding_latency(start.elapsed());
+
+                let client = self.client().await?;
+
+                if !encoded_blobs.is_empty() {
+                    tracing::debug!(
+                        backend = ?client.pooled_store_backend(storage_pool_object_id).kind(),
+                        "selected pooled store backend"
+                    );
+                    let backend = client.pooled_store_backend(storage_pool_object_id);
+                    let store_results = backend
+                        .reserve_and_store_encoded_blobs(encoded_blobs.clone(), store_args)
+                        .await?;
+                    results.extend(store_results);
+                }
+
+                debug_assert_eq!(results.len(), blobs_count);
                 results.sort_by_key(|blob| blob.common.identifier.to_string());
 
                 Ok(results.into_iter().map(|blob| blob.state).collect())
@@ -2992,6 +3046,47 @@ impl StoreBlobsApi for WalrusNodeClient<SuiContractClient> {
     }
 }
 
+/// A trait containing functions to store blobs into an existing storage pool.
+pub trait StoreBlobsInStoragePoolApi: StoreBlobsApi + Sized {
+    /// Stores a list of blobs into the specified storage pool.
+    ///
+    /// Unlike the owned-blob store path, this does not automatically retry across epoch changes:
+    /// pooled blob registration is not idempotent, so an automatic full retry could create
+    /// duplicate pooled blobs in the storage pool. This path also does not extend the storage pool
+    /// lifetime automatically; callers must provision a pool whose end epoch already satisfies the
+    /// requested `store_args.epochs_ahead`.
+    #[tracing::instrument(skip_all, fields(blob_id))]
+    fn reserve_and_store_blobs_in_storage_pool(
+        &self,
+        blobs: Vec<Vec<u8>>,
+        storage_pool_object_id: ObjectID,
+        store_args: &StoreArgs,
+    ) -> impl Future<Output = ClientResult<Vec<PooledBlobStoreResult>>> + Send {
+        async {
+            let walrus_store_blobs = WalrusStoreBlobMaybeFinished::<
+                UnencodedBlob,
+                PooledBlobStoreResult,
+            >::unencoded_blobs_with_default_identifiers_as(
+                blobs,
+                vec![],
+                self.encoding_config()
+                    .await?
+                    .get_for_type(store_args.encoding_type),
+            );
+            self.reserve_and_store_blobs_in_storage_pool_inner(
+                walrus_store_blobs,
+                storage_pool_object_id,
+                store_args,
+            )
+            .await
+        }
+    }
+}
+
+impl StoreBlobsInStoragePoolApi for WalrusNodeClientCreatedInBackground<SuiContractClient> {}
+
+impl StoreBlobsInStoragePoolApi for WalrusNodeClient<SuiContractClient> {}
+
 /// Encodes multiple blobs.
 ///
 /// Returns a list of WalrusStoreBlob as the encoded result. The return list
@@ -3004,6 +3099,16 @@ pub fn encode_blobs(
     upload_relay_client: Option<Arc<UploadRelayClient>>,
     encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
 ) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<EncodedBlob>>> {
+    encode_blobs_as(walrus_store_blobs, upload_relay_client, encoding_event_tx)
+}
+
+/// Encodes multiple blobs using the specified final result type.
+#[tracing::instrument(skip_all, fields(count = walrus_store_blobs.len()))]
+pub fn encode_blobs_as<F: client_types::WalrusStoreFinalResultApi>(
+    walrus_store_blobs: Vec<WalrusStoreBlobMaybeFinished<UnencodedBlob, F>>,
+    upload_relay_client: Option<Arc<UploadRelayClient>>,
+    encoding_event_tx: Option<&tokio::sync::mpsc::UnboundedSender<EncodingProgressEvent>>,
+) -> ClientResult<Vec<WalrusStoreBlobMaybeFinished<EncodedBlob, F>>> {
     let total_blobs_count = walrus_store_blobs.len();
     if total_blobs_count == 0 {
         return Ok(Vec::new());
