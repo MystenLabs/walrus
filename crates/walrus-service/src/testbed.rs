@@ -566,7 +566,6 @@ pub fn create_backup_config(
             event_polling_interval: defaults::polling_interval(),
             rpc_fallback_config,
             request_timeout: None,
-            checkpoint_wait_timeout: None,
         },
         database_url.to_string(),
     ))
