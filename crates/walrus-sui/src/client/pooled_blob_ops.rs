@@ -243,14 +243,8 @@ impl SuiContractClientInner {
             .await?;
 
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
-        let res = self
-            .sign_and_send_transaction(transaction, "certify_pooled_blobs")
+        self.sign_and_send_transaction(transaction, "certify_pooled_blobs")
             .await?;
-
-        if !res.errors.is_empty() {
-            tracing::warn!(errors = ?res.errors, "failed to certify pooled blobs on Sui");
-            return Err(anyhow!("could not certify pooled blobs: {:?}", res.errors).into());
-        }
 
         Ok(())
     }
