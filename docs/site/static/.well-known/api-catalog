@@ -1,0 +1,44 @@
+{
+  "linkset": [
+    {
+      "anchor": "https://docs.wal.app",
+      "service-doc": [
+        {
+          "href": "https://docs.wal.app/llms.txt",
+          "type": "text/plain",
+          "title": "LLM-optimized documentation index"
+        },
+        {
+          "href": "https://docs.wal.app/docs/client-cli",
+          "type": "text/html",
+          "title": "Walrus CLI Reference"
+        },
+        {
+          "href": "https://docs.wal.app/docs/http-api",
+          "type": "text/html",
+          "title": "Walrus HTTP API Reference"
+        }
+      ]
+    },
+    {
+      "anchor": "https://aggregator.walrus-mainnet.walrus.space",
+      "service-doc": [
+        {
+          "href": "https://docs.wal.app/docs/http-api/reading-blobs",
+          "type": "text/html",
+          "title": "Walrus Aggregator API — reading blobs"
+        }
+      ]
+    },
+    {
+      "anchor": "https://publisher.walrus-mainnet.walrus.space",
+      "service-doc": [
+        {
+          "href": "https://docs.wal.app/docs/http-api/storing-blobs",
+          "type": "text/html",
+          "title": "Walrus Publisher API — storing blobs"
+        }
+      ]
+    }
+  ]
+}

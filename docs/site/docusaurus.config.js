@@ -41,6 +41,54 @@ const config = {
   url: "https://docs.wal.app",
   baseUrl: process.env.DOCUSAURUS_BASE_URL || "/",
 
+  headTags: [
+    {
+      tagName: "link",
+      attributes: {
+        rel: "service-doc",
+        href: "/llms.txt",
+        type: "text/plain",
+        title: "LLM-optimized documentation",
+      },
+    },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "service-doc",
+        href: "/docs/http-api",
+        title: "Walrus HTTP API Reference",
+      },
+    },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "api-catalog",
+        href: "/.well-known/api-catalog",
+        type: "application/linkset+json",
+      },
+    },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "mcp-server-card",
+        href: "/.well-known/mcp/server-card.json",
+        type: "application/json",
+      },
+    },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "sitemap",
+        href: "/sitemap.xml",
+        type: "application/xml",
+      },
+    },
+  ],
+
+  clientModules: [
+    "./src/client/webmcp.js",
+  ],
+
   onBrokenLinks: "throw",
   onBrokenMarkdownLinks: "throw",
 
