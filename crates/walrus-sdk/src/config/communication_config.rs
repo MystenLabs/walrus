@@ -235,6 +235,15 @@ pub struct ClientCommunicationConfig {
     #[serde(rename = "sui_client_request_timeout_millis")]
     #[serde_as(as = "Option<DurationMilliSeconds>")]
     pub sui_client_request_timeout: Option<Duration>,
+    /// Timeout for waiting for checkpoint inclusion after gRPC transaction execution.
+    /// If not set, defaults to 30 seconds.
+    #[serde(
+        rename = "checkpoint_wait_timeout_millis",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[serde_as(as = "Option<DurationMilliSeconds>")]
+    pub checkpoint_wait_timeout: Option<Duration>,
 }
 
 impl Default for ClientCommunicationConfig {
@@ -267,6 +276,7 @@ impl Default for ClientCommunicationConfig {
                 Some(5),
             ),
             sui_client_request_timeout: None,
+            checkpoint_wait_timeout: None,
         }
     }
 }

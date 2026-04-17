@@ -60,6 +60,7 @@ use walrus_sui::{
         BlobObjectMetadata,
         FixedSystemParameters,
         SuiClientError,
+        dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         retry_client::RetriableRpcClient,
     },
     test_utils::system_setup::{DEFAULT_MAX_EPOCHS_AHEAD, SystemContext},
@@ -1310,6 +1311,7 @@ impl StorageNodeHandleBuilder {
                 rpc_fallback_config: None,
                 additional_rpc_endpoints: sui_rpc_urls,
                 request_timeout: None,
+                checkpoint_wait_timeout: None,
             }),
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(5),
@@ -2923,7 +2925,13 @@ pub mod test_cluster {
                     .and_then_async(async |wallet| {
                         let rpc_urls = &[wallet.get_rpc_url().to_string()];
                         system_ctx
-                            .new_contract_client(wallet, rpc_urls, Default::default(), None)
+                            .new_contract_client(
+                                wallet,
+                                rpc_urls,
+                                Default::default(),
+                                None,
+                                DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+                            )
                             .await
                     })
                     .await?;

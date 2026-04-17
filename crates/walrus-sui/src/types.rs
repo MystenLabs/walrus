@@ -47,7 +47,14 @@ pub mod committee;
 pub use committee::SuiCommitteeInfo;
 
 pub mod transaction;
-pub use transaction::{BalanceChange, TransactionResponse, TransactionResponseOptions};
+pub use transaction::{
+    BalanceChange,
+    ExecuteTransactionResponse,
+    ObjectChangeEntry,
+    TransactionEffectsStatus,
+    TransactionResponse,
+    TransactionResponseOptions,
+};
 
 pub mod move_structs;
 pub use move_structs::{

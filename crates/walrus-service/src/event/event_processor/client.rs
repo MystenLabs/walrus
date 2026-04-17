@@ -8,6 +8,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use walrus_sui::client::{
     SuiClientMetricSet,
+    dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
     retry_client::{
         RetriableRpcClient,
         RetriableSuiClient,
@@ -82,7 +83,13 @@ impl ClientManager {
         let sui_client = RetriableSuiClient::new(
             rest_urls
                 .iter()
-                .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, Some(request_timeout)))
+                .map(|rpc_url| {
+                    LazySuiClientBuilder::new(
+                        rpc_url,
+                        Some(request_timeout),
+                        DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+                    )
+                })
                 .collect(),
             ExponentialBackoffConfig::default(),
         )?;

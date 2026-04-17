@@ -505,6 +505,7 @@ pub async fn new_contract_client_on_sui_test_cluster(
                 &contract_config,
                 existing_client.read_client().backoff_config().clone(),
                 None,
+                crate::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
             )
             .await
         })

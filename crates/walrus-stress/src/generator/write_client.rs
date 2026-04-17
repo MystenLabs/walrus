@@ -266,6 +266,7 @@ async fn new_client(
                 LazySuiClientBuilder::new(
                     rpc_url,
                     config.communication_config.sui_client_request_timeout,
+                    config.checkpoint_wait_timeout(),
                 )
             })
             .collect(),

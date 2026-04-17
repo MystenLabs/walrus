@@ -22,10 +22,7 @@ use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJ
 use serde::{Deserialize, Serialize};
 use sui_move_build::CompiledPackage;
 use sui_package_alt::SuiFlavor;
-use sui_sdk::{
-    rpc_types::{SuiExecutionStatus, SuiTransactionBlockEffectsAPI, SuiTransactionBlockResponse},
-    types::base_types::ObjectID,
-};
+use sui_sdk::types::base_types::ObjectID;
 use sui_types::{
     TypeTag,
     base_types::SuiAddress,
@@ -58,11 +55,14 @@ use crate::{
         BlobEvent,
         Committee,
         ContractEvent,
+        ExecuteTransactionResponse,
         NodeRegistrationParams,
         NodeUpdateParams,
+        ObjectChangeEntry,
         StakedWal,
         StorageNodeCap,
         StorageResource,
+        TransactionEffectsStatus,
         move_errors::{
             BlobError,
             MoveExecutionError,
@@ -536,11 +536,17 @@ impl SuiContractClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
+        checkpoint_wait_timeout: Duration,
     ) -> SuiClientResult<Self> {
         tracing::debug!("creating a new `SuiContractClient`");
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?,
+                RetriableSuiClient::new_for_rpc_urls(
+                    rpc_urls,
+                    backoff_config.clone(),
+                    None,
+                    checkpoint_wait_timeout,
+                )?,
                 contract_config,
             )
             .await?,
@@ -555,12 +561,18 @@ impl SuiContractClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
+        checkpoint_wait_timeout: Duration,
         metrics: Arc<SuiClientMetricSet>,
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?
-                    .with_metrics(Some(metrics)),
+                RetriableSuiClient::new_for_rpc_urls(
+                    rpc_urls,
+                    backoff_config.clone(),
+                    None,
+                    checkpoint_wait_timeout,
+                )?
+                .with_metrics(Some(metrics)),
                 contract_config,
             )
             .await?,
@@ -1107,7 +1119,7 @@ impl SuiContractClient {
         &self,
         transaction: TransactionData,
         method: &'static str,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+    ) -> SuiClientResult<ExecuteTransactionResponse> {
         self.inner
             .lock()
             .await
@@ -1501,15 +1513,25 @@ impl SuiContractClientInner {
             .await?;
 
         // Return the new package ID parsed from the transaction response.
-        Ok(response
-            .get_new_package_obj()
+        let package_id = response
+            .object_changes
+            .as_ref()
+            .and_then(|changes| {
+                changes.iter().find_map(|change| {
+                    if let ObjectChangeEntry::Published { package_id, .. } = change {
+                        Some(*package_id)
+                    } else {
+                        None
+                    }
+                })
+            })
             .ok_or_else(|| {
                 anyhow!(
                     "no new package ID found in the transaction response: {:?}",
                     response
                 )
-            })?
-            .0)
+            })?;
+        Ok(package_id)
     }
 
     /// Set the migration epoch on the staking object to the following epoch.
@@ -1717,7 +1739,7 @@ impl SuiContractClientInner {
         &mut self,
         transaction: TransactionData,
         method: &'static str,
-    ) -> SuiClientResult<SuiTransactionBlockResponse> {
+    ) -> SuiClientResult<ExecuteTransactionResponse> {
         // Sign the transaction with the wallet's keys
         let signed_transaction = self.wallet.sign_transaction(&transaction).await;
 
@@ -1728,14 +1750,9 @@ impl SuiContractClientInner {
             .await?;
 
         // Check transaction execution status from effects
-        match response
-            .effects
-            .as_ref()
-            .ok_or_else(|| anyhow!("No transaction effects in response"))?
-            .status()
-        {
-            SuiExecutionStatus::Success => Ok(response),
-            SuiExecutionStatus::Failure { error } => {
+        match &response.effects_status {
+            TransactionEffectsStatus::Success => Ok(response),
+            TransactionEffectsStatus::Failure { error } => {
                 // Convert execution error into client error
                 // Try parsing congestion error first, fallback to general execution error
                 Err(
@@ -1893,13 +1910,7 @@ impl SuiContractClientInner {
             .balance_changes
             .ok_or_else(|| anyhow!("transaction response does not contain balance changes"))?
             .into_iter()
-            .find(|change| {
-                change.coin_type == wal_type_tag
-                    && change
-                        .owner
-                        .get_address_owner_address()
-                        .is_ok_and(|address| address == sender_address)
-            })
+            .find(|change| change.coin_type == wal_type_tag && change.address == sender_address)
         else {
             return Err(anyhow!("no balance change for sender in transaction response").into());
         };

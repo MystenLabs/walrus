@@ -24,7 +24,7 @@ use sui_keys::keystore::{
     Keystore,
 };
 use sui_sdk::{
-    rpc_types::{ObjectChange, Page, SuiObjectResponse, SuiTransactionBlockResponse},
+    rpc_types::{Page, SuiObjectResponse},
     sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
 };
@@ -52,6 +52,7 @@ use crate::{
     coin::Coin,
     config::load_wallet_context_from_path,
     contracts::{AssociatedContractStruct, MoveConversionError},
+    types::{ExecuteTransactionResponse, ObjectChangeEntry},
     wallet::Wallet,
 };
 
@@ -126,16 +127,16 @@ pub(crate) fn get_package_id_from_object(object: &sui_types::object::Object) -> 
 /// Gets the objects of the given type that were created in a transaction.
 ///
 /// All the object ids of the objects created in the transaction, and of type represented by the
-/// `struct_tag`, are taken from the [`SuiTransactionBlockResponse`].
+/// `struct_tag`, are taken from the [`ExecuteTransactionResponse`].
 pub(crate) fn get_created_sui_object_ids_by_type(
-    response: &SuiTransactionBlockResponse,
+    response: &ExecuteTransactionResponse,
     struct_tag: &StructTag,
 ) -> Result<Vec<ObjectID>> {
     match response.object_changes.as_ref() {
         Some(changes) => Ok(changes
             .iter()
             .filter_map(|changed| {
-                if let ObjectChange::Created {
+                if let ObjectChangeEntry::Created {
                     object_type,
                     object_id,
                     ..
@@ -152,8 +153,8 @@ pub(crate) fn get_created_sui_object_ids_by_type(
             })
             .collect()),
         None => Err(anyhow!(
-            "No object changes in transaction response: {:?}",
-            response.errors
+            "no object changes in transaction response for digest {}",
+            response.digest
         )),
     }
 }
@@ -475,7 +476,12 @@ pub async fn get_sui_from_wallet_or_faucet(
     let min_balance = sui_amount + 2 * one_sui;
     let sender = wallet.active_address();
     let rpc_urls = &[wallet.get_rpc_url()];
-    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None)?;
+    let client = RetriableSuiClient::new_for_rpc_urls(
+        rpc_urls,
+        Default::default(),
+        None,
+        crate::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+    )?;
     let balance = client.get_total_balance(sender, Coin::SUI).await?;
     if balance >= min_balance {
         let mut ptb = ProgrammableTransactionBuilder::new();

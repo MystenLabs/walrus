@@ -28,6 +28,7 @@ use walrus_sdk::config::ClientCommunicationConfig;
 use walrus_sui::{
     client::{
         SuiContractClient,
+        dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
         rpc_config::RpcFallbackConfig,
     },
@@ -377,7 +378,11 @@ pub async fn deploy_walrus_contract(
 
         // Get coins from faucet for the wallet.
         let sui_client = RetriableSuiClient::new(
-            vec![LazySuiClientBuilder::new(rpc_url, None)],
+            vec![LazySuiClientBuilder::new(
+                rpc_url,
+                None,
+                DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+            )],
             Default::default(),
         )?;
         request_sui_from_faucet(admin_wallet.active_address(), &sui_network, &sui_client).await?;
@@ -690,6 +695,7 @@ pub async fn create_storage_node_configs(
             rpc_fallback_config: rpc_fallback_config.clone(),
             additional_rpc_endpoints: vec![],
             request_timeout: sui_client_request_timeout,
+            checkpoint_wait_timeout: None,
         });
 
         let storage_path = set_db_path
@@ -770,7 +776,13 @@ pub async fn create_storage_node_configs(
 
         testbed_config
             .system_ctx
-            .new_contract_client(wallet, rpc_urls, ExponentialBackoffConfig::default(), None)
+            .new_contract_client(
+                wallet,
+                rpc_urls,
+                ExponentialBackoffConfig::default(),
+                None,
+                DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+            )
             .await
             .expect("should not fail")
     }))
