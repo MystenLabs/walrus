@@ -1,0 +1,49 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/main/schema/server-card.json",
+  "serverInfo": {
+    "name": "Walrus Documentation",
+    "version": "1.0.0",
+    "description": "AI-powered Q&A over Walrus decentralized storage documentation. Ask questions about blob storage, erasure coding, storage nodes, CLI usage, HTTP API, and more.",
+    "homepage": "https://docs.wal.app"
+  },
+  "transport": {
+    "type": "streamable-http",
+    "url": "https://sui.mcp.kapa.ai/",
+    "authentication": {
+      "type": "bearer",
+      "description": "Requires a Kapa API token. The Walrus documentation is indexed under the Sui Kapa project."
+    }
+  },
+  "capabilities": {
+    "tools": {
+      "supported": true,
+      "description": "Search and query Walrus documentation, ask technical questions, and get AI-generated answers grounded in official docs."
+    },
+    "resources": {
+      "supported": false
+    },
+    "prompts": {
+      "supported": false
+    }
+  },
+  "relatedResources": [
+    {
+      "href": "https://docs.wal.app/llms.txt",
+      "type": "text/plain",
+      "title": "LLM-optimized documentation index",
+      "rel": "service-doc"
+    },
+    {
+      "href": "https://docs.wal.app/.well-known/api-catalog",
+      "type": "application/linkset+json",
+      "title": "Walrus API catalog",
+      "rel": "api-catalog"
+    },
+    {
+      "href": "https://docs.wal.app/sitemap.xml",
+      "type": "application/xml",
+      "title": "Full site index",
+      "rel": "sitemap"
+    }
+  ]
+}
