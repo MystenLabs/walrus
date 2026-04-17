@@ -148,7 +148,7 @@ pub async fn get_metadata<S: SyncServiceState>(
     State(state): State<RestApiState<S>>,
     Path(BlobIdString(blob_id)): Path<BlobIdString>,
 ) -> Result<Bcs<VerifiedBlobMetadataWithId>, RetrieveMetadataError> {
-    Ok(Bcs(state.service.retrieve_metadata(&blob_id)?))
+    Ok(Bcs(state.service.retrieve_metadata(&blob_id).await?))
 }
 
 /// Check if the metadata for a blob is already stored.
