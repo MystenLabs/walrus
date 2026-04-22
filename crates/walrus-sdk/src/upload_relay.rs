@@ -9,6 +9,7 @@ pub mod tip_config;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::{
     core::{BlobId, messages::ConfirmationCertificate},
@@ -17,6 +18,14 @@ use crate::{
 
 /// The route to upload blobs using the relay.
 pub const BLOB_UPLOAD_RELAY_ROUTE: &str = "/v1/blob-upload-relay";
+/// The route to create sessions for uploading systematic primary slivers through the relay.
+pub const SLIVER_UPLOAD_RELAY_SESSION_ROUTE: &str = "/v1alpha/sliver-upload-relay/sessions";
+/// The route to upload a systematic primary sliver to an upload relay session.
+pub const SLIVER_UPLOAD_RELAY_PRIMARY_ROUTE: &str =
+    "/v1alpha/sliver-upload-relay/sessions/{session_id}/primary/{sliver_index}";
+/// The route to finalize an upload relay sliver session.
+pub const SLIVER_UPLOAD_RELAY_COMPLETE_ROUTE: &str =
+    "/v1alpha/sliver-upload-relay/sessions/{session_id}/complete";
 /// The route to fetch the update-relay's tip configuration.
 pub const TIP_CONFIG_ROUTE: &str = "/v1/tip-config";
 /// The route for the update-relay's OpenAPI docs.
@@ -30,6 +39,26 @@ pub struct ResponseType {
     pub blob_id: BlobId,
     /// The confirmation certificate for the uploaded blob.
     pub confirmation_certificate: ConfirmationCertificate,
+}
+
+/// Response returned when creating a sliver upload relay session.
+#[derive(Serialize, Debug, Deserialize, ToSchema)]
+pub struct CreateSliverUploadSessionResponse {
+    /// The opaque session ID to use for uploading systematic primary slivers.
+    pub upload_session_id: String,
+}
+
+/// Response returned after accepting a systematic primary sliver.
+#[derive(Serialize, Debug, Deserialize, ToSchema)]
+pub struct SliverUploadSessionStatus {
+    /// The opaque upload session ID.
+    pub upload_session_id: String,
+    /// The blob ID being uploaded.
+    pub blob_id: BlobId,
+    /// The number of systematic primary slivers accepted so far.
+    pub received_systematic_primary_slivers: usize,
+    /// The total number of systematic primary slivers required by this session.
+    pub total_systematic_primary_slivers: usize,
 }
 
 /// Constructs the URL for the Walrus Upload Relay API with the given parameters.

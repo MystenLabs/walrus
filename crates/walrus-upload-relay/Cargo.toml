@@ -42,6 +42,7 @@ tracing-subscriber.workspace = true
 utoipa.workspace = true
 utoipa-redoc.workspace = true
 walrus-sdk.workspace = true
+walrus-storage-node-client.workspace = true
 walrus-test-utils.workspace = true
 
 [features]

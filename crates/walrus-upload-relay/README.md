@@ -103,6 +103,29 @@ These additional parameters have to be specified in the URL’s query string:
 - **encoding_type** (optional): The encoding type to be used for the blob. The default value, and at
   the moment the only value, is `RS2` .
 
+### Sending Systematic Primary Slivers to the Upload Relay
+
+Relays also expose an experimental session-based API that lets clients upload systematic primary
+slivers to the relay in parallel. This overlaps client-to-relay transfer with relay-to-storage-node
+uploads without changing the storage node protocol.
+
+The flow is:
+
+- Create a session with `POST /v1alpha/sliver-upload-relay/sessions`. The request body is the
+  BCS-encoded `UnverifiedBlobMetadataWithId`, and the URL uses the same `blob_id`,
+  `deletable_blob_object`, `encoding_type`, `tx_id`, and `nonce` query parameters as the full-blob
+  endpoint. Tipped relays validate and reserve the tip transaction at session creation. The relay
+  verifies the metadata and uploads it to storage nodes with immediate intent.
+- Upload each complete systematic primary sliver with
+  `PUT /v1alpha/sliver-upload-relay/sessions/{session_id}/primary/{sliver_index}`. The request body
+  is the BCS-encoded primary sliver. Different sliver indices can be uploaded concurrently.
+- Complete the session with
+  `POST /v1alpha/sliver-upload-relay/sessions/{session_id}/complete`. For tipped relays, the relay
+  first reconstructs the raw blob digest from the uploaded systematic primary slivers and verifies it
+  against the tip transaction's auth package. The relay then derives the remaining slivers, performs
+  the normal storage-node upload flow, collects a confirmation certificate, and returns it to the
+  client.
+
 ## Receiving the certificate
 
 Once the relay is done storing the blob, it will collect the confirmation certificate from the

@@ -4,9 +4,10 @@
 //! The proxy's main controller logic.
 
 use std::{
+    collections::HashMap,
     net::SocketAddr,
     num::NonZeroU16,
-    path::Path,
+    path::Path as StdPath,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -18,15 +19,22 @@ use anyhow::Result;
 use axum::{
     Router,
     body::Bytes,
-    extract::{DefaultBodyLimit, Query, State},
+    extract::{DefaultBodyLimit, Path as AxumPath, Query, State},
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::{get, post, put},
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use fastcrypto::hash::{HashFunction as _, Sha256};
+use rand::RngCore as _;
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
 use sui_types::digests::TransactionDigest;
-use tokio::{sync::Notify, task::JoinHandle, time::Instant};
+use tokio::{
+    sync::{Mutex, Notify},
+    task::JoinHandle,
+    time::Instant,
+};
 use tower_http::cors::{Any, CorsLayer};
 use tracing::Level;
 use utoipa::{OpenApi, ToSchema};
@@ -37,8 +45,23 @@ use walrus_sdk::{
     core::{
         BlobId,
         EncodingType,
-        encoding::EncodingFactory as _,
+        SliverIndex,
+        SliverPairIndex,
+        encoding::{
+            EncodingConfigEnum,
+            EncodingFactory as _,
+            Primary,
+            PrimarySliver,
+            Secondary,
+            SecondarySliver,
+            SliverPair,
+        },
         messages::{BlobPersistenceType, ConfirmationCertificate},
+        metadata::{
+            BlobMetadataApi as _,
+            UnverifiedBlobMetadataWithId,
+            VerifiedBlobMetadataWithId,
+        },
     },
     core_utils::metrics::Registry,
     node_client::WalrusNodeClient,
@@ -49,19 +72,32 @@ use walrus_sdk::{
     upload_relay::{
         API_DOCS,
         BLOB_UPLOAD_RELAY_ROUTE,
+        CreateSliverUploadSessionResponse,
         ResponseType,
+        SLIVER_UPLOAD_RELAY_COMPLETE_ROUTE,
+        SLIVER_UPLOAD_RELAY_PRIMARY_ROUTE,
+        SLIVER_UPLOAD_RELAY_SESSION_ROUTE,
+        SliverUploadSessionStatus,
         TIP_CONFIG_ROUTE,
-        params::{DigestSchema, NONCE_LEN, Params, TransactionDigestSchema},
+        params::{
+            DIGEST_LEN,
+            DigestSchema,
+            HashedAuthPackage,
+            NONCE_LEN,
+            Params,
+            TransactionDigestSchema,
+        },
         tip_config::{TipConfig, TipKind},
     },
     uploader::TailHandling,
 };
+use walrus_storage_node_client::UploadIntent;
 
 use crate::{
     error::WalrusUploadRelayError,
     metrics::WalrusUploadRelayMetricSet,
     tip::check::{check_response_tip, check_tx_freshness},
-    utils::check_tx_auth_package,
+    utils::{auth_package_preflight_checks, check_tx_auth_package, extract_hashed_auth_package},
 };
 
 /// The default socket bind address for the Walrus Upload Relay.
@@ -85,6 +121,322 @@ pub struct WalrusUploadRelayConfig {
     ///
     /// This is to account for clock skew between the Walrus upload relay and the full nodes.
     pub tx_max_future_threshold: Duration,
+}
+
+const SLIVER_UPLOAD_SESSION_ID_BYTES: usize = 16;
+const SLIVER_UPLOAD_SESSION_TTL: Duration = Duration::from_secs(30 * 60);
+
+type SliverUploadSessions = Arc<Mutex<HashMap<String, Arc<Mutex<SliverUploadSession>>>>>;
+type PaidTipTransactions = Arc<Mutex<HashMap<TransactionDigest, Instant>>>;
+
+#[derive(Debug, Clone)]
+struct SliverUploadPaidTip {
+    tx_id: TransactionDigest,
+    auth_package: HashedAuthPackage,
+}
+
+#[derive(Debug)]
+struct SliverUploadSession {
+    upload_session_id: String,
+    metadata: VerifiedBlobMetadataWithId,
+    config: EncodingConfigEnum,
+    symbol_size: NonZeroU16,
+    deletable_blob_object: Option<walrus_sdk::ObjectID>,
+    paid_tip: Option<SliverUploadPaidTip>,
+    systematic_primary_slivers: Vec<Option<PrimarySliver>>,
+    secondary_slivers: Vec<SecondarySliver>,
+    expires_at: Instant,
+    finalizing: bool,
+}
+
+impl SliverUploadSession {
+    fn new(
+        upload_session_id: String,
+        metadata: VerifiedBlobMetadataWithId,
+        config: EncodingConfigEnum,
+        symbol_size: NonZeroU16,
+        deletable_blob_object: Option<walrus_sdk::ObjectID>,
+        paid_tip: Option<SliverUploadPaidTip>,
+        expires_at: Instant,
+    ) -> Self {
+        let systematic_primary_count = usize::from(config.n_source_symbols::<Primary>().get());
+        let secondary_slivers = (0..config.n_shards().get())
+            .map(|index| {
+                SecondarySliver::new_empty(
+                    config.n_source_symbols::<Primary>().get(),
+                    symbol_size,
+                    SliverIndex(index),
+                )
+            })
+            .collect();
+
+        Self {
+            upload_session_id,
+            metadata,
+            config,
+            symbol_size,
+            deletable_blob_object,
+            paid_tip,
+            systematic_primary_slivers: vec![None; systematic_primary_count],
+            secondary_slivers,
+            expires_at,
+            finalizing: false,
+        }
+    }
+
+    fn ensure_active(&self) -> Result<(), WalrusUploadRelayError> {
+        if self.expires_at <= Instant::now() {
+            return Err(WalrusUploadRelayError::SliverUploadSessionNotFound);
+        }
+        if self.finalizing {
+            return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                "session is already finalizing".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn total_systematic_primary_slivers(&self) -> usize {
+        self.systematic_primary_slivers.len()
+    }
+
+    fn received_systematic_primary_slivers(&self) -> usize {
+        self.systematic_primary_slivers
+            .iter()
+            .filter(|sliver| sliver.is_some())
+            .count()
+    }
+
+    fn systematic_primary_blob_digest(&self) -> Result<[u8; DIGEST_LEN], WalrusUploadRelayError> {
+        let mut remaining_blob_bytes = usize::try_from(self.metadata.metadata().unencoded_length())
+            .map_err(|_| {
+                WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                    "blob length does not fit on this architecture".to_string(),
+                )
+            })?;
+        let mut hasher = Sha256::new();
+
+        for sliver in &self.systematic_primary_slivers {
+            if remaining_blob_bytes == 0 {
+                break;
+            }
+            let sliver = sliver
+                .as_ref()
+                .expect("systematic primary slivers are checked before digesting");
+            let data = sliver.symbols.data();
+            let bytes_to_hash = remaining_blob_bytes.min(data.len());
+            hasher.update(&data[..bytes_to_hash]);
+            remaining_blob_bytes -= bytes_to_hash;
+        }
+
+        if remaining_blob_bytes != 0 {
+            return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                "uploaded systematic primary slivers are shorter than the blob length".to_string(),
+            ));
+        }
+
+        Ok(hasher.finalize().digest)
+    }
+
+    fn status(&self) -> SliverUploadSessionStatus {
+        SliverUploadSessionStatus {
+            upload_session_id: self.upload_session_id.clone(),
+            blob_id: *self.metadata.blob_id(),
+            received_systematic_primary_slivers: self.received_systematic_primary_slivers(),
+            total_systematic_primary_slivers: self.total_systematic_primary_slivers(),
+        }
+    }
+
+    fn insert_systematic_primary_sliver(
+        &mut self,
+        sliver_index: u16,
+        sliver: PrimarySliver,
+        encoding_config: &walrus_sdk::core::encoding::EncodingConfig,
+    ) -> Result<(PrimarySliver, SliverUploadSessionStatus), WalrusUploadRelayError> {
+        self.ensure_active()?;
+
+        let row_index = usize::from(sliver_index);
+        if row_index >= self.systematic_primary_slivers.len() {
+            return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                format!(
+                    "primary sliver index {sliver_index} is outside the systematic range 0..{}",
+                    self.systematic_primary_slivers.len()
+                ),
+            ));
+        }
+
+        if sliver.index != SliverIndex(sliver_index) {
+            return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                format!(
+                    "primary sliver body index {} does not match path index {sliver_index}",
+                    sliver.index
+                ),
+            ));
+        }
+
+        sliver
+            .verify(encoding_config, self.metadata.metadata())
+            .map_err(|error| {
+                WalrusUploadRelayError::InvalidSliverUploadSessionRequest(format!(
+                    "primary sliver failed metadata verification: {error}"
+                ))
+            })?;
+
+        if let Some(existing) = &self.systematic_primary_slivers[row_index] {
+            if existing != &sliver {
+                return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                    format!(
+                        "primary sliver {sliver_index} was already uploaded with different bytes"
+                    ),
+                ));
+            }
+            return Ok((sliver, self.status()));
+        }
+
+        let n_systematic_secondary = usize::from(self.config.n_source_symbols::<Secondary>().get());
+        for (column_index, symbol) in sliver.symbols.to_symbols().enumerate() {
+            self.secondary_slivers[column_index].copy_symbol_to(row_index, symbol);
+        }
+
+        let recovery_symbols = self
+            .config
+            .encode_all_repair_symbols::<Secondary>(sliver.symbols.data())
+            .map_err(|error| {
+                WalrusUploadRelayError::InvalidSliverUploadSessionRequest(format!(
+                    "failed to derive secondary recovery symbols from primary sliver \
+                    {sliver_index}: {error:?}"
+                ))
+            })?;
+        for (symbol, secondary_sliver) in recovery_symbols.to_symbols().zip(
+            self.secondary_slivers
+                .iter_mut()
+                .skip(n_systematic_secondary),
+        ) {
+            secondary_sliver.copy_symbol_to(row_index, symbol);
+        }
+
+        self.systematic_primary_slivers[row_index] = Some(sliver.clone());
+        Ok((sliver, self.status()))
+    }
+
+    fn finalize(
+        &mut self,
+        encoding_config: &walrus_sdk::core::encoding::EncodingConfig,
+    ) -> Result<FinalizedSliverUploadSession, WalrusUploadRelayError> {
+        self.ensure_active()?;
+
+        let missing = self
+            .systematic_primary_slivers
+            .iter()
+            .enumerate()
+            .filter_map(|(index, sliver)| sliver.is_none().then_some(index))
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                format!("missing systematic primary slivers: {missing:?}"),
+            ));
+        }
+
+        if let Some(paid_tip) = &self.paid_tip
+            && self.systematic_primary_blob_digest()? != paid_tip.auth_package.blob_digest
+        {
+            return Err(WalrusUploadRelayError::BlobDigestMismatch);
+        }
+
+        let n_systematic_primary = usize::from(self.config.n_source_symbols::<Primary>().get());
+        let n_systematic_secondary = usize::from(self.config.n_source_symbols::<Secondary>().get());
+        let n_shards = usize::from(self.config.n_shards().get());
+
+        let mut primary_slivers = self
+            .systematic_primary_slivers
+            .iter()
+            .cloned()
+            .map(|sliver| sliver.expect("missing slivers checked above"))
+            .collect::<Vec<_>>();
+
+        primary_slivers.extend((n_systematic_primary..n_shards).map(|index| {
+            PrimarySliver::new_empty(
+                self.config.n_source_symbols::<Secondary>().get(),
+                self.symbol_size,
+                SliverIndex(index.try_into().expect("n_shards fits in u16")),
+            )
+        }));
+
+        for (column_index, secondary_sliver) in self
+            .secondary_slivers
+            .iter()
+            .take(n_systematic_secondary)
+            .enumerate()
+        {
+            let symbols = self
+                .config
+                .encode_all_symbols::<Primary>(secondary_sliver.symbols.data())
+                .map_err(|error| {
+                    WalrusUploadRelayError::InvalidSliverUploadSessionRequest(format!(
+                        "failed to derive non-systematic primary symbols for column \
+                        {column_index}: {error:?}"
+                    ))
+                })?;
+            for (symbol, primary_sliver) in symbols
+                .to_symbols()
+                .zip(primary_slivers.iter_mut())
+                .skip(n_systematic_primary)
+            {
+                primary_sliver.copy_symbol_to(column_index, symbol);
+            }
+        }
+
+        let secondary_slivers = self.secondary_slivers.clone();
+        let sliver_pairs = primary_slivers
+            .into_iter()
+            .zip(secondary_slivers.into_iter().rev())
+            .map(|(primary, secondary)| SliverPair { primary, secondary })
+            .collect::<Vec<_>>();
+
+        for pair in &sliver_pairs {
+            pair.primary
+                .verify(encoding_config, self.metadata.metadata())
+                .map_err(|error| {
+                    WalrusUploadRelayError::InvalidSliverUploadSessionRequest(format!(
+                        "derived primary sliver {} failed metadata verification: {error}",
+                        pair.primary.index
+                    ))
+                })?;
+            pair.secondary
+                .verify(encoding_config, self.metadata.metadata())
+                .map_err(|error| {
+                    WalrusUploadRelayError::InvalidSliverUploadSessionRequest(format!(
+                        "derived secondary sliver {} failed metadata verification: {error}",
+                        pair.secondary.index
+                    ))
+                })?;
+        }
+
+        self.finalizing = true;
+
+        let blob_persistence = if let Some(object_id) = self.deletable_blob_object {
+            BlobPersistenceType::Deletable {
+                object_id: object_id.into(),
+            }
+        } else {
+            BlobPersistenceType::Permanent
+        };
+
+        Ok(FinalizedSliverUploadSession {
+            metadata: self.metadata.clone(),
+            sliver_pairs,
+            blob_persistence,
+            paid_tip_tx_id: self.paid_tip.as_ref().map(|paid_tip| paid_tip.tx_id),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct FinalizedSliverUploadSession {
+    metadata: VerifiedBlobMetadataWithId,
+    sliver_pairs: Vec<SliverPair>,
+    blob_persistence: BlobPersistenceType,
+    paid_tip_tx_id: Option<TransactionDigest>,
 }
 
 /// The subset of query parameters of the Walrus Upload Relay, necessary to check the tip.
@@ -131,6 +483,8 @@ pub(crate) struct Controller {
     pub(crate) relay_config: WalrusUploadRelayConfig,
     pub(crate) n_shards: NonZeroU16,
     pub(crate) metric_set: WalrusUploadRelayMetricSet,
+    sliver_upload_sessions: SliverUploadSessions,
+    paid_tip_transactions: PaidTipTransactions,
 }
 
 impl Controller {
@@ -146,6 +500,8 @@ impl Controller {
             relay_config,
             n_shards,
             metric_set,
+            sliver_upload_sessions: Arc::new(Mutex::new(HashMap::new())),
+            paid_tip_transactions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -233,6 +589,315 @@ impl Controller {
         })
     }
 
+    /// Creates a session for uploading systematic primary slivers in parallel.
+    #[tracing::instrument(level = Level::DEBUG, skip_all, fields(blob_id=%params.blob_id))]
+    pub(crate) async fn create_sliver_upload_session(
+        &self,
+        params: Params,
+        body: Bytes,
+    ) -> Result<CreateSliverUploadSessionResponse, WalrusUploadRelayError> {
+        self.cleanup_expired_sliver_upload_sessions().await;
+        self.cleanup_expired_paid_tip_transactions().await;
+
+        let metadata = bcs::from_bytes::<UnverifiedBlobMetadataWithId>(&body)
+            .map_err(|error| {
+                WalrusUploadRelayError::InvalidSliverUploadSessionRequest(format!(
+                    "failed to decode BCS blob metadata: {error}"
+                ))
+            })?
+            .verify(self.client.encoding_config())
+            .map_err(|error| {
+                WalrusUploadRelayError::InvalidSliverUploadSessionRequest(format!(
+                    "metadata verification failed: {error}"
+                ))
+            })?;
+
+        if *metadata.blob_id() != params.blob_id {
+            self.metric_set.blob_id_mismatch.inc();
+            return Err(WalrusUploadRelayError::BlobIdMismatch);
+        }
+        if let Some(encoding_type) = params.encoding_type
+            && encoding_type != metadata.metadata().encoding_type()
+        {
+            return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                format!(
+                    "query encoding_type {encoding_type:?} does not match metadata \
+                    encoding_type {:?}",
+                    metadata.metadata().encoding_type()
+                ),
+            ));
+        }
+
+        let config = self
+            .client
+            .encoding_config()
+            .get_for_type(metadata.metadata().encoding_type());
+        let symbol_size = metadata
+            .metadata()
+            .symbol_size(self.client.encoding_config())?;
+        let upload_session_id = generate_sliver_upload_session_id();
+        let expires_at = Instant::now() + SLIVER_UPLOAD_SESSION_TTL;
+
+        let paid_tip = if self.relay_config.tip_config.requires_payment() {
+            let paid_params = PaidTipParams::try_from(&params)?;
+            let paid_tip = self
+                .validate_paid_tip_for_sliver_upload_session(&paid_params, &metadata)
+                .await?;
+            self.reserve_paid_tip_transaction(paid_tip.tx_id, expires_at)
+                .await?;
+            Some(paid_tip)
+        } else {
+            None
+        };
+
+        if let Err(error) = self
+            .client
+            .store_metadata(&metadata, UploadIntent::Immediate)
+            .await
+        {
+            if let Some(paid_tip) = &paid_tip {
+                self.release_paid_tip_transaction(paid_tip.tx_id).await;
+            }
+            return Err(error.into());
+        }
+
+        let session = Arc::new(Mutex::new(SliverUploadSession::new(
+            upload_session_id.clone(),
+            metadata.clone(),
+            config,
+            symbol_size,
+            params.deletable_blob_object,
+            paid_tip,
+            expires_at,
+        )));
+        self.sliver_upload_sessions
+            .lock()
+            .await
+            .insert(upload_session_id.clone(), session);
+
+        Ok(CreateSliverUploadSessionResponse { upload_session_id })
+    }
+
+    /// Accepts a systematic primary sliver for an upload session.
+    #[tracing::instrument(level = Level::DEBUG, skip_all, fields(%upload_session_id, sliver_index))]
+    pub(crate) async fn put_sliver_upload_session_primary(
+        &self,
+        upload_session_id: String,
+        sliver_index: u16,
+        body: Bytes,
+    ) -> Result<SliverUploadSessionStatus, WalrusUploadRelayError> {
+        let session = self.get_sliver_upload_session(&upload_session_id).await?;
+        let primary_sliver = bcs::from_bytes::<PrimarySliver>(&body).map_err(|error| {
+            WalrusUploadRelayError::InvalidSliverUploadSessionRequest(format!(
+                "failed to decode BCS primary sliver: {error}"
+            ))
+        })?;
+
+        let (metadata, pair_index, sliver, status) = {
+            let mut session = session.lock().await;
+            let pair_index = SliverPairIndex(sliver_index);
+            let (sliver, status) = session.insert_systematic_primary_sliver(
+                sliver_index,
+                primary_sliver,
+                self.client.encoding_config(),
+            )?;
+            (session.metadata.clone(), pair_index, sliver, status)
+        };
+
+        self.client
+            .store_sliver(&metadata, pair_index, &sliver, UploadIntent::Immediate)
+            .await?;
+
+        Ok(status)
+    }
+
+    /// Finalizes a sliver upload session and returns a storage confirmation certificate.
+    #[tracing::instrument(level = Level::DEBUG, skip_all, fields(%upload_session_id))]
+    pub(crate) async fn complete_sliver_upload_session(
+        &self,
+        upload_session_id: String,
+    ) -> Result<ResponseType, WalrusUploadRelayError> {
+        let session = self.get_sliver_upload_session(&upload_session_id).await?;
+
+        let finalized = {
+            let mut session = session.lock().await;
+            session.finalize(self.client.encoding_config())
+        }
+        .inspect_err(|error| {
+            if matches!(error, WalrusUploadRelayError::BlobDigestMismatch) {
+                self.metric_set.auth_package_check_error.inc();
+            }
+        })?;
+
+        let result = self
+            .client
+            .send_blob_data_and_get_certificate(
+                &finalized.metadata,
+                Arc::new(finalized.sliver_pairs),
+                &finalized.blob_persistence,
+                None,
+                TailHandling::Blocking,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await;
+
+        match result {
+            Ok(confirmation_certificate) => {
+                self.sliver_upload_sessions
+                    .lock()
+                    .await
+                    .remove(&upload_session_id);
+                if let Some(tx_id) = finalized.paid_tip_tx_id {
+                    self.release_paid_tip_transaction(tx_id).await;
+                }
+                self.metric_set.blobs_uploaded.inc();
+                Ok(ResponseType {
+                    blob_id: *finalized.metadata.blob_id(),
+                    confirmation_certificate,
+                })
+            }
+            Err(error) => {
+                let session = self
+                    .sliver_upload_sessions
+                    .lock()
+                    .await
+                    .get(&upload_session_id)
+                    .cloned();
+                if let Some(session) = session {
+                    session.lock().await.finalizing = false;
+                }
+                Err(error.into())
+            }
+        }
+    }
+
+    async fn get_sliver_upload_session(
+        &self,
+        upload_session_id: &str,
+    ) -> Result<Arc<Mutex<SliverUploadSession>>, WalrusUploadRelayError> {
+        self.sliver_upload_sessions
+            .lock()
+            .await
+            .get(upload_session_id)
+            .cloned()
+            .ok_or(WalrusUploadRelayError::SliverUploadSessionNotFound)
+    }
+
+    async fn cleanup_expired_sliver_upload_sessions(&self) {
+        let now = Instant::now();
+        let mut expired_tip_transactions = Vec::new();
+        self.sliver_upload_sessions
+            .lock()
+            .await
+            .retain(|_, session| {
+                session
+                    .try_lock()
+                    .map(|session| {
+                        if session.expires_at > now {
+                            true
+                        } else {
+                            if let Some(paid_tip) = &session.paid_tip {
+                                expired_tip_transactions.push(paid_tip.tx_id);
+                            }
+                            false
+                        }
+                    })
+                    .unwrap_or(true)
+            });
+
+        for tx_id in expired_tip_transactions {
+            self.release_paid_tip_transaction(tx_id).await;
+        }
+    }
+
+    async fn cleanup_expired_paid_tip_transactions(&self) {
+        let now = Instant::now();
+        self.paid_tip_transactions
+            .lock()
+            .await
+            .retain(|_, expires_at| *expires_at > now);
+    }
+
+    async fn reserve_paid_tip_transaction(
+        &self,
+        tx_id: TransactionDigest,
+        expires_at: Instant,
+    ) -> Result<(), WalrusUploadRelayError> {
+        self.cleanup_expired_paid_tip_transactions().await;
+
+        let mut transactions = self.paid_tip_transactions.lock().await;
+        if transactions.contains_key(&tx_id) {
+            return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                format!(
+                    "tip transaction {tx_id} is already reserved by an active sliver upload session"
+                ),
+            ));
+        }
+
+        transactions.insert(tx_id, expires_at);
+
+        Ok(())
+    }
+
+    async fn release_paid_tip_transaction(&self, tx_id: TransactionDigest) {
+        self.paid_tip_transactions.lock().await.remove(&tx_id);
+    }
+
+    async fn validate_paid_tip_for_sliver_upload_session(
+        &self,
+        params: &PaidTipParams,
+        metadata: &VerifiedBlobMetadataWithId,
+    ) -> Result<SliverUploadPaidTip, WalrusUploadRelayError> {
+        let tx = self
+            .client
+            .sui_client()
+            .retriable_sui_client()
+            .get_transaction_with_options(
+                params.tx_id,
+                walrus_sdk::sui::types::TransactionResponseOptions::new()
+                    .with_raw_input()
+                    .with_balance_changes(),
+            )
+            .await
+            .map_err(|err| {
+                self.metric_set.get_transaction_error.inc();
+                Box::new(err)
+            })?;
+
+        check_tx_freshness(
+            &tx,
+            self.relay_config.tx_freshness_threshold,
+            self.relay_config.tx_max_future_threshold,
+        )
+        .inspect_err(|_| self.metric_set.freshness_check_error.inc())?;
+        check_response_tip(
+            &self.relay_config.tip_config,
+            &tx,
+            metadata.metadata().unencoded_length(),
+            self.n_shards,
+            metadata.metadata().encoding_type(),
+        )
+        .inspect_err(|_| self.metric_set.tip_check_error.inc())?;
+
+        let auth_package = extract_hashed_auth_package(tx).inspect_err(|_| {
+            self.metric_set.auth_package_check_error.inc();
+        })?;
+        auth_package_preflight_checks(
+            &auth_package,
+            metadata.metadata().unencoded_length(),
+            &params.nonce,
+        )
+        .inspect_err(|_| self.metric_set.auth_package_check_error.inc())?;
+
+        Ok(SliverUploadPaidTip {
+            tx_id: params.tx_id,
+            auth_package,
+        })
+    }
+
     async fn validate_auth_package(
         &self,
         params: &PaidTipParams,
@@ -287,6 +952,12 @@ async fn wait_for_signal(flag: Arc<AtomicBool>, notify: Arc<Notify>) {
         }
         notify.notified().await;
     }
+}
+
+fn generate_sliver_upload_session_id() -> String {
+    let mut bytes = [0; SLIVER_UPLOAD_SESSION_ID_BYTES];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    URL_SAFE_NO_PAD.encode(bytes)
 }
 
 /// A handle to the upload relay, which can be used to shut it down.
@@ -387,6 +1058,18 @@ async fn run_server(
         ))
         .route(TIP_CONFIG_ROUTE, get(send_tip_config))
         .route(BLOB_UPLOAD_RELAY_ROUTE, post(blob_upload_relay_handler))
+        .route(
+            SLIVER_UPLOAD_RELAY_SESSION_ROUTE,
+            post(create_sliver_upload_session_handler),
+        )
+        .route(
+            SLIVER_UPLOAD_RELAY_PRIMARY_ROUTE,
+            put(put_sliver_upload_session_primary_handler),
+        )
+        .route(
+            SLIVER_UPLOAD_RELAY_COMPLETE_ROUTE,
+            post(complete_sliver_upload_session_handler),
+        )
         .layer(DefaultBodyLimit::max(1024 * 1024 * 1024))
         .with_state(Arc::new(Controller::new(
             client,
@@ -471,11 +1154,19 @@ pub(crate) fn cors_layer() -> CorsLayer {
 #[derive(OpenApi)]
 #[openapi(
     info(title = "Walrus Upload Relay"),
-    paths(blob_upload_relay_handler, send_tip_config),
+    paths(
+        blob_upload_relay_handler,
+        create_sliver_upload_session_handler,
+        put_sliver_upload_session_primary_handler,
+        complete_sliver_upload_session_handler,
+        send_tip_config
+    ),
     components(schemas(
         BlobId,
         EncodingType,
+        CreateSliverUploadSessionResponse,
         ObjectIdSchema,
+        SliverUploadSessionStatus,
         TransactionDigestSchema,
         DigestSchema,
         TipKind,
@@ -553,10 +1244,102 @@ pub(crate) async fn blob_upload_relay_handler(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
+/// Create a session for uploading systematic primary slivers to the Walrus Network.
+///
+/// The request body is a BCS-encoded [`UnverifiedBlobMetadataWithId`]. When the relay requires a
+/// tip, the request must include the tip transaction ID and nonce query parameters.
+#[utoipa::path(
+    post,
+    path = SLIVER_UPLOAD_RELAY_SESSION_ROUTE,
+    request_body(
+        content = Binary,
+        content_type = "application/octet-stream",
+        description = "BCS-encoded unverified blob metadata with ID."
+    ),
+    params(Params),
+    responses(
+        (
+            status = 201,
+            description = "Sliver upload relay session created",
+            body = CreateSliverUploadSessionResponse
+        ),
+    ),
+)]
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(blob_id=%params.blob_id))]
+pub(crate) async fn create_sliver_upload_session_handler(
+    State(controller): State<Arc<Controller>>,
+    Query(params): Query<Params>,
+    body: Bytes,
+) -> Result<impl IntoResponse, WalrusUploadRelayError> {
+    let response = controller
+        .create_sliver_upload_session(params, body)
+        .await
+        .inspect_err(|error| tracing::debug!(?error, "responding to request with error"))?;
+    Ok((StatusCode::CREATED, Json(response)).into_response())
+}
+
+/// Upload one complete BCS-encoded systematic primary sliver for a relay session.
+#[utoipa::path(
+    put,
+    path = SLIVER_UPLOAD_RELAY_PRIMARY_ROUTE,
+    request_body(
+        content = Binary,
+        content_type = "application/octet-stream",
+        description = "BCS-encoded systematic primary sliver."
+    ),
+    params(
+        ("session_id" = String, Path, description = "Upload session ID"),
+        ("sliver_index" = u16, Path, description = "Systematic primary sliver index")
+    ),
+    responses(
+        (
+            status = 202,
+            description = "Primary sliver accepted",
+            body = SliverUploadSessionStatus
+        ),
+    ),
+)]
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%session_id, sliver_index))]
+pub(crate) async fn put_sliver_upload_session_primary_handler(
+    State(controller): State<Arc<Controller>>,
+    AxumPath((session_id, sliver_index)): AxumPath<(String, u16)>,
+    body: Bytes,
+) -> Result<impl IntoResponse, WalrusUploadRelayError> {
+    let response = controller
+        .put_sliver_upload_session_primary(session_id, sliver_index, body)
+        .await
+        .inspect_err(|error| tracing::debug!(?error, "responding to request with error"))?;
+    Ok((StatusCode::ACCEPTED, Json(response)).into_response())
+}
+
+/// Finalize a sliver upload relay session and return a confirmation certificate.
+#[utoipa::path(
+    post,
+    path = SLIVER_UPLOAD_RELAY_COMPLETE_ROUTE,
+    params(("session_id" = String, Path, description = "Upload session ID")),
+    responses(
+        (
+            status = 200,
+            description = "The blob was relayed to the Walrus Network successfully"
+        ),
+    ),
+)]
+#[tracing::instrument(level = Level::ERROR, skip_all, fields(%session_id))]
+pub(crate) async fn complete_sliver_upload_session_handler(
+    State(controller): State<Arc<Controller>>,
+    AxumPath(session_id): AxumPath<String>,
+) -> Result<impl IntoResponse, WalrusUploadRelayError> {
+    let response = controller
+        .complete_sliver_upload_session(session_id)
+        .await
+        .inspect_err(|error| tracing::debug!(?error, "responding to request with error"))?;
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
 /// Returns a Walrus read client from the context and Walrus configuration.
 pub async fn get_client(
     context: Option<&str>,
-    walrus_config: &Path,
+    walrus_config: &StdPath,
     registry: &Registry,
 ) -> Result<WalrusNodeClient<SuiReadClient>> {
     get_client_with_config(load_configuration(Some(walrus_config), context)?, registry).await
@@ -600,14 +1383,34 @@ pub async fn get_client_with_config(
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{num::NonZeroU16, time::Duration};
 
-    use sui_types::base_types::SuiAddress;
+    use fastcrypto::hash::{HashFunction as _, Sha256};
+    use sui_types::{base_types::SuiAddress, digests::TransactionDigest};
+    use tokio::time::Instant;
     use utoipa::OpenApi;
     use utoipa_redoc::Redoc;
-    use walrus_sdk::upload_relay::tip_config::{TipConfig, TipKind};
+    use walrus_sdk::{
+        core::{
+            DEFAULT_ENCODING,
+            encoding::{EncodingConfig, EncodingFactory as _, Primary, SliverPair},
+            messages::BlobPersistenceType,
+            metadata::BlobMetadataApi as _,
+        },
+        upload_relay::{
+            params::{DIGEST_LEN, HashedAuthPackage, NONCE_LEN},
+            tip_config::{TipConfig, TipKind},
+        },
+    };
 
-    use super::{WalrusUploadRelayApiDoc, WalrusUploadRelayConfig};
+    use super::{
+        SLIVER_UPLOAD_SESSION_TTL,
+        SliverUploadPaidTip,
+        SliverUploadSession,
+        WalrusUploadRelayApiDoc,
+        WalrusUploadRelayConfig,
+    };
+    use crate::error::WalrusUploadRelayError;
 
     const EXAMPLE_CONFIG_PATH: &str = "walrus_upload_relay_config_example.yaml";
 
@@ -627,6 +1430,169 @@ mod tests {
             serde_yaml::to_string(&config).expect("serialization succeeds"),
         )
         .expect("overwrite failed");
+    }
+
+    #[test]
+    fn sliver_upload_session_reconstructs_full_sliver_pairs() {
+        let encoding_config =
+            EncodingConfig::new(NonZeroU16::new(10).expect("test shard count is nonzero"));
+        let config = encoding_config.get_for_type(DEFAULT_ENCODING);
+        let blob: Vec<u8> = (0..2048).map(|index| (index % 251) as u8).collect();
+        let (expected_sliver_pairs, metadata) = config
+            .encode_with_metadata(blob)
+            .expect("blob should encode");
+        let symbol_size = metadata
+            .metadata()
+            .symbol_size(&encoding_config)
+            .expect("metadata should have a valid symbol size");
+        let mut session = SliverUploadSession::new(
+            "test-session".to_string(),
+            metadata.clone(),
+            config,
+            symbol_size,
+            None,
+            None,
+            Instant::now() + SLIVER_UPLOAD_SESSION_TTL,
+        );
+
+        let n_systematic_primary = usize::from(config.n_source_symbols::<Primary>().get());
+        for sliver_index in (0..n_systematic_primary).rev() {
+            let primary = expected_sliver_pairs[sliver_index].primary.clone();
+            let (_, status) = session
+                .insert_systematic_primary_sliver(
+                    sliver_index.try_into().expect("test index fits in u16"),
+                    primary,
+                    &encoding_config,
+                )
+                .expect("systematic primary sliver should be accepted");
+            assert_eq!(
+                status.received_systematic_primary_slivers,
+                n_systematic_primary - sliver_index
+            );
+            assert_eq!(
+                status.total_systematic_primary_slivers,
+                n_systematic_primary
+            );
+        }
+
+        let finalized = session
+            .finalize(&encoding_config)
+            .expect("session should finalize");
+
+        assert_eq!(finalized.metadata, metadata);
+        assert_eq!(finalized.sliver_pairs, expected_sliver_pairs);
+        assert_eq!(finalized.blob_persistence, BlobPersistenceType::Permanent);
+    }
+
+    #[test]
+    fn sliver_upload_session_validates_paid_tip_blob_digest() {
+        let encoding_config =
+            EncodingConfig::new(NonZeroU16::new(10).expect("test shard count is nonzero"));
+        let config = encoding_config.get_for_type(DEFAULT_ENCODING);
+        let blob: Vec<u8> = (0..2048).map(|index| (index % 251) as u8).collect();
+        let expected_blob_digest = Sha256::digest(&blob).digest;
+        let (expected_sliver_pairs, metadata) = config
+            .encode_with_metadata(blob)
+            .expect("blob should encode");
+        let symbol_size = metadata
+            .metadata()
+            .symbol_size(&encoding_config)
+            .expect("metadata should have a valid symbol size");
+        let nonce = [23; NONCE_LEN];
+        let paid_tip = SliverUploadPaidTip {
+            tx_id: TransactionDigest::new([7; DIGEST_LEN]),
+            auth_package: HashedAuthPackage {
+                blob_digest: expected_blob_digest,
+                nonce_digest: Sha256::digest(nonce).digest,
+                unencoded_length: metadata.metadata().unencoded_length(),
+            },
+        };
+        let mut session = SliverUploadSession::new(
+            "test-session".to_string(),
+            metadata,
+            config,
+            symbol_size,
+            None,
+            Some(paid_tip),
+            Instant::now() + SLIVER_UPLOAD_SESSION_TTL,
+        );
+
+        insert_systematic_primary_slivers(
+            &mut session,
+            &expected_sliver_pairs,
+            &encoding_config,
+            config.n_source_symbols::<Primary>().get().into(),
+        );
+
+        session
+            .finalize(&encoding_config)
+            .expect("paid session with matching blob digest should finalize");
+    }
+
+    #[test]
+    fn sliver_upload_session_rejects_paid_tip_blob_digest_mismatch() {
+        let encoding_config =
+            EncodingConfig::new(NonZeroU16::new(10).expect("test shard count is nonzero"));
+        let config = encoding_config.get_for_type(DEFAULT_ENCODING);
+        let blob: Vec<u8> = (0..2048).map(|index| (index % 251) as u8).collect();
+        let (expected_sliver_pairs, metadata) = config
+            .encode_with_metadata(blob)
+            .expect("blob should encode");
+        let symbol_size = metadata
+            .metadata()
+            .symbol_size(&encoding_config)
+            .expect("metadata should have a valid symbol size");
+        let nonce = [23; NONCE_LEN];
+        let paid_tip = SliverUploadPaidTip {
+            tx_id: TransactionDigest::new([7; DIGEST_LEN]),
+            auth_package: HashedAuthPackage {
+                blob_digest: [42; DIGEST_LEN],
+                nonce_digest: Sha256::digest(nonce).digest,
+                unencoded_length: metadata.metadata().unencoded_length(),
+            },
+        };
+        let mut session = SliverUploadSession::new(
+            "test-session".to_string(),
+            metadata,
+            config,
+            symbol_size,
+            None,
+            Some(paid_tip),
+            Instant::now() + SLIVER_UPLOAD_SESSION_TTL,
+        );
+
+        insert_systematic_primary_slivers(
+            &mut session,
+            &expected_sliver_pairs,
+            &encoding_config,
+            config.n_source_symbols::<Primary>().get().into(),
+        );
+
+        let error = session
+            .finalize(&encoding_config)
+            .expect_err("paid session with mismatched blob digest should fail");
+
+        assert!(matches!(error, WalrusUploadRelayError::BlobDigestMismatch));
+    }
+
+    fn insert_systematic_primary_slivers(
+        session: &mut SliverUploadSession,
+        sliver_pairs: &[SliverPair],
+        encoding_config: &EncodingConfig,
+        n_systematic_primary: usize,
+    ) {
+        for (sliver_index, sliver_pair) in
+            sliver_pairs.iter().enumerate().take(n_systematic_primary)
+        {
+            let primary = sliver_pair.primary.clone();
+            session
+                .insert_systematic_primary_sliver(
+                    sliver_index.try_into().expect("test index fits in u16"),
+                    primary,
+                    encoding_config,
+                )
+                .expect("systematic primary sliver should be accepted");
+        }
     }
 
     /// Serializes the upload relay's openAPI spec when this test is run.

@@ -26,6 +26,8 @@ ignore = [
   "RUSTSEC-2025-0134",
   # Bincode is unmaintained (team ceased development); no safe upgrade; used by anemo/typed-store.
   "RUSTSEC-2025-0141",
+  # `core2` is unmaintained and yanked, but has no safe upgrade; it is pulled in through Sui.
+  "RUSTSEC-2026-0105",
 ]
 
 

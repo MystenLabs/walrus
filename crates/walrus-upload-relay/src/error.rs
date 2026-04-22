@@ -77,6 +77,14 @@ pub enum WalrusUploadRelayError {
     #[error(transparent)]
     DataTooLargeError(#[from] DataTooLargeError),
 
+    /// The sliver upload session request was malformed.
+    #[error("invalid sliver upload session request: {0}")]
+    InvalidSliverUploadSessionRequest(String),
+
+    /// The requested sliver upload session does not exist.
+    #[error("sliver upload session not found")]
+    SliverUploadSessionNotFound,
+
     /// Invalid BlobId error.
     #[error(transparent)]
     BlobIdParseError(#[from] BlobIdParseError),
@@ -106,9 +114,13 @@ impl IntoResponse for WalrusUploadRelayError {
             WalrusUploadRelayError::TipError(_)
             | WalrusUploadRelayError::MissingTxIdOrNonce
             | WalrusUploadRelayError::BlobIdMismatch
+            | WalrusUploadRelayError::InvalidSliverUploadSessionRequest(_)
             | WalrusUploadRelayError::DataTooLargeError(_)
             | WalrusUploadRelayError::BlobIdParseError(_) => {
                 (StatusCode::BAD_REQUEST, self.to_string()).into_response()
+            }
+            WalrusUploadRelayError::SliverUploadSessionNotFound => {
+                (StatusCode::NOT_FOUND, self.to_string()).into_response()
             }
             WalrusUploadRelayError::ClientError(_) | WalrusUploadRelayError::SuiClientError(_) => {
                 tracing::error!(error = ?self, "client error during upload relay");

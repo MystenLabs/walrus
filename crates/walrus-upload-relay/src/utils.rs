@@ -41,6 +41,26 @@ pub(crate) fn auth_package_checks(
     blob: &[u8],
     rcvd_nonce: &[u8; DIGEST_LEN],
 ) -> Result<(), WalrusUploadRelayError> {
+    auth_package_preflight_checks(
+        &tx_auth_package,
+        blob.len().try_into().expect("using 32 or 64 bit arch"),
+        rcvd_nonce,
+    )?;
+
+    // 3. Check that the blob digests match.
+    ensure!(
+        Sha256::digest(blob).digest == tx_auth_package.blob_digest,
+        WalrusUploadRelayError::BlobDigestMismatch
+    );
+    Ok(())
+}
+
+/// Checks the parts of the auth package that do not require the full blob bytes.
+pub(crate) fn auth_package_preflight_checks(
+    tx_auth_package: &HashedAuthPackage,
+    unencoded_length: u64,
+    rcvd_nonce: &[u8; DIGEST_LEN],
+) -> Result<(), WalrusUploadRelayError> {
     // 1. Check that the nonce in the received package is the preimage of the one in the tx.
     let rcvd_nonce_digest = Sha256::digest(rcvd_nonce).digest;
     ensure!(
@@ -50,15 +70,8 @@ pub(crate) fn auth_package_checks(
 
     // 2. Check that the received blob has the expected length.
     ensure!(
-        u64::try_from(blob.len()).expect("using 32 or 64 bit arch")
-            == tx_auth_package.unencoded_length,
+        unencoded_length == tx_auth_package.unencoded_length,
         WalrusUploadRelayError::BlobLengthMismatch
-    );
-
-    // 3. Check that the blob digests match.
-    ensure!(
-        Sha256::digest(blob).digest == tx_auth_package.blob_digest,
-        WalrusUploadRelayError::BlobDigestMismatch
     );
     Ok(())
 }

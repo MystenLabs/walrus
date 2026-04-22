@@ -23,7 +23,7 @@ use bimap::BiMap;
 use futures::{
     Future,
     FutureExt,
-    future::{Either, select},
+    future::{Either, join_all, select},
 };
 use indicatif::MultiProgress;
 use rand::{RngCore as _, rngs::ThreadRng};
@@ -44,6 +44,7 @@ use walrus_core::{
     ShardIndex,
     Sliver,
     SliverIndex,
+    SliverPairIndex,
     SliverType,
     bft,
     by_axis::ByAxis,
@@ -1507,6 +1508,132 @@ impl<T> WalrusNodeClient<T> {
             .into_parts();
 
         certificate
+    }
+
+    /// Best-effort helper to store blob metadata on all write nodes with the provided intent.
+    ///
+    /// This is used by upload relays that receive slivers progressively. Per-node failures are
+    /// logged and ignored because the final upload path still performs the normal checked upload.
+    #[tracing::instrument(
+        skip_all,
+        fields(walrus.blob_id = %metadata.blob_id(), walrus.intent = ?intent)
+    )]
+    pub async fn store_metadata(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        intent: UploadIntent,
+    ) -> ClientResult<()> {
+        let committees = self.get_committees().await?;
+        let (sliver_write_semaphore, auto_tune_handle) = self.build_sliver_write_throttle(
+            metadata.metadata().unencoded_length(),
+            metadata.metadata().encoding_type(),
+        );
+        let comms = self.node_write_communications_for_upload(
+            &committees,
+            sliver_write_semaphore,
+            auto_tune_handle,
+            None,
+        )?;
+
+        for (node, result) in join_all(comms.into_iter().map(|node| async move {
+            let result = node
+                .client
+                .store_metadata_with_intent(metadata, intent)
+                .await;
+            (node.node_index, result)
+        }))
+        .await
+        {
+            if let Err(error) = result {
+                tracing::debug!(
+                    blob_id = %metadata.blob_id(),
+                    node,
+                    ?intent,
+                    %error,
+                    "metadata upload failed",
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Best-effort helper to store a sliver on write nodes responsible for its shard.
+    ///
+    /// Per-node failures are logged and ignored because the final upload path still performs the
+    /// normal checked upload before collecting confirmations.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %metadata.blob_id(),
+            walrus.sliver.pair_index = %pair_index,
+            walrus.sliver.type_ = %A::NAME,
+            walrus.intent = ?intent,
+        )
+    )]
+    pub async fn store_sliver<A: EncodingAxis>(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pair_index: SliverPairIndex,
+        sliver: &SliverData<A>,
+        intent: UploadIntent,
+    ) -> ClientResult<()> {
+        let committees = self.get_committees().await?;
+        let shard_index = pair_index.to_shard_index(committees.n_shards(), metadata.blob_id());
+        let target_nodes: Vec<_> = committees
+            .write_committee()
+            .members()
+            .iter()
+            .enumerate()
+            .filter_map(|(node_index, node)| {
+                node.shard_ids.contains(&shard_index).then_some(node_index)
+            })
+            .collect();
+
+        if target_nodes.is_empty() {
+            tracing::debug!(
+                blob_id = %metadata.blob_id(),
+                %pair_index,
+                ?shard_index,
+                "no write nodes own the target shard; skipping sliver upload"
+            );
+            return Ok(());
+        }
+
+        let (sliver_write_semaphore, auto_tune_handle) = self.build_sliver_write_throttle(
+            metadata.metadata().unencoded_length(),
+            metadata.metadata().encoding_type(),
+        );
+        let comms = self.node_write_communications_for_upload(
+            &committees,
+            sliver_write_semaphore,
+            auto_tune_handle,
+            Some(target_nodes.as_slice()),
+        )?;
+
+        for (node, result) in join_all(comms.into_iter().map(|node| async move {
+            let result = node
+                .client
+                .store_sliver(metadata.blob_id(), pair_index, sliver, intent)
+                .await;
+            (node.node_index, result)
+        }))
+        .await
+        {
+            if let Err(error) = result {
+                tracing::debug!(
+                    blob_id = %metadata.blob_id(),
+                    node,
+                    ?pair_index,
+                    sliver_type = %A::NAME,
+                    ?intent,
+                    %error,
+                    "sliver upload failed",
+                );
+            }
+        }
+
+        Ok(())
     }
 
     /// Uploads slivers (optionally to a target node subset) and then collects confirmations from
