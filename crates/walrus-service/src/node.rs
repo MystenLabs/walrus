@@ -239,8 +239,8 @@ pub use garbage_collector::GarbageCollectionConfig;
 
 // The number of events are dominated by the checkpoints, as we don't expect all checkpoints
 // contain Walrus events. 2K events per recording is roughly 1 recording per 9 minutes, which
-// gives a 3-hour Antithesis test ~20 recordings to cross-check across nodes while keeping the
-// metric label cardinality bounded at 10 rotating buckets.
+// gives a 3-hour Antithesis test ~20 recordings to cross-check across nodes. Label cardinality
+// is bounded by NUM_DIGEST_BUCKETS below.
 #[cfg(not(msim))]
 const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 2_000;
 

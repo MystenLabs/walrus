@@ -82,11 +82,13 @@ print_metric_values() {
     done
 }
 
-# Scrape the /metrics endpoint of a storage node.
+# Scrape the /metrics endpoint of a storage node. On failure, curl's stderr
+# is captured into <out>.err so the caller can surface it for root-cause of a
+# skipped round (connection refused vs. timeout vs. DNS, etc.).
 scrape_node() {
     local ip="$1" out="$2"
     curl -sf --connect-timeout 5 --max-time 10 \
-        "http://${ip}:${METRICS_PORT}/metrics" > "$out" 2>/dev/null
+        "http://${ip}:${METRICS_PORT}/metrics" > "$out" 2>"${out}.err"
 }
 
 # Extract (label_value, metric_value) pairs from a Prometheus scrape file.
@@ -114,11 +116,15 @@ extract_metric() {
 # value is identical.  Writes per-violation details to a file.
 #
 # Arguments: metric_name  label_name  details_file  [max_labels]
-# Echoes:
+# Echoes (stdout, consumed by $(...) in caller):
 #   -2  if labels are nearing bucket saturation
 #   -1  if no common labels exist
 #    0  if all common labels match
 #   >0  number of mismatched label values
+#
+# Note: status is communicated via stdout echo rather than exit code because
+# callers use `v=$(...)` + `[ "$v" -eq N ]` comparisons. Don't add nonzero
+# `return` codes here without also updating every caller.
 # ---------------------------------------------------------------------------
 check_cross_node_metric() {
     local metric="$1" label="$2" details_file="$3"
@@ -288,7 +294,10 @@ while true; do
         if scrape_node "${NODES[$i]}" "$WORK_DIR/raw_${NODES[$i]}.prom"; then
             log "Scraped node-${i} (${NODES[$i]})"
         else
-            log "Cannot reach node-${i} (${NODES[$i]}), skipping round"
+            local err_file="$WORK_DIR/raw_${NODES[$i]}.prom.err"
+            local err_msg=""
+            [ -s "$err_file" ] && err_msg=": $(tr '\n' ' ' <"$err_file" | head -c 200)"
+            log "Cannot reach node-${i} (${NODES[$i]}), skipping round${err_msg}"
             all_ok=false
             break
         fi
