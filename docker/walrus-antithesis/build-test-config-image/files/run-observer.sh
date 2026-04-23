@@ -34,7 +34,6 @@ set -euo pipefail
 NODES=("10.0.0.10" "10.0.0.11" "10.0.0.12" "10.0.0.13")
 METRICS_PORT="${METRICS_PORT:-9184}"
 CHECK_INTERVAL="${CHECK_INTERVAL:-60}"
-INITIAL_WAIT="${INITIAL_WAIT:-180}"
 # Consecutive rounds a soft-invariant violation must persist before crashing.
 FULLY_STORED_PATIENCE="${FULLY_STORED_PATIENCE:-3}"
 # Rounds before we escalate "no event source data" from info to warning.
@@ -235,12 +234,9 @@ check_fully_stored_ratio() {
 # ---------------------------------------------------------------------------
 log "Cross-node invariant observer starting"
 log "Nodes: ${NODES[*]}, port: ${METRICS_PORT}"
-log "Check interval: ${CHECK_INTERVAL}s, initial wait: ${INITIAL_WAIT}s"
+log "Check interval: ${CHECK_INTERVAL}s"
 log "Fully stored patience: ${FULLY_STORED_PATIENCE} rounds"
 log "Max epoch buckets: ${MAX_EPOCH_BUCKETS}"
-
-log "Waiting ${INITIAL_WAIT}s for cluster stabilization..."
-sleep "$INITIAL_WAIT"
 
 fully_stored_streak=0
 round=0
