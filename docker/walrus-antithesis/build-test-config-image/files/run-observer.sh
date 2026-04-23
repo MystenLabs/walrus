@@ -16,15 +16,17 @@
 # Soft invariants (crash after persistent violation):
 #   - walrus_node_blob_data_fully_stored_ratio               — must equal 1 on every node/epoch
 #
-# Epoch bucket design:
-#   Storage nodes label consistency-check metrics with `epoch % 1000` (see
-#   EPOCH_BUCKET_COUNT in consistency_check.rs). This bounds Prometheus label
-#   cardinality while ensuring buckets are never reused within any realistic
-#   test duration. The observer compares all common epoch labels across nodes.
-#   If any node has more epoch labels than MAX_EPOCH_BUCKETS, we stop comparing
-#   and log a warning, because bucket reuse could cause false positives — a
-#   stale value from epoch N in the same bucket as epoch N+1000 looks like a
-#   data divergence even though the node simply hasn't updated yet.
+# Bucket design (same idea, two independent dimensions):
+#   - Per-epoch metrics (blob_info, per_object_blob_info, fully_stored_ratio) are
+#     labelled with `epoch % EPOCH_BUCKET_COUNT` (1000, in consistency_check.rs).
+#   - The event-source metric is labelled with
+#     `(event_index / NUM_EVENTS_PER_DIGEST_RECORDING) % NUM_DIGEST_BUCKETS`
+#     (1000, in node.rs) so recent recordings are retained per bucket.
+#   Both schemes bound Prometheus label cardinality. The observer compares all
+#   common labels across nodes. If any node exceeds MAX_EPOCH_BUCKETS or
+#   MAX_DIGEST_BUCKETS, we stop comparing and log a warning, because bucket
+#   reuse could cause false positives — a stale value in the same bucket as a
+#   newer one would look like a data divergence.
 
 set -euo pipefail
 
@@ -40,6 +42,10 @@ FULLY_STORED_PATIENCE="${FULLY_STORED_PATIENCE:-3}"
 # many epoch labels, buckets will start being reused and comparisons become
 # unreliable.
 MAX_EPOCH_BUCKETS="${MAX_EPOCH_BUCKETS:-1000}"
+# Must match NUM_DIGEST_BUCKETS in node.rs. When a node has this many event-source
+# bucket labels, the bucket counter is about to wrap and old recordings get
+# overwritten by new ones, which would look like cross-node divergence.
+MAX_DIGEST_BUCKETS="${MAX_DIGEST_BUCKETS:-1000}"
 
 WORK_DIR="/tmp/observer"
 mkdir -p "$WORK_DIR"
@@ -232,7 +238,7 @@ log "Cross-node invariant observer starting"
 log "Nodes: ${NODES[*]}, port: ${METRICS_PORT}"
 log "Check interval: ${CHECK_INTERVAL}s"
 log "Fully stored patience: ${FULLY_STORED_PATIENCE} rounds"
-log "Max epoch buckets: ${MAX_EPOCH_BUCKETS}"
+log "Max epoch buckets: ${MAX_EPOCH_BUCKETS}, max digest buckets: ${MAX_DIGEST_BUCKETS}"
 
 fully_stored_streak=0
 round=0
@@ -317,15 +323,22 @@ while true; do
 
     # ------------------------------------------------------------------
     # Hard invariant 3: event source must match across nodes.
-    # The metric is recorded every fixed batch of events. For a given
-    # bucket, either a node hasn't reached that batch (no data) or it
-    # has the final hash. check_cross_node_metric only compares labels
-    # present on ALL nodes, so lagging nodes are excluded automatically.
+    # The metric is recorded every NUM_EVENTS_PER_DIGEST_RECORDING events
+    # and stored under `bucket = (event_index / N_PER_RECORDING) %
+    # NUM_DIGEST_BUCKETS`. Within a single bucket generation, either a
+    # node hasn't reached that batch (no data) or it has the final hash,
+    # so common labels must match. We pass MAX_DIGEST_BUCKETS so that if
+    # nodes ever drift far enough for a bucket to wrap, we stop comparing
+    # rather than flag the stale collision as divergence.
     # ------------------------------------------------------------------
     v=$(check_cross_node_metric \
         "$EVENT_SOURCE" "bucket" \
-        "$WORK_DIR/details_event_source.txt")
-    if [ "$v" -eq -1 ]; then
+        "$WORK_DIR/details_event_source.txt" "$MAX_DIGEST_BUCKETS")
+    if [ "$v" -eq -2 ]; then
+        log "WARNING: ${EVENT_SOURCE}: bucket capacity reached" \
+            "(${MAX_DIGEST_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
+        print_metric_values "$EVENT_SOURCE" "bucket"
+    elif [ "$v" -eq -1 ]; then
         # No data yet — the metric is recorded every NUM_EVENTS_PER_DIGEST_RECORDING
         # events, which can take tens of minutes of cluster runtime. The observer
         # has no reliable way to know when "long enough" has elapsed (its own

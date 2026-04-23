@@ -249,7 +249,17 @@ const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 2_000;
 #[cfg(msim)]
 const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 1;
 
-const NUM_DIGEST_BUCKETS: u64 = 10;
+// Number of distinct buckets for the `periodic_event_source_for_deterministic_events`
+// metric. The bucket label is `(event_index / NUM_EVENTS_PER_DIGEST_RECORDING) %
+// NUM_DIGEST_BUCKETS`, so buckets are reused every
+// `NUM_DIGEST_BUCKETS * NUM_EVENTS_PER_DIGEST_RECORDING` events.
+//
+// With 1000 buckets and the non-msim recording interval of 2_000 events, reuse only
+// happens after 2_000_000 events (tens of hours of cluster runtime), which keeps the
+// cross-node observer from seeing two different recordings collide in the same bucket
+// and flagging it as a spurious divergence. Analogous to `EPOCH_BUCKET_COUNT` in
+// consistency_check.rs.
+const NUM_DIGEST_BUCKETS: u64 = 1_000;
 const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
 
 /// Indicates how the node should treat uploads.
