@@ -58,7 +58,7 @@ use walrus_sdk::{
         },
         resource::RegisterBlobOp,
         responses as sdk_responses,
-        upload_relay_client::UploadRelayClient,
+        upload_relay_client::{UploadRelayClient, UploadRelayEndpoint},
     },
     store_optimizations::StoreOptimizations,
     sui::{
@@ -119,7 +119,7 @@ use crate::{
             QuiltPatchByPatchId,
             QuiltPatchByTag,
             QuiltPatchSelector,
-            args::{CommonStoreOptions, TraceExporter},
+            args::{CommonStoreOptions, TraceExporter, UploadRelayEndpointArg},
             get_contract_client,
             get_read_client,
             get_sui_read_client_from_rpc_node_or_wallet,
@@ -772,6 +772,7 @@ impl ClientCommandRunner {
             post_store,
             encoding_type,
             upload_relay,
+            upload_relay_endpoint,
             confirmation,
             child_process_uploads,
             internal_run,
@@ -901,10 +902,11 @@ impl ClientCommandRunner {
 
         if let Some(upload_relay) = upload_relay {
             let n_shards = client_created_in_bg.encoding_config().await?.n_shards();
-            let upload_relay_client = UploadRelayClient::new(
+            let upload_relay_client = UploadRelayClient::new_with_endpoint(
                 active_address,
                 n_shards,
                 upload_relay,
+                upload_relay_endpoint.into(),
                 self.gas_budget,
                 config.backoff_config().clone(),
             )
@@ -1135,6 +1137,7 @@ impl ClientCommandRunner {
             post_store,
             encoding_type,
             upload_relay,
+            upload_relay_endpoint,
             confirmation,
             child_process_uploads,
             internal_run,
@@ -1269,10 +1272,11 @@ impl ClientCommandRunner {
 
         if let Some(upload_relay) = upload_relay {
             let n_shards = client_created_in_bg.encoding_config().await?.n_shards();
-            let upload_relay_client = UploadRelayClient::new(
+            let upload_relay_client = UploadRelayClient::new_with_endpoint(
                 active_address,
                 n_shards,
                 upload_relay,
+                upload_relay_endpoint.into(),
                 self.gas_budget,
                 config.backoff_config().clone(),
             )
@@ -2218,9 +2222,19 @@ struct StoreOptions {
     post_store: PostStoreAction,
     encoding_type: Option<EncodingType>,
     upload_relay: Option<Url>,
+    upload_relay_endpoint: UploadRelayEndpointArg,
     confirmation: UserConfirmation,
     child_process_uploads: Option<bool>,
     internal_run: bool,
+}
+
+impl From<UploadRelayEndpointArg> for UploadRelayEndpoint {
+    fn from(value: UploadRelayEndpointArg) -> Self {
+        match value {
+            UploadRelayEndpointArg::Blob => Self::Blob,
+            UploadRelayEndpointArg::Sliver => Self::Sliver,
+        }
+    }
 }
 
 impl TryFrom<CommonStoreOptions> for StoreOptions {
@@ -2237,6 +2251,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             share,
             encoding_type,
             upload_relay,
+            upload_relay_endpoint,
             skip_tip_confirmation,
             child_process_uploads,
             internal_run,
@@ -2253,6 +2268,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             post_store: PostStoreAction::from_share(share),
             encoding_type,
             upload_relay,
+            upload_relay_endpoint,
             confirmation: skip_tip_confirmation.into(),
             child_process_uploads,
             internal_run,

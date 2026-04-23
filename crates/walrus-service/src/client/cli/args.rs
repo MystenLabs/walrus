@@ -13,7 +13,7 @@ use std::{
 };
 
 use anyhow::{Context as _, Result, anyhow};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use jsonwebtoken::Algorithm;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -1241,6 +1241,10 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub upload_relay: Option<Url>,
+    /// Upload relay endpoint to use for sending blob data.
+    #[arg(long, value_enum, default_value = "sliver", requires = "upload_relay")]
+    #[serde(default)]
+    pub upload_relay_endpoint: UploadRelayEndpointArg,
     /// Skip the tip confirmation prompt when using the upload relay.
     ///
     /// If specified, the client will not ask for a tip confirmation and proceed with the upload
@@ -1264,6 +1268,17 @@ pub struct CommonStoreOptions {
     #[arg(long, hide = true)]
     #[serde(default)]
     pub internal_run: bool,
+}
+
+/// Upload relay endpoint selector.
+#[derive(Debug, Default, Clone, Copy, ValueEnum, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum UploadRelayEndpointArg {
+    /// Use the legacy full-blob upload relay endpoint.
+    Blob,
+    /// Use the session-based systematic-primary-sliver upload relay endpoint.
+    #[default]
+    Sliver,
 }
 
 #[serde_as]
@@ -2004,6 +2019,7 @@ mod tests {
                 share: false,
                 encoding_type: Default::default(),
                 upload_relay: None,
+                upload_relay_endpoint: Default::default(),
                 skip_tip_confirmation: false,
                 child_process_uploads: None,
                 internal_run: false,

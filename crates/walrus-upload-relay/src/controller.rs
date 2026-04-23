@@ -145,6 +145,11 @@ struct SliverUploadSession {
     paid_tip: Option<SliverUploadPaidTip>,
     systematic_primary_slivers: Vec<Option<PrimarySliver>>,
     secondary_slivers: Vec<SecondarySliver>,
+    metadata_upload_completed: bool,
+    metadata_upload_notify: Arc<Notify>,
+    in_flight_systematic_primary_uploads: usize,
+    failed_systematic_primary_uploads: usize,
+    systematic_primary_upload_notify: Arc<Notify>,
     expires_at: Instant,
     finalizing: bool,
 }
@@ -179,21 +184,39 @@ impl SliverUploadSession {
             paid_tip,
             systematic_primary_slivers: vec![None; systematic_primary_count],
             secondary_slivers,
+            metadata_upload_completed: false,
+            metadata_upload_notify: Arc::new(Notify::new()),
+            in_flight_systematic_primary_uploads: 0,
+            failed_systematic_primary_uploads: 0,
+            systematic_primary_upload_notify: Arc::new(Notify::new()),
             expires_at,
             finalizing: false,
         }
     }
 
-    fn ensure_active(&self) -> Result<(), WalrusUploadRelayError> {
+    fn ensure_not_expired(&self) -> Result<(), WalrusUploadRelayError> {
         if self.expires_at <= Instant::now() {
             return Err(WalrusUploadRelayError::SliverUploadSessionNotFound);
         }
+        Ok(())
+    }
+
+    fn ensure_active(&self) -> Result<(), WalrusUploadRelayError> {
+        self.ensure_not_expired()?;
         if self.finalizing {
             return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
                 "session is already finalizing".to_string(),
             ));
         }
         Ok(())
+    }
+
+    fn missing_systematic_primary_slivers(&self) -> Vec<usize> {
+        self.systematic_primary_slivers
+            .iter()
+            .enumerate()
+            .filter_map(|(index, sliver)| sliver.is_none().then_some(index))
+            .collect()
     }
 
     fn total_systematic_primary_slivers(&self) -> usize {
@@ -252,7 +275,7 @@ impl SliverUploadSession {
         sliver_index: u16,
         sliver: PrimarySliver,
         encoding_config: &walrus_sdk::core::encoding::EncodingConfig,
-    ) -> Result<(PrimarySliver, SliverUploadSessionStatus), WalrusUploadRelayError> {
+    ) -> Result<(PrimarySliver, SliverUploadSessionStatus, bool), WalrusUploadRelayError> {
         self.ensure_active()?;
 
         let row_index = usize::from(sliver_index);
@@ -290,7 +313,7 @@ impl SliverUploadSession {
                     ),
                 ));
             }
-            return Ok((sliver, self.status()));
+            return Ok((sliver, self.status(), false));
         }
 
         let n_systematic_secondary = usize::from(self.config.n_source_symbols::<Secondary>().get());
@@ -316,21 +339,60 @@ impl SliverUploadSession {
         }
 
         self.systematic_primary_slivers[row_index] = Some(sliver.clone());
-        Ok((sliver, self.status()))
+        self.in_flight_systematic_primary_uploads += 1;
+        Ok((sliver, self.status(), true))
+    }
+
+    fn complete_systematic_primary_upload(&mut self, success: bool) {
+        self.in_flight_systematic_primary_uploads =
+            self.in_flight_systematic_primary_uploads.saturating_sub(1);
+        if !success {
+            self.failed_systematic_primary_uploads += 1;
+        }
+        self.systematic_primary_upload_notify.notify_waiters();
+    }
+
+    fn complete_metadata_upload(&mut self) {
+        self.metadata_upload_completed = true;
+        self.metadata_upload_notify.notify_waiters();
+    }
+
+    fn prepare_for_finalize(&mut self) -> Result<(), WalrusUploadRelayError> {
+        self.ensure_not_expired()?;
+        if self.finalizing {
+            return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                "session is already finalizing".to_string(),
+            ));
+        }
+
+        let missing = self.missing_systematic_primary_slivers();
+        if !missing.is_empty() {
+            return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
+                format!("missing systematic primary slivers: {missing:?}"),
+            ));
+        }
+
+        self.finalizing = true;
+        Ok(())
+    }
+
+    fn systematic_primary_skip_count(&self) -> usize {
+        if self.in_flight_systematic_primary_uploads == 0
+            && self.failed_systematic_primary_uploads == 0
+        {
+            self.total_systematic_primary_slivers()
+        } else {
+            0
+        }
     }
 
     fn finalize(
         &mut self,
         encoding_config: &walrus_sdk::core::encoding::EncodingConfig,
     ) -> Result<FinalizedSliverUploadSession, WalrusUploadRelayError> {
-        self.ensure_active()?;
+        self.ensure_not_expired()?;
 
-        let missing = self
-            .systematic_primary_slivers
-            .iter()
-            .enumerate()
-            .filter_map(|(index, sliver)| sliver.is_none().then_some(index))
-            .collect::<Vec<_>>();
+        let missing = self.missing_systematic_primary_slivers();
         if !missing.is_empty() {
             return Err(WalrusUploadRelayError::InvalidSliverUploadSessionRequest(
                 format!("missing systematic primary slivers: {missing:?}"),
@@ -425,6 +487,7 @@ impl SliverUploadSession {
         Ok(FinalizedSliverUploadSession {
             metadata: self.metadata.clone(),
             sliver_pairs,
+            systematic_primary_sliver_count: self.systematic_primary_skip_count(),
             blob_persistence,
             paid_tip_tx_id: self.paid_tip.as_ref().map(|paid_tip| paid_tip.tx_id),
         })
@@ -435,6 +498,7 @@ impl SliverUploadSession {
 struct FinalizedSliverUploadSession {
     metadata: VerifiedBlobMetadataWithId,
     sliver_pairs: Vec<SliverPair>,
+    systematic_primary_sliver_count: usize,
     blob_persistence: BlobPersistenceType,
     paid_tip_tx_id: Option<TransactionDigest>,
 }
@@ -650,17 +714,6 @@ impl Controller {
             None
         };
 
-        if let Err(error) = self
-            .client
-            .store_metadata(&metadata, UploadIntent::Immediate)
-            .await
-        {
-            if let Some(paid_tip) = &paid_tip {
-                self.release_paid_tip_transaction(paid_tip.tx_id).await;
-            }
-            return Err(error.into());
-        }
-
         let session = Arc::new(Mutex::new(SliverUploadSession::new(
             upload_session_id.clone(),
             metadata.clone(),
@@ -673,7 +726,28 @@ impl Controller {
         self.sliver_upload_sessions
             .lock()
             .await
-            .insert(upload_session_id.clone(), session);
+            .insert(upload_session_id.clone(), session.clone());
+
+        let client = self.client.clone();
+        let session_for_metadata_upload = session.clone();
+        let metadata_for_upload = metadata.clone();
+        let upload_session_id_for_log = upload_session_id.clone();
+        tokio::spawn(async move {
+            if let Err(error) = client
+                .store_metadata(&metadata_for_upload, UploadIntent::Immediate)
+                .await
+            {
+                tracing::warn!(
+                    blob_id = %metadata_for_upload.blob_id(),
+                    upload_session_id = upload_session_id_for_log,
+                    %error,
+                    "background metadata upload failed for sliver relay session"
+                );
+            }
+
+            let mut session = session_for_metadata_upload.lock().await;
+            session.complete_metadata_upload();
+        });
 
         Ok(CreateSliverUploadSessionResponse { upload_session_id })
     }
@@ -693,20 +767,47 @@ impl Controller {
             ))
         })?;
 
-        let (metadata, pair_index, sliver, status) = {
+        let (metadata, pair_index, sliver, status, should_upload) = {
             let mut session = session.lock().await;
             let pair_index = SliverPairIndex(sliver_index);
-            let (sliver, status) = session.insert_systematic_primary_sliver(
+            let (sliver, status, should_upload) = session.insert_systematic_primary_sliver(
                 sliver_index,
                 primary_sliver,
                 self.client.encoding_config(),
             )?;
-            (session.metadata.clone(), pair_index, sliver, status)
+            (
+                session.metadata.clone(),
+                pair_index,
+                sliver,
+                status,
+                should_upload,
+            )
         };
 
-        self.client
-            .store_sliver(&metadata, pair_index, &sliver, UploadIntent::Immediate)
-            .await?;
+        if should_upload {
+            let client = self.client.clone();
+            let session = session.clone();
+            let upload_session_id_for_log = upload_session_id.clone();
+            tokio::spawn(async move {
+                wait_for_metadata_upload(&session).await;
+
+                let result = client
+                    .store_sliver(&metadata, pair_index, &sliver, UploadIntent::Immediate)
+                    .await;
+                if let Err(error) = &result {
+                    tracing::warn!(
+                        blob_id = %metadata.blob_id(),
+                        upload_session_id = upload_session_id_for_log,
+                        %pair_index,
+                        %error,
+                        "background systematic primary upload failed"
+                    );
+                }
+
+                let mut session = session.lock().await;
+                session.complete_systematic_primary_upload(result.is_ok());
+            });
+        }
 
         Ok(status)
     }
@@ -718,6 +819,14 @@ impl Controller {
         upload_session_id: String,
     ) -> Result<ResponseType, WalrusUploadRelayError> {
         let session = self.get_sliver_upload_session(&upload_session_id).await?;
+
+        {
+            let mut session = session.lock().await;
+            session.prepare_for_finalize()?;
+        }
+
+        self.wait_for_pending_systematic_primary_uploads(&session)
+            .await;
 
         let finalized = {
             let mut session = session.lock().await;
@@ -731,9 +840,10 @@ impl Controller {
 
         let result = self
             .client
-            .send_blob_data_and_get_certificate(
+            .send_blob_data_and_get_certificate_skipping_systematic_primaries(
                 &finalized.metadata,
                 Arc::new(finalized.sliver_pairs),
+                finalized.systematic_primary_sliver_count,
                 &finalized.blob_persistence,
                 None,
                 TailHandling::Blocking,
@@ -784,6 +894,23 @@ impl Controller {
             .get(upload_session_id)
             .cloned()
             .ok_or(WalrusUploadRelayError::SliverUploadSessionNotFound)
+    }
+
+    async fn wait_for_pending_systematic_primary_uploads(
+        &self,
+        session: &Arc<Mutex<SliverUploadSession>>,
+    ) {
+        loop {
+            let notify = {
+                let session = session.lock().await;
+                if session.in_flight_systematic_primary_uploads == 0 {
+                    return;
+                }
+                session.systematic_primary_upload_notify.clone()
+            };
+
+            notify.notified().await;
+        }
     }
 
     async fn cleanup_expired_sliver_upload_sessions(&self) {
@@ -950,6 +1077,20 @@ async fn wait_for_signal(flag: Arc<AtomicBool>, notify: Arc<Notify>) {
         if flag.load(Ordering::SeqCst) {
             break;
         }
+        notify.notified().await;
+    }
+}
+
+async fn wait_for_metadata_upload(session: &Arc<Mutex<SliverUploadSession>>) {
+    loop {
+        let notify = {
+            let session = session.lock().await;
+            if session.metadata_upload_completed {
+                return;
+            }
+            session.metadata_upload_notify.clone()
+        };
+
         notify.notified().await;
     }
 }
@@ -1458,7 +1599,7 @@ mod tests {
         let n_systematic_primary = usize::from(config.n_source_symbols::<Primary>().get());
         for sliver_index in (0..n_systematic_primary).rev() {
             let primary = expected_sliver_pairs[sliver_index].primary.clone();
-            let (_, status) = session
+            let (_, status, _) = session
                 .insert_systematic_primary_sliver(
                     sliver_index.try_into().expect("test index fits in u16"),
                     primary,
@@ -1475,12 +1616,20 @@ mod tests {
             );
         }
 
+        mark_systematic_primary_uploads_complete(&mut session, n_systematic_primary, true);
+        session
+            .prepare_for_finalize()
+            .expect("session should be ready to finalize");
         let finalized = session
             .finalize(&encoding_config)
             .expect("session should finalize");
 
         assert_eq!(finalized.metadata, metadata);
         assert_eq!(finalized.sliver_pairs, expected_sliver_pairs);
+        assert_eq!(
+            finalized.systematic_primary_sliver_count,
+            n_systematic_primary
+        );
         assert_eq!(finalized.blob_persistence, BlobPersistenceType::Permanent);
     }
 
@@ -1524,6 +1673,14 @@ mod tests {
             config.n_source_symbols::<Primary>().get().into(),
         );
 
+        mark_systematic_primary_uploads_complete(
+            &mut session,
+            config.n_source_symbols::<Primary>().get().into(),
+            true,
+        );
+        session
+            .prepare_for_finalize()
+            .expect("session should be ready to finalize");
         session
             .finalize(&encoding_config)
             .expect("paid session with matching blob digest should finalize");
@@ -1568,11 +1725,64 @@ mod tests {
             config.n_source_symbols::<Primary>().get().into(),
         );
 
+        mark_systematic_primary_uploads_complete(
+            &mut session,
+            config.n_source_symbols::<Primary>().get().into(),
+            true,
+        );
+        session
+            .prepare_for_finalize()
+            .expect("session should be ready to finalize");
         let error = session
             .finalize(&encoding_config)
             .expect_err("paid session with mismatched blob digest should fail");
 
         assert!(matches!(error, WalrusUploadRelayError::BlobDigestMismatch));
+    }
+
+    #[test]
+    fn sliver_upload_session_falls_back_to_primary_reupload_after_fanout_failure() {
+        let encoding_config =
+            EncodingConfig::new(NonZeroU16::new(10).expect("test shard count is nonzero"));
+        let config = encoding_config.get_for_type(DEFAULT_ENCODING);
+        let blob: Vec<u8> = (0..2048).map(|index| (index % 251) as u8).collect();
+        let (expected_sliver_pairs, metadata) = config
+            .encode_with_metadata(blob)
+            .expect("blob should encode");
+        let symbol_size = metadata
+            .metadata()
+            .symbol_size(&encoding_config)
+            .expect("metadata should have a valid symbol size");
+        let mut session = SliverUploadSession::new(
+            "test-session".to_string(),
+            metadata,
+            config,
+            symbol_size,
+            None,
+            None,
+            Instant::now() + SLIVER_UPLOAD_SESSION_TTL,
+        );
+
+        let n_systematic_primary = usize::from(config.n_source_symbols::<Primary>().get());
+        insert_systematic_primary_slivers(
+            &mut session,
+            &expected_sliver_pairs,
+            &encoding_config,
+            n_systematic_primary,
+        );
+        if n_systematic_primary > 1 {
+            mark_systematic_primary_uploads_complete(&mut session, n_systematic_primary - 1, true);
+        }
+        session.complete_systematic_primary_upload(false);
+        session
+            .prepare_for_finalize()
+            .expect("session should be ready to finalize");
+
+        let finalized = session
+            .finalize(&encoding_config)
+            .expect("session should finalize after falling back");
+
+        assert_eq!(finalized.systematic_primary_sliver_count, 0);
     }
 
     fn insert_systematic_primary_slivers(
@@ -1592,6 +1802,16 @@ mod tests {
                     encoding_config,
                 )
                 .expect("systematic primary sliver should be accepted");
+        }
+    }
+
+    fn mark_systematic_primary_uploads_complete(
+        session: &mut SliverUploadSession,
+        count: usize,
+        success: bool,
+    ) {
+        for _ in 0..count {
+            session.complete_systematic_primary_upload(success);
         }
     }
 

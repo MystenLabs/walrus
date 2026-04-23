@@ -365,6 +365,7 @@ impl NodeWriteCommunication {
         pairs: impl IntoIterator<Item = &SliverPair>,
         intent: UploadIntent,
         metrics: Option<&ClientMetrics>,
+        skip_systematic_primary_pairs: usize,
     ) -> NodeResult<(), StoreError> {
         tracing::debug!(blob_id = %metadata.blob_id(), "storing metadata and sliver pairs");
         let total_timer = Instant::now();
@@ -381,7 +382,13 @@ impl NodeWriteCommunication {
 
             let pairs_timer = Instant::now();
             let store_pairs_result = self
-                .store_pairs(metadata.blob_id(), &metadata_status, pairs, intent)
+                .store_pairs(
+                    metadata.blob_id(),
+                    &metadata_status,
+                    pairs,
+                    intent,
+                    skip_systematic_primary_pairs,
+                )
                 .await;
             if let Some(metrics) = metrics {
                 metrics.observe_node_sliver_upload_latency(intent, pairs_timer.elapsed());
@@ -458,28 +465,27 @@ impl NodeWriteCommunication {
         metadata_status: &StoredOnNodeStatus,
         pairs: impl IntoIterator<Item = &SliverPair>,
         intent: UploadIntent,
+        skip_systematic_primary_pairs: usize,
     ) -> Result<usize, SliverStoreError> {
-        let mut requests = pairs
-            .into_iter()
-            .flat_map(|pair| {
-                vec![
-                    Either::Left(self.check_and_store_sliver(
-                        blob_id,
-                        metadata_status,
-                        &pair.primary,
-                        pair.index(),
-                        intent,
-                    )),
-                    Either::Right(self.check_and_store_sliver(
-                        blob_id,
-                        metadata_status,
-                        &pair.secondary,
-                        pair.index(),
-                        intent,
-                    )),
-                ]
-            })
-            .collect::<FuturesUnordered<_>>();
+        let mut requests = FuturesUnordered::new();
+        for pair in pairs {
+            if pair.index().as_usize() >= skip_systematic_primary_pairs {
+                requests.push(Either::Left(self.check_and_store_sliver(
+                    blob_id,
+                    metadata_status,
+                    &pair.primary,
+                    pair.index(),
+                    intent,
+                )));
+            }
+            requests.push(Either::Right(self.check_and_store_sliver(
+                blob_id,
+                metadata_status,
+                &pair.secondary,
+                pair.index(),
+                intent,
+            )));
+        }
 
         let n_slivers = requests.len();
 

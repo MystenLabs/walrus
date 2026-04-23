@@ -70,23 +70,63 @@ pub fn blob_upload_relay_url(
         .join(BLOB_UPLOAD_RELAY_ROUTE)
         .map_err(UploadRelayClientError::UrlEndocodingFailed)?;
 
-    // Scope the query_pairs mut variable.
-    {
-        let mut query_pairs = url.query_pairs_mut();
-        query_pairs.append_pair("blob_id", &params.blob_id.to_string());
-
-        if let Some(object_id) = params.deletable_blob_object {
-            query_pairs.append_pair("deletable_blob_object", &object_id.to_string());
-        };
-
-        if let Some(tx_id) = params.tx_id {
-            query_pairs.append_pair("tx_id", &tx_id.to_string());
-        }
-
-        if let Some(nonce) = params.nonce {
-            query_pairs.append_pair("nonce", &URL_SAFE_NO_PAD.encode(nonce));
-        }
-    }
+    append_upload_relay_query_params(&mut url, params);
 
     Ok(url)
+}
+
+/// Constructs the URL for creating a sliver upload relay session.
+pub fn sliver_upload_relay_session_url(
+    server_url: &Url,
+    params: &params::Params,
+) -> Result<Url, UploadRelayClientError> {
+    let mut url = server_url
+        .join(SLIVER_UPLOAD_RELAY_SESSION_ROUTE)
+        .map_err(UploadRelayClientError::UrlEndocodingFailed)?;
+
+    append_upload_relay_query_params(&mut url, params);
+
+    Ok(url)
+}
+
+/// Constructs the URL for uploading one systematic primary sliver to a relay session.
+pub fn sliver_upload_relay_primary_url(
+    server_url: &Url,
+    session_id: &str,
+    sliver_index: u16,
+) -> Result<Url, UploadRelayClientError> {
+    let route = SLIVER_UPLOAD_RELAY_PRIMARY_ROUTE
+        .replace("{session_id}", session_id)
+        .replace("{sliver_index}", &sliver_index.to_string());
+    server_url
+        .join(&route)
+        .map_err(UploadRelayClientError::UrlEndocodingFailed)
+}
+
+/// Constructs the URL for completing a sliver upload relay session.
+pub fn sliver_upload_relay_complete_url(
+    server_url: &Url,
+    session_id: &str,
+) -> Result<Url, UploadRelayClientError> {
+    let route = SLIVER_UPLOAD_RELAY_COMPLETE_ROUTE.replace("{session_id}", session_id);
+    server_url
+        .join(&route)
+        .map_err(UploadRelayClientError::UrlEndocodingFailed)
+}
+
+fn append_upload_relay_query_params(url: &mut Url, params: &params::Params) {
+    let mut query_pairs = url.query_pairs_mut();
+    query_pairs.append_pair("blob_id", &params.blob_id.to_string());
+
+    if let Some(object_id) = params.deletable_blob_object {
+        query_pairs.append_pair("deletable_blob_object", &object_id.to_string());
+    };
+
+    if let Some(tx_id) = params.tx_id {
+        query_pairs.append_pair("tx_id", &tx_id.to_string());
+    }
+
+    if let Some(nonce) = params.nonce {
+        query_pairs.append_pair("nonce", &URL_SAFE_NO_PAD.encode(nonce));
+    }
 }

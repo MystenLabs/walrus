@@ -204,6 +204,7 @@ struct UploadOptions<'a> {
     target_nodes: Option<(Epoch, &'a [NodeIndex])>,
     upload_intent: UploadIntent,
     initial_completed_weight: Option<&'a HashMap<BlobId, usize>>,
+    skip_systematic_primary_pairs: usize,
     stop_scheduling: Option<CancellationToken>,
     cancellation: Option<CancellationToken>,
     metrics: Option<Arc<metrics::ClientMetrics>>,
@@ -217,6 +218,7 @@ struct SendBlobOptions<'a> {
     tail_handle_collector: Option<Arc<tokio::sync::Mutex<Vec<JoinHandle<()>>>>>,
     target_nodes: Option<(Epoch, &'a [NodeIndex])>,
     initial_completed_weight: Option<&'a HashMap<BlobId, usize>>,
+    skip_systematic_primary_pairs: usize,
     metrics: Option<Arc<metrics::ClientMetrics>>,
 }
 
@@ -1266,6 +1268,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                         .expect("there are shards for each node"),
                     UploadIntent::Immediate,
                     None,
+                    0,
                 )
             })
             .collect();
@@ -1491,6 +1494,38 @@ impl<T> WalrusNodeClient<T> {
         target_nodes: Option<(Epoch, &[NodeIndex])>,
         initial_completed_weight: Option<&HashMap<BlobId, usize>>,
     ) -> ClientResult<ConfirmationCertificate> {
+        self.send_blob_data_and_get_certificate_skipping_systematic_primaries(
+            metadata,
+            pairs,
+            0,
+            blob_persistence_type,
+            multi_pb,
+            tail_handling,
+            quorum_forwarder,
+            tail_handle_collector,
+            target_nodes,
+            initial_completed_weight,
+        )
+        .await
+    }
+
+    /// Sends blob data, skipping the final upload of the first `skip_systematic_primary_pairs`
+    /// primary slivers while still uploading all secondary slivers.
+    #[tracing::instrument(skip_all)]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn send_blob_data_and_get_certificate_skipping_systematic_primaries(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        pairs: Arc<Vec<SliverPair>>,
+        skip_systematic_primary_pairs: usize,
+        blob_persistence_type: &BlobPersistenceType,
+        multi_pb: Option<&MultiProgress>,
+        tail_handling: TailHandling,
+        quorum_forwarder: Option<tokio::sync::mpsc::Sender<UploaderEvent>>,
+        tail_handle_collector: Option<Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>>,
+        target_nodes: Option<(Epoch, &[NodeIndex])>,
+        initial_completed_weight: Option<&HashMap<BlobId, usize>>,
+    ) -> ClientResult<ConfirmationCertificate> {
         let send_options = SendBlobOptions {
             blob_persistence_type,
             multi_pb,
@@ -1499,6 +1534,7 @@ impl<T> WalrusNodeClient<T> {
             tail_handle_collector,
             target_nodes,
             initial_completed_weight,
+            skip_systematic_primary_pairs,
             metrics: None,
         };
 
@@ -1653,6 +1689,7 @@ impl<T> WalrusNodeClient<T> {
             tail_handle_collector,
             target_nodes,
             initial_completed_weight,
+            skip_systematic_primary_pairs,
             metrics,
         } = options;
         tracing::info!(blob_id = %metadata.blob_id(), "starting to send data to storage nodes");
@@ -1675,6 +1712,7 @@ impl<T> WalrusNodeClient<T> {
                 target_nodes,
                 upload_intent: UploadIntent::Immediate,
                 initial_completed_weight,
+                skip_systematic_primary_pairs,
                 stop_scheduling: None,
                 cancellation: None,
                 metrics,
@@ -1796,6 +1834,7 @@ impl<T> WalrusNodeClient<T> {
             target_nodes,
             upload_intent,
             initial_completed_weight,
+            skip_systematic_primary_pairs,
             stop_scheduling,
             cancellation,
             metrics,
@@ -1884,6 +1923,7 @@ impl<T> WalrusNodeClient<T> {
                                     item.pair_indices.iter().map(|&i| &item.pairs[i]),
                                     upload_intent,
                                     metrics.as_deref(),
+                                    skip_systematic_primary_pairs,
                                 )
                                 .await;
 
@@ -1984,6 +2024,7 @@ impl<T> WalrusNodeClient<T> {
             tail_handle_collector: store_args.tail_handle_collector.clone(),
             target_nodes,
             initial_completed_weight: initial_completed_weight.as_ref(),
+            skip_systematic_primary_pairs: 0,
             metrics: store_args.metrics.clone(),
         };
 
@@ -2110,6 +2151,7 @@ impl<T> WalrusNodeClient<T> {
                         target_nodes: Some((certified_epoch, &missing_nodes)),
                         upload_intent: UploadIntent::Immediate,
                         initial_completed_weight: initial_weight.as_ref(),
+                        skip_systematic_primary_pairs: 0,
                         stop_scheduling: None,
                         cancellation: None,
                         metrics: store_args.metrics.clone(),

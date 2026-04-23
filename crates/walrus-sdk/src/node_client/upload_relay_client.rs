@@ -12,9 +12,10 @@ use std::{
 
 use anyhow::Result;
 use bytes::Bytes;
+use futures::{StreamExt, TryStreamExt, stream};
 use rand::{Rng, RngCore, rngs::ThreadRng};
 use reqwest::{Response, Url};
-use serde::Serialize;
+use serde::{Serialize, de::DeserializeOwned};
 use sui_types::{
     base_types::SuiAddress,
     digests::TransactionDigest,
@@ -35,7 +36,7 @@ use crate::{
         BlobId,
         EncodingType,
         EpochCount,
-        encoding::EncodingFactory,
+        encoding::{DataTooLargeError, EncodingConfig, EncodingFactory, Primary},
         messages::ConfirmationCertificate,
         metadata::{BlobMetadataApi, VerifiedBlobMetadataWithId},
     },
@@ -47,10 +48,15 @@ use crate::{
         wallet::Wallet,
     },
     upload_relay::{
+        CreateSliverUploadSessionResponse,
         ResponseType,
+        SliverUploadSessionStatus,
         TIP_CONFIG_ROUTE,
         blob_upload_relay_url,
         params::{AuthPackage, NONCE_LEN, Params},
+        sliver_upload_relay_complete_url,
+        sliver_upload_relay_primary_url,
+        sliver_upload_relay_session_url,
         tip_config::{TipConfig, TipKind},
     },
 };
@@ -84,6 +90,14 @@ pub enum UploadRelayClientError {
     #[error("upload relay request failed: {0}")]
     UploadRequestFailed(#[from] reqwest::Error),
 
+    /// The blob could not be encoded for the sliver upload relay.
+    #[error("failed to encode blob for upload relay: {0}")]
+    EncodingFailed(#[from] DataTooLargeError),
+
+    /// The upload relay request body could not be serialized.
+    #[error("failed to serialize upload relay request: {0}")]
+    RequestSerializationFailed(#[from] bcs::Error),
+
     /// The blob ID mismatch in the response.
     #[error("blob ID mismatch in update relay response: expected {expected}, got {actual}")]
     BlobIdMismatch {
@@ -108,6 +122,8 @@ pub struct UploadRelayClient {
     n_shards: NonZeroU16,
     /// The upload relay url.
     upload_relay: Url,
+    /// The upload relay endpoint to use for blob data.
+    upload_relay_endpoint: UploadRelayEndpoint,
     /// The tip configuration.
     tip_config: TipConfig,
     /// The gas budget for the tip payment.
@@ -118,11 +134,22 @@ pub struct UploadRelayClient {
     backoff_config: ExponentialBackoffConfig,
 }
 
+/// The upload relay endpoint used to send blob data.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum UploadRelayEndpoint {
+    /// Send the full raw blob to the legacy blob upload relay endpoint.
+    Blob,
+    /// Send systematic primary slivers through the session-based sliver upload relay endpoint.
+    #[default]
+    Sliver,
+}
+
 impl PartialEq for UploadRelayClient {
     fn eq(&self, other: &Self) -> bool {
         self.user_address == other.user_address
             && self.n_shards == other.n_shards
             && self.upload_relay == other.upload_relay
+            && self.upload_relay_endpoint == other.upload_relay_endpoint
             && self.tip_config == other.tip_config
             && self.gas_budget == other.gas_budget
             && self.backoff_config == other.backoff_config
@@ -139,6 +166,27 @@ impl UploadRelayClient {
         gas_budget: Option<u64>,
         backoff_config: ExponentialBackoffConfig,
     ) -> Result<Self, UploadRelayClientError> {
+        Self::new_with_endpoint(
+            user_address,
+            n_shards,
+            upload_relay,
+            UploadRelayEndpoint::default(),
+            gas_budget,
+            backoff_config,
+        )
+        .await
+    }
+
+    /// Fetches the tip configuration from the upload relay and creates a new upload relay tip
+    /// client using the specified blob-data endpoint.
+    pub async fn new_with_endpoint(
+        user_address: SuiAddress,
+        n_shards: NonZeroU16,
+        upload_relay: Url,
+        upload_relay_endpoint: UploadRelayEndpoint,
+        gas_budget: Option<u64>,
+        backoff_config: ExponentialBackoffConfig,
+    ) -> Result<Self, UploadRelayClientError> {
         tracing::debug!(
             ?upload_relay,
             "fetching the tip confign and creating upload relay tip client"
@@ -149,6 +197,7 @@ impl UploadRelayClient {
             user_address,
             n_shards,
             upload_relay,
+            upload_relay_endpoint,
             tip_config,
             gas_budget,
             http_client,
@@ -226,7 +275,8 @@ impl UploadRelayClient {
         Ok(response.digest)
     }
 
-    /// Sends the blob to the upload relay and waits for the certificate.
+    /// Encodes the blob, sends its systematic primary slivers to the relay, and waits for the
+    /// certificate.
     ///
     /// Additionally, it pays the tip if required.
     ///
@@ -267,7 +317,13 @@ impl UploadRelayClient {
             encoding_type: Some(encoding_type),
         };
 
-        let response = self.send_to_relay(blob, params).await?;
+        let response = match self.upload_relay_endpoint {
+            UploadRelayEndpoint::Blob => self.send_to_relay(blob, &params).await?,
+            UploadRelayEndpoint::Sliver => {
+                self.send_slivers_to_relay(blob, blob_id, encoding_type, &params)
+                    .await?
+            }
+        };
         if response.blob_id != blob_id {
             return Err(UploadRelayClientError::BlobIdMismatch {
                 expected: blob_id,
@@ -276,6 +332,146 @@ impl UploadRelayClient {
         }
 
         Ok(response.confirmation_certificate)
+    }
+
+    async fn send_slivers_to_relay(
+        &self,
+        blob: &[u8],
+        blob_id: BlobId,
+        encoding_type: EncodingType,
+        params: &Params,
+    ) -> Result<ResponseType, UploadRelayClientError> {
+        let encoding_config = EncodingConfig::new(self.n_shards).get_for_type(encoding_type);
+        let n_systematic_primary = usize::from(encoding_config.n_source_symbols::<Primary>().get());
+        let (sliver_pairs, metadata) = encoding_config.encode_with_metadata(blob.to_vec())?;
+        if *metadata.blob_id() != blob_id {
+            return Err(UploadRelayClientError::BlobIdMismatch {
+                expected: blob_id,
+                actual: *metadata.blob_id(),
+            });
+        }
+
+        let upload_session_id = self.create_sliver_upload_session(&metadata, params).await?;
+        self.upload_systematic_primary_slivers(
+            &upload_session_id,
+            &sliver_pairs,
+            n_systematic_primary,
+        )
+        .await?;
+
+        self.complete_sliver_upload_session(&upload_session_id)
+            .await
+    }
+
+    async fn create_sliver_upload_session(
+        &self,
+        metadata: &VerifiedBlobMetadataWithId,
+        params: &Params,
+    ) -> Result<String, UploadRelayClientError> {
+        let post_url = sliver_upload_relay_session_url(&self.upload_relay, params)?;
+        let body = Bytes::from(bcs::to_bytes(&metadata.clone().into_unverified())?);
+
+        tracing::debug!(?post_url, ?params, "creating sliver upload relay session");
+
+        let response: CreateSliverUploadSessionResponse = self
+            .send_json_request(
+                self.http_client
+                    .post(post_url)
+                    .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                    .body(body),
+            )
+            .await?;
+
+        Ok(response.upload_session_id)
+    }
+
+    async fn upload_systematic_primary_slivers(
+        &self,
+        upload_session_id: &str,
+        sliver_pairs: &[walrus_core::encoding::SliverPair],
+        n_systematic_primary: usize,
+    ) -> Result<(), UploadRelayClientError> {
+        let primary_sliver_uploads = sliver_pairs
+            .iter()
+            .take(n_systematic_primary)
+            .map(|pair| {
+                bcs::to_bytes(&pair.primary)
+                    .map(|body| (pair.primary.index.0, Bytes::from(body)))
+                    .map_err(UploadRelayClientError::RequestSerializationFailed)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let concurrency = 50;
+
+        stream::iter(primary_sliver_uploads)
+            .map(|(sliver_index, body)| async move {
+                self.put_sliver_upload_session_primary(upload_session_id, sliver_index, body)
+                    .await?;
+                Ok::<(), UploadRelayClientError>(())
+            })
+            .buffer_unordered(concurrency)
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        Ok(())
+    }
+
+    async fn put_sliver_upload_session_primary(
+        &self,
+        upload_session_id: &str,
+        sliver_index: u16,
+        body: Bytes,
+    ) -> Result<SliverUploadSessionStatus, UploadRelayClientError> {
+        let put_url =
+            sliver_upload_relay_primary_url(&self.upload_relay, upload_session_id, sliver_index)?;
+
+        tracing::debug!(
+            ?put_url,
+            upload_session_id,
+            sliver_index,
+            "uploading systematic primary sliver to relay session"
+        );
+
+        self.send_json_request(
+            self.http_client
+                .put(put_url)
+                .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                .body(body),
+        )
+        .await
+    }
+
+    async fn complete_sliver_upload_session(
+        &self,
+        upload_session_id: &str,
+    ) -> Result<ResponseType, UploadRelayClientError> {
+        let post_url = sliver_upload_relay_complete_url(&self.upload_relay, upload_session_id)?;
+
+        tracing::debug!(
+            ?post_url,
+            upload_session_id,
+            "completing sliver upload relay session"
+        );
+
+        self.send_json_request(self.http_client.post(post_url))
+            .await
+    }
+
+    async fn send_json_request<T>(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<T, UploadRelayClientError>
+    where
+        T: DeserializeOwned,
+    {
+        request
+            .send()
+            .await
+            .map_err(UploadRelayClientError::UploadRequestFailed)?
+            .error_for_status()
+            .map_err(UploadRelayClientError::UploadRequestFailed)?
+            .json()
+            .await
+            .map_err(UploadRelayClientError::UploadRequestFailed)
     }
 
     /// Returns a reference to the tip configuration.
@@ -292,9 +488,9 @@ impl UploadRelayClient {
     async fn send_to_relay(
         &self,
         blob: &[u8],
-        params: Params,
+        params: &Params,
     ) -> Result<ResponseType, UploadRelayClientError> {
-        let post_url = blob_upload_relay_url(&self.upload_relay, &params)?;
+        let post_url = blob_upload_relay_url(&self.upload_relay, params)?;
 
         tracing::debug!(
             ?post_url,

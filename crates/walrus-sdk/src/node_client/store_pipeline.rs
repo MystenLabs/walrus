@@ -264,6 +264,7 @@ impl WalrusNodeClient<SuiContractClient> {
                 target_nodes: None,
                 upload_intent: UploadIntent::Pending,
                 initial_completed_weight: None,
+                skip_systematic_primary_pairs: 0,
                 stop_scheduling: Some(stop_scheduling.clone()),
                 cancellation: Some(cancel.clone()),
                 metrics: store_args.metrics.clone(),

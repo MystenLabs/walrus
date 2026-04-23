@@ -592,7 +592,7 @@ impl UnencodedBlob {
     /// Encodes the blob using the given encoding config.
     ///
     /// If no upload relay client is provided, the encoded blob contains all sliver pairs.
-    /// Otherwise, the encoded blob contains the unencoded blob data to be sent to the upload relay.
+    /// Otherwise, the encoded blob contains the unencoded blob data for the upload relay client.
     pub fn encode(
         self,
         encoding_config: EncodingConfigEnum,
@@ -625,12 +625,12 @@ impl UnencodedBlob {
 /// The data of the blob to be stored.
 ///
 /// This can either be sliver pairs to be sent directly to storage nodes, or the raw blob data to be
-/// sent to the upload relay (together with the upload relay client).
+/// used by the upload relay client.
 #[derive(Clone, PartialEq)]
 pub enum BlobData {
     /// The encoded sliver pairs generated from the blob to be sent directly to storage nodes.
     SliverPairs(Arc<Vec<SliverPair>>),
-    /// The raw blob data to be sent to the upload relay (together with the upload relay client).
+    /// The raw blob data and upload relay client used to upload through the relay.
     BlobForUploadRelay(Arc<Vec<u8>>, Arc<UploadRelayClient>),
 }
 
