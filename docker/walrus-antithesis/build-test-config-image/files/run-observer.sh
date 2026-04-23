@@ -36,10 +36,6 @@ METRICS_PORT="${METRICS_PORT:-9184}"
 CHECK_INTERVAL="${CHECK_INTERVAL:-60}"
 # Consecutive rounds a soft-invariant violation must persist before crashing.
 FULLY_STORED_PATIENCE="${FULLY_STORED_PATIENCE:-3}"
-# Rounds before we escalate "no event source data" from info to warning.
-# Event source metric requires 2k events (~9 min). With 60s intervals,
-# 20 rounds ≈ 20 minutes — enough time for the metric to appear.
-EVENT_SOURCE_WARN_AFTER="${EVENT_SOURCE_WARN_AFTER:-20}"
 # Must match EPOCH_BUCKET_COUNT in consistency_check.rs. When a node has this
 # many epoch labels, buckets will start being reused and comparisons become
 # unreliable.
@@ -330,14 +326,11 @@ while true; do
         "$EVENT_SOURCE" "bucket" \
         "$WORK_DIR/details_event_source.txt")
     if [ "$v" -eq -1 ]; then
-        # No data yet — the metric is recorded every 2k events (~9 min).
-        if [ "$round" -lt "$EVENT_SOURCE_WARN_AFTER" ]; then
-            log "${EVENT_SOURCE}: no data yet" \
-                "(expected — metric requires ~2k events, round ${round}/${EVENT_SOURCE_WARN_AFTER})"
-        else
-            log "WARNING: ${EVENT_SOURCE}: still no data" \
-                "after ${round} rounds — expected by now, check event processing"
-        fi
+        # No data yet — the metric is recorded every NUM_EVENTS_PER_DIGEST_RECORDING
+        # events, which can take tens of minutes of cluster runtime. The observer
+        # has no reliable way to know when "long enough" has elapsed (its own
+        # lifetime resets on restart), so we just log absence and move on.
+        log "${EVENT_SOURCE}: no data yet"
         print_metric_values "$EVENT_SOURCE" "bucket"
     elif [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — ${EVENT_SOURCE} (${v} bucket(s)):"
