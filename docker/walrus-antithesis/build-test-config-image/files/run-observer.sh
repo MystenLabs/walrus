@@ -303,9 +303,6 @@ while true; do
         fi
     done
     if [ "$all_ok" = false ]; then
-        # Reset streak counter so that non-consecutive violations separated
-        # by unreachable rounds do not accumulate toward the patience threshold.
-        fully_stored_streak=0
         sleep "$CHECK_INTERVAL"
         continue
     fi
