@@ -38,6 +38,12 @@ METRICS_PORT="${METRICS_PORT:-9184}"
 CHECK_INTERVAL="${CHECK_INTERVAL:-60}"
 # Consecutive rounds a soft-invariant violation must persist before crashing.
 FULLY_STORED_PATIENCE="${FULLY_STORED_PATIENCE:-3}"
+# Consecutive rounds a hard invariant can return "no common data across nodes"
+# before we treat it as a silent regression and fail. Without this, a bug that
+# stops the consistency-check metrics from being emitted would leave the observer
+# reporting success forever. The default is loose enough to tolerate cluster
+# warmup and the event-source metric's naturally long recording cadence.
+NO_DATA_PATIENCE="${NO_DATA_PATIENCE:-60}"
 # Must match EPOCH_BUCKET_COUNT in consistency_check.rs. When a node has this
 # many epoch labels, buckets will start being reused and comparisons become
 # unreliable.
@@ -197,14 +203,37 @@ check_cross_node_metric() {
 # epochs for any realistic test duration.  We only check the latest (highest)
 # epoch per node because older epochs are immutable snapshots — if the latest
 # epoch is healthy, earlier ones are too.
-# Echoes the number of violations.
+#
+# Arguments: details_file  [max_labels]
+# Echoes:
+#   -2  if any node's highest epoch label is nearing bucket wrap
+#    0  if all nodes' latest ratio is 1
+#   >0  number of nodes whose latest ratio is below 1
 # ---------------------------------------------------------------------------
 check_fully_stored_ratio() {
     local metric="$FULLY_STORED_RATIO"
     local details_file="$1"
+    local max_labels="${2:-0}"
     local violations=0
 
     : > "$details_file"
+
+    # Bail out if epoch labels are approaching bucket wraparound. After
+    # `epoch % EPOCH_BUCKET_COUNT` wraps, `sort -n | tail -1` no longer
+    # picks the latest real epoch — a stale value in a high-numbered bucket
+    # could be flagged repeatedly and trip the patience counter.
+    if [ "$max_labels" -gt 0 ]; then
+        local threshold=$((max_labels * 9 / 10))
+        for i in "${!NODES[@]}"; do
+            local highest
+            highest=$(extract_metric "$WORK_DIR/raw_${NODES[$i]}.prom" "$metric" "epoch" \
+                | cut -f1 | sort -n | tail -1)
+            if [ -n "$highest" ] && [ "$highest" -ge "$threshold" ]; then
+                echo "-2"
+                return
+            fi
+        done
+    fi
 
     for i in "${!NODES[@]}"; do
         # Find the highest epoch bucket on this node (numerically sorted).
@@ -238,9 +267,13 @@ log "Cross-node invariant observer starting"
 log "Nodes: ${NODES[*]}, port: ${METRICS_PORT}"
 log "Check interval: ${CHECK_INTERVAL}s"
 log "Fully stored patience: ${FULLY_STORED_PATIENCE} rounds"
+log "No-data patience (hard invariants): ${NO_DATA_PATIENCE} rounds"
 log "Max epoch buckets: ${MAX_EPOCH_BUCKETS}, max digest buckets: ${MAX_DIGEST_BUCKETS}"
 
 fully_stored_streak=0
+blob_info_no_data_streak=0
+per_object_no_data_streak=0
+event_source_no_data_streak=0
 round=0
 
 while true; do
@@ -285,14 +318,20 @@ while true; do
             "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
         print_metric_values "$BLOB_INFO" "epoch"
     elif [ "$v" -eq -1 ]; then
-        log "${BLOB_INFO}: no common data across nodes, skipping comparison"
+        blob_info_no_data_streak=$((blob_info_no_data_streak + 1))
+        log "${BLOB_INFO}: no common data across nodes" \
+            "(streak: ${blob_info_no_data_streak}/${NO_DATA_PATIENCE})"
         print_metric_values "$BLOB_INFO" "epoch"
+        if [ "$blob_info_no_data_streak" -ge "$NO_DATA_PATIENCE" ]; then
+            die "${BLOB_INFO}: no common data for ${NO_DATA_PATIENCE} consecutive rounds — likely silent regression"
+        fi
     elif [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — ${BLOB_INFO} (${v} epoch(s)):"
         cat "$WORK_DIR/details_blob_info.txt"
         print_metric_values "$BLOB_INFO" "epoch"
         die "${BLOB_INFO}: mismatched digests across nodes"
     else
+        blob_info_no_data_streak=0
         log "${BLOB_INFO}: OK"
         print_metric_values "$BLOB_INFO" "epoch"
     fi
@@ -309,14 +348,20 @@ while true; do
             "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
         print_metric_values "$PER_OBJECT_INFO" "epoch"
     elif [ "$v" -eq -1 ]; then
-        log "${PER_OBJECT_INFO}: no common data across nodes, skipping comparison"
+        per_object_no_data_streak=$((per_object_no_data_streak + 1))
+        log "${PER_OBJECT_INFO}: no common data across nodes" \
+            "(streak: ${per_object_no_data_streak}/${NO_DATA_PATIENCE})"
         print_metric_values "$PER_OBJECT_INFO" "epoch"
+        if [ "$per_object_no_data_streak" -ge "$NO_DATA_PATIENCE" ]; then
+            die "${PER_OBJECT_INFO}: no common data for ${NO_DATA_PATIENCE} consecutive rounds — likely silent regression"
+        fi
     elif [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — ${PER_OBJECT_INFO} (${v} epoch(s)):"
         cat "$WORK_DIR/details_per_object.txt"
         print_metric_values "$PER_OBJECT_INFO" "epoch"
         die "${PER_OBJECT_INFO}: mismatched digests across nodes"
     else
+        per_object_no_data_streak=0
         log "${PER_OBJECT_INFO}: OK"
         print_metric_values "$PER_OBJECT_INFO" "epoch"
     fi
@@ -342,15 +387,22 @@ while true; do
         # No data yet — the metric is recorded every NUM_EVENTS_PER_DIGEST_RECORDING
         # events, which can take tens of minutes of cluster runtime. The observer
         # has no reliable way to know when "long enough" has elapsed (its own
-        # lifetime resets on restart), so we just log absence and move on.
-        log "${EVENT_SOURCE}: no data yet"
+        # lifetime resets on restart), so we just log absence. If this persists
+        # for NO_DATA_PATIENCE rounds, treat it as a silent regression and die.
+        event_source_no_data_streak=$((event_source_no_data_streak + 1))
+        log "${EVENT_SOURCE}: no data yet" \
+            "(streak: ${event_source_no_data_streak}/${NO_DATA_PATIENCE})"
         print_metric_values "$EVENT_SOURCE" "bucket"
+        if [ "$event_source_no_data_streak" -ge "$NO_DATA_PATIENCE" ]; then
+            die "${EVENT_SOURCE}: no common data for ${NO_DATA_PATIENCE} consecutive rounds — likely silent regression"
+        fi
     elif [ "$v" -gt 0 ]; then
         log "INVARIANT VIOLATION — ${EVENT_SOURCE} (${v} bucket(s)):"
         cat "$WORK_DIR/details_event_source.txt"
         print_metric_values "$EVENT_SOURCE" "bucket"
         die "${EVENT_SOURCE}: mismatched values across nodes"
     else
+        event_source_no_data_streak=0
         log "${EVENT_SOURCE}: OK"
         print_metric_values "$EVENT_SOURCE" "bucket"
     fi
@@ -362,8 +414,13 @@ while true; do
     # Only the latest (highest) epoch bucket per node is checked — see
     # check_fully_stored_ratio for rationale.
     # ------------------------------------------------------------------
-    v=$(check_fully_stored_ratio "$WORK_DIR/details_fully_stored.txt")
-    if [ "$v" -gt 0 ]; then
+    v=$(check_fully_stored_ratio "$WORK_DIR/details_fully_stored.txt" "$MAX_EPOCH_BUCKETS")
+    if [ "$v" -eq -2 ]; then
+        log "WARNING: ${FULLY_STORED_RATIO}: epoch bucket capacity reached" \
+            "(${MAX_EPOCH_BUCKETS}), skipping check — latest-epoch heuristic is unreliable after wrap"
+        fully_stored_streak=0
+        print_metric_values "$FULLY_STORED_RATIO" "epoch"
+    elif [ "$v" -gt 0 ]; then
         fully_stored_streak=$((fully_stored_streak + 1))
         log "Fully-stored-ratio violation (streak: ${fully_stored_streak}/${FULLY_STORED_PATIENCE}):"
         cat "$WORK_DIR/details_fully_stored.txt"

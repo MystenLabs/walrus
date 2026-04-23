@@ -191,7 +191,6 @@ services:
     environment:
       - NO_COLOR=1
       - CHECK_INTERVAL=60
-      - EVENT_SOURCE_PATIENCE=3
       - FULLY_STORED_PATIENCE=3
       - MAX_EPOCH_BUCKETS=1000
       - MAX_DIGEST_BUCKETS=1000
