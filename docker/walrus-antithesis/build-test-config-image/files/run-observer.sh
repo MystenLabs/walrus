@@ -294,8 +294,8 @@ while true; do
         if scrape_node "${NODES[$i]}" "$WORK_DIR/raw_${NODES[$i]}.prom"; then
             log "Scraped node-${i} (${NODES[$i]})"
         else
-            local err_file="$WORK_DIR/raw_${NODES[$i]}.prom.err"
-            local err_msg=""
+            err_file="$WORK_DIR/raw_${NODES[$i]}.prom.err"
+            err_msg=""
             [ -s "$err_file" ] && err_msg=": $(tr '\n' ' ' <"$err_file" | head -c 200)"
             log "Cannot reach node-${i} (${NODES[$i]}), skipping round${err_msg}"
             all_ok=false
