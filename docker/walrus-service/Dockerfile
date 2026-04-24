@@ -8,6 +8,11 @@ FROM rust:1.93-bookworm AS builder
 ARG PROFILE=release
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
+# Optional extra rustc flags. Empty default preserves native-CPU builds.
+# Callers (e.g. mp3 image-builder) can pass "-C target-cpu=generic" to
+# produce a portable x86_64 binary for older Ubuntu hosts.
+ARG RUSTFLAGS_APPEND=""
+ENV RUSTFLAGS=$RUSTFLAGS_APPEND
 WORKDIR "$WORKDIR/walrus"
 RUN apt-get update && apt-get install -y cmake clang
 
