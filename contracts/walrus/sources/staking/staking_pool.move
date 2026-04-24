@@ -430,13 +430,18 @@ public(package) fun advance_epoch(
     // Block the commission for collection until `voting_end`.
     pool.add_commission(commission, true);
 
-    // Update the commission_rate for the new epoch if there's a pending value.
+    // Update the commission_rate for the new epoch if there's a pending value
+    // whose target epoch has already been reached. Using `latest_value_at`
+    // (rather than an exact-epoch lookup) ensures that if the pool was out of
+    // the committee when a scheduled rate became effective, the scheduled rate
+    // is still applied the next time advance_epoch runs. Stale pending entries
+    // are always flushed, even when no match is found.
     // Note that pending commission rates are set 2 epochs ahead, so users are
     // aware of the rate change in advance.
-    pool.pending_commission_rate.inner().try_get(&current_epoch).do!(|commission_rate| {
+    pool.pending_commission_rate.latest_value_at(current_epoch).do!(|commission_rate| {
         pool.commission_rate = commission_rate as u16;
-        pool.pending_commission_rate.flush(current_epoch);
     });
+    pool.pending_commission_rate.flush(current_epoch);
 
     // Add rewards to the pool and update the `wal_balance`.
     let rewards_amount = rewards.value();

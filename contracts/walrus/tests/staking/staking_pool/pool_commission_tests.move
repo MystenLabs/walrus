@@ -156,6 +156,45 @@ fun commission_setting_at_different_epochs() {
     pool.destroy_empty();
 }
 
+#[test]
+// A node schedules multiple commission rates before joining the committee,
+// skipping each rate's target epoch entirely (because advance_epoch is not
+// called while out of committee), then finally joins. The most recent
+// scheduled rate whose target epoch has already arrived should take effect
+// on the first advance_epoch, and stale entries must be flushed so they
+// cannot re-apply in later epochs.
+fun pending_commission_applied_after_skipped_epochs() {
+    let mut test = context_runner();
+    let (wctx, ctx) = test.current(); // E0
+    let mut pool = pool().commission_rate(0).build(&wctx, ctx);
+
+    // E0: schedule 10% → pending[E+2] = 10_00
+    pool.set_next_commission(10_00, &wctx);
+
+    // E+1: schedule 20% → pending[E+3] = 20_00
+    let (wctx, _) = test.next_epoch();
+    pool.set_next_commission(20_00, &wctx);
+
+    // Simulate being out of committee: skip E+2 and E+3 entirely so that
+    // both scheduled target epochs pass without advance_epoch being called.
+    let (_wctx, _) = test.next_epoch(); // E+2
+    let (_wctx, _) = test.next_epoch(); // E+3
+    let (wctx, _) = test.next_epoch(); // E+4 <- node joins committee
+
+    pool.advance_epoch(mint_wal_balance(0), &wctx);
+    // The latest scheduled rate whose target was reached is 20_00 (E+3),
+    // not 10_00 (E+2) and not the initial 0.
+    assert_eq!(pool.commission_rate(), 20_00);
+
+    // A subsequent advance_epoch with no new schedules must not re-apply
+    // any stale pending entry: the rate stays at 20_00.
+    let (wctx, _) = test.next_epoch(); // E+5
+    pool.advance_epoch(mint_wal_balance(0), &wctx);
+    assert_eq!(pool.commission_rate(), 20_00);
+
+    pool.destroy_empty();
+}
+
 #[test, expected_failure(abort_code = ::walrus::staking_pool::EIncorrectCommissionRate)]
 fun set_incorrect_commission_rate_fail() {
     let mut test = context_runner();
