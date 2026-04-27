@@ -89,6 +89,14 @@ public enum EpochState has copy, drop, store {
     NextParamsSelected(u64),
 }
 
+/// Returns true if the epoch state is `NextParamsSelected`.
+fun is_next_params_selected(state: &EpochState): bool {
+    match (state) {
+        EpochState::NextParamsSelected(_) => true,
+        _ => false,
+    }
+}
+
 /// The inner object for the staking part of the system.
 public struct StakingInnerV1 has store {
     /// The number of shards in the system.
@@ -225,6 +233,10 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
         assert!(now >= self.first_epoch_start, EWrongEpochState);
     };
 
+    // Clear blocked commission for all committee pools, allowing operators to collect
+    // the commission that was blocked during advance_epoch.
+    self.clear_previous_committee_blocked_commission();
+
     // Assign the next epoch committee.
     self.select_committee_and_calculate_votes();
 
@@ -235,7 +247,25 @@ public(package) fun voting_end(self: &mut StakingInnerV1, clock: &Clock) {
     events::emit_epoch_parameters_selected(self.epoch + 1);
 }
 
+/// Clears the blocked commission for all pools in the previous committee.
+///
+/// Only the previous committee needs clearing because any newly added commission in the current
+/// committee won't have any commissions to collect yet.
+fun clear_previous_committee_blocked_commission(self: &mut StakingInnerV1) {
+    let (prev_node_ids, _) = (*self.previous_committee.inner()).into_keys_values();
+    prev_node_ids.do!(|id| {
+        if (self.pools.contains(id)) {
+            self.pools[id].clear_blocked_commission();
+        };
+    });
+}
+
 /// Selects the committee for the next epoch.
+///
+/// Price votes (storage and write prices) are no longer computed here, as they take effect
+/// immediately when a price vote is cast via `set_storage_price_vote` or
+/// `set_write_price_vote`, and at the end of the epoch change transaction to account for
+/// committee changes. Only capacity votes are computed for the next epoch parameters.
 public(package) fun select_committee_and_calculate_votes(self: &mut StakingInnerV1) {
     assert!(self.next_committee.is_none(), ECommitteeSelected);
 
@@ -245,13 +275,11 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
     let (node_ids, shard_assignments) = (*committee.inner()).into_keys_values();
 
     // Prepare voting parameters.
-    let mut write_prices = priority_queue::new(vector[]);
-    let mut storage_prices = priority_queue::new(vector[]);
     let mut capacity_votes = priority_queue::new(vector[]);
 
     // Iterate over the next committee to do the following:
     // - store the next epoch public keys for the nodes
-    // - calculate the votes for the next epoch parameters
+    // - calculate the capacity votes for the next epoch parameters
     node_ids.length().do!(|idx| {
         let id = node_ids[idx];
         let pool = &self.pools[id];
@@ -263,9 +291,6 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
         // Store the public key for the node.
         public_keys.push_back(*pool.node_info().next_epoch_public_key());
 
-        // Perform calculation of the votes.
-        write_prices.insert(pool.write_price(), weight);
-        storage_prices.insert(pool.storage_price(), weight);
         // Perform calculation for the capacity vote on u128 to prevent overflows.
         let capacity_vote =
             (pool.node_capacity() as u128 * (self.n_shards as u128)) / (weight as u128);
@@ -279,10 +304,12 @@ public(package) fun select_committee_and_calculate_votes(self: &mut StakingInner
     self.next_epoch_public_keys.swap(public_keys);
     self.next_committee = option::some(committee);
 
+    // Prices are no longer part of next_epoch_params; they are applied immediately
+    // when votes are cast. Only capacity is computed for the next epoch.
     let epoch_params = epoch_parameters::new(
         quorum_above(&mut capacity_votes, self.n_shards),
-        quorum_below(&mut storage_prices, self.n_shards),
-        quorum_below(&mut write_prices, self.n_shards),
+        std::u64::max_value!(), // storage price - not used, prices are set immediately on vote
+        std::u64::max_value!(), // write price - not used, prices are set immediately on vote
     );
 
     self.next_epoch_params = option::some(epoch_params);
@@ -372,6 +399,35 @@ public(package) fun set_write_price_vote(
     write_price: u64,
 ) {
     self.pools[cap.node_id()].set_next_write_price(write_price);
+}
+
+/// Recalculates the quorum storage and write prices from the current committee
+/// using `quorum_below`. Returns `(storage_price, write_price)`.
+/// Returns `(max_u64, max_u64)` if the committee is empty (e.g., during epoch 0
+/// before the first committee is formed).
+public(package) fun recalculate_prices(self: &StakingInnerV1): (u64, u64) {
+    let committee_inner = self.committee.inner();
+    let size = committee_inner.length();
+
+    // No committee yet (epoch 0), set prices to the maximum value
+    if (size == 0) {
+        (std::u64::max_value!(), std::u64::max_value!())
+    } else {
+        let mut storage_prices = priority_queue::new(vector[]);
+        let mut write_prices = priority_queue::new(vector[]);
+        size.do!(|idx| {
+            let (node_id, shards) = committee_inner.get_entry_by_idx(idx);
+            let weight = shards.length();
+            let pool = &self.pools[*node_id];
+            storage_prices.insert(pool.storage_price(), weight);
+            write_prices.insert(pool.write_price(), weight);
+        });
+
+        (
+            quorum_below(&mut storage_prices, self.n_shards),
+            quorum_below(&mut write_prices, self.n_shards),
+        )
+    }
 }
 
 /// Sets the node capacity vote for the pool.
@@ -703,14 +759,29 @@ public(package) fun epoch_sync_done(
     events::emit_shards_received(self.epoch, *node_shards);
 }
 
+/// Extracts the commission balance of the pool for the slashing mechanism to burn.
+public(package) fun extract_commission_to_burn(
+    self: &mut StakingInnerV1,
+    node_id: ID,
+): Balance<WAL> {
+    self.pools[node_id].extract_commission_to_burn()
+}
+
 /// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
+///
+/// If the epoch state is not `NextParamsSelected` (i.e., before `voting_end`),
+/// the added amount is also blocked for collection until `voting_end`.
+///
+/// This function should be used only for distributing commissions to previous committee members.
+/// The distributed commissions are not blocked for collection until `voting_end`.
 public(package) fun add_commission_to_pools(
     self: &mut StakingInnerV1,
     node_ids: vector<ID>,
     commissions: vector<Balance<WAL>>,
 ) {
+    let block = !self.epoch_state.is_next_params_selected();
     node_ids.zip_do!(commissions, |node_id, commission| {
-        self.pools[node_id].add_commission(commission)
+        self.pools[node_id].add_commission(commission, block);
     });
 }
 

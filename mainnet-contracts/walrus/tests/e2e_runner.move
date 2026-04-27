@@ -3,10 +3,12 @@
 
 module walrus::e2e_runner;
 
-use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}, test_utils};
+use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}};
+use wal::wal::ProtectedTreasury;
 use walrus::{
     init,
     node_metadata,
+    slashing::{Self, SlashingManager},
     staking::Staking,
     system::System,
     test_node::{Self, TestStorageNode},
@@ -108,6 +110,7 @@ public fun build(self: InitBuilder): TestRunner {
     );
 
     transfer::public_transfer(emergency_upgrade_cap, admin);
+    slashing::new(ctx);
     scenario.next_tx(admin);
 
     TestRunner { scenario, clock, admin }
@@ -121,6 +124,11 @@ public fun scenario(self: &mut TestRunner): &mut Scenario { &mut self.scenario }
 
 /// Access runner's `Clock`.
 public fun clock(self: &mut TestRunner): &mut Clock { &mut self.clock }
+
+/// Access runner's `Scenario` and `Clock`.
+public fun scenario_and_clock(self: &mut TestRunner): (&mut Scenario, &mut Clock) {
+    (&mut self.scenario, &mut self.clock)
+}
 
 /// Access the current epoch of the system.
 public fun epoch(self: &mut TestRunner): u32 {
@@ -154,6 +162,30 @@ public macro fun tx(
     test_scenario::return_shared(system);
 }
 
+/// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
+/// `System`, `ProtectedTreasury`, `Clock`, and `TxContext` as arguments.
+///
+/// This macro is primarily used to initiate the epoch change.
+public macro fun tx_with_wal_treasury(
+    $runner: &mut TestRunner,
+    $sender: address,
+    $f: |&mut Staking, &mut System, &mut ProtectedTreasury, &Clock, &mut TxContext|,
+) {
+    let runner = $runner;
+    let (scenario, clock) = runner.scenario_and_clock();
+    scenario.next_tx($sender);
+    let mut staking = scenario.take_shared<Staking>();
+    let mut system = scenario.take_shared<System>();
+    let mut protected_treasury = scenario.take_shared<wal::wal::ProtectedTreasury>();
+    let ctx = scenario.ctx();
+
+    $f(&mut staking, &mut system, &mut protected_treasury, clock, ctx);
+
+    test_scenario::return_shared(staking);
+    test_scenario::return_shared(system);
+    test_scenario::return_shared(protected_treasury);
+}
+
 /// Returns TransactionEffects of the last transaction.
 public fun last_tx_effects(runner: &mut TestRunner): test_scenario::TransactionEffects {
     runner.scenario().next_tx(@1)
@@ -181,6 +213,50 @@ public macro fun tx_with_upgrade_manager(
     test_scenario::return_shared(system);
 }
 
+/// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
+/// `SlashingManager`, and `TxContext` as arguments.
+public macro fun tx_with_slashing_manager(
+    $runner: &mut TestRunner,
+    $sender: address,
+    $f: |&mut Staking, &mut SlashingManager, &mut TxContext|,
+) {
+    let runner = $runner;
+    let scenario = runner.scenario();
+    scenario.next_tx($sender);
+    let mut staking = scenario.take_shared<Staking>();
+    let mut slashing_manager = scenario.take_shared<SlashingManager>();
+    let ctx = scenario.ctx();
+
+    $f(&mut staking, &mut slashing_manager, ctx);
+
+    test_scenario::return_shared(slashing_manager);
+    test_scenario::return_shared(staking);
+}
+
+/// Run a transaction as a `sender`, and call the function `f` with the `Staking`,
+/// `SlashingManager`, `ProtectedTreasury`, and `TxContext` as arguments.
+///
+/// This macro is primarily used to execute slashing.
+public macro fun tx_with_slashing_manager_and_treasury(
+    $runner: &mut TestRunner,
+    $sender: address,
+    $f: |&mut Staking, &mut SlashingManager, &mut ProtectedTreasury, &mut TxContext|,
+) {
+    let runner = $runner;
+    let scenario = runner.scenario();
+    scenario.next_tx($sender);
+    let mut staking = scenario.take_shared<Staking>();
+    let mut slashing_manager = scenario.take_shared<SlashingManager>();
+    let mut protected_treasury = scenario.take_shared<wal::wal::ProtectedTreasury>();
+    let ctx = scenario.ctx();
+
+    $f(&mut staking, &mut slashing_manager, &mut protected_treasury, ctx);
+
+    test_scenario::return_shared(protected_treasury);
+    test_scenario::return_shared(slashing_manager);
+    test_scenario::return_shared(staking);
+}
+
 /// Progress to the next epoch.
 public fun next_epoch(self: &mut TestRunner) {
     if (self.epoch() == 0) {
@@ -189,9 +265,9 @@ public fun next_epoch(self: &mut TestRunner) {
         self.clock().increment_for_testing(DEFAULT_EPOCH_DURATION);
     };
     let sender = self.admin;
-    self.tx!(sender, |staking, system, _| {
-        staking.voting_end(self.clock());
-        staking.initiate_epoch_change(system, self.clock());
+    self.tx_with_wal_treasury!(sender, |staking, system, protected_treasury, clock, ctx| {
+        staking.voting_end(clock);
+        staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
     });
 }
 
@@ -213,7 +289,7 @@ public fun send_epoch_sync_done_messages(
 
 /// Destroy the test runner and all resources.
 public fun destroy(self: TestRunner) {
-    test_utils::destroy(self)
+    std::unit_test::destroy(self)
 }
 
 #[allow(lint(self_transfer), unused_mut_ref)]
@@ -222,10 +298,20 @@ public fun destroy(self: TestRunner) {
 /// This sets a commission of 0%, a storage price of 10k FROST, a write price of 20k FROST, and a
 /// node capacity of 1TB. The stake per node is 1000 WAL.
 public fun setup_committee_for_epoch_one(): (TestRunner, vector<TestStorageNode>) {
+    setup_committee_for_epoch_one_with_commission(0)
+}
+
+#[allow(lint(self_transfer), unused_mut_ref)]
+/// Setup a default committee with 10 nodes for epoch 1, with a custom commission rate.
+///
+/// This sets a storage price of 10k FROST, a write price of 20k FROST, and a node capacity of
+/// 1TB. The stake per node is 1000 WAL.
+public fun setup_committee_for_epoch_one_with_commission(
+    commission_rate: u16,
+): (TestRunner, vector<TestStorageNode>) {
     let admin = @0xA11CE;
     let mut nodes = test_node::test_nodes();
     let mut runner = prepare(admin).build();
-    let commission_rate: u16 = 0;
     let storage_price: u64 = 10_000;
     let write_price: u64 = 20_000;
     let node_capacity: u64 = 1_000_000_000_000; // 1TB
@@ -265,9 +351,9 @@ public fun setup_committee_for_epoch_one(): (TestRunner, vector<TestStorageNode>
     // === check if epoch state is changed correctly ==
 
     runner.clock().increment_for_testing(DEFAULT_EPOCH_ZERO_DURATION);
-    runner.tx!(admin, |staking, system, _| {
-        staking.voting_end(runner.clock());
-        staking.initiate_epoch_change(system, runner.clock());
+    runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
+        staking.voting_end(clock);
+        staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
         nodes.do_ref!(|node| assert!(system.committee().contains(&node.node_id())));
     });
 

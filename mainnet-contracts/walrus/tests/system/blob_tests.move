@@ -338,7 +338,7 @@ fun direct_extend_happy() {
 #[test]
 fun extend_blob_created_from_split_storage() {
     use walrus::epoch_parameters;
-    use sui::test_utils::destroy;
+    use std::unit_test::destroy;
 
     let ctx = &mut tx_context::dummy();
     let mut system = system::new_for_testing(ctx);
