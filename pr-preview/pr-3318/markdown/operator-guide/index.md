@@ -1,0 +1,1 @@
+Service providers on Walrus host network services such as storage nodes, aggregators, and publishers.

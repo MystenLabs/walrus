@@ -1,0 +1,1 @@
+This section covers everything you need to set up and operate a Walrus storage node.
