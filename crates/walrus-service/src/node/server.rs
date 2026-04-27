@@ -621,7 +621,7 @@ mod tests {
     impl ServiceState for MockServiceState {
         /// Returns a valid response only for blob IDs with the first byte 0, None for those
         /// starting with 1, and otherwise an error.
-        fn retrieve_metadata(
+        async fn retrieve_metadata(
             &self,
             blob_id: &BlobId,
         ) -> Result<VerifiedBlobMetadataWithId, RetrieveMetadataError> {

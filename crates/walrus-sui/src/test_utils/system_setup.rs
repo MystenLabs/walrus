@@ -112,6 +112,7 @@ impl SystemContext {
         rpc_urls: &[S],
         backoff_config: ExponentialBackoffConfig,
         gas_budget: Option<u64>,
+        checkpoint_wait_timeout: Duration,
     ) -> Result<SuiContractClient, SuiClientError> {
         let contract_config = self.contract_config();
         SuiContractClient::new(
@@ -120,6 +121,7 @@ impl SystemContext {
             &contract_config,
             backoff_config,
             gas_budget,
+            checkpoint_wait_timeout,
         )
         .await
     }
@@ -236,6 +238,7 @@ pub async fn create_and_init_system(
         &contract_config,
         ExponentialBackoffConfig::default(),
         gas_budget,
+        crate::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
     )
     .await?;
 

@@ -11,7 +11,7 @@
 #[allow(unused_use, unused_const)]
 module walrus::pool_early_withdraw_tests;
 
-use sui::test_utils::destroy;
+use std::unit_test::destroy;
 use walrus::test_utils::{mint_wal_balance, frost_per_wal, pool, context_runner, assert_eq, dbg};
 
 const E0: u32 = 0;

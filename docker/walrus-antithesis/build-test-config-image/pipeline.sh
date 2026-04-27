@@ -45,7 +45,7 @@ run-pipeline() {
   local_walrus_image="walrus-antithesis:$sui_version"
 
   export WALRUS_IMAGE_NAME="$local_walrus_image"
-  export SUI_IMAGE_NAME="mysten/sui-tools:$sui_version"
+  export SUI_IMAGE_NAME="$local_sui_image_name"
 
   export SUI_PLATFORM=linux/"$(uname -m)"
   export WALRUS_PLATFORM=linux/"$(uname -m)"

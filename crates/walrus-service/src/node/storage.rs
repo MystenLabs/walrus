@@ -1138,11 +1138,28 @@ impl Storage {
         blob_id: &BlobId,
         shard: ShardIndex,
     ) -> anyhow::Result<bool> {
-        Ok(self
+        let shard_storage = self
             .shard_storage(shard)
             .await
-            .ok_or(anyhow::anyhow!("shard {shard} does not exist"))?
-            .is_sliver_pair_stored(blob_id)?)
+            .ok_or(anyhow::anyhow!("shard {shard} does not exist"))?;
+
+        // In msim, the consistency check calls this via futures::executor::block_on
+        // (inside an outer spawn_blocking), where nested spawn_blocking is not
+        // supported. Fall back to a direct call there; the outer spawn_blocking
+        // already keeps the work off the tokio runtime.
+        #[cfg(msim)]
+        {
+            Ok(shard_storage.is_sliver_pair_stored(blob_id)?)
+        }
+        #[cfg(not(msim))]
+        {
+            let blob_id = *blob_id;
+            Ok(
+                tokio::task::spawn_blocking(move || shard_storage.is_sliver_pair_stored(&blob_id))
+                    .map(utils::unwrap_or_resume_unwind)
+                    .await?,
+            )
+        }
     }
 
     /// Returns a list of identifiers of the shards that store their
@@ -1171,6 +1188,10 @@ impl Storage {
 
     /// Handles a sync shard request. The validity of the request should be checked before calling
     /// this function.
+    ///
+    /// Note: the blocking batch fetch runs inside `spawn_blocking`. If the parent future is
+    /// dropped, the blocking task runs to completion — this is intentional to avoid partial
+    /// iterator state.
     pub async fn handle_sync_shard_request(
         &self,
         request: &SyncShardRequest,
@@ -1193,34 +1214,42 @@ impl Storage {
         };
 
         let sliver_count = request.sliver_count();
-        let mut fetched_blobs = Vec::with_capacity(sliver_count);
-        let mut last_fetched_blob_id = None;
-        while fetched_blobs.len() < sliver_count {
-            let remaining_count = sliver_count - fetched_blobs.len();
+        let starting_blob_id = request.starting_blob_id();
+        let sliver_type = request.sliver_type();
+        let blob_info = self.blob_info.clone();
 
-            // Set starting point - either the initial request start or after last fetched blob
-            let starting_blob_id_bound =
-                last_fetched_blob_id.map_or(Included(request.starting_blob_id()), Excluded);
+        let fetched_blobs = tokio::task::spawn_blocking(move || {
+            let mut fetched_blobs = Vec::with_capacity(sliver_count);
+            let mut last_fetched_blob_id = None;
+            while fetched_blobs.len() < sliver_count {
+                let remaining_count = sliver_count - fetched_blobs.len();
 
-            // Scan certified slivers to fetch.
-            let blobs_to_fetch = self
-                .blob_info
-                .certified_blob_info_iter_before_epoch(current_epoch, starting_blob_id_bound)
-                .take(remaining_count)
-                .map_ok(|(blob_id, _)| blob_id)
-                .collect::<Result<Vec<_>, TypedStoreError>>()?;
+                // Set starting point - either the initial request start or after last fetched blob
+                let starting_blob_id_bound =
+                    last_fetched_blob_id.map_or(Included(starting_blob_id), Excluded);
 
-            if blobs_to_fetch.is_empty() {
-                // No more blobs to fetch.
-                break;
+                // Scan certified slivers to fetch.
+                let blobs_to_fetch = blob_info
+                    .certified_blob_info_iter_before_epoch(current_epoch, starting_blob_id_bound)
+                    .take(remaining_count)
+                    .map_ok(|(blob_id, _)| blob_id)
+                    .collect::<Result<Vec<_>, TypedStoreError>>()?;
+
+                if blobs_to_fetch.is_empty() {
+                    // No more blobs to fetch.
+                    break;
+                }
+
+                // Update last fetched ID for next iteration
+                last_fetched_blob_id = blobs_to_fetch.last().cloned();
+
+                let mut slivers = shard.fetch_slivers(sliver_type, &blobs_to_fetch)?;
+                fetched_blobs.append(&mut slivers);
             }
-
-            // Update last fetched ID for next iteration
-            last_fetched_blob_id = blobs_to_fetch.last().cloned();
-
-            let mut slivers = shard.fetch_slivers(request.sliver_type(), &blobs_to_fetch)?;
-            fetched_blobs.append(&mut slivers);
-        }
+            Ok::<_, TypedStoreError>(fetched_blobs)
+        })
+        .map(utils::unwrap_or_resume_unwind)
+        .await?;
 
         Ok(fetched_blobs.into())
     }

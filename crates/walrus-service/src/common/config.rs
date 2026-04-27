@@ -56,9 +56,17 @@ pub struct SuiConfig {
     /// The request timeout for communicating with Sui network.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub request_timeout: Option<Duration>,
+    /// Timeout for waiting for checkpoint inclusion after gRPC transaction execution.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub checkpoint_wait_timeout: Option<Duration>,
 }
 
 impl SuiConfig {
+    /// Returns the checkpoint wait timeout, falling back to the default.
+    pub fn checkpoint_wait_timeout(&self) -> Duration {
+        self.checkpoint_wait_timeout
+            .unwrap_or(walrus_sui::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT)
+    }
     /// Creates a new [`SuiReadClient`] based on the configuration.
     pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
         let combined_rpc_urls = combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints);
@@ -66,6 +74,7 @@ impl SuiConfig {
             &combined_rpc_urls,
             &self.contract_config,
             self.backoff_config.clone(),
+            self.checkpoint_wait_timeout(),
         )
         .await
     }
@@ -103,6 +112,7 @@ impl SuiConfig {
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,
+                self.checkpoint_wait_timeout(),
                 metrics,
             )
             .await
@@ -113,6 +123,7 @@ impl SuiConfig {
                 &self.contract_config,
                 self.backoff_config.clone(),
                 self.gas_budget,
+                self.checkpoint_wait_timeout(),
             )
             .await
         }
@@ -169,10 +180,13 @@ impl SuiReaderConfig {
     /// Creates a new [`SuiReadClient`] based on the configuration.
     pub async fn new_read_client(&self) -> Result<SuiReadClient, SuiClientError> {
         let combined_rpc_urls = combine_rpc_urls(&self.rpc, &self.additional_rpc_endpoints);
+        // The checkpoint-wait timeout only applies to transaction execution, which read clients
+        // never perform; pass the default to satisfy the constructor.
         SuiReadClient::new_for_rpc_urls(
             &combined_rpc_urls,
             &self.contract_config,
             self.backoff_config.clone(),
+            walrus_sui::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         )
         .await
     }

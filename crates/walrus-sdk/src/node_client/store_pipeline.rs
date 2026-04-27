@@ -194,7 +194,7 @@ impl WalrusNodeClient<SuiContractClient> {
         Ok(final_result)
     }
 
-    fn pending_upload_store_args(&self, store_args: &StoreArgs) -> StoreArgs {
+    pub(super) fn pending_upload_store_args(&self, store_args: &StoreArgs) -> StoreArgs {
         let mut store_args = store_args.clone();
         if self.config.communication_config.pending_uploads_enabled {
             store_args.store_optimizations.optimistic_uploads = true;
@@ -232,7 +232,7 @@ impl WalrusNodeClient<SuiContractClient> {
         pending
     }
 
-    fn start_pending_uploads<'a>(
+    pub(super) fn start_pending_uploads<'a>(
         &'a self,
         pending_blobs: &'a [(VerifiedBlobMetadataWithId, Arc<Vec<SliverPair>>)],
         store_args: &StoreArgs,
@@ -350,7 +350,7 @@ impl WalrusNodeClient<SuiContractClient> {
         }
     }
 
-    fn apply_pending_upload_outcome(
+    pub(super) fn apply_pending_upload_outcome(
         &self,
         mut pending_upload_result: Option<RunOutput<Vec<BlobId>, StoreError>>,
     ) -> PendingUploadContext {

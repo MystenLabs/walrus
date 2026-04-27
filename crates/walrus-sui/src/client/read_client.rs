@@ -70,6 +70,8 @@ use crate::{
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
+            StoragePoolInnerV1,
+            StoragePoolObject,
             SubsidiesInnerKey,
             SystemObjectForDeserialization,
             SystemStateInnerV1,
@@ -446,8 +448,14 @@ impl SuiReadClient {
         rpc_addresses: &[S],
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
+        checkpoint_wait_timeout: Duration,
     ) -> SuiClientResult<Self> {
-        let client = RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config, None)?;
+        let client = RetriableSuiClient::new_for_rpc_urls(
+            rpc_addresses,
+            backoff_config,
+            None,
+            checkpoint_wait_timeout,
+        )?;
         Self::new(client, contract_config).await
     }
 
@@ -1227,6 +1235,23 @@ impl SuiReadClient {
             .inner
             .ok_or_else(|| anyhow!("could not retrieve inner subsidies object"))?
             .last_subsidized)
+    }
+    /// Returns the inner storage pool state for the given storage pool object.
+    pub(crate) async fn get_storage_pool_inner(
+        &self,
+        storage_pool_object_id: ObjectID,
+    ) -> SuiClientResult<StoragePoolInnerV1> {
+        let storage_pool: StoragePoolObject = self
+            .sui_client
+            .get_sui_object(storage_pool_object_id)
+            .await?;
+        self.sui_client
+            .get_dynamic_field::<u64, StoragePoolInnerV1>(
+                storage_pool_object_id,
+                TypeTag::U64,
+                storage_pool.version,
+            )
+            .await
     }
 }
 

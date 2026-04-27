@@ -622,6 +622,7 @@ mod commands {
             ReadClient as _,
             SuiReadClient,
             contract_config::ContractConfig,
+            dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
             retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
         },
         config::{WalletConfig, load_wallet_context_from_path},
@@ -1048,6 +1049,7 @@ mod commands {
                     .and_then(|args| args.to_config()),
                 additional_rpc_endpoints,
                 request_timeout: None,
+                checkpoint_wait_timeout: None,
             }),
             tls: TlsConfig {
                 certificate_path,
@@ -1105,7 +1107,11 @@ mod commands {
         };
 
         let retriable_sui_client = RetriableSuiClient::new(
-            vec![LazySuiClientBuilder::new(sui_rpc_url, None)],
+            vec![LazySuiClientBuilder::new(
+                sui_rpc_url,
+                None,
+                DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+            )],
             ExponentialBackoffConfig::default(),
         )?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);

@@ -176,7 +176,7 @@ use self::{
     system_events::EventManager,
 };
 use crate::{
-    common::config::SuiConfig,
+    common::{config::SuiConfig, utils::unwrap_or_resume_unwind},
     event::{
         event_blob_downloader::{EventBlobDownloader, LastCertifiedEventBlob},
         event_processor::{
@@ -282,7 +282,7 @@ pub trait ServiceState {
     fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> Result<VerifiedBlobMetadataWithId, RetrieveMetadataError>;
+    ) -> impl Future<Output = Result<VerifiedBlobMetadataWithId, RetrieveMetadataError>> + Send;
 
     /// Stores the metadata associated with a blob.
     ///
@@ -2629,7 +2629,13 @@ impl StorageNodeInner {
             return;
         }
 
-        let deferral_from_size = match self.storage.get_metadata(&blob_id) {
+        let metadata_result = {
+            let storage = self.storage.clone();
+            tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await
+        };
+        let deferral_from_size = match metadata_result {
             Ok(Some(metadata)) => {
                 let size = metadata.as_ref().unencoded_length();
                 self.deferral_for_unencoded_size(size).inspect(|&duration| {
@@ -3022,7 +3028,14 @@ impl StorageNodeInner {
     ) -> Result<BlobMetadataWithId<true>, TypedStoreError> {
         tracing::debug!(%blob_id, "check blob metadata existence");
 
-        if let Some(metadata) = self.storage.get_metadata(blob_id)? {
+        let existing = {
+            let storage = self.storage.clone();
+            let blob_id = *blob_id;
+            tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await?
+        };
+        if let Some(metadata) = existing {
             tracing::debug!(%blob_id, "not syncing metadata: already stored");
             return Ok(metadata);
         }
@@ -3208,10 +3221,16 @@ impl StorageNodeInner {
             );
         }
 
-        if shard_storage
-            .is_sliver_type_stored(metadata.blob_id(), sliver.r#type())
-            .context("database error when checking sliver existence")?
-        {
+        let is_stored = {
+            let shard = shard_storage.clone();
+            let blob_id = *metadata.blob_id();
+            let sliver_type = sliver.r#type();
+            tokio::task::spawn_blocking(move || shard.is_sliver_type_stored(&blob_id, sliver_type))
+                .map(unwrap_or_resume_unwind)
+                .await
+                .context("database error when checking sliver existence")?
+        };
+        if is_stored {
             return Ok(None);
         }
 
@@ -3286,10 +3305,14 @@ impl StorageNodeInner {
         blob_id: &BlobId,
         allow_pending: bool,
     ) -> Result<(Arc<VerifiedBlobMetadataWithId>, bool), StoreSliverError> {
-        let persisted = self
-            .storage
-            .get_metadata(blob_id)
-            .context("database error when storing sliver")?;
+        let persisted = {
+            let storage = self.storage.clone();
+            let blob_id = *blob_id;
+            tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await
+                .context("database error when storing sliver")?
+        };
         if let Some(metadata) = persisted {
             return Ok((Arc::new(metadata), true));
         }
@@ -3379,12 +3402,16 @@ impl StorageNodeInner {
         }
 
         if self.pending_sliver_cache.has_blob(blob_id).await {
-            let metadata = match self
-                .storage
-                .get_metadata(blob_id)
-                .context("unable to fetch metadata while flushing pending slivers")
-                .map_err(|error| PendingCacheError::Sliver(StoreSliverError::Internal(error)))?
-            {
+            let persisted = {
+                let storage = self.storage.clone();
+                let blob_id = *blob_id;
+                tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+                    .map(unwrap_or_resume_unwind)
+                    .await
+                    .context("unable to fetch metadata while flushing pending slivers")
+                    .map_err(|error| PendingCacheError::Sliver(StoreSliverError::Internal(error)))?
+            };
+            let metadata = match persisted {
                 Some(metadata) => Arc::new(metadata),
                 None => return Err(PendingCacheError::Sliver(StoreSliverError::MissingMetadata)),
             };
@@ -3426,18 +3453,20 @@ impl StorageNodeInner {
         }
     }
 
+    /// Note: if the parent future is dropped, the `spawn_blocking` task runs to completion
+    /// and holds the `StorageShardLock` until shard creation finishes.
     async fn create_storage_for_shards_in_background(
         self: &Arc<Self>,
         new_shards: Vec<ShardIndex>,
         shard_map_lock: StorageShardLock,
     ) -> Result<(), anyhow::Error> {
         let this = self.clone();
-        tokio::task::spawn_blocking(move || async move {
+        tokio::task::spawn_blocking(move || {
             this.storage
                 .create_storage_for_shards_locked(shard_map_lock, &new_shards)
         })
         .in_current_span()
-        .await?
+        .map(unwrap_or_resume_unwind)
         .await?;
         Ok(())
     }
@@ -3727,7 +3756,7 @@ impl StorageNodeInner {
         Ok(output)
     }
 
-    fn get_encoding_type_for_blob(
+    async fn get_encoding_type_for_blob(
         &self,
         blob_id: &BlobId,
     ) -> Result<Option<EncodingType>, TypedStoreError> {
@@ -3737,10 +3766,17 @@ impl StorageNodeInner {
             // encoding type from the database. If the metadata is otherwise available, then the
             // encoding type is available there and this function should not be used, otherwise, a
             // database call may be required.
-            _ => self
-                .storage
-                .get_metadata(blob_id)
-                .map(|option| option.map(|metadata| metadata.metadata().encoding_type())),
+            _ => {
+                let storage = self.storage.clone();
+                let blob_id = *blob_id;
+                tokio::task::spawn_blocking(move || {
+                    storage
+                        .get_metadata(&blob_id)
+                        .map(|option| option.map(|metadata| metadata.metadata().encoding_type()))
+                })
+                .map(unwrap_or_resume_unwind)
+                .await
+            }
         }
     }
 
@@ -3991,7 +4027,8 @@ impl ServiceState for StorageNode {
     fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
-    ) -> Result<VerifiedBlobMetadataWithId, RetrieveMetadataError> {
+    ) -> impl Future<Output = Result<VerifiedBlobMetadataWithId, RetrieveMetadataError>> + Send
+    {
         self.inner.retrieve_metadata(blob_id)
     }
 
@@ -4118,7 +4155,7 @@ impl ServiceState for StorageNode {
 }
 
 impl ServiceState for StorageNodeInner {
-    fn retrieve_metadata(
+    async fn retrieve_metadata(
         &self,
         blob_id: &BlobId,
     ) -> Result<VerifiedBlobMetadataWithId, RetrieveMetadataError> {
@@ -4140,8 +4177,11 @@ impl ServiceState for StorageNodeInner {
             RetrieveMetadataError::Unavailable,
         )?;
 
-        self.storage
-            .get_metadata(blob_id)
+        let storage = self.storage.clone();
+        let blob_id = *blob_id;
+        tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+            .map(unwrap_or_resume_unwind)
+            .await
             .context("database error when retrieving metadata")?
             .ok_or(RetrieveMetadataError::Unavailable)
             .inspect(|_| self.metrics.metadata_retrieved_total.inc())
@@ -4444,7 +4484,7 @@ impl ServiceState for StorageNodeInner {
         blob_id: &BlobId,
         inconsistency_proof: InconsistencyProof,
     ) -> Result<InvalidBlobIdAttestation, InconsistencyProofError> {
-        let metadata = self.retrieve_metadata(blob_id)?;
+        let metadata = self.retrieve_metadata(blob_id).await?;
 
         inconsistency_proof.verify(metadata.as_ref(), &self.encoding_config)?;
 
@@ -4471,6 +4511,7 @@ impl ServiceState for StorageNodeInner {
 
         let encoding_type = self
             .get_encoding_type_for_blob(blob_id)
+            .await
             .context("could not retrieve blob encoding type")?
             .ok_or_else(|| anyhow!("encoding type unavailable for blob {:?}", blob_id))?;
 
@@ -4646,7 +4687,14 @@ impl ServiceState for StorageNodeInner {
             .get_shard_for_sliver_pair(sliver_pair_index, blob_id)
             .await?;
 
-        match shard_storage.is_sliver_stored::<A>(blob_id) {
+        let is_stored = {
+            let shard = shard_storage.clone();
+            let blob_id = *blob_id;
+            tokio::task::spawn_blocking(move || shard.is_sliver_stored::<A>(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await
+        };
+        match is_stored {
             Ok(true) => Ok(StoredOnNodeStatus::Stored),
             Ok(false) => {
                 if self

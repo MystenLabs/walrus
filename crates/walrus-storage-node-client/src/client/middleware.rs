@@ -20,6 +20,7 @@ use reqwest::{
     Method,
     Request,
     Response,
+    ResponseBuilderExt as _,
     StatusCode,
     header::{HeaderMap, HeaderName, HeaderValue},
 };
@@ -475,9 +476,23 @@ where
             .into_response_monitor(output.as_ref());
 
         let output = output.map(|response| -> Response {
+            // `From<reqwest::Response> for http::Response` drops the URL, and the inverse
+            // conversion only repopulates it from a `ResponseUrl` extension (otherwise reqwest
+            // substitutes a placeholder that surfaces in error logs). Capture the URL and
+            // re-attach the extension via the public `ResponseBuilderExt::url` helper.
+            let url = response.url().clone();
             let response: http::Response<_> = response.into();
-            let response = response.map(|body| reqwest::Body::wrap(VisitBody::new(body, monitor)));
-            response.into()
+            let (mut parts, body) = response.into_parts();
+            let body = reqwest::Body::wrap(VisitBody::new(body, monitor));
+            let url_extensions = http::Response::builder()
+                .url(url)
+                .body(())
+                .expect("response builder with only an extension is infallible")
+                .into_parts()
+                .0
+                .extensions;
+            parts.extensions.extend(url_extensions);
+            http::Response::from_parts(parts, body).into()
         });
 
         Poll::Ready(output)

@@ -32,9 +32,9 @@ public struct PublisherKey() has copy, drop, store;
 public(package) fun create(p: Publisher, ctx: &mut TxContext) {
     let mut inner = object_bag::new(ctx);
 
-    inner.add(type_name::get<Blob>(), init_blob_display(&p, ctx));
-    inner.add(type_name::get<Storage>(), init_storage_display(&p, ctx));
-    inner.add(type_name::get<StakedWal>(), init_staked_wal_display(&p, ctx));
+    inner.add(type_name::with_defining_ids<Blob>(), init_blob_display(&p, ctx));
+    inner.add(type_name::with_defining_ids<Storage>(), init_storage_display(&p, ctx));
+    inner.add(type_name::with_defining_ids<StakedWal>(), init_staked_wal_display(&p, ctx));
     inner.add(PublisherKey(), p);
 
     transfer::share_object(ObjectDisplay { id: object::new(ctx), inner })

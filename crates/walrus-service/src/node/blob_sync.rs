@@ -50,7 +50,10 @@ use super::{
     storage::Storage,
     system_events::{CompletableHandle, EventHandle},
 };
-use crate::{common::utils::FutureHelpers as _, node::NodeStatus};
+use crate::{
+    common::utils::{self, FutureHelpers as _},
+    node::NodeStatus,
+};
 
 #[derive(Debug, Clone)]
 struct Permits {
@@ -836,7 +839,14 @@ impl BlobSynchronizer {
     async fn recover_metadata(
         self: Arc<Self>,
     ) -> Result<(bool, VerifiedBlobMetadataWithId), TypedStoreError> {
-        if let Some(metadata) = self.storage().get_metadata(&self.blob_id)? {
+        let existing = {
+            let storage = self.storage().clone();
+            let blob_id = self.blob_id;
+            tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+                .map(utils::unwrap_or_resume_unwind)
+                .await?
+        };
+        if let Some(metadata) = existing {
             tracing::debug!("not syncing metadata: already stored");
             return Ok((false, metadata));
         }
@@ -877,7 +887,14 @@ impl BlobSynchronizer {
 
             Span::current().record("walrus.sliver.pair_index", field::display(sliver_id));
 
-            if shard_storage.is_sliver_stored::<A>(&self.blob_id)? {
+            let is_stored = {
+                let shard = shard_storage.clone();
+                let blob_id = self.blob_id;
+                tokio::task::spawn_blocking(move || shard.is_sliver_stored::<A>(&blob_id))
+                    .map(utils::unwrap_or_resume_unwind)
+                    .await?
+            };
+            if is_stored {
                 tracing::debug!("not syncing sliver: already stored");
                 return Ok(false);
             }

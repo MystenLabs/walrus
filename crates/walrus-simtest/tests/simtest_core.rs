@@ -1082,7 +1082,9 @@ mod tests {
         clear_fail_point("start_node_recovery_entry");
     }
 
-    // Tests upgrading the walrus contracts.
+    // Tests upgrading the walrus contracts from testnet-contracts to the development branch
+    // contracts. Whether a migration epoch is needed or not depends on the specific contract
+    // upgrade path.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_quorum_contract_upgrade() -> anyhow::Result<()> {
@@ -1216,30 +1218,13 @@ mod tests {
             }
         };
 
-        // Set the migration epoch on the staking object to the following epoch.
-        client
-            .as_ref()
-            .inner
-            .sui_client()
-            .set_migration_epoch(new_package_id)
-            .await?;
-        let migration_epoch = upgrade_epoch + 1;
-
         // Check that the upgrade was completed within one epoch. A failure here indicates that the
         // epoch duration for the test is set too short.
         let end_upgrade_epoch = client.as_ref().inner.sui_client().current_epoch().await?;
         assert_eq!(end_upgrade_epoch, upgrade_epoch);
         tracing::info!(upgrade_epoch, "upgraded contract");
 
-        // Wait for the nodes to reach the migration epoch.
-        simtest_utils::wait_for_nodes_to_reach_epoch(
-            &walrus_cluster.nodes[..4],
-            migration_epoch,
-            2 * epoch_duration,
-        )
-        .await;
-
-        // Migrate the objects
+        // Migrate the objects (v4 migration does not require set_migration_epoch or epoch wait)
         client
             .as_ref()
             .inner

@@ -88,6 +88,78 @@ impl AssociatedContractStruct for StoragePoolResource {
     const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePool;
 }
 
+/// Sui object for a pooled blob in a storage pool.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PooledBlob {
+    /// Object ID of the Sui object.
+    pub id: ObjectID,
+    /// The epoch in which the blob has been registered.
+    pub registered_epoch: Epoch,
+    /// The blob ID.
+    #[serde(serialize_with = "serialize_blob_id")]
+    pub blob_id: BlobId,
+    /// The (unencoded) size of the blob.
+    pub unencoded_size: u64,
+    /// The erasure coding type used for the blob.
+    pub encoding_type: EncodingType,
+    /// The epoch in which the blob was first certified, `None` if the blob is uncertified.
+    pub certified_epoch: Option<Epoch>,
+    /// The object ID of the backing storage pool.
+    pub storage_pool_id: ObjectID,
+    /// Marks the blob as deletable.
+    pub deletable: bool,
+}
+
+impl PooledBlob {
+    /// Returns the blob persistence type of the pooled blob object.
+    pub fn blob_persistence_type(&self) -> BlobPersistenceType {
+        if self.deletable {
+            BlobPersistenceType::Deletable {
+                object_id: self.id.into(),
+            }
+        } else {
+            BlobPersistenceType::Permanent
+        }
+    }
+
+    /// Returns true if the blob is certified.
+    pub fn is_certified(&self) -> bool {
+        self.certified_epoch.is_some()
+    }
+}
+
+impl AssociatedContractStruct for PooledBlob {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::PooledBlob;
+}
+
+/// Sui type for the outer storage pool object.
+#[allow(dead_code)] // The outer object ID is only needed for exact BCS layout matching.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct StoragePoolObject {
+    pub(crate) id: ObjectID,
+    pub(crate) version: u64,
+}
+
+impl AssociatedContractStruct for StoragePoolObject {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePool;
+}
+
+/// Sui type for the inner storage pool state.
+#[allow(dead_code)] // Some fields are only needed for selective off-chain inspection.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct StoragePoolInnerV1 {
+    pub(crate) storage: StorageResource,
+    pub(crate) used_encoded_bytes: u64,
+    pub(crate) blob_count: u64,
+    #[serde(deserialize_with = "deserialize_bag_or_table")]
+    pub(crate) blobs: ObjectID,
+}
+
+impl AssociatedContractStruct for StoragePoolInnerV1 {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::storage_pool::StoragePoolInnerV1;
+}
+
 /// Sui object for a blob.
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -505,6 +505,7 @@ pub async fn new_contract_client_on_sui_test_cluster(
                 &contract_config,
                 existing_client.read_client().backoff_config().clone(),
                 None,
+                crate::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
             )
             .await
         })
@@ -845,6 +846,18 @@ impl TestNodeKeys {
         epoch: Epoch,
     ) -> anyhow::Result<ConfirmationCertificate> {
         let confirmation = Confirmation::new(epoch, blob_id, BlobPersistenceType::Permanent);
+        self.certificate_for_signers(&confirmation, signers)
+    }
+
+    /// Returns a storage confirmation certificate with the provided persistence type.
+    pub fn blob_certificate_for_signers_with_persistence(
+        &self,
+        signers: &[u16],
+        blob_id: BlobId,
+        epoch: Epoch,
+        persistence_type: BlobPersistenceType,
+    ) -> anyhow::Result<ConfirmationCertificate> {
+        let confirmation = Confirmation::new(epoch, blob_id, persistence_type);
         self.certificate_for_signers(&confirmation, signers)
     }
 

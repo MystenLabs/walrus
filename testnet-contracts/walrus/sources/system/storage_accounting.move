@@ -111,6 +111,18 @@ public(package) fun ring_pop_expand(self: &mut FutureAccountingRingBuffer): Futu
     accounting
 }
 
+/// Extracts the balance that will be burned for the current epoch. This function is used when
+/// executing the epoch change.
+public(package) fun extract_burn_balance(self: &mut FutureAccountingRingBuffer): Balance<WAL> {
+    let current_index = self.current_index;
+    let reward_balance = self.ring_buffer[current_index as u64].rewards_balance();
+
+    // Burn 3% of total rewards before distribution. This is roughly 25% of user payment when
+    // usage dependent subsidy is at 800%.
+    let burn_amount = reward_balance.value() * 3 / 100;
+    reward_balance.split(burn_amount)
+}
+
 // === Accessors for FutureAccountingRingBuffer ===
 
 /// The maximum number of epochs for which we can use `self`.

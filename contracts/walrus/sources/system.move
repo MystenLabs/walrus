@@ -24,9 +24,11 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the system object.
 const EWrongVersion: u64 = 1;
+/// The extracted storage size is zero (nothing to extract).
+const EZeroExtractSize: u64 = 2;
 
 /// Flag to indicate the version of the system.
-const VERSION: u64 = 3;
+const VERSION: u64 = 4;
 
 /// The one and only system object.
 public struct System has key {
@@ -304,6 +306,35 @@ public fun increase_storage_pool_capacity_with_storage(
     self.inner().increase_storage_pool_capacity_with_storage(storage_pool, storage)
 }
 
+/// Reduces the pool's capacity by extracting a `Storage` object of the given size.
+/// Aborts with `EZeroExtractSize` if `size` is zero.
+public fun decrease_storage_pool_capacity_by_size(
+    self: &System,
+    storage_pool: &mut StoragePool,
+    size: u64,
+    ctx: &mut TxContext,
+): Storage {
+    let result = self.inner().decrease_storage_pool_capacity_by_size(storage_pool, size, ctx);
+    assert!(result.is_some(), EZeroExtractSize);
+    result.destroy_some()
+}
+
+/// Reduces the pool's capacity by extracting `percent` of the unused capacity as a `Storage`
+/// object. Aborts with `EZeroExtractSize` if the computed extract size is zero (for example
+/// from rounding or zero unused capacity).
+public fun decrease_storage_pool_unused_capacity_by_percent(
+    self: &System,
+    storage_pool: &mut StoragePool,
+    percent: u8,
+    ctx: &mut TxContext,
+): Storage {
+    let result = self
+        .inner()
+        .decrease_storage_pool_unused_capacity_by_percent(storage_pool, percent, ctx);
+    assert!(result.is_some(), EZeroExtractSize);
+    result.destroy_some()
+}
+
 /// Certifies a blob within a storage pool.
 public fun certify_pooled_blob(
     self: &System,
@@ -431,10 +462,10 @@ public(package) fun set_new_package_id(system: &mut System, new_package_id: ID) 
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `system_state_inner` object if needed.
 public(package) fun migrate(system: &mut System) {
-    // Below logic is for upgrading to version 3. When upgrading to future versions, this function
+    // Below logic is for upgrading to version 4. When upgrading to future versions, this function
     // needs to be revisited to perform correct migration steps.
     assert!(system.version < VERSION, EInvalidMigration);
-    assert!(VERSION == 3, EInvalidMigration);
+    assert!(VERSION == 4, EInvalidMigration);
 
     // Move the old system state inner to the new version.
     let system_state_inner: SystemStateInnerV1 = dynamic_field::remove(
