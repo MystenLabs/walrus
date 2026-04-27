@@ -1,0 +1,80 @@
+name: Build TX for Multisig Node Governance Operation
+
+on:
+  workflow_dispatch:
+    inputs:
+      upgrade_manager_object_id:
+        description: "UpgradeManager object ID"
+        required: true
+        type: string
+      node_id:
+        description: "Storage node ID (used to derive the Authenticated capability)"
+        required: true
+        type: string
+      multisig_wallet_address:
+        description: "Multisig wallet address (transaction sender; must be the node's governance-authorized address)"
+        required: true
+        type: string
+      package_digest_base64:
+        description: "Base64-encoded package digest of the upgrade target"
+        required: true
+        type: string
+      staking_object_id:
+        # The default value is the Walrus mainnet staking object ID.
+        description: "Staking object ID"
+        required: false
+        default: "0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904"
+        type: string
+      gas_object_id:
+        description: "Gas object ID owned by the multisig (defaults to highest-balance gas coin)"
+        required: false
+        type: string
+      commit:
+        description: "Commit hash of the walrus repo to create the transaction"
+        required: true
+        type: string
+
+jobs:
+  create-tx:
+    name: Create vote_for_upgrade TX for multisig
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+        with:
+          fetch-depth: 1
+          ref: ${{ inputs.commit }}
+
+      - name: Install Homebrew
+        run: |
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+
+      - name: Install Sui and grpcurl using Homebrew
+        run: brew install sui grpcurl
+
+      - name: Setup sui client config
+        run: |
+          sui client switch --env mainnet
+
+      - name: Create unsigned transaction for multisig
+        run: |
+          mkdir -p artifacts
+          ./scripts/create_multisig_node_governance_tx.sh \
+            -u '${{ inputs.upgrade_manager_object_id }}' \
+            -n '${{ inputs.node_id }}' \
+            -m '${{ inputs.multisig_wallet_address }}' \
+            -d '${{ inputs.package_digest_base64 }}' \
+            -s '${{ inputs.staking_object_id }}' \
+            -g '${{ inputs.gas_object_id }}' \
+            >artifacts/tx-data.txt
+
+      - name: Show Transaction Data (To sign)
+        run: |
+          cat artifacts/tx-data.txt
+
+      - name: Upload Transaction Artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # pin@v7.0.0
+        with:
+          name: transaction-data
+          path: artifacts/tx-data.txt
