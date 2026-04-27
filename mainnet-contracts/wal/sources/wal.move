@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /// The WAL token is the native token for the Walrus Protocol.
+#[allow(deprecated_usage)]
 module wal::wal;
 
 use sui::{coin::{Self, TreasuryCap, Coin}, dynamic_object_field as dof, url};
@@ -20,8 +21,9 @@ public struct ProtectedTreasury has key {
     id: UID,
 }
 
-/// The dynamic object field key for the `TreasuryCap`.
-/// Storing the `TreasuryCap` as a dynamic object field allows us to easily look-up the
+/// Key for the dynamic object field of the `TreasuryCap`.
+///
+/// Storing the `TreasuryCap` as a dynamic object field allows us to easily look up the
 /// `TreasuryCap` from the `ProtectedTreasury` off-chain.
 public struct TreasuryCapKey has copy, drop, store {}
 
@@ -68,6 +70,12 @@ public fun total_supply(treasury: &ProtectedTreasury): u64 {
 /// Burns a `Coin<WAL>` from the sender.
 public fun burn(treasury: &mut ProtectedTreasury, coin: Coin<WAL>) {
     treasury.borrow_cap_mut().burn(coin);
+}
+
+/// Test helper to initialize the WAL token for tests in other packages.
+#[test_only]
+public fun init_for_testing(ctx: &mut TxContext) {
+    init(WAL {}, ctx);
 }
 
 // ===== Private Accessors =====
