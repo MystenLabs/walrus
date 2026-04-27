@@ -386,8 +386,8 @@ for (const file of files) {
     ? (urlPath.startsWith("/") ? urlPath : "/" + urlPath)
     : "/docs" + (urlPath.startsWith("/") ? urlPath : "/" + urlPath);
 
-  // CHANGED: Only build .md URL — no HTML duplicate
-  const mdUrl = joinUrl(resolvedBaseUrl, docUrlPath) + ".md";
+  // Use relative paths — shorter lines, resolves identically from same origin
+  const mdUrl = docUrlPath + ".md";
 
   if (isLinearUrl(mdUrl)) continue;
 
@@ -464,19 +464,19 @@ function formatEntryCompact({ title, mdUrl }) {
   return `- [${title}](${mdUrl})`;
 }
 
-function wrapLine(line, indentSpaces = 0) {
-  if (line.length <= 100) return [line];
+function wrapLine(line, indentSpaces = 0, maxLen = 100) {
+  if (line.length <= maxLen) return [line];
   const indent = " ".repeat(indentSpaces);
+  const contIndent = indent + "    ";
   const words = line.trimStart().split(" ");
   const lines = [];
   let current = indent;
   for (const word of words) {
-    if (current.length + word.length + 1 > 100 && current.trim().length > 0) {
+    if (current.length + word.length >= maxLen && current.trim().length > 0) {
       lines.push(current.trimEnd());
-      current = indent + "    " + word + " ";
-    } else {
-      current += word + " ";
+      current = contIndent;
     }
+    current += word + " ";
   }
   if (current.trim()) lines.push(current.trimEnd());
   return lines;
