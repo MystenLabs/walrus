@@ -102,19 +102,24 @@ function generateMarkdownRoutes(markdownDir) {
   const mdFiles = findMarkdownFiles(markdownDir);
 
   for (const mdPath of mdFiles) {
-    // mdPath is like /examples/awesome-walrus.md
-    const routeKey = "/docs" + mdPath;
+    // mdPath is like /examples/awesome-walrus.md or /blog/01_announcing_walrus.md
     const targetPath = "/markdown" + mdPath;
+
+    // Blog posts use /blog/*.md routes; docs use /docs/*.md routes
+    const isBlog = mdPath.startsWith("/blog/");
+    const routeKey = isBlog ? mdPath : "/docs" + mdPath;
 
     routes[routeKey] = targetPath;
 
     // For index.md files, also add a short-form route:
     // /docs/sites/index.md -> also accessible as /docs/sites.md
-    const basename = path.basename(mdPath, ".md");
-    if (basename === "index") {
-      const dir = path.dirname(mdPath);
-      if (dir !== "/") {
-        routes["/docs" + dir + ".md"] = targetPath;
+    if (!isBlog) {
+      const basename = path.basename(mdPath, ".md");
+      if (basename === "index") {
+        const dir = path.dirname(mdPath);
+        if (dir !== "/") {
+          routes["/docs" + dir + ".md"] = targetPath;
+        }
       }
     }
   }
@@ -170,3 +175,21 @@ console.log(`  Auto-generated: ${mdCount} markdown routes (/docs/*.md)`);
 console.log(`  Manual/legacy:  ${manualCount} existing routes preserved`);
 console.log(`  Total:          ${totalCount} routes written`);
 console.log("✅ Routes generated successfully");
+
+// ── Inject llms.txt directive into built markdown files ──────────────────
+// This runs post-build so that generate-llmstxt.mjs (which runs pre-build)
+// reads clean content without the directive.
+const LLMS_TXT_DIRECTIVE =
+  "> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)\n\n";
+
+const builtMdFiles = findMarkdownFiles(markdownDir);
+let injectedCount = 0;
+for (const mdPath of builtMdFiles) {
+  const fullPath = path.join(buildDir, "markdown", mdPath.slice(1));
+  const content = fs.readFileSync(fullPath, "utf8");
+  if (!content.startsWith("> For the complete documentation index")) {
+    fs.writeFileSync(fullPath, LLMS_TXT_DIRECTIVE + content, "utf8");
+    injectedCount++;
+  }
+}
+console.log(`  Injected llms.txt directive into ${injectedCount} markdown files`);

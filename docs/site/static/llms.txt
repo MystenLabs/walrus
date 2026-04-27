@@ -38,10 +38,14 @@ Important notes:
     Walrus as blobs. Each blob is an immutable array of bytes. Any type of file, such as text,
     video, or source code, can be stored on Walrus. All blobs uploaded to Walrus are publicly
     available. To secure data on Walrus, consider an encryption service like Seal.
+- [System Overview](https://docs.wal.app/docs/system-overview.md): Available Networks: Overview of
+    Walrus networks including Mainnet and Testnet configurations, parameters, and setup
+    instructions. Walrus Fundamentals: Technical reference for Walrus fundamentals, including
+    architecture, data storage, and data retrieval.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md): Blobs can be interacted
     with through familiar file system operations such as uploading, reading, downloading, and
-    deleting. Use the following command to upload a file to Walrus All blobs stored in Walrus are
-    public and discoverable by all.
+    deleting. Use the following command to upload a file to Walrus > Danger > > All blobs stored in
+    Walrus are public and discoverable by all.
 - [Public Aggregators And
     Publishers](https://docs.wal.app/docs/system-overview/public-aggregators-and-publishers.md):
     The Walrus client offers a daemon mode that runs a simple web server that provides HTTP
@@ -52,7 +56,7 @@ Important notes:
     internal system data overhead.
 - [Red Stuff](https://docs.wal.app/docs/system-overview/red-stuff.md): The RedStuff encoding
     algorithm used in Walrus is an adaptation of the Twin-Code framework presented by Rashmi et al.
-    [1].
+    [[1]](https://doi.org/10.1109/ISIT.2011.6033732).
 - [Relay](https://docs.wal.app/docs/system-overview/relay.md): An upload relay is a server-side
     service that simplifies the upload process by handling the complexity of writing to multiple
     storage nodes. It provides batching capabilities and improved reliability for client
@@ -70,12 +74,11 @@ Important notes:
     KiB in FROST. These values are determined by 2/3 agreement between storage nodes for each
     storage epoch. You can pay to purchase storage space for specified durations.
 
-## Usage
-
-- [Troubleshooting](https://docs.wal.app/docs/usage/troubleshooting.md)
-
 ## Walrus Client
 
+- [Walrus Client](https://docs.wal.app/docs/walrus-client.md): JSON Mode: Use JSON mode for
+    programmatic access to all Walrus CLI commands with JSON-formatted input and output. Managing
+    Blobs: Use the Walrus client to extend, delete, burn, share, and set attributes on blobs.
 - [JSON Mode](https://docs.wal.app/docs/walrus-client/json-mode.md): All Walrus client commands are
     available in JSON mode, which simplifies programmatic access to the CLI. You can specify all
     command-line flags of the original CLI command in JSON format.
@@ -124,7 +127,9 @@ Important notes:
     reliable, deterministic, and resilient manner. The application is accessible at
     https://walrus-sui-archival.wal.app/ The application's code is open source and available on
     GitHub.
-- [Examples](https://docs.wal.app/docs/examples.md)
+- [Examples](https://docs.wal.app/docs/examples.md): Example applications that demonstrate
+    different workflows and use cases on Walrus Sui Archival System: An example application that
+    demonstrates archiving Sui blockchain checkpoint data on Walrus.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md): The following JavaScript example
     shows how to upload and download a blob through a web form using the HTTP API.
 - [Move](https://docs.wal.app/docs/examples/move.md): The following Move example showcases how to
@@ -144,20 +149,13 @@ Important notes:
     Aggregator](https://docs.wal.app/docs/operator-guide/aggregators/operating-aggregator.md): Run
     a Walrus aggregator to expose the HTTP API.
 - [Operator Guide](https://docs.wal.app/docs/operator-guide.md): Service providers on Walrus host
-    network services such as storage nodes, aggregators, and publishers.
+    network services such as storage nodes, aggregators, and publishers. Aggregator and Publisher
+    Limitations: Request size limits, nginx caching configuration, and daemon metrics for Walrus
+    aggregators and publishers.
 - [Limitations](https://docs.wal.app/docs/operator-guide/limitations.md): By default, store blob
     requests are limited to 10 MiB. You can increase this limit through the --max-body-size option.
     Store quilt requests are limited to 100 MiB by default, and you can increase them using the
     --max-quilt-body-size option.
-- [Auth Publisher](https://docs.wal.app/docs/operator-guide/publisher/auth-publisher.md): The
-    authenticated publisher requires HTTP requests to store a blob to be authenticated. Use an
-    authenticated publisher as a building block for services that need to store data over HTTP on
-    Walrus Mainnet, where an open publisher is undesirable because of the SUI and WAL cost of
-    publishing to Walrus.
-- [Operating Publisher](https://docs.wal.app/docs/operator-guide/publisher/operating-publisher.md):
-    The publisher and daemon perform on-chain actions and require a Sui wallet with sufficient SUI
-    and WAL balances. To handle many parallel requests without object conflicts, they create
-    internal sub-wallets (introduced in version 1.4.0) funded from the main wallet.
 - [Auth Publisher](https://docs.wal.app/docs/operator-guide/publishers/auth-publisher.md): The
     authenticated publisher requires HTTP requests to store a blob to be authenticated. Use an
     authenticated publisher as a building block for services that need to store data over HTTP on
@@ -171,7 +169,7 @@ Important notes:
 - [Signed Binaries](https://docs.wal.app/docs/operator-guide/signed-binaries.md): Walrus release
     binaries and Docker images are signed using Cosign with a GCP KMS key. Each binary has a
     corresponding .sig file containing its signature. Docker image signatures are stored in the
-    registry. The easiest way to download and verify binaries is to use the provided script.
+    registry.
 - [Stake](https://docs.wal.app/docs/operator-guide/stake.md): In Walrus, anyone can delegate stake
     to storage nodes and, by doing so, influence which storage nodes get selected for the committee
     in future epochs and how many shards these nodes hold.
@@ -186,28 +184,28 @@ Important notes:
     updates them based on the values in the node configuration. However, authorization for contract
     upgrades and withdrawing the storage node commission is handled separately.
 - [Storage Nodes](https://docs.wal.app/docs/operator-guide/storage-nodes.md): This section covers
-    everything you need to set up and operate a Walrus storage node.
+    everything you need to set up and operate a Walrus storage node. Backup and Restore Guide: Back
+    up and restore Walrus storage node databases with automated and manual procedures.
 - [Storage Node FAQ](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-faq.md):
     The storage node must have a wallet compatible with the Sui Rust SDK. This cannot be a hardware
     wallet or anything that requires user interaction for transactions, because the node needs to
     send transactions as part of normal operation. The walrus-node setup command creates such a
     wallet.
 - [Storage Node
-    Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md)
+    Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md):
     This page covers the ongoing operation of your Walrus storage node after initial setup. Back up
     the /opt/walrus/config directory. For database backups, see the Backup and Restore Guide. The
     following metrics are the most important for monitoring node health.
 - [Storage Node
     Migration](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-migration.md):
     This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node
-    (and optionally an aggregator and publisher) on the same host. To reduce downtime, start by
-    transferring all data while the old host is still running. Wait for each command to finish
-    before proceeding.
+    (and optionally an aggregator and publisher) on the same host. [x] New host set up following
+    the Storage Node Setup guide (through the TLS setup and systemd service sections.
 - [Storage Node
     Setup](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-setup.md): This page
     walks you through the full initial setup of a Walrus storage node, from system preparation to
-    registration and first startup. If you deviate from the standard setup below (user,
-    directories, ports), make sure to adjust later steps accordingly.
+    registration and first startup. > Caution > > If you deviate from the standard setup below
+    (user, directories, ports), make sure to adjust later steps accordingly.
 - [Upload Relay](https://docs.wal.app/docs/operator-guide/upload-relay.md): Walrus enables apps to
     store data from within end-user browsers that have low to moderate machine specifications
     (mobile devices, low-powered laptops, and so on).
@@ -217,7 +215,7 @@ Important notes:
 - [Github Actions Workflow](https://docs.wal.app/docs/sites/ci-cd/github-actions-workflow.md):
     Create a GitHub Actions workflow to automatically deploy your Walrus Site whenever you push to
     your repository. The workflow uses the official Deploy Walrus Site action maintained by Mysten
-    Labs.
+    Labs. [x] A GitHub repository containing your site's source files.
 - [1. Reconstruct Sui client configuration from CI
     secrets.](https://docs.wal.app/docs/sites/ci-cd/other-ci-cd-platforms.md): The official Deploy
     Walrus Site action targets GitHub Actions only. On any other CI/CD platform, such as GitLab
@@ -227,16 +225,12 @@ Important notes:
     Credentials](https://docs.wal.app/docs/sites/ci-cd/preparing-deployment-credentials.md): To
     deploy a Walrus Site through a GitHub Actions workflow, the workflow must sign Sui transactions
     on your behalf. This requires 2 credentials: a private key stored as an encrypted GitHub
-    secret, and the corresponding Sui address stored as a GitHub variable.
+    secret, and the corresponding Sui address stored as a GitHub variable. [x] Install the Sui
+    binary.
 - [Adding Metadata](https://docs.wal.app/docs/sites/configuration/adding-metadata.md): The metadata
     section of ws-resources.json lets you add human-readable information to your Walrus Site
     object. This data is stored onchain and is used by portals, explorers, wallets, and other tools
     to display information about your site.
-- [Setting Up Routing
-    Rules](https://docs.wal.app/docs/sites/configuration/setting-up-routing-rules.md): The optional
-    routes section allows you to specify client-side routing rules for your site. This is useful
-    when you want to use a single-page application (SPA) framework, such as React or Angular. The
-    configuration in the routes object is a mapping from route keys to resource path values.
 - [Site Configuration](https://docs.wal.app/docs/sites/configuration/site-configuration.md): In its
     base configuration, a Walrus Site serves static assets through a portal. However, many modern
     web applications require more advanced features, such as custom headers, client-side routing,
@@ -264,8 +258,8 @@ Important notes:
 - [Installing The Site
     Builder](https://docs.wal.app/docs/sites/getting-started/installing-the-site-builder.md): The
     site-builder is a CLI tool that lets you create, edit, and publish Walrus Sites. You can
-    install it using suiup or a pre-built binary. The stable branch of Walrus Sites is mainnet.
-    Before deploying your site to production, make sure you pull the latest mainnet changes.
+    install it using suiup or a pre-built binary. [x] Install a recent version of Rust. [x] Install
+    and configure Walrus. > Warning > > The stable branch of Walrus Sites is mainnet.
 - [Publishing Your First
     Site](https://docs.wal.app/docs/sites/getting-started/publishing-your-first-site.md): The
     Walrus Sites site-builder uploads your website's files to Walrus, where resources like HTML,
@@ -303,10 +297,6 @@ Important notes:
     Walrus Site is addressed through a portal. The portal resolves the site from an onchain object
     and serves its content. To link to a Walrus Site from an external source, you construct a URL
     that the portal can resolve.
-- [Linking To](https://docs.wal.app/docs/sites/linking/linking-to.md): This feature is currently
-    unavailable on server-side portals. If you are browsing a Walrus Site on https://wal.app, you
-    are not able to use Walrus Sites links. Certain types of links on Walrus Sites work differently
-    than on a regular website.
 - [Redirects](https://docs.wal.app/docs/sites/linking/redirects.md): Walrus Sites supports 3 kinds
     of redirects: internal routing redirects, HTTP redirects, and object redirects. Internal
     routing redirects map URL paths within your site to specific resources. HTTP redirects return
@@ -352,6 +342,55 @@ Important notes:
 - [Data Security](https://docs.wal.app/docs/data-security.md): Walrus provides decentralized
     storage for application and user data. All data stored on Walrus is public and can be accessed
     by anyone.
+
+## Glossary
+
+- [Glossary](https://docs.wal.app/docs/glossary.md): This glossary defines key terms used
+    throughout the Walrus documentation, covering storage concepts, erasure coding, cryptographic
+    primitives, token economics, and network roles. Select a term to view its definition. For
+    technical details on encoding, see RedStuff.
+
+## 01 Announcing Walrus
+
+- [01 Announcing Walrus](https://docs.wal.app/blog/01_announcing_walrus.md): Walrus is an
+    innovative decentralized storage network for blockchain apps and autonomous agents. The Walrus
+    storage system is being released today as a developer preview for Sui builders in order to
+    gather feedback. We expect a broad rollout to other web3 communities very soon!
+
+## 02 Devnet Update
+
+- [02 Devnet Update](https://docs.wal.app/blog/02_devnet_update.md): We have redeployed the Walrus
+    Devnet to incorporate various improvements to the Walrus storage nodes and clients. In this
+    process, all blobs stored on Walrus were wiped. Note that this may happen again on Devnet and
+    Testnet, but obviously not on the future Mainnet.
+
+## 03 Whitepaper
+
+- [03 Whitepaper](https://docs.wal.app/blog/03_whitepaper.md): In June, Mysten Labs announced
+    Walrus, a new decentralized secure blob store design, and introduced a developer preview that
+    currently stores over 12TiB of data. Breaking the Ice gathered over 200 developers to build
+    apps leveraging decentralized storage.
+
+## 04 Testnet Update
+
+- [04 Testnet Update](https://docs.wal.app/blog/04_testnet_update.md): Today, a community of
+    operators launches the first public Walrus Testnet. This is an important milestone in
+    validating the operation of Walrus as a decentralized blob store, by operating it on a set of
+    independent storage nodes, that change over time through a delegated proof of stake mechanism.
+
+## 05 Testnet Redeployment
+
+- [05 Testnet Redeployment](https://docs.wal.app/blog/05_testnet_redeployment.md): We are today
+    redeploying the Walrus Testnet to incorporate various improvements, including some
+    backwards-incompatible changes. Make sure to get the latest binary and configuration as
+    described in the setup section. Note that all blob data on the previous Testnet instance has
+    been wiped.
+
+## 06 Mainnet
+
+- [06 Mainnet](https://docs.wal.app/blog/06_mainnet.md): The production Walrus Mainnet is now live,
+    and operated by a decentralized network of over 100 storage nodes. Epoch 1 begun on March 25,
+    2025.
 
 ## Large Uploads
 

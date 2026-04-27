@@ -313,6 +313,12 @@ function copyFile(src, dest) {
 // Main — full mirror mode
 // ---------------------------------------------------------------------------
 function main() {
+  // Clean output directory to remove stale files from previous runs
+  if (fs.existsSync(outDir)) {
+    fs.rmSync(outDir, { recursive: true });
+  }
+  fs.mkdirSync(outDir, { recursive: true });
+
   const allFiles = fs.readdirSync(DOCS_DIR, {
     recursive: true,
     encoding: "utf-8",

@@ -380,8 +380,10 @@ for (const file of files) {
   const { title, description } = parseMarkdown(file, content);
   const urlPath = fileToUrlPath(file, markdownDir);
 
-  const docUrlPath = urlPath.startsWith("/docs")
-    ? urlPath
+  // Blog posts keep their /blog/ prefix; docs get /docs/ prefix
+  const isBlogPost = urlPath === "blog" || urlPath.startsWith("blog/") || urlPath.startsWith("/blog");
+  const docUrlPath = urlPath.startsWith("/docs") || isBlogPost
+    ? (urlPath.startsWith("/") ? urlPath : "/" + urlPath)
     : "/docs" + (urlPath.startsWith("/") ? urlPath : "/" + urlPath);
 
   // CHANGED: Only build .md URL — no HTML duplicate
