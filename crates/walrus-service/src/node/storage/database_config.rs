@@ -570,20 +570,21 @@ impl Default for DatabaseConfig {
 impl DatabaseConfig {
     /// Returns the default configuration for the mainnet network.
     ///
-    /// Disables blob garbage collection and raises compaction byte limits for
+    /// Enables blob garbage collection and raises compaction byte limits for
     /// `optimized_for_blobs` and `shard` column families.
-    // TODO(WAL-1201): turn on blob GC once compaction impact is reduced and proper compaction
-    // config is determined.
+    /// Sets the blob garbage collection age cutoff to 0.1 such that blobs in the
+    /// oldest 10% of blob files are considered for relocation.
     pub fn default_mainnet() -> Self {
-        let gc_disabled_options = DatabaseTableOptions {
-            enable_blob_garbage_collection: Some(false),
+        let option_overrides = DatabaseTableOptions {
+            enable_blob_garbage_collection: Some(true),
+            blob_garbage_collection_age_cutoff: Some(0.1),
             soft_pending_compaction_bytes_limit: Some(256 << 30), // 256 GiB
             hard_pending_compaction_bytes_limit: Some(512 << 30), // 512 GiB
             ..Default::default()
         };
         Self {
-            optimized_for_blobs: gc_disabled_options.clone(),
-            shard: Some(gc_disabled_options),
+            optimized_for_blobs: option_overrides.clone(),
+            shard: Some(option_overrides),
             ..Default::default()
         }
     }
