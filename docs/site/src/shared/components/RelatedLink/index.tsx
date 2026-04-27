@@ -1,7 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-
 // src/components/RelatedLink.tsx
 import React from "react";
 import Link from "@docusaurus/Link";

@@ -1,7 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
