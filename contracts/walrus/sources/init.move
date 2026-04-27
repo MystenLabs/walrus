@@ -5,7 +5,7 @@ module walrus::init;
 
 use std::type_name;
 use sui::{clock::Clock, package::{Self, Publisher, UpgradeCap}};
-use walrus::{display, events, slashing, staking::{Self, Staking}, system::{Self, System}, upgrade};
+use walrus::{display, events, staking::{Self, Staking}, system::{Self, System}, upgrade};
 
 // Error codes
 // Error types in `walrus-sui/types/move_errors.rs` are auto-generated from the Move error codes.
@@ -81,19 +81,14 @@ public fun migrate(_staking: &mut Staking, _system: &mut System) {
 /// Migrate to version 3:
 ///   - Create the slashing manager shared object.
 ///   - Do not use migration epoch.
-entry fun migrate_v2(staking: &mut Staking, system: &mut System, ctx: &mut TxContext) {
+/// Migrate to version 4:
+///   - No additional steps beyond version bump.
+entry fun migrate_v2(staking: &mut Staking, system: &mut System, _ctx: &mut TxContext) {
     staking.migrate();
     system.migrate();
     // Check that the package id and version are the same.
     assert!(staking.package_id() == system.package_id(), EInvalidMigration);
     assert!(staking.version() == system.version(), EInvalidMigration);
-
-    // Create the slashing manager shared object.
-    // Note that this step is needed for version 3. When upgrading to future versions, this step
-    // needs to be removed to not create a new slashing manager object.
-    // TODO: remove this step when upgrading to future versions.
-    assert!(staking.version() == 3, EInvalidMigration);
-    slashing::new(ctx);
 
     // Emit an event to inform storage nodes of the upgrade.
     events::emit_contract_upgraded(
