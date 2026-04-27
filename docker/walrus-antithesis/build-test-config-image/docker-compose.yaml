@@ -152,7 +152,7 @@ services:
       /bin/bash -c "sleep 15 && /root/run-stress.sh"
 
   # Staking client for testing
-  walrus-staking-1:
+  walrus-staking-0:
     depends_on:
       walrus-deploy:
         condition: service_completed_successfully
@@ -161,7 +161,7 @@ services:
         ipv4_address: 10.0.0.31
     image: ${WALRUS_IMAGE_NAME}
     platform: ${WALRUS_PLATFORM:-linux/amd64}
-    hostname: walrus-staking-1
+    hostname: walrus-staking-0
     container_name: walrus-staking-0
     environment:
       - NODE_NAME=walrus-staking-0

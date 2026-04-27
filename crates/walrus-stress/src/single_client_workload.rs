@@ -124,32 +124,45 @@ impl SingleClientWorkload {
         ));
         request_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        // Pre-populate the blob pool for read-heavy workloads.
+        // Pre-populate the blob pool for read-heavy workloads. Individual failures
+        // are logged and skipped; the main loop will continue writing.
         for _ in 0..self.initial_blobs_in_pool {
-            // Getting the current epoch in case epoch changed during the loop.
             let write_op = client_op_generator.generate_write_op_for_pool_initialization(&mut rng);
-            self.execute_client_op(write_op, &mut blob_pool).await?;
+            if let Err(error) = self.execute_client_op(write_op, &mut blob_pool).await {
+                tracing::warn!(?error, "initial-pool write failed, continuing");
+            }
         }
 
         tracing::info!(
-            "blob pool initialized with {} blobs",
+            "blob pool initialization finished, target {} blobs",
             self.initial_blobs_in_pool
         );
 
         let mut current_epoch = 0;
 
+        // Under fault injection, Sui and the storage nodes may be transiently
+        // unavailable. Log and continue instead of crashing the container; the
+        // observer + invariant checks are responsible for judging system health.
         loop {
             request_interval.tick().await;
 
             // TODO(WAL-937): tracking epoch more efficiently. This one reads per request is not
             // necessary.
-            let epoch = self.client.sui_client().current_epoch().await?;
+            let epoch = match self.client.sui_client().current_epoch().await {
+                Ok(epoch) => epoch,
+                Err(error) => {
+                    tracing::warn!(?error, "failed to read current epoch, retrying next tick");
+                    continue;
+                }
+            };
             if epoch != current_epoch {
                 blob_pool.expire_blobs_in_new_epoch(epoch);
                 current_epoch = epoch;
             }
             let client_op = client_op_generator.generate_client_op(&blob_pool, &mut rng);
-            self.execute_client_op(client_op, &mut blob_pool).await?;
+            if let Err(error) = self.execute_client_op(client_op, &mut blob_pool).await {
+                tracing::warn!(?error, "client op failed, retrying next tick");
+            }
         }
     }
 

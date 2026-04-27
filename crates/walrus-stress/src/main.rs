@@ -237,109 +237,122 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
     let mut wal_staked: HashSet<ObjectID> = Default::default();
 
     let mut mode = StakingModeAtEpoch::Stake(rand::thread_rng().next_u32() % 2);
+    // Under fault injection, Sui can be transiently unavailable. Log each
+    // iteration's error and retry next tick instead of crashing the container.
     loop {
         tokio::time::sleep(restaking_period).await;
-        let mut committee = contract_client.read_client().current_committee().await?;
-        let current_epoch = committee.epoch;
-        let wal_balance = contract_client.total_balance(CoinType::Wal).await?;
-        let sui_balance = contract_client.total_balance(CoinType::Sui).await?;
-        tracing::info!(current_epoch, ?mode, wal_balance, sui_balance, "woke up");
+        let iteration_result: anyhow::Result<()> = async {
+            let mut committee = contract_client.read_client().current_committee().await?;
+            let current_epoch = committee.epoch;
+            let wal_balance = contract_client.total_balance(CoinType::Wal).await?;
+            let sui_balance = contract_client.total_balance(CoinType::Sui).await?;
+            tracing::info!(current_epoch, ?mode, wal_balance, sui_balance, "woke up");
 
-        match mode {
-            StakingModeAtEpoch::Stake(epoch) => {
-                assert!(wal_staked.is_empty());
-                if epoch <= current_epoch {
-                    // Get the current committee. (Consider also staking on the next committee?)
-                    let mut nodes: Vec<StorageNode> = committee.members().to_vec();
+            match mode {
+                StakingModeAtEpoch::Stake(epoch) => {
+                    assert!(wal_staked.is_empty());
+                    if epoch <= current_epoch {
+                        // Get the current committee. (Consider also staking on the next committee?)
+                        let mut nodes: Vec<StorageNode> = committee.members().to_vec();
 
-                    // Shuffle the nodes to determine which ones get preferential staking
-                    // treatment.
-                    nodes.shuffle(&mut rand::thread_rng());
+                        // Shuffle the nodes to determine which ones get preferential staking
+                        // treatment.
+                        nodes.shuffle(&mut rand::thread_rng());
 
-                    // Eliminate 1/3 of the nodes to increase shard movement.
-                    nodes.truncate(std::cmp::max(1, nodes.len() * 2 / 3));
+                        // Eliminate 1/3 of the nodes to increase shard movement.
+                        nodes.truncate(std::cmp::max(1, nodes.len() * 2 / 3));
 
-                    // Allocate half the WAL to various nodes. This is a linear walk over all of the
-                    // WAL which we're going to stake, just to simplify the algorithm. Each "stake"
-                    // below is one unit of MIN_STAKING_THRESHOLD.
-                    let available_stakes = usize::try_from(
-                        (wal_balance / MIN_STAKING_THRESHOLD) / 2,
-                    )
-                    .expect("this is at most 2.5B, which fits into a usize on 32-bit platforms");
-                    let mut node_allocations = HashMap::<ObjectID, u64>::new();
-                    for i in 0..available_stakes {
-                        // Loop through the nodes in shuffled order until we've allocated all our
-                        // stake.
-                        node_allocations
-                            .entry(nodes[i % nodes.len()].node_id)
-                            .and_modify(|x| *x += MIN_STAKING_THRESHOLD)
-                            .or_insert(MIN_STAKING_THRESHOLD);
-                    }
-                    tracing::info!(current_epoch, ?node_allocations, "staking with allocations");
-                    let node_ids_with_amounts: Vec<(ObjectID, u64)> =
-                        node_allocations.into_iter().collect();
-                    let staked_wals = contract_client
-                        .stake_with_pools(&node_ids_with_amounts)
-                        .await?;
-                    // Save the list of staked WALs so we can withdraw them later.
-                    wal_staked.extend(staked_wals.into_iter().map(|x| x.id));
-
-                    // Re-read the current epoch to avoid a race condition.
-                    committee = contract_client.read_client().current_committee().await?;
-                    // Some time after we've staked, we should schedule a withdrawal.
-                    mode = StakingModeAtEpoch::RequestWithdrawal(
-                        committee.epoch + 1 + (rand::thread_rng().next_u32() % 3),
-                    );
-                }
-            }
-            StakingModeAtEpoch::RequestWithdrawal(staked_at_epoch) => {
-                assert!(!wal_staked.is_empty());
-                if staked_at_epoch < current_epoch {
-                    // Request Withdrawal for any Wal we had staked.
-                    for &staked_wal_id in wal_staked.iter() {
-                        // Request to withdraw our WAL.
-                        contract_client
-                            .request_withdraw_stake(&[staked_wal_id])
+                        // Allocate half the WAL to various nodes. This is a linear walk over
+                        // all of the WAL which we're going to stake, just to simplify the
+                        // algorithm. Each "stake" below is one unit of MIN_STAKING_THRESHOLD.
+                        let available_stakes =
+                            usize::try_from((wal_balance / MIN_STAKING_THRESHOLD) / 2).expect(
+                                "this is at most 2.5B, which fits into a usize on 32-bit platforms",
+                            );
+                        let mut node_allocations = HashMap::<ObjectID, u64>::new();
+                        for i in 0..available_stakes {
+                            // Loop through the nodes in shuffled order until we've allocated
+                            // all our stake.
+                            node_allocations
+                                .entry(nodes[i % nodes.len()].node_id)
+                                .and_modify(|x| *x += MIN_STAKING_THRESHOLD)
+                                .or_insert(MIN_STAKING_THRESHOLD);
+                        }
+                        tracing::info!(
+                            current_epoch,
+                            ?node_allocations,
+                            "staking with allocations"
+                        );
+                        let node_ids_with_amounts: Vec<(ObjectID, u64)> =
+                            node_allocations.into_iter().collect();
+                        let staked_wals = contract_client
+                            .stake_with_pools(&node_ids_with_amounts)
                             .await?;
-                    }
-                    tracing::info!(
-                        current_epoch,
-                        ?wal_staked,
-                        "requested withdrawal of staking allocations"
-                    );
+                        // Save the list of staked WALs so we can withdraw them later.
+                        wal_staked.extend(staked_wals.into_iter().map(|x| x.id));
 
-                    // Re-read the current epoch to avoid a race condition.
-                    committee = contract_client.read_client().current_committee().await?;
-                    // After we've scheduled a withdrawal, let's do a real withdrawal.
-                    mode = StakingModeAtEpoch::Withdraw(committee.epoch + 1)
+                        // Re-read the current epoch to avoid a race condition.
+                        committee = contract_client.read_client().current_committee().await?;
+                        // Some time after we've staked, we should schedule a withdrawal.
+                        mode = StakingModeAtEpoch::RequestWithdrawal(
+                            committee.epoch + 1 + (rand::thread_rng().next_u32() % 3),
+                        );
+                    }
+                }
+                StakingModeAtEpoch::RequestWithdrawal(staked_at_epoch) => {
+                    assert!(!wal_staked.is_empty());
+                    if staked_at_epoch < current_epoch {
+                        // Request Withdrawal for any Wal we had staked.
+                        for &staked_wal_id in wal_staked.iter() {
+                            // Request to withdraw our WAL.
+                            contract_client
+                                .request_withdraw_stake(&[staked_wal_id])
+                                .await?;
+                        }
+                        tracing::info!(
+                            current_epoch,
+                            ?wal_staked,
+                            "requested withdrawal of staking allocations"
+                        );
+
+                        // Re-read the current epoch to avoid a race condition.
+                        committee = contract_client.read_client().current_committee().await?;
+                        // After we've scheduled a withdrawal, let's do a real withdrawal.
+                        mode = StakingModeAtEpoch::Withdraw(committee.epoch + 1)
+                    }
+                }
+                StakingModeAtEpoch::Withdraw(epoch) => {
+                    if epoch <= current_epoch {
+                        tracing::info!(
+                            current_epoch,
+                            ?wal_staked,
+                            "withdrawing staking allocations"
+                        );
+
+                        // Empty the current map so we can start our staking simulation anew.
+                        let mut wal_staked_temp = Default::default();
+                        std::mem::swap(&mut wal_staked_temp, &mut wal_staked);
+
+                        // Unstake any Wal we had staked.
+                        for staked_wal_id in wal_staked_temp {
+                            // Actually withdraw our WAL.
+                            contract_client.withdraw_stake(&[staked_wal_id]).await?;
+                        }
+
+                        // Re-read the current epoch to avoid a race condition.
+                        committee = contract_client.read_client().current_committee().await?;
+                        // After we've withdrawn, let's schedule more staking.
+                        mode = StakingModeAtEpoch::Stake(
+                            committee.epoch + 1 + (rand::thread_rng().next_u32() % 2),
+                        );
+                    }
                 }
             }
-            StakingModeAtEpoch::Withdraw(epoch) => {
-                if epoch <= current_epoch {
-                    tracing::info!(
-                        current_epoch,
-                        ?wal_staked,
-                        "withdrawing staking allocations"
-                    );
-
-                    // Empty the current map so we can start our staking simulation anew.
-                    let mut wal_staked_temp = Default::default();
-                    std::mem::swap(&mut wal_staked_temp, &mut wal_staked);
-
-                    // Unstake any Wal we had staked.
-                    for staked_wal_id in wal_staked_temp {
-                        // Actually withdraw our WAL.
-                        contract_client.withdraw_stake(&[staked_wal_id]).await?;
-                    }
-
-                    // Re-read the current epoch to avoid a race condition.
-                    committee = contract_client.read_client().current_committee().await?;
-                    // After we've withdrawn, let's schedule more staking.
-                    mode = StakingModeAtEpoch::Stake(
-                        committee.epoch + 1 + (rand::thread_rng().next_u32() % 2),
-                    );
-                }
-            }
+            Ok(())
+        }
+        .await;
+        if let Err(error) = iteration_result {
+            tracing::warn!(?error, "staking iteration failed, retrying next tick");
         }
     }
 }
