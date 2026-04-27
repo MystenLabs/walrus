@@ -1293,7 +1293,7 @@ mod tests {
             mainnet_config
                 .optimized_for_blobs()
                 .enable_blob_garbage_collection,
-            Some(false),
+            Some(true),
             "mainnet disables blob GC for optimized_for_blobs"
         );
         assert_eq!(
@@ -1310,7 +1310,7 @@ mod tests {
         );
         assert_eq!(
             mainnet_config.shard().enable_blob_garbage_collection,
-            Some(false)
+            Some(true)
         );
         assert_eq!(
             mainnet_config.shard().soft_pending_compaction_bytes_limit,
