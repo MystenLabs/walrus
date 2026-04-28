@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 The publisher and daemon perform onchain actions and require a Sui wallet with sufficient SUI and WAL balances. To handle many parallel requests without object conflicts, they create internal sub-wallets (introduced in version 1.4.0) funded from the main wallet. These sub-wallets persist in a directory you specify with the `--sub-wallets-dir` argument. You can use any existing directory. If the directory already contains sub-wallets, they are reused.
 
 By default, 8 sub-wallets are created and funded. You can change this with the `--n-clients` argument (see [Set sub-wallets and upload concurrency](#sub-wallets-concurrency) for details). For basic local testing, 1 or 2 sub-wallets are usually sufficient.
@@ -9,32 +11,20 @@ Run a local Walrus daemon through the `walrus` binary using one of the following
 - `walrus publisher`: Starts a publisher that offers an HTTP interface to store blobs in Walrus.
 - `walrus daemon`: Offers the combined functionality of an aggregator and publisher on the same address and port.
 
-:::tip
-
-If you run the publisher without a reverse proxy, open **port 9001** on your firewall. With a reverse proxy (such as the [nginx caching setup](#nginx-caching)), only **port 443** needs to be open.
-
-:::
-
+> **Tip**
+>
+> If you run the publisher without a reverse proxy, open **port 9001** on your firewall. With a reverse proxy (such as the [nginx caching setup](#nginx-caching)), only **port 443** needs to be open.
 ## Download the client configuration {#client-config}
 
 The publisher requires a client configuration file. If you run the publisher on the same host as a [storage node](/docs/operator-guide/storage-nodes/storage-node-setup#binaries), the configuration is already available at `/opt/walrus/config/client_config.yaml`. Otherwise, download it:
-
-<Tabs>
-<TabItem label="Mainnet" value="mainnet">
 
 ```sh
 curl "https://docs.wal.app/setup/client_config_mainnet.yaml" -o /opt/walrus/config/client_config.yaml
 ```
 
-</TabItem>
-<TabItem label="Testnet" value="testnet">
-
 ```sh
 curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/config/client_config.yaml
 ```
-
-</TabItem>
-</Tabs>
 
 ## Create and fund the publisher wallet {#fund-publisher}
 
@@ -65,19 +55,11 @@ The publisher wallet needs both SUI (for gas) and WAL (for storage payments). Ea
 
 If you expect the publisher to handle significant traffic, you need substantially higher amounts to cover storage costs and gas fees. The publisher automatically distributes funds from the main wallet to sub-wallets at startup and refills them periodically during operation. See [Manage SUI coins in sub-wallets](#manage-sub-wallets) for details on configuring refill behavior.
 
-<Tabs>
-<TabItem label="Mainnet" value="mainnet">
-
 Acquire WAL tokens through the Walrus token distribution or supported exchanges, and transfer both SUI and WAL to the publisher wallet address.
 
-:::caution
-
-The aggregator does not perform Sui onchain actions and therefore consumes no gas. The publisher, however, performs actions onchain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher because this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs. Consider using an [authenticated publisher](/docs/operator-guide/publishers/auth-publisher) to restrict access.
-
-:::
-
-</TabItem>
-<TabItem label="Testnet" value="testnet">
+> **Caution**
+>
+> The aggregator does not perform Sui onchain actions and therefore consumes no gas. The publisher, however, performs actions onchain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher because this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs. Consider using an [authenticated publisher](/docs/operator-guide/publishers/auth-publisher) to restrict access.
 
 On Testnet, you can exchange SUI for WAL using the exchange objects in the client configuration. Use the `--amount` option to specify the amount in MIST (1 WAL = 1,000,000,000 MIST):
 
@@ -86,9 +68,6 @@ On Testnet, you can exchange SUI for WAL using the exchange objects in the clien
 ```
 
 This exchanges SUI for 5 WAL. Adjust the amount based on the number of sub-wallets and expected usage.
-
-</TabItem>
-</Tabs>
 
  
 

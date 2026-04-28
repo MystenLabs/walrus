@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 You can change most node parameters using `StorageNodeCap`, and the storage node automatically updates them based on the values in the node configuration. However, authorization for contract upgrades and withdrawing the storage node commission is handled separately. This ensures that the hot wallet on the storage node does not need authorization for these operations.
 
 You should designate secure wallets for these operations that are not stored on the storage node machines.
@@ -8,12 +10,9 @@ This page explains how to update the entities authorized for governance (contrac
 
 You can either designate an arbitrary object for governance and commission operations, or designate an address to be authorized.
 
-:::caution
-
-After you set the authorization, only the authorized entity can change it again. Only set authorization to addresses or objects that you control. Make sure they remain accessible.
-
-:::
-
+> **Caution**
+>
+> After you set the authorization, only the authorized entity can change it again. Only set authorization to addresses or objects that you control. Make sure they remain accessible.
 To set the authorization to receive the commission and perform governance operations, you can use the `walrus` binary in your CLI or the [node operations web interface](https://stake-wal.wal.app/node-operations).
 
 ### Use the CLI

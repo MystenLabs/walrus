@@ -1,22 +1,17 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 By default, Walrus Sites are served through a portal at a subdomain address like `https://example.wal.app`. If you want to serve your site at a classic DNS domain you own, for example `https://example.com`, you can do so by deploying your own portal and configuring it to serve only your site.
 
-:::info
-
-This guide requires you to deploy and run your own portal. The public `wal.app` portal does not support custom DNS domains. For an alternative approach that does not require running your own portal, see [Setting a SuiNS Name](/docs/sites/custom-domains/setting-a-suins-name).
-
-:::
-
+> **Info**
+>
+> This guide requires you to deploy and run your own portal. The public `wal.app` portal does not support custom DNS domains. For an alternative approach that does not require running your own portal, see [Setting a SuiNS Name](/docs/sites/custom-domains/setting-a-suins-name).
 When a visitor navigates to your domain, their request reaches your portal. The portal resolves the Walrus Site object and returns that site's content. Configuring the portal to serve only your domain prevents it from being used to serve other Walrus Sites.
 
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
 - [x] A [deployed Walrus Site](/docs/sites/getting-started/publishing-your-first-site) with a known object ID (in Base36)
 - [x] A custom domain registered through a domain registrar, such as [Cloudflare](https://www.cloudflare.com/products/registrar/)
 - [x] A server or hosting environment where you can run the Walrus Sites portal (with a public IP address), such as [DigitalOcean](https://www.digitalocean.com/products/droplets), [AWS EC2](https://aws.amazon.com/ec2/), or [GCP Compute Engine](https://cloud.google.com/products/compute)
 - [x] Access to your domain's DNS settings
 - [x] The Walrus Sites portal repository cloned and [set up locally](/docs/sites/portals/deploy-locally)
-</TabItem>
-</Tabs>
 
 ## Get your Walrus Site object ID in Base36
 
@@ -42,24 +37,13 @@ Once you have a [local portal set up](/docs/sites/portals/deploy-locally), confi
 
 Copy the appropriate example config file for your target network:
 
-<Tabs>
-<TabItem value="mainnet" label="Mainnet config">
-
 ```sh
 $ cp ./portal/server/portal-config.mainnet.example.yaml ./portal/server/portal-config.yaml
 ```
 
-</TabItem>
-
-<TabItem value="testnet" label="Testnet config">
-
 ``` sh
 $ cp ./portal/server/portal-config.testnet.example.yaml ./portal/server/portal-config.yaml
 ```
-
-</TabItem>
-
-</Tabs>
 
 Open `portal-config.yaml` and update the following fields:
 
@@ -92,12 +76,9 @@ aggregator_urls:
 - `rpc_urls`: One or more Sui RPC nodes the portal uses to read onchain data.
 - `aggregator_urls`: One or more Walrus aggregator nodes the portal uses to fetch site content.
 
-:::info
-
-Environment variables are supported and override any value set in `portal-config.yaml`. The `.env.mainnet.example` and `.env.testnet.example` files in `portal/server/` document the available environment variable names.
-
-:::
-
+> **Info**
+>
+> Environment variables are supported and override any value set in `portal-config.yaml`. The `.env.mainnet.example` and `.env.testnet.example` files in `portal/server/` document the available environment variable names.
 After editing `portal-config.yaml`, restart your portal server for the changes to take effect.
 
 ## Deploy your portal to a server

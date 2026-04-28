@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully because they
 govern your use of the website, the user interface, and other offerings located at walrus.xyz, (the
 “Site”) offered by Walrus Foundation (“Walrus Foundation,” “we,” “our”). To make these Terms easier

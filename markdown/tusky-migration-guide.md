@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 As of December 19, 2025, the storage service Tusky is shutting down. Data stored on Walrus through Tusky is still safe and accessible. During Tusky's sunsetting period, you can continue reading your data, however you must either migrate to using Walrus directly or through alternative tooling.
 
 During this sunset period, you must:
@@ -76,10 +78,9 @@ Available options:
   - [Zark Lab](https://zarklab.ai): Refer to the [Getting Started with Zark guide](https://zarklab.mintlify.app/data-storage/walrus/walrus-integration-overview).
   - [Pawtato](https://pawtato.app/board/walrus/upload)
 
-:::tip
-More managed UX options coming soon.
-:::
-
+> **Tip**
+>
+> More managed UX options coming soon.
 1. Export data from Tusky
   - Use the Tusky app, API, or SDK to download all required data.
   - Evaluate and choose one of the options listed above.

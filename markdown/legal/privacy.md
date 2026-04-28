@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 **Last Updated:** February 10, 2024
 
 This Privacy Policy is designed to help you understand how Walrus Foundation (collectively called the “**Organization**", "**we**," "**us**," and "**our**") collects, uses, and shares your personal information and to help you understand and exercise your privacy rights in accordance with applicable law. This Policy applies when you use the Website, contact our team members, engage with us on social media or otherwise interact with us. Any capitalized terms that are undefined shall have the meaning as set forth in the [Walrus Airdrop Terms and Conditions](https://claim.walrus.xyz/airdrop/terms-and-conditions)
@@ -199,58 +201,58 @@ To determine the appropriate retention period for personal information, we may c
 
 This Supplemental Notice for California Residents only applies to our processing of personal information that is subject to the California Consumer Privacy Act of 2018 ("**CCPA**"). The Organization does not believe it is subject to the CCPA. That said, the Organization provides this supplemental notice for purposes of transparency. The CCPA provides California residents with the right to know what categories of personal information the Organization has collected about them and whether the Organization disclosed that personal information for a business purpose (e.g., to a service provider) in the preceding twelve months. California residents can find this information below:
 
-  <thead>
-    <tr>
-    <th><strong>Category of Personal Information Collected by the Organization</strong></th>
-    <th><strong>Categories of Third Parties Personal Information is Disclosed to for a Business Purpose</strong></th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-    <td>
-        <p><strong>Identifiers:</strong></p>
-        <p>Unique personal identifier, online identifier, internet protocol address, email address, account name or other similar identifiers.</p>
-    </td>
-    <td>
-        <ul>
-        <li><p>Service providers</p></li>
-        <li><p>Third-party websites or applications</p></li>
-        <li><p>Blockchain networks</p></li>
-        <li><p>Other users or third parties you interact with</p></li>
-        <li><p>Data analytics providers</p></li>
-        <li><p>Other users/public (alias only)</p></li>
-        </ul>
-    </td>
-    </tr>
-    <tr>
-    <td>
-        <p><strong>Commercial information</strong></p>
-        <p>Records of personal property, products or services, purchased, obtained, or considered, or other purchasing or consuming histories or tendencies</p>
-    </td>
-    <td>
-        <ul>
-        <li><p>Service providers</p></li>
-        <li><p>Blockchain networks</p></li>
-        <li><p>Data analytics providers</p></li>
-        <li><p>Other users or third parties you interact with</p></li>
-        </ul>
-    </td>
-    </tr>
-    <tr>
-    <td>
-        <p><strong>Internet or other electronic network activity</strong></p>
-        <p>Browsing history, search history, information on a consumer’s interaction with an internet website or application</p>
-    </td>
-    <td>
-        <ul>
-        <li><p>Service providers</p></li>
-        <li><p>Blockchain networks</p></li>
-        <li><p>Data analytics providers</p></li>
-        <li><p>Other users or third parties you interact with</p></li>
-        </ul>
-    </td>
-    </tr>
-  </tbody>
+  
+    
+    Category of Personal Information Collected by the Organization
+    Categories of Third Parties Personal Information is Disclosed to for a Business Purpose
+    
+  
+  
+    
+    
+        Identifiers:
+        Unique personal identifier, online identifier, internet protocol address, email address, account name or other similar identifiers.
+    
+    
+        
+        Service providers
+        Third-party websites or applications
+        Blockchain networks
+        Other users or third parties you interact with
+        Data analytics providers
+        Other users/public (alias only)
+        
+    
+    
+    
+    
+        Commercial information
+        Records of personal property, products or services, purchased, obtained, or considered, or other purchasing or consuming histories or tendencies
+    
+    
+        
+        Service providers
+        Blockchain networks
+        Data analytics providers
+        Other users or third parties you interact with
+        
+    
+    
+    
+    
+        Internet or other electronic network activity
+        Browsing history, search history, information on a consumer’s interaction with an internet website or application
+    
+    
+        
+        Service providers
+        Blockchain networks
+        Data analytics providers
+        Other users or third parties you interact with
+        
+    
+    
+  
 
 The categories of sources from which we collect personal information and our business and commercial purposes for using personal information are set forth in "[Personal Information we Collect](#personal-information-we-collect)" and "[How We Use of Your Information](#how-we-use-your-information)" above, respectively.
 

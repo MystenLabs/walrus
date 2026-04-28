@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 A Walrus Site is addressed through a [portal](/docs/sites/portals/mainnet-testnet). The portal resolves the site from an onchain object and serves its content. To link to a Walrus Site from an external source, you construct a URL that the portal can resolve. There are 2 ways to identify a site in that URL: by its [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name), or by its [Sui object ID](/docs/sites/getting-started/using-the-site-builder).
 
 ## URL structure
@@ -28,10 +30,9 @@ https://myproject.wal.app
  
 SuiNS names are human-readable and stable as long as the registration is maintained and continues to point at the correct site object. If the owner transfers the site object or re-registers the name to a different object, links using the SuiNS name resolve to the new target.
  
-:::info
-SuiNS name resolution is performed onchain by the portal at request time. A name that is expired, not registered, or not pointed at a site object returns an error.
-:::
- 
+> **Info**
+>
+> SuiNS name resolution is performed onchain by the portal at request time. A name that is expired, not registered, or not pointed at a site object returns an error.
 ## Linking by object ID
  
 Every Walrus Site has a Sui object ID. You can use the object ID as the subdomain in place of a SuiNS name. Because subdomain labels are case-insensitive and limited to 63 characters, the object ID must be encoded as Base36 rather than used as a hex string. The `site-builder` tool outputs the Base36-encoded subdomain URL for you when you deploy a site, and you can also convert a hex object ID to Base36 using the `site-builder convert` command.
@@ -48,10 +49,9 @@ https://58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app
  
 Object ID links are permanent. They resolve to the same site object regardless of whether the SuiNS name changes or is transferred. Use object ID links when stability matters, such as in documentation, bookmarks, or application configurations.
  
-:::tip
-Prefer object ID links in any context where the URL is expected to remain valid long-term. SuiNS name links are more readable but depend on the name registration staying current.
-:::
- 
+> **Tip**
+>
+> Prefer object ID links in any context where the URL is expected to remain valid long-term. SuiNS name links are more readable but depend on the name registration staying current.
 ## Deep linking to a specific page or resource
  
 Append a path after the portal hostname to link directly to a resource within the site. The path resolves against the site object's stored resources.
@@ -116,19 +116,19 @@ The following examples cover typical inbound linking scenarios.
 ### Linking from an HTML page
  
 ```html
-Visit the project site
+<a href="https://SUINS_NAME.wal.app">Visit the project site</a>
 ```
  
 ### Linking to a specific resource from an HTML page
  
 ```html
-Read the documentation
+<a href="https://SUINS_NAME.wal.app/docs">Read the documentation</a>
 ```
  
 ### Embedding a Walrus Site in an iframe
  
 ```html
-
+<iframe src="https://BASE36_OBJECT_ID.wal.app" width="100%" height="600"></iframe>
 ```
  
 Object IDs are preferred in embedded contexts because the framed content does not change if a SuiNS name is updated.

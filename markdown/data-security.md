@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Walrus provides decentralized storage for application and user data. All data stored on Walrus is public and can be accessed by anyone. While Walrus natively provides some data availability and integrity guarantees, use cases that require data confidentiality should use additional encryption mechanisms such as [Seal](https://seal-docs.wal.app/) and [Nautilus](https://docs.sui.io/concepts/cryptography/nautilus).
 
 ## Data availability

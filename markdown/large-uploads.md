@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 The maximum blob size on Walrus is approximately 13.6 GiB. Uploading large data sets or individual blobs larger than 1 GiB require certain workarounds and planning for optimal performance and efficiency.
 
 ## Estimate storage duration and costs
@@ -38,12 +40,9 @@ Large ingestion workflows should tolerate failures and support retries. High-lev
 
 - Implement cleanup workflows that handle partial uploads, for example by deleting orphaned blob registrations that were never certified.
 
-:::tip
-
-Track the point of availability (PoA) for each blob. A blob is only guaranteed to be retrievable after its availability certificate is posted onchain. If your pipeline fails between registration and certification, the blob is not yet available and you need to retry the upload.
-
-:::
-
+> **Tip**
+>
+> Track the point of availability (PoA) for each blob. A blob is only guaranteed to be retrievable after its availability certificate is posted onchain. If your pipeline fails between registration and certification, the blob is not yet available and you need to retry the upload.
 ## Manage upload throughput
 
 Very high ingestion rates can temporarily reduce throughput if recovery processes accumulate on storage nodes. This behavior is similar to ingestion rate management in traditional cloud storage systems.

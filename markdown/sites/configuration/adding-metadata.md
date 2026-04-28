@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 The `metadata` section of [`ws-resources.json`](/docs/sites/configuration/site-configuration) lets you add human-readable information to your Walrus Site object. This data is stored onchain and is used by portals, explorers, wallets, and other tools to display information about your site.
 
 ```json

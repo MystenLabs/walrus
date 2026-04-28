@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Walrus Sites supports 3 kinds of redirects: internal routing redirects, HTTP redirects, and object redirects. Internal routing redirects map URL paths within your site to specific resources. HTTP redirects return 3xx responses to send the client to a different URL. Object redirects allow arbitrary Sui objects to point to a Walrus Site. These work differently and serve different use cases.
 
 ## Internal routing redirects
@@ -52,10 +54,9 @@ You can define multiple, more specific rules alongside a catch-all. More specifi
 
 Requests to `/app/anything` serve `app.html`. Requests to `/docs/anything` serve `docs.html`. All other paths serve `index.html`.
 
-:::caution
-Route values must point to resources that exist in the site object. Deploying a configuration that references a missing resource causes the transaction to abort.
-:::
-
+> **Caution**
+>
+> Route values must point to resources that exist in the site object. Deploying a configuration that references a missing resource causes the transaction to abort.
 ## HTTP redirects
 
 The `redirects` field in `ws-resources.json` defines server-side HTTP redirect rules for your site. Redirect rules are stored as dynamic fields on the onchain `Site` object. The portal evaluates redirects before fetching resources and serves a 3xx response to the client.
@@ -156,6 +157,6 @@ The Walrus Site at `VISUALIZATION_SITE` is a single shared site, but it can rend
 
 This produces a unique page for every object without requiring a separate Walrus Site deployment per item. For a complete implementation, see the [`flatland` example](https://github.com/MystenLabs/example-walrus-sites/tree/main/flatland).
 
-:::info
-The portal follows a configurable maximum redirect depth to prevent infinite redirect chains. Self-hosted portals expose this as the `MAX_REDIRECT_DEPTH` environment variable.
-:::
+> **Info**
+>
+> The portal follows a configurable maximum redirect depth to prevent infinite redirect chains. Self-hosted portals expose this as the `MAX_REDIRECT_DEPTH` environment variable.

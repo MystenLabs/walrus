@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 The Sui Archival application demonstrates how Sui blockchain checkpoint data can be archived on Walrus in a reliable, deterministic, and resilient manner.
 
 The application is accessible at https://walrus-sui-archival.wal.app/
@@ -12,8 +14,6 @@ Additional technical details can be found in the [application's documentation](h
 
 The application uses the following code for the main archival functionality:
 
-<!-- IMPORT_CONTENT_RESOLVED source="crates/walrus-sui-archival/src/archival.rs" mode="code" -->
 <!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-sui-archival/blob/main/crates/walrus-sui-archival/src/archival.rs -->
-<!-- /IMPORT_CONTENT_RESOLVED -->
 
 [View the application's full code on GitHub](https://github.com/MystenLabs/walrus-sui-archival).

@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 The Walrus client offers a daemon mode that runs a simple web server that provides HTTP interfaces you can use to store and read blobs in an [aggregator](/docs/operator-guide/aggregators/operating-aggregator) or [publisher](/docs/operator-guide/publishers/operating-publisher) role respectively. Walrus also offers HTTP APIs through [public aggregator and publisher services](#public-services) that you can use without running a local client. 
 
 Walrus aggregators and publishers expose their API specifications at the path `/v1/api`. View this path in a browser, for example, at https://aggregator.walrus-testnet.walrus.space/v1/api. The latest version of these specifications is available [on GitHub](https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service) in HTML and YAML format.

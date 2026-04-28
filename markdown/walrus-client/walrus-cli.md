@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available by installing the `walrus` binary. To install Walrus, use the Mysten Labs [`suiup` tool](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation):
 ```sh
 $ curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
@@ -49,7 +51,6 @@ Use the `--json` flag to write a command's output as JSON. This is the default i
 
 You can access Testnet and Mainnet through the following configuration. This example Walrus CLI configuration refers to the standard location for Sui configuration (`~/.sui/sui_config/client.yaml`).
 
-<!-- IMPORT_CONTENT_RESOLVED source="/setup/client_config.yaml" mode="code" -->
 ```yaml title="setup/client_config.yaml"
 contexts:
   mainnet:
@@ -87,7 +88,6 @@ contexts:
       - https://fullnode.testnet.sui.io:443
 default_context: testnet
 ```
-<!-- /IMPORT_CONTENT_RESOLVED -->
 
 ## Logging and metrics
 

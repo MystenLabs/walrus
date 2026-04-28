@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 A Walrus Site is made up of 4 main components that work together: the site's files stored on Walrus, a [Sui object](https://docs.sui.io/guides/developer/objects/object-model) that indexes those files as resources, the [`site-builder` CLI](/docs/sites/getting-started/installing-the-site-builder) that publishes and updates the site, and a portal that serves the site to browsers.
 
 ## Site files on Walrus
@@ -29,12 +31,9 @@ The `path` field corresponds to the resource's URL path (for example, `/index.ht
 
 Because the site object is a standard Sui object, it has a single owner. The wallet that deployed the site owns the object and is the only wallet that can update or destroy it. Ownership can also be transferred, meaning you can move a site to a different wallet if needed. For more detail on how Sui handles object ownership, see the [Sui object model](https://docs.sui.io/guides/developer/objects/object-model) documentation. You can also assign a [SuiNS](https://suins.io/) name to the object, giving your site a human-readable domain name.
 
-:::info
-
-Blobs are stored for a fixed number of epochs. On Mainnet, each epoch lasts 14 days. On Testnet, each epoch lasts 1 day. The maximum storage duration is 53 epochs.
-
-:::
-
+> **Info**
+>
+> Blobs are stored for a fixed number of epochs. On Mainnet, each epoch lasts 14 days. On Testnet, each epoch lasts 1 day. The maximum storage duration is 53 epochs.
 ## The `site-builder` CLI
 
 The `site-builder` is a Rust CLI tool that creates and manages Walrus Sites. It takes your site's build output directory as input and handles uploading files to Walrus and writing the onchain index to Sui.
@@ -80,12 +79,9 @@ The file supports the following fields (see the [configuration reference](/docs/
 }
 ```
 
-:::caution
-
-Walrus Sites does not support dynamic redirects. Redirect plugins used in frameworks like Docusaurus resolve routes at the server level, which Walrus Sites does not have. Use the `routes` field in `ws-resources.json` to simulate client-side routing instead.
-
-:::
-
+> **Caution**
+>
+> Walrus Sites does not support dynamic redirects. Redirect plugins used in frameworks like Docusaurus resolve routes at the server level, which Walrus Sites does not have. Use the `routes` field in `ws-resources.json` to simulate client-side routing instead.
 ## Portals
 
 A [portal](/docs/sites/portals/mainnet-testnet) resolves and serves a Walrus Site to a visitor's browser. When a visitor navigates to a Walrus Site URL, the portal performs the following steps:

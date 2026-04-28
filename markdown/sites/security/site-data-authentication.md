@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Walrus Sites use SHA-256 hashes stored on Sui to verify that every resource served by a portal matches the content the site owner originally published.
 
 ## How authentication works
@@ -22,10 +24,9 @@ If the hashes match, the portal serves the content to the visitor. If the hashes
 
 This mechanism protects against a class of attacks where a malicious aggregator or caching layer intercepts a blob and substitutes different content before returning it to the portal.
 
-:::info
-The hash stored on Sui is set at publish time and is as trustworthy as Sui itself. Anyone who controls the Sui private key that owns the site object can update the resource hashes, which is how legitimate site updates work.
-:::
-
+> **Info**
+>
+> The hash stored on Sui is set at publish time and is as trustworthy as Sui itself. Anyone who controls the Sui private key that owns the site object can update the resource hashes, which is how legitimate site updates work.
 ## What authentication does and does not cover
  
 Understanding the scope of Walrus Sites data authentication helps you reason accurately about the security of a site.
@@ -43,10 +44,9 @@ Authentication does not cover the following scenarios:
 - The portal provider delivers a modified service worker that skips or bypasses hash verification (in the service-worker case)
 - DNS or TLS attacks that redirect the portal itself to an attacker-controlled server
  
-:::caution
-Authentication only guarantees that the content you receive matches what is recorded on Sui. It does not guarantee that what is recorded on Sui is safe or trustworthy. Always verify that you are browsing a site through a portal and Sui object you have reason to trust.
-:::
-
+> **Caution**
+>
+> Authentication only guarantees that the content you receive matches what is recorded on Sui. It does not guarantee that what is recorded on Sui is safe or trustworthy. Always verify that you are browsing a site through a portal and Sui object you have reason to trust.
 ## Trust model summary
  
 There are 3 portal deployment types: remote server-side, remote service-worker, and local. The following table summarizes the trust requirements for each:
@@ -89,10 +89,9 @@ This provides a stronger guarantee than the server-side portal because the authe
 
 The `portal/worker` directory in the [walrus-sites repository](https://github.com/MystenLabs/walrus-sites) contains the reference implementation of this type of portal.
 
-:::info
-The service-worker portal is no longer hosted publicly by Mysten Labs. You can run it locally. See [Deploying a Local Portal](/docs/sites/portals/deploy-locally) for instructions.
-:::
-
+> **Info**
+>
+> The service-worker portal is no longer hosted publicly by Mysten Labs. You can run it locally. See [Deploying a Local Portal](/docs/sites/portals/deploy-locally) for instructions.
 ### Local portal deployment
 
 A locally deployed portal gives you the highest level of authentication confidence. You clone the walrus-sites repository, inspect the code yourself, and run the portal on your own machine at `localhost`.

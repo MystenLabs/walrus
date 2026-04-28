@@ -1,4 +1,6 @@
-The RedStuff encoding algorithm used in Walrus is an adaptation of the Twin-Code framework presented by Rashmi et al. [1].
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+The RedStuff encoding algorithm used in Walrus is an adaptation of the Twin-Code framework presented by Rashmi et al. [[1]](https://doi.org/10.1109/ISIT.2011.6033732).
 
 ## Goals and overview
 

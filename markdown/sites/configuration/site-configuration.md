@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 In its base configuration, a Walrus Site serves static assets through a portal. However, many modern web applications require more advanced features, such as custom headers, client-side routing, and human-readable information.
 
 The `site-builder` can read a `ws-resources.json` configuration file, in which you can directly specify these advanced features.
@@ -41,12 +43,9 @@ The file is JSON-formatted, and looks like the following:
 }
 ```
 
-:::info
-
-The `ws-resources.json` file expects the field names to be in `snake_case`.
-
-:::
-
+> **Info**
+>
+> The `ws-resources.json` file expects the field names to be in `snake_case`.
 ## Specifying HTTP headers
 
 The `headers` section lets you attach custom HTTP response headers to specific resources, controlling caching, content types, encoding, and download behaviour. Headers are specified per exact file path and override the portal's defaults. Refer to the [HTTP headers reference page](/docs/sites/configuration/specifying-http-headers) for more information.

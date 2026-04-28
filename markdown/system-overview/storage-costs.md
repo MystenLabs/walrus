@@ -1,21 +1,17 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Storing blobs on Walrus Mainnet incurs 2 separate costs:
 
 - **WAL** for the storage operation. You pay per storage unit per epoch. In other words, the cost scales with blob size and epoch. Run `walrus info` to see current pricing, including the price per encoded storage unit and the additional write fee. See [WAL tokenomics](https://www.walrus.xyz/wal-token) and the [Walrus delegated proof of stake system](/walrus.pdf) for more details.
 
 - **SUI** for executing transactions on Sui Mainnet. Each operation that interacts with the Sui blockchain (registering a blob, posting a certificate, extending storage) incurs a gas fee in SUI. See [SUI tokenomics](https://docs.sui.io/concepts/tokenomics) and [SUI gas fee calculation](https://docs.sui.io/concepts/tokenomics/gas-in-sui) for more details.
 
-:::tip
-
-Walrus uses erasure coding with approximately 5x expansion. The storage cost shown by `walrus info` accounts for this. You do not need to calculate the expansion yourself.
-
-:::
-
-:::caution
-
-There are plans to stabilize costs to USD so that storage fees are not subject to WAL fluctuations.
-
-:::
-
+> **Tip**
+>
+> Walrus uses erasure coding with approximately 5x expansion. The storage cost shown by `walrus info` accounts for this. You do not need to calculate the expansion yourself.
+> **Caution**
+>
+> There are plans to stabilize costs to USD so that storage fees are not subject to WAL fluctuations.
 ## Cost calculator
 
 Use the [Walrus Cost Calculator](https://costcalculator.wal.app/) to estimate total storage costs interactively.

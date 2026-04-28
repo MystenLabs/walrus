@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 This page covers the ongoing operation of your Walrus storage node after [initial setup](/docs/operator-guide/storage-nodes/storage-node-setup).
 
 ## Important data to back up
@@ -59,12 +61,9 @@ $ sudo systemctl start walrus-aggregator.service  # if applicable
 $ sudo systemctl start walrus-publisher.service   # if applicable
 ```
 
-:::info
-
-You are generally expected to upgrade within 24 hours of a new release. In emergency situations, immediate action is appreciated. Subscribe to the [Walrus release calendar](https://calendar.google.com/calendar/u/0/embed?src=c_97763fcda7894da7ddcd68595a797397b9b4294b69603a52e30d4fa0c3fee2bb@group.calendar.google.com) to stay informed about upcoming releases.
-
-:::
-
+> **Info**
+>
+> You are generally expected to upgrade within 24 hours of a new release. In emergency situations, immediate action is appreciated. Subscribe to the [Walrus release calendar](https://calendar.google.com/calendar/u/0/embed?src=c_97763fcda7894da7ddcd68595a797397b9b4294b69603a52e30d4fa0c3fee2bb@group.calendar.google.com) to stay informed about upcoming releases.
 ## Repair the database
 
 If the node database becomes corrupted (for example, after an unclean shutdown), you can attempt a repair:
@@ -85,8 +84,6 @@ Avoid changing the node name, keys, and network address unless necessary because
 
 Several community members have created tools for monitoring Walrus services. These tools are listed on [awesome-walrus](https://github.com/MystenLabs/awesome-walrus).
 
-:::caution
-
-The Walrus team does not provide or officially support community tools.
-
-:::
+> **Caution**
+>
+> The Walrus team does not provide or officially support community tools.

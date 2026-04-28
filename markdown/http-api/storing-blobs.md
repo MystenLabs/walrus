@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 You can store data using HTTP PUT requests. The following examples use `curl` to store blobs through a publisher:
 
 ```sh
@@ -34,12 +36,9 @@ $ curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
 $ curl -X PUT "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
 ```
 
-:::caution
-
-Newly stored blobs are deletable by default.
-
-:::
-
+> **Caution**
+>
+> Newly stored blobs are deletable by default.
 ### Sending the blob object to another address
 
 Specify an address to which the resulting `Blob` object is sent using the `send_object_to` parameter:

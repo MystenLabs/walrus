@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 The `headers` section allows you to specify custom HTTP response headers for specific resources. The keys in the `headers` object are the exact paths of the resources (no wildcards), and the values are lists of key-value pairs corresponding to the headers that the portal attaches to the response.
 
 This mechanism allows you to control various aspects of the resource delivery, such as caching, encoding, and content types.

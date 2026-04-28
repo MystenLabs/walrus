@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 This page covers common errors you might encounter when using Walrus. Each entry includes the error message, its cause, and how to troubleshoot it.
 
 ## Configuration errors
@@ -232,10 +234,9 @@ Errors in this section occur when a blob ID is missing, malformed, or refers to 
 $ walrus convert-blob-id DECIMAL_VALUE
 ```
 
-:::info
-Some on-chain representations and Sui explorers display blob IDs as large decimal numbers. These are not valid blob IDs for Walrus API calls. Always convert them to URL-safe base64 format before use.
-:::
-
+> **Info**
+>
+> Some on-chain representations and Sui explorers display blob IDs as large decimal numbers. These are not valid blob IDs for Walrus API calls. Always convert them to URL-safe base64 format before use.
 #### `the provided blob ID is invalid`
 
 **Cause:** The provided blob ID string cannot be parsed as either a base64-encoded blob ID or a decimal value.
@@ -319,10 +320,9 @@ $ sui client tx-block TRANSACTION_ID
 
 If the transaction succeeded, proceed normally. If it failed or was not found, retry the operation.
 
-:::caution
-Do not assume a timed-out transaction failed. Always check the on-chain state first. Retrying a successful transaction can result in duplicate blob registrations and wasted funds.
-:::
-
+> **Caution**
+>
+> Do not assume a timed-out transaction failed. Always check the on-chain state first. Retrying a successful transaction can result in duplicate blob registrations and wasted funds.
 #### Transaction conflict
 
 **Error:**

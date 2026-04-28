@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Walrus is a verifiable data platform for high-stakes systems like AI and onchain finance, where data is stored as blobs.
 
 Walrus uses an object storage architecture, where blobs are stored in a flat namespace rather than a hierarchy. There are no folders or directories. Each piece of data in an object storage model contains the data itself, metadata describing the data, and a unique identifier.
@@ -21,12 +23,9 @@ When you are getting started, you should use Testnet.
 
 ##step Install tooling
 
-:::info
-
-You can use the Walrus HTTP API with a Testnet publisher endpoint to upload and retrieve blobs with no downloads, installation, wallet, or tokens required. [Learn more](/docs/http-api/storing-blobs).
-
-:::
-
+> **Info**
+>
+> You can use the Walrus HTTP API with a Testnet publisher endpoint to upload and retrieve blobs with no downloads, installation, wallet, or tokens required. [Learn more](/docs/http-api/storing-blobs).
 To install Walrus and Sui, use the Mysten Labs `suiup` tool.
 
 Install `suiup`:
@@ -103,14 +102,11 @@ To see all your addresses and their key schemes, run the following command:
 $ sui client addresses
 ```
 
-:::caution Store your keys securely
-
-You must store your private key and recovery passphrase securely, otherwise you might lose access to your address.
-
-[Learn more about addresses, available key pair options, and key storage.](https://docs.sui.io/guides/developer/getting-started/get-address)
-
-:::
-
+> **Store your keys securely**
+>
+> You must store your private key and recovery passphrase securely, otherwise you might lose access to your address.
+> 
+> [Learn more about addresses, available key pair options, and key storage.](https://docs.sui.io/guides/developer/getting-started/get-address)
 #### Creating additional addresses
 
 You can create additional addresses if needed:
@@ -141,12 +137,9 @@ After you insert your address on the faucet and receive a message confirming you
 $ sui client balance
 ```
 
-:::tip Faucet alternatives
-
-The Sui faucet is rate limited. If you encounter errors or have questions, you can request tokens from the Discord faucet or a third-party faucet. [Learn more about the Sui faucet.](https://docs.sui.io/guides/developer/getting-started/get-coins)
-
-:::
-
+> **Faucet alternatives**
+>
+> The Sui faucet is rate limited. If you encounter errors or have questions, you can request tokens from the Discord faucet or a third-party faucet. [Learn more about the Sui faucet.](https://docs.sui.io/guides/developer/getting-started/get-coins)
 Convert some of those SUI tokens into WAL with the following command:
 
 ```sh
@@ -184,7 +177,6 @@ You must specify the `--epochs` flag, because the system stores blobs for a cert
 
 The system uploads a blob in slivers, which are small pieces of the file the system stores on different servers through erasure coding. [Learn more](/docs/system-overview/red-stuff) about the Walrus architecture and how the system implements erasure coding.
 
-<!-- IMPORT_CONTENT_RESOLVED source="blob-object-id" mode="snippet" -->
 After you upload a blob to Walrus, it has 2 identifiers:
 
 ```sh
@@ -197,7 +189,6 @@ Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe8
 - Sui Object ID: The blob's corresponding newly created Sui object identifier, as the system binds all blobs to one or more Sui objects.
 
 You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the blob's metadata, such as its storage duration. You might also use them to read blob data.
-<!-- /IMPORT_CONTENT_RESOLVED -->
 
 You can use [Walrus Explorer](https://walruscan.com/) to view more information about a blob ID.
 

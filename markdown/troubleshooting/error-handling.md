@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 This page covers how to handle Walrus errors programmatically in your applications. For a reference of specific error messages and their solutions, see [Troubleshooting Common Errors](/docs/troubleshooting/network-errors).
 
 ## Error categories
@@ -14,12 +16,9 @@ Not all errors are equal. Some are safe to retry, some require you to check on-c
 | Invalid blob ID | No | No | Fix the blob ID format |
 | Blob not found | No | Yes | Verify the blob exists and has not expired |
 
-:::caution
-
-For transaction timeouts, always check on-chain state before retrying. A timed-out transaction might have succeeded. Retrying without checking can result in duplicate blob registrations and wasted funds.
-
-:::
-
+> **Caution**
+>
+> For transaction timeouts, always check on-chain state before retrying. A timed-out transaction might have succeeded. Retrying without checking can result in duplicate blob registrations and wasted funds.
 ## Implement retry logic with exponential backoff
 
 Transient errors such as network timeouts and temporary node unavailability are common in distributed systems. Use exponential backoff to avoid overwhelming the network with retries.
@@ -83,6 +82,8 @@ If the transaction succeeded, proceed normally. If it was not found, the transac
 When using the Walrus TypeScript SDK, you can capture individual storage node errors during uploads by passing the `onError` option. This is useful for debugging partial failures where the overall operation succeeds (because 2/3 of nodes responded) but some nodes returned errors.
 
 ```typescript
+import { SuiGrpcClient } from '@mysten/sui/grpc';
+import { walrus } from '@mysten/walrus';
 
 const client = new SuiGrpcClient({
   network: 'testnet',
@@ -142,8 +143,6 @@ When you encounter an error, follow these steps in order:
 4. Confirm your wallet has sufficient SUI and WAL balances.
 5. Verify you are using the latest CLI version with `walrus --version`.
 
-:::tip
-
-When you set `RUST_LOG=info`, the `walrus` CLI prints the path to the configuration file and Sui wallet it uses at startup. This helps confirm you are using the intended configuration.
-
-:::
+> **Tip**
+>
+> When you set `RUST_LOG=info`, the `walrus` CLI prints the path to the configuration file and Sui wallet it uses at startup. This helps confirm you are using the intended configuration.

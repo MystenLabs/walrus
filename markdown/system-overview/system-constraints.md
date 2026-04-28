@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 This page describes the practical limits and constraints you should consider when designing applications on Walrus. For current values, run `walrus info`.
 
 ## Blob size

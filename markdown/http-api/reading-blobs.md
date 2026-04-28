@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 You can read blobs using HTTP GET requests with their blob ID or object ID.
 
 ## Reading by blob ID
@@ -14,12 +16,9 @@ To print the contents of a blob directly in the terminal:
 $ curl "$AGGREGATOR/v1/blobs/<BLOB_ID>"
 ```
 
-:::tip
-
-Modern browsers attempt to sniff the content type for these resources and generally do a good job of inferring content types for media. The aggregator intentionally prevents sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
-
-:::
-
+> **Tip**
+>
+> Modern browsers attempt to sniff the content type for these resources and generally do a good job of inferring content types for media. The aggregator intentionally prevents sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
 ## Reading by object ID
 
 You can also read blobs by using the object ID of a Sui blob object or a shared blob. The following `curl` command downloads the blob corresponding to a Sui object ID:

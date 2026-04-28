@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Walrus Site Portals are used to access and browse a Walrus Site. The portal you run **must** match the network on which your site is deployed. Each network has its own onchain package, default RPC endpoint, and Walrus aggregator. 
 
 The public portal `https://wal.app` is provided by the Walrus Foundation and only serves sites deployed on Mainnet that also have a SuiNS domain name configured. Walrus Foundation does not maintain a portal that serves Testnet Walrus Sites. 
@@ -21,12 +23,9 @@ Mainnet is the production network. Sites deployed on Mainnet are publicly access
 | Epoch duration | How long each storage epoch lasts. Determines the minimum storage billing period. | 14 days |
 | Public portal | The Walrus Foundation-operated portal. Serves Mainnet sites with SuiNS names only. | Yes, [wal.app](https://wal.app) |
 
-:::info
-
-[wal.app](https://wal.app) only serves Mainnet sites linked with SuiNS names.
-
-:::
-
+> **Info**
+>
+> [wal.app](https://wal.app) only serves Mainnet sites linked with SuiNS names.
 ## Testnet
 
 Testnet is the development and staging network. Sites deployed on Testnet are only accessible through a Testnet portal. The Walrus Foundation does not operate a public Testnet portal. To access sites deployed on Testnet you can self-host a portal or [run one locally](/docs/sites/portals/deploy-locally).
@@ -44,12 +43,9 @@ Testnet is the development and staging network. Sites deployed on Testnet are on
 
 The `portal-config.yaml` file is the primary configuration file for a Walrus Sites server portal. It sets the network, onchain addresses, URL endpoints, and feature flags the portal uses at runtime.
 
-:::tip
-
-Environment variables override any value set in `portal-config.yaml`. You can use this to apply per-deployment overrides without modifying the file. See [Environment variable overrides](#environment-variable-overrides) for details.
-
-:::
-
+> **Tip**
+>
+> Environment variables override any value set in `portal-config.yaml`. You can use this to apply per-deployment overrides without modifying the file. See [Environment variable overrides](#environment-variable-overrides) for details.
 ### Setup
 
 Clone the `walrus-sites` repository and check out the stable branch:
@@ -62,23 +58,13 @@ $ git checkout mainnet
 
 Copy the example file for your target network and rename it to `portal-config.yaml`:
 
-<Tabs>
-<TabItem value="mainnet" label="Mainnet">
-
 ```sh
 $ cp portal/server/portal-config.mainnet.example.yaml portal/server/portal-config.yaml
 ```
 
-</TabItem>
-
-<TabItem value="testnet" label="Testnet">
-
 ```sh
 $ cp portal/server/portal-config.testnet.example.yaml portal/server/portal-config.yaml
 ```
-
-</TabItem>
-</Tabs>
 
 ### Customize the configuration
 
@@ -109,23 +95,13 @@ Check the [`walrus-sites` releases](https://github.com/MystenLabs/walrus-sites/r
 **Type:** `string`  
 **Required:** Yes
 
-<Tabs>
-<TabItem value="mainnet" label="Mainnet">
-
 ```yaml
 site_package: "0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27"
 ```
 
-</TabItem>
-
-<TabItem value="testnet" label="Testnet">
-
 ```yaml
 site_package: "0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799"
 ```
-
-</TabItem>
-</Tabs>
 
 #### `landing_page_oid_b36`
 
@@ -138,23 +114,13 @@ $ git pull origin mainnet && grep 'landing_page_oid_b36' portal/server/portal-co
 **Type:** `string` 
 **Required:** Yes
 
-<Tabs>
-<TabItem value="mainnet" label="Mainnet default">
-
 ```yaml
 landing_page_oid_b36: "46f3881sp4r55fc6pcao9t93bieeejl4vr4k2uv8u4wwyx1a93"
 ```
 
-</TabItem>
-
-<TabItem value="testnet" label="Testnet default">
-
 ```yaml
 landing_page_oid_b36: "1p3repujoigwcqrk0w4itsxm7hs7xjl4hwgt3t0szn6evad83q"
 ```
-
-</TabItem>
-</Tabs>
 
 #### `domain_name_length`
 
@@ -203,12 +169,9 @@ When `true`, the portal rejects requests for sites on the blocklist. Enabling th
 enable_blocklist: false
 ```
 
-:::info
-
-`BLOCKLIST_REDIS_URL` must be set as an environment variable. There is no `portal-config.yaml` equivalent.
-
-:::
-
+> **Info**
+>
+> `BLOCKLIST_REDIS_URL` must be set as an environment variable. There is no `portal-config.yaml` equivalent.
 #### `enable_allowlist`
 
 When `true`, the portal serves only sites on the allowlist and requires `premium_rpc_urls` to be configured. Enabling this also requires setting the `ALLOWLIST_REDIS_URL` environment variable.
@@ -221,12 +184,9 @@ When `true`, the portal serves only sites on the allowlist and requires `premium
 enable_allowlist: false
 ```
 
-:::info
-
-`ALLOWLIST_REDIS_URL` must be set as an environment variable. It has no `portal-config.yaml` equivalent.
-
-:::
-
+> **Info**
+>
+> `ALLOWLIST_REDIS_URL` must be set as an environment variable. It has no `portal-config.yaml` equivalent.
 #### `rpc_urls`
 
 The Sui full node RPC endpoints the portal uses to read onchain data. The portal tries endpoints in ascending `metric` order and retries failed requests up to the number of times specified by `retries`.
@@ -285,9 +245,6 @@ Each entry uses the same structure as [`rpc_urls`](#rpc_urls).
 **Type:** `list` of objects  
 **Required:** Yes
 
-<Tabs>
-<TabItem value="mainnet" label="Mainnet">
-
 ```yaml
 aggregator_urls:
   - url: https://aggregator.walrus-mainnet.walrus.space
@@ -295,19 +252,12 @@ aggregator_urls:
     metric: 100
 ```
 
-</TabItem>
-
-<TabItem value="testnet" label="Testnet">
-
 ```yaml
 aggregator_urls:
   - url: https://aggregator.walrus-testnet.walrus.space
     retries: 3
     metric: 100
 ```
-
-</TabItem>
-</Tabs>
 
 ## Environment variable overrides {#environment-variable-overrides}
 
@@ -332,8 +282,6 @@ You can find the `constants.ts` file in the `portal/common/lib` directory. It ho
 | `SITE_NAMES` | Hard-coded `name: objectID` mappings that override SuiNS names. For development only. Use at your own risk, as it might render some sites with legitimate SuiNS names unusable. |
 | `FALLBACK_PORTAL` | Applies to the service-worker portal only. The fallback portal is a server-side portal used when a browser does not support service workers. |
 
-:::warning
- 
-The portal reserves the `/__wal__/*` path prefix for internal operations such as health checks. Do not use this prefix for any of your site's resources, as they will not be served correctly.
- 
-:::
+> **Warning**
+>
+> The portal reserves the `/__wal__/*` path prefix for internal operations such as health checks. Do not use this prefix for any of your site's resources, as they will not be served correctly.

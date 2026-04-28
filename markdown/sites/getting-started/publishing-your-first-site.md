@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 The Walrus Sites `site-builder` uploads your website's files to [Walrus](https://www.walrus.xyz/), where resources like HTML, CSS, JavaScript, and images are stored as blobs. A [Sui smart contract](https://docs.sui.io/guides/developer/getting-started/hello-world) serves as an onchain index that maps each resource path to its Walrus blob ID and records site ownership. [Portals](/docs/sites/portals/deploy-locally) read this onchain index to resolve and serve your site in the browser to visitors.
 
 To create a Walrus Site, your website's source files must include an `index.html` at the root to serve as the entry point. For example, the [`walrus-snake`](https://github.com/MystenLabs/example-walrus-sites/walrus-snake) site has the following assets:
@@ -13,17 +15,11 @@ walrus-snake/
  
 You can find additional examples in the [Walrus Sites example repository](https://github.com/MystenLabs/example-walrus-sites).
 
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
-
-:::info
-
-These prerequisite setup guides install Walrus, the `site-builder` tool, and their configuration files to the [default directories](/docs/sites/getting-started/installing-the-site-builder#configuration). If you installed Walrus or the `site-builder` tool using other guides or resources, your installation locations might be different. 
-
-If your `site-builder` configuration file is in a different location, use the `--config` flag to specify the path. 
-
-:::
-
+> **Info**
+>
+> These prerequisite setup guides install Walrus, the `site-builder` tool, and their configuration files to the [default directories](/docs/sites/getting-started/installing-the-site-builder#configuration). If you installed Walrus or the `site-builder` tool using other guides or resources, your installation locations might be different. 
+> 
+> If your `site-builder` configuration file is in a different location, use the `--config` flag to specify the path.
 - [x] [Install and configure Sui](/docs/getting-started).
 
 - [x] [Install and configure Walrus](/docs/getting-started).
@@ -31,9 +27,6 @@ If your `site-builder` configuration file is in a different location, use the `-
 - [x] [Obtain Testnet SUI and WAL tokens](/docs/getting-started).
 
 - [x] [Install and configure the `site-builder`](/docs/sites/getting-started/installing-the-site-builder).
-
-</TabItem>
-</Tabs>
 
 ## Deploy an example site
 
@@ -189,21 +182,20 @@ my-website/
 └── .gitignore
 ```
 
-:::tip 
-Build folder names vary by framework
-Different frameworks use different names for their build output:
-
-| Framework | Output folder |
-|-----------|---------------|
-| Vite | `dist/` |
-| Create React App | `build/` |
-| Next.js | `out/` |
-| Vue CLI | `dist/` |
-| Docusaurus | `build/` |
-
-Always check your framework's documentation to confirm the correct output folder.
-:::
-
+> **Tip**
+>
+> Build folder names vary by framework
+> Different frameworks use different names for their build output:
+> 
+> | Framework | Output folder |
+> |-----------|---------------|
+> | Vite | `dist/` |
+> | Create React App | `build/` |
+> | Next.js | `out/` |
+> | Vue CLI | `dist/` |
+> | Docusaurus | `build/` |
+> 
+> Always check your framework's documentation to confirm the correct output folder.
 Once your site is built, deploy using the `site-builder` pointed at the output folder:
 
 ```sh
@@ -238,12 +230,11 @@ Add a header entry in your `ws-resources.json` file for each markdown file so th
 }
 ```
 
-:::danger
-This entry is case sensitive. `"content-type"` must be lowercase. 
-
-Without this, the file will be served as a generic binary download rather than readable markdown.
-:::
-
+> **Danger**
+>
+> This entry is case sensitive. `"content-type"` must be lowercase. 
+> 
+> Without this, the file will be served as a generic binary download rather than readable markdown.
 ### Routes
 
 Add a route entry mapping the public-facing URL to the markdown file's path in your build output:

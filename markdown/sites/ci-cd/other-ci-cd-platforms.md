@@ -1,14 +1,10 @@
-The official [Deploy Walrus Site action](https://github.com/MystenLabs/walrus-sites-github-actions) targets GitHub Actions only. On any other CI/CD platform, such as GitLab CI/CD, CircleCI, or Bitbucket Pipelines, you drive deployment directly through the [`site-builder` CLI](/docs/sites/getting-started/using-the-site-builder). Because `site-builder` is a standard Linux binary, the deployment steps are identical on every platform. Only the pipeline syntax differs.
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
+The official [Deploy Walrus Site action](https://github.com/MystenLabs/walrus-sites-github-actions) targets GitHub Actions only. On any other CI/CD platform, such as GitLab CI/CD, CircleCI, or Bitbucket Pipelines, you drive deployment directly through the [`site-builder` CLI](/docs/sites/getting-started/using-the-site-builder). Because `site-builder` is a standard Linux binary, the deployment steps are identical on every platform. Only the pipeline syntax differs.
 
 - [x] A Sui address funded with SUI (gas fees) and WAL (storage). See [Preparing Deployment Credentials](/docs/sites/ci-cd/preparing-deployment-credentials).
 - [x] The private key in `base64WithFlag` format and the corresponding Sui address. See [Exporting your private key](/docs/sites/ci-cd/preparing-deployment-credentials#exporting-your-private-key).
 - [x] A CI/CD platform with access to a Linux runner.
-
-</TabItem>
-</Tabs>
 
 ## How platform-based deployment works
 
@@ -33,12 +29,9 @@ Every platform stores secrets differently. In all cases, you need 2 values:
 | CircleCI | Project Settings → Environment Variables, or a shared **Context** |
 | Bitbucket | Repository settings → Repository variables (enable **Secured**) |
 
-:::danger
-
-Never paste `SUI_KEYSTORE` or any private key directly into a pipeline configuration file. Configuration files are committed to version control and visible to anyone with repository access.
-
-:::
-
+> **Danger**
+>
+> Never paste `SUI_KEYSTORE` or any private key directly into a pipeline configuration file. Configuration files are committed to version control and visible to anyone with repository access.
 ## The deploy script
 
 The following shell commands contain all setup and deployment logic. Each platform example below inlines these steps in its own syntax.
@@ -92,12 +85,9 @@ Set the following environment variables before running the script:
 - `EPOCHS`: Number of storage epochs (default `5`; maximum `53`). On Mainnet, 1 epoch is 14 days. On Testnet, 1 epoch is 1 day.
 - `DIST`: Path to your build output directory, for example `dist` or `build`.
 
-:::caution
-
-Always point `site-builder deploy` at your build output directory, not your repository root. Uploading the project root includes source files, `node_modules/`, and other artifacts that significantly increase upload time and storage costs.
-
-:::
-
+> **Caution**
+>
+> Always point `site-builder deploy` at your build output directory, not your repository root. Uploading the project root includes source files, `node_modules/`, and other artifacts that significantly increase upload time and storage costs.
 ## Understanding `ws-resources.json` in pipelines
 
 The `site-builder deploy` command writes a [`ws-resources.json`](/docs/sites/configuration/site-configuration) file to your `DIST` directory after the first deployment. This file stores the Sui object ID of your deployed site. On subsequent runs, `site-builder` reads that ID to update the same site rather than creating a new one.
@@ -114,8 +104,6 @@ If neither approach is in place, each pipeline run creates a new site object and
 Store your credentials before adding the pipeline file. Then create the configuration file shown for your platform in your repository root.
  
 
-<Tabs>
-<TabItem label="GitLab CI/CD" value="gitlab">
  
 Store `SUI_KEYSTORE` and `SUI_ADDRESS` as masked CI/CD variables under **Settings** → **CI/CD** → **Variables**.
  
@@ -185,8 +173,7 @@ The `build` job produces a `dist/` artifact that GitLab makes available to the `
  
 For static sites with no build step, remove the `build` stage, remove the `needs` key from `deploy-walrus`, and point `DIST` at your static files directory.
  
-</TabItem>
-<TabItem label="CircleCI" value="circleci">
+
  
 Store `SUI_KEYSTORE` and `SUI_ADDRESS` as environment variables under **Project Settings** → **Environment Variables**, or in a shared [Context](https://circleci.com/docs/contexts/) if multiple projects share the same deployment address.
  
@@ -282,8 +269,7 @@ The `persist_to_workspace` and `attach_workspace` steps transfer the build outpu
  
 For static sites with no build step, remove the `build` job, replace `attach_workspace` with a `checkout` step in the `deploy` job, and remove `requires` from the workflow.
  
-</TabItem>
-<TabItem label="Bitbucket Pipelines" value="bitbucket">
+
  
 Store `SUI_KEYSTORE` and `SUI_ADDRESS` under **Repository settings** → **Repository variables** with **Secured** enabled.
  
@@ -349,8 +335,6 @@ Bitbucket Pipelines passes `artifacts` declared in one step to the next step in 
  
 For static sites with no build step, remove `*build-step` from the `main` branch pipeline. Change the deploy step's `image` to one that includes `curl` and `ca-certificates`, or add the `apt-get` install line.
  
-</TabItem>
-</Tabs>
 
  
 ## Adapting to any other platform

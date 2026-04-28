@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Walrus Mainnet operates a production-quality storage network using corresponding resources on the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui Testnet and is used to test new features before they graduate to Mainnet. Alternatively, developers can operate a local instance of both Walrus and Sui for personalized testing.
 
 ## Network parameters
@@ -17,7 +19,6 @@ Many other parameters, including the system capacity and prices, are dynamic. Th
 
 The client parameters for the Walrus Mainnet are:
 
-<!-- IMPORT_CONTENT_RESOLVED source="/setup/client_config_mainnet.yaml" mode="code" -->
 ```yaml title="setup/client_config_mainnet.yaml"
 # NOTE: walrus-service uses these IDs to detect network defaults. Changing them changes node
 # behavior and must be coordinated.
@@ -28,7 +29,6 @@ max_epochs_ahead: 53
 rpc_urls:
   - https://fullnode.mainnet.sui.io:443
 ```
-<!-- /IMPORT_CONTENT_RESOLVED -->
 
 To explore the Walrus contracts, their package IDs are:
 
@@ -46,17 +46,13 @@ The configuration file described on the [setup page](/docs/getting-started) incl
 
 All transactions run on the Sui Testnet and use Testnet WAL and SUI, which have no value.
 
-:::danger
-
-The state of the network can be wiped at any point and possibly without warning. Do not use this Testnet for any production purposes, as it comes with no availability or persistence guarantees. New features on Testnet might break deployed Testnet apps.
-
-:::
-
+> **Danger**
+>
+> The state of the network can be wiped at any point and possibly without warning. Do not use this Testnet for any production purposes, as it comes with no availability or persistence guarantees. New features on Testnet might break deployed Testnet apps.
 See the [Testnet terms of service](/docs/legal/testnet_tos) under which this Testnet is made available.
 
 The configuration parameters for the Walrus Testnet are included in the configuration file described on the [getting started guide](/docs/getting-started#step-2-configure-tooling-for-walrus-testnet). If you want only the Testnet configuration, you can get the Testnet-only configuration file. The parameters are:
 
-<!-- IMPORT_CONTENT_RESOLVED source="/setup/client_config_testnet.yaml" mode="code" -->
 ```yaml title="setup/client_config_testnet.yaml"
 # NOTE: walrus-service uses these IDs to detect network defaults. Changing them changes node
 # behavior and must be coordinated.
@@ -77,7 +73,6 @@ communication_config:
   data_in_flight_auto_tune:
     enabled: true
 ```
-<!-- /IMPORT_CONTENT_RESOLVED -->
 
 You can find the current Testnet package IDs in the `Move.lock` files in the subdirectories of the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts).
 
@@ -87,9 +82,6 @@ The Walrus Testnet uses Testnet WAL tokens for buying storage and staking. Testn
 
 #### Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
 
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
-
 - [x] Download and install the [Sui CLI](/docs/getting-started#step-1-install-tooling).
 
 - [x] Create a [Sui account](/docs/getting-started#step-3-understanding-your-sui-account).
@@ -97,9 +89,6 @@ The Walrus Testnet uses Testnet WAL tokens for buying storage and staking. Testn
 - [x] Obtain [Testnet SUI](/docs/getting-started#step-4-fund-sui-account-with-tokens).
 
 - [x] Download and install [Walrus](/docs/getting-started#step-1-install-tooling).
-
-</TabItem>
-</Tabs>
 
 After completing the prerequisites, run the following command to exchange SUI for WAL:
 

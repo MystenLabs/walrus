@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 After you upload a blob to Walrus, it has 2 identifiers:
 
 ```sh

@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 An upload relay is a server-side service that simplifies the upload process by handling the complexity of writing to multiple storage nodes. It provides batching capabilities and improved reliability for client applications.
 
 Instead of your application making many requests to different storage nodes, you make a single request to the relay, which handles all node communications and returns a single certificate. Without a relay, uploading a blob requires one request per storage node (potentially 10 or more requests), managing parallel uploads, handling partial failures, and collecting confirmations from multiple nodes.

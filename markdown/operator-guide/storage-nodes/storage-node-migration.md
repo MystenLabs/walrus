@@ -1,16 +1,12 @@
-This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node (and optionally an aggregator and publisher) on the same host.
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
+This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node (and optionally an aggregator and publisher) on the same host.
 
 - [x] New host set up following the [Storage Node Setup](/docs/operator-guide/storage-nodes/storage-node-setup)
   guide (through the [TLS setup](/docs/operator-guide/storage-nodes/storage-node-setup#tls-setup) and
   [systemd service](/docs/operator-guide/storage-nodes/storage-node-setup#systemd) sections. Do **not** run
   `walrus-node setup` or `register` on the new host.)
 - [x] SSH access from the new host to the old host
-
-</TabItem>
-</Tabs>
 
 ## First transfer
 
@@ -45,12 +41,9 @@ sudo systemctl stop walrus-aggregator.service   # if applicable
 sudo systemctl stop walrus-publisher.service     # if applicable
 ```
 
-:::caution
-
-Stopping the node cleanly is critical. Running `rsync` against a database that is still being written to might result in a corrupted copy.
-
-:::
-
+> **Caution**
+>
+> Stopping the node cleanly is critical. Running `rsync` against a database that is still being written to might result in a corrupted copy.
 ##### Step 2: Run a second `rsync` to synchronize changes.
 
 Use `--delete` to synchronize any changes made after the first transfer:
@@ -112,12 +105,9 @@ This performs the same authentication check that other nodes and the Walrus clie
 
 If the persisted events count is less than 10 million, something is wrong with the database. Stop the node and check permissions, and compare the directory structure in `/opt/walrus/db` against the old host.
 
-:::caution
-
-Do not start the node with an empty database. A full sync is an expensive operation that you should only use in emergencies. Reach out to the core team on Discord before wiping the database or starting with an empty one.
-
-:::
-
+> **Caution**
+>
+> Do not start the node with an empty database. A full sync is an expensive operation that you should only use in emergencies. Reach out to the core team on Discord before wiping the database or starting with an empty one.
 If the database is corrupted, try the following steps in order:
 
 1. Run `rsync` again from the old host.

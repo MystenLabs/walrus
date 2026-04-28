@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 You can query the status of a blob through one of the following commands:
 ```sh
 $ walrus blob-status --blob-id <BLOB_ID>

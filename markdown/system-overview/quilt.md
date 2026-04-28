@@ -1,17 +1,16 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Quilt is a batch storage feature designed to optimize the storage cost and efficiency of large numbers of small blobs. Before Quilt, storing small blobs (less than 10 MB) on Walrus involved higher per-byte costs due to internal system data overhead. Quilt addresses this by encoding multiple blobs (up to 666 for QuiltV1) into a single unit called a **quilt**, significantly reducing Walrus storage overhead and lowering costs to purchase Walrus and Sui storage, as well as Sui computation gas fees.
 
 Each blob within a quilt can be accessed and retrieved individually without downloading the entire quilt. The blob boundaries in a quilt align with Walrus internal structures and Walrus storage nodes, allowing for retrieval latency that is comparable to, or lower than, that of a regular blob.
 
 Quilt introduces custom, immutable Walrus-native blob metadata, allowing you to assign different types of metadata to each blob in a quilt, for example, unique identifiers and tags of key-value pairs. This metadata is functionally similar to the existing blob metadata store onchain, but there are some fundamental distinctions. Walrus-native metadata is stored alongside the blob data, which reduces costs and simplifies management. This metadata can also be used for efficient lookup of blobs within a quilt, for example, reading blobs with a particular tag. When storing a quilt, you can set the Walrus-native metadata using the Quilt APIs.
 
-:::warning
-
-An identifier must start with an alphanumeric character, contain no trailing whitespace, and not exceed 64 KiB in length.
-
-The total size of all tags combined must not exceed 64 KB.
-
-:::
-
+> **Warning**
+>
+> An identifier must start with an alphanumeric character, contain no trailing whitespace, and not exceed 64 KiB in length.
+> 
+> The total size of all tags combined must not exceed 64 KB.
 ## Important considerations
 
 ### Per-blob size limit
@@ -47,12 +46,9 @@ The following table demonstrates the potential cost savings in WAL when storing 
 |     500KiB |                 2.136 WAL |          0.084 WAL |                25x |
 |       1MiB |                 2.208 WAL |          0.170 WAL |                13x |
 
-:::info
-
-The costs shown in this table are for illustrative purposes only and were obtained from test runs on Walrus Testnet. Actual costs can vary due to changes in smart contract parameters, networks, and other factors. The comparison is between storing 600 files as a single quilt versus storing them as individual blobs in batches of 25.
-
-:::
-
+> **Info**
+>
+> The costs shown in this table are for illustrative purposes only and were obtained from test runs on Walrus Testnet. Actual costs can vary due to changes in smart contract parameters, networks, and other factors. The comparison is between storing 600 files as a single quilt versus storing them as individual blobs in batches of 25.
 ### Organize collections
 
 Quilt provides a straightforward way to organize and manage collections of small blobs within a single unit. This can simplify data handling and improve operational efficiency when working with related small files, such as NFT image collections.

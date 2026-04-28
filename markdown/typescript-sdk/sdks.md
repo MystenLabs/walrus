@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 ## SDKs maintained by Mysten Labs
 
 Mysten Labs has built and published a [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus), which supports a wide variety of operations. See also the related [examples](https://github.com/MystenLabs/ts-sdks/tree/main/packages/walrus/examples).

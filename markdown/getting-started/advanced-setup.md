@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 This page covers advanced setup options for Walrus, including building from source, installing from binaries, or using Cargo. For standard setup instructions, see [Getting Started](/docs/getting-started).
 
 Walrus is open source under an Apache 2 license. You can download and install it through [`suiup`](https://github.com/MystenLabs/suiup) on GitHub, or you can build and install it from the Rust source code through Cargo.
@@ -15,14 +17,11 @@ The `walrus` client binary is currently provided for macOS (Intel and Apple CPUs
 | macOS   | Intel 64bit           | [`macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-macos-x86_64)                   |
 | Windows | Intel 64bit           | [`windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/walrus-mainnet-latest-windows-x86_64.exe)       |
 
-:::tip
-
-The latest Walrus binaries are also available on Walrus itself at https://bin.wal.app (for example, https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64). Because of DoS protection, downloading the binaries with `curl` or `wget` might not work.
-
-You can also find all releases including release notes on [GitHub](https://github.com/MystenLabs/walrus/releases). Download the archive for your system and extract the `walrus` binary.
-
-:::
-
+> **Tip**
+>
+> The latest Walrus binaries are also available on Walrus itself at https://bin.wal.app (for example, https://bin.wal.app/walrus-mainnet-latest-ubuntu-x86_64). Because of DoS protection, downloading the binaries with `curl` or `wget` might not work.
+> 
+> You can also find all releases including release notes on [GitHub](https://github.com/MystenLabs/walrus/releases). Download the archive for your system and extract the `walrus` binary.
 ## Install through script {#nix-install}
 
 To download and install `walrus` to your `"$HOME"/.local/bin` directory, run one of the following commands in your terminal, then follow the on-screen instructions. If you use Windows, see the [Windows-specific instructions](#windows-install) or the [`suiup` installation](https://github.com/MystenLabs/suiup) on GitHub.
@@ -59,12 +58,9 @@ To download `walrus` to your Microsoft Windows computer, run the following in Po
 
 From there, place `walrus.exe` somewhere in your `PATH`.
 
-:::info
-
-Most of the remaining instructions assume a UNIX-based system for the directory structure and commands. If you use Windows, you might need to adapt most of those instructions.
-
-:::
-
+> **Info**
+>
+> Most of the remaining instructions assume a UNIX-based system for the directory structure and commands. If you use Windows, you might need to adapt most of those instructions.
 ## Install through Cargo
 
 You can also install Walrus through Cargo. For example, to install the latest Mainnet version:

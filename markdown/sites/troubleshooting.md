@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 This page covers common errors when deploying and browsing Walrus Sites, organized by where they occur.
 
 ## Configuration errors
@@ -129,12 +131,9 @@ Errors in this section occur when accessing a site through a portal.
 }
 ```
 
-:::caution
-
-Walrus Sites does not support server-side redirects. Redirect plugins used by frameworks like Docusaurus resolve routes at the server level, which is not available on Walrus Sites. Use the `routes` field in `ws-resources.json` for client-side routing instead.
-
-:::
-
+> **Caution**
+>
+> Walrus Sites does not support server-side redirects. Redirect plugins used by frameworks like Docusaurus resolve routes at the server level, which is not available on Walrus Sites. Use the `routes` field in `ws-resources.json` for client-side routing instead.
 #### HTTP 503 on route resolution with Content-Security-Policy headers
 
 **Cause:** Restrictive `Content-Security-Policy` headers in `ws-resources.json` (specifically `default-src 'none'` and `frame-ancestors 'none'`) conflict with the Walrus portal's request processing pipeline. Direct resource requests (for example, `/index.html`) bypass route resolution and return 200, but route redirects (for example, `/` to `/index.html`) fail with a 503 error.

@@ -1,21 +1,17 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 This page walks you through the full initial setup of a Walrus storage node, from system preparation to registration and first startup.
 
-:::caution
-
-If you deviate from the standard setup below (user, directories, ports), make sure to adjust later steps accordingly. Some Walrus and Sui configuration files include absolute paths, so moving files without adjusting those paths might cause issues.
-
-:::
-
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
+> **Caution**
+>
+> If you deviate from the standard setup below (user, directories, ports), make sure to adjust later steps accordingly. Some Walrus and Sui configuration files include absolute paths, so moving files without adjusting those paths might cause issues.
 
 - [x] Linux operating system (Ubuntu 24.04 recommended), x86_64 with AVX2 and SSSE3 support
 - [x] A large disk partition for blob storage, mounted at `/opt/walrus/db`
 - [x] A public IP address with a DNS name pointing to it
 - [x] Complete initial system setup
 
-<details>
-<summary>Initial system setup instructions</summary>
+Initial system setup instructions
 
 ##### Step 1: Create a `walrus` user and group.
 
@@ -55,23 +51,15 @@ Verify the rules with `sudo iptables -L INPUT -n`.
 
 You can test your firewall setup by running `nc -l PORT_NUMBER` on the Walrus host and `echo test | nc HOSTNAME PORT_NUMBER` from a different machine. You do not need to open the metrics port (**port 9184**).
 
-</details>
-
-</TabItem>
-</Tabs>
-
 ## TLS setup {#tls-setup}
 
 The storage node handles TLS directly. If you deploy a reverse proxy in front of the storage node, you **must** disable TLS termination on the proxy or ensure it uses the same key as the storage node.
 
-:::caution
-
-Do not use self-signed certificates. They prevent the node from communicating with browsers.
-
-You can use any tool to obtain and renew certificates. Ensure you generate a key of the correct type (ECDSA secp256r1) in the correct format (PKCS8) and use the full certificate chain in PEM format.
-
-:::
-
+> **Caution**
+>
+> Do not use self-signed certificates. They prevent the node from communicating with browsers.
+> 
+> You can use any tool to obtain and renew certificates. Ensure you generate a key of the correct type (ECDSA secp256r1) in the correct format (PKCS8) and use the full certificate chain in PEM format.
 The following steps use [certbot](https://certbot.eff.org) to request and manage certificates.
 
 ##### Step 1: Install certbot.
@@ -197,22 +185,13 @@ sudo su walrus
 
 ### Set environment variables
 
-<Tabs>
-<TabItem label="Mainnet" value="mainnet">
-
 ```sh
 NETWORK=mainnet
 ```
 
-</TabItem>
-<TabItem label="Testnet" value="testnet">
-
 ```sh
 NETWORK=testnet
 ```
-
-</TabItem>
-</Tabs>
 
 Set the server name (as configured in the [TLS setup](#tls-setup) section):
 
@@ -309,30 +288,18 @@ After setup, review the generated configuration file at `/opt/walrus/config/walr
 
 The `walrus-node setup` command creates a Sui wallet at `/opt/walrus/config/sui_config.yaml` with the private key in `/opt/walrus/config/sui.keystore`. You can replace these with a different wallet, but you might have to adjust absolute paths in `sui_config.yaml`.
 
-:::caution
-
-Do not reuse any keys, wallets, or other secrets from Testnet or anywhere else. Each network deployment should use freshly generated credentials.
-
-:::
-
+> **Caution**
+>
+> Do not reuse any keys, wallets, or other secrets from Testnet or anywhere else. Each network deployment should use freshly generated credentials.
 ## Register and start the node {#registration}
 
 ##### Step 1: Fund the wallet.
 
 Send SUI to the wallet address shown during setup. 1 SUI is sufficient for registration, but the node needs additional SUI for ongoing operation. A recommended initial balance is approximately 20 SUI.
 
-<Tabs>
-<TabItem label="Mainnet" value="mainnet">
-
 Transfer SUI from an existing wallet or exchange to the address shown during setup.
 
-</TabItem>
-<TabItem label="Testnet" value="testnet">
-
 You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. The faucet has rate limits, so you might need to make multiple requests or wait between attempts. Alternatively, transfer SUI from an existing Testnet wallet.
-
-</TabItem>
-</Tabs>
 
 ##### Step 2: Register the node.
 
@@ -340,12 +307,9 @@ You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. 
 /opt/walrus/bin/walrus-node register --config-path /opt/walrus/config/walrus-node.yaml
 ```
 
-:::caution
-
-You must run registration during initial setup. It creates the onchain records for your node.
-
-:::
-
+> **Caution**
+>
+> You must run registration during initial setup. It creates the onchain records for your node.
 ##### Step 3: Set up commission and governance authorization.
 
 Designate a secure wallet address for receiving commission and authorizing governance operations. See [Commission and Governance](/docs/operator-guide/storage-nodes/commission-governance) for details.

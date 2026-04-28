@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 For efficiently storing large numbers of small blobs, Walrus provides the quilt feature. A quilt batches multiple blobs into a single storage unit, significantly reducing overhead and cost. [Learn more about quilts](/docs/system-overview/quilt).
 
 You can interact with quilts using a dedicated set of `walrus` subcommands.

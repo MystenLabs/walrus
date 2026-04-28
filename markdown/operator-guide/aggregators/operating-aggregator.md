@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Run a Walrus aggregator to expose the [HTTP API](/docs/http-api/storing-blobs). The aggregator does not perform any onchain actions and only requires specifying the address on which it listens:
 
 ```sh
@@ -11,32 +13,20 @@ Run a local Walrus daemon through the `walrus` binary using one of the following
 - `walrus aggregator`: Starts an aggregator that offers an HTTP interface to read blobs from Walrus.
 - `walrus daemon`: Offers the combined functionality of an aggregator and publisher on the same address and port.
 
-:::tip
-
-If you run the aggregator without a reverse proxy, open **port 9000** on your firewall. With a reverse proxy (such as the [nginx caching setup](#nginx-caching)), only **port 443** needs to be open.
-
-:::
-
+> **Tip**
+>
+> If you run the aggregator without a reverse proxy, open **port 9000** on your firewall. With a reverse proxy (such as the [nginx caching setup](#nginx-caching)), only **port 443** needs to be open.
 ## Download the client configuration {#client-config}
 
 The aggregator requires a client configuration file. If you run the aggregator on the same host as a [storage node](/docs/operator-guide/storage-nodes/storage-node-setup#binaries), the configuration is already available at `/opt/walrus/config/client_config.yaml`. Otherwise, download it:
-
-<Tabs>
-<TabItem label="Mainnet" value="mainnet">
 
 ```sh
 curl "https://docs.wal.app/setup/client_config_mainnet.yaml" -o /opt/walrus/config/client_config.yaml
 ```
 
-</TabItem>
-<TabItem label="Testnet" value="testnet">
-
 ```sh
 curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/config/client_config.yaml
 ```
-
-</TabItem>
-</Tabs>
 
  
 
@@ -74,7 +64,7 @@ The `walrus-store-sliced.sh` script below shows how to slice and upload a very l
 
 You can find details of this API in the online aggregator documentation at `YOUR_AGGREGATOR_URL/v1/api`. This endpoint is still under development and its specifications or behavior might change before it becomes stable.
 
-<summary>`walrus-store-sliced.sh`</summary>
+`walrus-store-sliced.sh`
 
 ```sh
 #!/bin/bash

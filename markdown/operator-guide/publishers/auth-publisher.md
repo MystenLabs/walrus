@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 The authenticated publisher requires HTTP requests to store a blob to be authenticated. Use an authenticated publisher as a building block for services that need to store data over HTTP on Walrus Mainnet, where an open publisher is undesirable because of the SUI and WAL cost of publishing to Walrus.
 
 You configure the Walrus publisher to require a JSON Web Token (JWT) with each HTTP request for user authentication. The authentication system ensures that only authorized clients can store blobs and allows fine-grained control over storage parameters through JWT claims.
@@ -47,12 +49,9 @@ The frontend sends the file to the publisher using a PUT request with the JWT in
 
 If all checks pass, the publisher stores the file on Walrus. If configured, the publisher returns the created `Blob` object to the specified Sui address.
 
-:::info
-
-Each JWT token can only be used once. After storing 1 file, the replay suppression system rejects the token. Do not use JWT tokens for accounting purposes.
-
-:::
-
+> **Info**
+>
+> Each JWT token can only be used once. After storing 1 file, the replay suppression system rejects the token. Do not use JWT tokens for accounting purposes.
 ## Set up the publisher
 
 Configure the publisher at startup using the following command line arguments:

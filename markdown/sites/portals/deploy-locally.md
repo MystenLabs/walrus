@@ -1,87 +1,12 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 To view a website deployed using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus and their corresponding Sui objects before serving the site in your browser. You can browse any Walrus Site deployed on Mainnet or Testnet using a Sites Portal.
 
 Use Docker to deploy a Sites Portal locally. There are no Testnet portals hosted for public good, and Mainnet sites must use a SuiNS domain name to be resolved through Walrus Foundation's public Mainnet portal.
 
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
-
 - [x] Install [Docker](https://docs.docker.com/get-docker/).
 
 - [x] [Install and configure the `site-builder`](/docs/sites/getting-started/installing-the-site-builder).
-
-</TabItem>
-</Tabs>
-
-{/* ## Programmatic installation
-
-The [`local-docker-portal.sh`](https://github.com/MystenLabs/walrus-sites/blob/main/scripts/local-docker-portal.sh) script automates portal configuration and startup. It reads the version of your locally installed `site-builder`, generates a `portal-config.yaml` file, and runs the corresponding Docker image.
-
-To download the script:
-
-```sh
-$ curl -O https://raw.githubusercontent.com/MystenLabs/walrus-sites/main/scripts/local-docker-portal.sh
-$ chmod +x local-docker-portal.sh
-```
-
-The script requires the target network (`mainnet` or `testnet`) as its first argument. You can optionally pass a second argument to override the default landing page.
-
-<Tabs>
-<TabItem value="mainnet" label="Portal for Mainnet sites">
-
-```sh
-$ ./local-docker-portal.sh mainnet
-```
-
-</TabItem>
-
-<TabItem value="testnet" label="Portal for Testnet sites">
-
-```sh
-$ ./local-docker-portal.sh testnet
-```
-
-</TabItem>
-</Tabs>
-
-### Run with a custom landing page
-
-Pass a Base36-encoded Sui object ID as the second argument to override the default landing page served at the portal root.
-
-```sh
-$ ./local-docker-portal.sh mainnet 46f3881sp4r55fc6pcao9t93bieeejl4vr4k2uv8u4wwyx1a93
-```
-
-:::tip
-
-To obtain the Base36 ID of a site you published, use the [`convert` command](/docs/sites/getting-started/using-the-site-builder):
-
-```sh
-$ site-builder convert HEX_OBJECT_ID
-```
-
-:::
-
-Once the portal is running, open your browser and navigate to the following URL:
-
-```
-http://SITE_OBJECT_ID_B36.localhost:3000
-```
-
-Replace `SITE_OBJECT_ID_B36` with the Base36-encoded object ID of the Walrus Site you want to view.
-
-:::info
-
-The portal runs on **port 3000** by default. The `--rm` flag in the `local-docker-portal.sh` script ensures the Docker container is removed automatically when stopped.
-
-:::
-
-## Manual configuration
-
-Use this method if you need to [customize the portal configuration](/docs/sites/portals/mainnet-testnet#configuration) beyond what the script supports, such as enabling allowlists, blocklists, or custom RPC endpoints.
-
-### Docker
-
-*/}
 
 Clone the `walrus-sites` repository and check out the stable branch:
 
@@ -93,23 +18,13 @@ $ git checkout mainnet
 
 Copy the template configuration file for your target network and rename it to `portal-config.yaml`:
 
-<Tabs>
-<TabItem value="mainnet" label="Mainnet">
-
 ```sh
 $ cp portal/server/portal-config.mainnet.example.yaml portal/server/portal-config.yaml
 ```
 
-</TabItem>
-
-<TabItem value="testnet" label="Testnet">
-
 ```sh
 $ cp portal/server/portal-config.testnet.example.yaml portal/server/portal-config.yaml
 ```
-
-</TabItem>
-</Tabs>
 
 Run the Docker container:
 

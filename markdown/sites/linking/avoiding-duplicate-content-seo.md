@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Duplicate content occurs when the same or substantially similar content is accessible at more than 1 URL. Search engines such as Google consolidate duplicate pages and assign ranking signals to whichever URL they consider canonical. If your Walrus Site is reachable under multiple hostnames, search engines might split those signals across URLs, reducing the visibility of your preferred address.
 
 Walrus Sites are particularly prone to this because the same site object can be resolved under several different hostnames at the same time:
@@ -17,7 +19,7 @@ The standard way to tell search engines which URL is authoritative is the canoni
 Add a `<link rel="canonical">` tag to the `<head>` of every page, pointing to your preferred URL:
 
 ```html
-
+<link rel="canonical" href="https://YOUR_PREFERRED_HOST/path" />
 ```
 
 This approach works for all Walrus Sites, regardless of how the portal is configured. Most static site generators and web frameworks support injecting a canonical tag automatically when configured with your preferred base URL.
@@ -62,7 +64,7 @@ Setting `bring_your_own_domain: true` in `portal-config.yaml` configures the por
 Any SuiNS name can be pointed at a site object permissionlessly. If multiple names resolve to your site, canonical hints in your site HTML specify which name is authoritative:
 
 ```html
-
+<link rel="canonical" href="https://PREFERRED_SUINS_NAME.wal.app" />
 ```
 
 If you own the extra names, consider removing or not renewing the registrations that you do not want to use as a canonical address.
@@ -78,7 +80,7 @@ You run a site reachable at both `https://example.wal.app/math` (SuiNS) and `htt
 Add the following to the `<head>` of every page:
 
 ```html
-
+<link rel="canonical" href="https://example.com/math" />
 ```
 
 Search engines now attribute all ranking signals to `https://example.com/math`, regardless of which hostname serves the page.

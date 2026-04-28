@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Last updated: March 26, 2025
 
 By using Walrus Testnet software, technologies, tools, and other services (collectively

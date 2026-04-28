@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Blobs can be interacted with through familiar file system operations such as uploading, reading, downloading, and deleting.
 
 ## Upload
@@ -8,12 +10,9 @@ Use the following command to upload a file to Walrus
 $ walrus store file.txt --epochs 2 --context testnet
 ```
 
-:::danger
-
-All blobs stored in Walrus are public and discoverable by all. Do not store secrets or private data without additional confidentiality measures, such as encrypting with [Seal](/docs/data-security).
-
-:::
-
+> **Danger**
+>
+> All blobs stored in Walrus are public and discoverable by all. Do not store secrets or private data without additional confidentiality measures, such as encrypting with [Seal](/docs/data-security).
 When you run this command, the steps executed by the client are:
 
 1. Acquire a storage resource of appropriate size and duration onchain, either directly from the Walrus system object or a secondary market. Storage resources can be split, merged, and transferred.

@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 By default, [store blob](/docs/http-api/storing-blobs#store) requests are limited to 10 MiB. You can increase this limit through the `--max-body-size` option. [Store quilt](/docs/http-api/storing-blobs#storing-quilts) requests are limited to 100 MiB by default, and you can increase them using the `--max-quilt-body-size` option.
 
 If you host the aggregator or publisher on a third-party platform, ensure that any additional platform-imposed limits or constraints are compatible with your intended use case.
@@ -122,12 +124,9 @@ sudo rm -f /etc/nginx/sites-enabled/default
 sudo systemctl restart nginx
 ```
 
-:::caution
-
-If you run the nginx reverse proxy on the **same host** as the storage node, change `standalone` to `nginx` in `/etc/letsencrypt/renewal/walrus-storage-node.conf`. This ensures certbot uses the nginx plugin for renewal instead of trying to bind to **port 80** directly. See the [Storage Node Setup TLS section](/docs/operator-guide/storage-nodes/storage-node-setup#tls-setup) to learn more about how certbot is configured for the storage node.
-
-:::
-
+> **Caution**
+>
+> If you run the nginx reverse proxy on the **same host** as the storage node, change `standalone` to `nginx` in `/etc/letsencrypt/renewal/walrus-storage-node.conf`. This ensures certbot uses the nginx plugin for renewal instead of trying to bind to **port 80** directly. See the [Storage Node Setup TLS section](/docs/operator-guide/storage-nodes/storage-node-setup#tls-setup) to learn more about how certbot is configured for the storage node.
 ## View daemon metrics
 
 Services export a metrics endpoint by default, accessible at `http://127.0.0.1:27182/metrics`. You can change the address using the `--metrics-address METRICS_ADDRESS` CLI option.

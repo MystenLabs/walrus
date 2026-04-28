@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 This reference page provides details on `site-builder` configuration and CLI commands.
 
 ## Configuration file
@@ -49,10 +51,9 @@ default_context: mainnet
 
 ## `site-builder` CLI commands
 
-:::info
-Add `--help` to any command for full details: `site-builder --help` or `site-builder deploy --help`.
-:::
-
+> **Info**
+>
+> Add `--help` to any command for full details: `site-builder --help` or `site-builder deploy --help`.
 ### `deploy`
 
 Publishes a new site or updates an existing one. This is the recommended command for all publishing and update workflows.
@@ -75,9 +76,6 @@ If no ID is found, `deploy` publishes a new site. The new site's `object_id` is 
 
 #### Migrating from `publish` and `update`
 
-<Tabs>
-<TabItem value="recommended" label="Recommended">
-
 Pass your existing site's object ID with `--object-id` on the first run:
 
 ```sh
@@ -90,9 +88,6 @@ the flag:
 ```sh
 site-builder deploy --epochs <NUMBER> ./path/to/your/site
 ```
-
-</TabItem>
-<TabItem value="manual" label="Manual">
 
 Manually add the `object_id` field to `ws-resources.json` in your site's root directory:
 
@@ -107,9 +102,6 @@ Then deploy normally:
 ```sh
 site-builder deploy --epochs <NUMBER> ./path/to/your/site
 ```
-
-</TabItem>
-</Tabs>
 
 ### `convert`
 
@@ -147,10 +139,9 @@ site-builder update-resource --id <OBJECT_ID> <RESOURCE_PATH>
 
 Permanently destroys the a site's object. 
 
-:::warning
-This action is irreversible. Ensure you no longer need the site before running this command.
-:::
-
+> **Warning**
+>
+> This action is irreversible. Ensure you no longer need the site before running this command.
 ```sh
 site-builder destroy --id <OBJECT_ID>
 ```

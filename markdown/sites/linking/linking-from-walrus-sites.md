@@ -1,11 +1,13 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Walrus Sites serves content stored on Walrus through a [portal](/docs/sites/portals/mainnet-testnet). All relative URLs in your site resolve against the onchain site object. Anything outside that object, such as third-party pages, APIs, CDN assets, other Walrus Sites, requires an absolute URL.
 
 ## Linking to external pages
  
-Standard HTML `` tags with absolute `https://` URLs work without any special configuration. The portal does not intercept or rewrite absolute URLs in rendered HTML.
+Standard HTML `<a>` tags with absolute `https://` URLs work without any special configuration. The portal does not intercept or rewrite absolute URLs in rendered HTML.
  
 ```html
-<a href="https://example.com">Visit Example
+<a href="https://example.com">Visit Example</a>
 ```
  
 When a user clicks this link, the browser navigates directly to `https://example.com`. The portal is not involved after the initial page render.
@@ -13,9 +15,9 @@ When a user clicks this link, the browser navigates directly to `https://example
 To open an external link in a new tab:
  
 ```html
-
+<a href="https://example.com" target="_blank" rel="noopener noreferrer">
   Open in new tab
-
+</a>
 ```
  
 Including `rel="noopener noreferrer"` is a standard security practice when using `target="_blank"`.
@@ -25,13 +27,13 @@ Including `rel="noopener noreferrer"` is a standard security practice when using
 Each Walrus Site resolves through a subdomain on a portal host. To link from one Walrus Site to another, use the full subdomain URL.
  
 ```html
-Other site
+<a href="https://OTHER_SITE_NAME.wal.app">Other site</a>
 ```
  
 You can also link to a site using its Base36-encoded Sui object ID directly through the portal:
  
 ```html
-Site by object ID
+<a href="https://BASE36_OBJECT_ID.wal.app">Site by object ID</a>
 ```
  
 Using Base36 object IDs produces stable links that do not break if the [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name) associated with the site changes.
@@ -50,10 +52,9 @@ Avoid protocol-relative URLs (`//example.com`). Their behavior depends on the sc
  
 The portal serves pages with standard browser security policies, so cross-origin resource sharing (CORS) restrictions apply. The external host must allow cross-origin requests for assets to load.
  
-:::caution
-Do not use relative paths to reference off-chain resources. A path like `../external/resource` resolves within the Walrus Site object and returns a 404 if the resource does not exist there.
-:::
- 
+> **Caution**
+>
+> Do not use relative paths to reference off-chain resources. A path like `../external/resource` resolves within the Walrus Site object and returns a 404 if the resource does not exist there.
 ## Common patterns
  
 The following examples show typical outbound links from a Walrus Site.
@@ -61,13 +62,13 @@ The following examples show typical outbound links from a Walrus Site.
 ### Linking to a GitHub repository
  
 ```html
-Source code
+<a href="https://github.com/YOUR_ORG/YOUR_REPO">Source code</a>
 ```
  
 ### Linking to Sui Explorer for an object
  
 ```html
-View on Sui Explorer
+<a href="https://suiexplorer.com/object/OBJECT_ID">View on Sui Explorer</a>
 ```
  
 ### Loading a font from a CDN
@@ -79,8 +80,8 @@ View on Sui Explorer
 ### Linking between pages within the same site
  
 ```html
-About
-Read post
+<a href="/about">About</a>
+<a href="/blog/post-1">Read post</a>
 ```
  
 Relative links within the same site resolve against the site object and do not require absolute URLs.

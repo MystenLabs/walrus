@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Resolve common issues with the Walrus CLI, configuration, and network connectivity.
 
 ## Use the latest binary
@@ -16,13 +18,15 @@ If you get an error like `the specified Walrus system object does not exist`, ma
 
 Walrus Testnet is wiped periodically and requires updating to the latest binary and configuration. If you get an error like `could not retrieve enough confirmations to certify the blob`, you are probably using an outdated configuration pointing to an inactive Walrus system. Update your configuration file with the latest [configuration](/docs/getting-started) and make sure the CLI uses the intended configuration.
 
-:::tip
-When you set `RUST_LOG=info`, the `walrus` client binary prints information about the configuration it uses when starting execution, including the path to the Walrus configuration file and the Sui wallet.
-:::
-
+> **Tip**
+>
+> When you set `RUST_LOG=info`, the `walrus` client binary prints information about the configuration it uses when starting execution, including the path to the Walrus configuration file and the Sui wallet.
 ## Enable debug logging
 
 You can enable debug logging for Walrus by setting the environment variable `RUST_LOG=walrus=debug`. The `debug` and `trace` levels provide a more detailed understanding of what a command does or how it fails.
 ```
 $ RUST_LOG=walrus=debug walrus store file.txt --epochs 5
 ```
+
+- [Error Handling](/docs/troubleshooting/error-handling): Best practices for handling Walrus errors.
+- [Troubleshooting Common Errors](/docs/troubleshooting/network-errors): Common errors in the Walrus CLI and network, with causes and solutions.

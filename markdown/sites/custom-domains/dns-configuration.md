@@ -1,13 +1,11 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 After [setting up your portal and configuring it for your domain](/docs/sites/custom-domains/bringing-your-own-domain), you need to configure your domain's DNS to route traffic to the server running your portal.
 
 This guide covers adding DNS records, setting up HTTPS with a reverse proxy, verifying propagation, and troubleshooting common DNS issues.
 
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
 - [x] A portal running on a server with a public IP address, configured per [Use Your Own Domain for a Walrus Site](./bringing-your-own-domain)
 - [x] Access to your domain's DNS settings through your domain registrar or DNS provider
-</TabItem>
-</Tabs>
 
 ## Point your root domain to the portal
 
@@ -31,18 +29,14 @@ If you want to serve your site at a subdomain like `www.example.com` or `app.exa
 
 You can add both a root domain record and a subdomain record, then configure your reverse proxy to handle both hostnames.
 
-:::tip
-Some domain registrars let you set up automatic redirects from `www` to your root domain (or the reverse). Check your registrar's documentation for redirect or forwarding options if you want both `example.com` and `www.example.com` to reach your site without running 2 separate server configurations.
-:::
-
+> **Tip**
+>
+> Some domain registrars let you set up automatic redirects from `www` to your root domain (or the reverse). Check your registrar's documentation for redirect or forwarding options if you want both `example.com` and `www.example.com` to reach your site without running 2 separate server configurations.
 ## Set up HTTPS with a reverse proxy
  
-:::info
-
-The Walrus Sites repo provides 2 first-party deployment options for the portal server: a [Dockerfile](https://github.com/MystenLabs/walrus-sites/blob/main/portal/docker/server/Dockerfile) for self-hosted deployments and a [`vercel.json`](https://github.com/MystenLabs/walrus-sites/blob/main/portal/server/vercel.json) for deploying on [Vercel](https://vercel.com), which handles TLS automatically. If either of those fits your setup, you do not need a reverse proxy.
-
-:::
- 
+> **Info**
+>
+> The Walrus Sites repo provides 2 first-party deployment options for the portal server: a [Dockerfile](https://github.com/MystenLabs/walrus-sites/blob/main/portal/docker/server/Dockerfile) for self-hosted deployments and a [`vercel.json`](https://github.com/MystenLabs/walrus-sites/blob/main/portal/server/vercel.json) for deploying on [Vercel](https://vercel.com), which handles TLS automatically. If either of those fits your setup, you do not need a reverse proxy.
 If you are running the portal directly on a Linux server, it listens on port 3000 with no built-in TLS. To serve HTTPS traffic you need a reverse proxy in front of it. A reverse proxy like [Nginx](https://nginx.org/en/docs/) or [Caddy](https://caddyserver.com/docs/) sits in front of your portal, handles TLS termination, and forwards requests to the portal process on its local port.
  
 The following is a general-purpose [Nginx](https://nginx.org/en/docs/) configuration that proxies HTTPS traffic to a portal running on port 3000. This is not an officially supported Walrus Sites configuration — adapt it to your environment:

@@ -1,13 +1,9 @@
-Create a GitHub Actions workflow to automatically deploy your Walrus Site whenever you push to your repository. The workflow uses the official [Deploy Walrus Site action](https://github.com/MystenLabs/walrus-sites-github-actions) maintained by Mysten Labs.
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
+Create a GitHub Actions workflow to automatically deploy your Walrus Site whenever you push to your repository. The workflow uses the official [Deploy Walrus Site action](https://github.com/MystenLabs/walrus-sites-github-actions) maintained by Mysten Labs.
 
 - [x] A GitHub repository containing your site's source files.
 - [x] `SUI_KEYSTORE` secret and `SUI_ADDRESS` variable added to your repository. See [Preparing Deployment Credentials](/docs/sites/ci-cd/preparing-deployment-credentials).
-
-</TabItem>
-</Tabs>
 
 ## How the action works
 
@@ -52,12 +48,9 @@ The `site-builder` tool uses a file called `ws-resources.json` to track the Sui 
 
 **Subsequent deployments (existing `ws-resources.json`):** The action reads the `object_id` from the file and updates the same site in place. Only changed resources are re-uploaded.
 
-:::caution
-
-Merge the pull request from your first deployment before the next workflow run. If `ws-resources.json` is not committed, each run creates a new site object instead of updating the existing one.
-
-:::
-
+> **Caution**
+>
+> Merge the pull request from your first deployment before the next workflow run. If `ws-resources.json` is not committed, each run creates a new site object instead of updating the existing one.
 To place the file in your repository so that it survives across builds, add it under your framework's `public/` directory (or equivalent). Most build tools copy everything in `public/` directly into the output directory, which makes the file available at `DIST/ws-resources.json` without any extra configuration.
 
 Once your site is deployed and you have its `object_id`, you can link it to a SuiNS name so that it is accessible at `<suins>.wal.app`. See [Setting a SuiNS Name](/docs/sites/custom-domains/setting-a-suins-name) for details.

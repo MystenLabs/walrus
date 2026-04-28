@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Use the Walrus client to manage blobs and their metadata.
 
 ## Extend the lifetime of a blob
@@ -28,12 +30,9 @@ The `delete` command reclaims the storage object associated with the deleted blo
 
 The delete operation has limited utility for privacy. It only deletes slivers from the current epoch storage nodes and subsequent epoch storage nodes if no other user has uploaded a copy of the same blob. If another copy of the same blob exists in Walrus, the delete operation does not make the blob unavailable for download, and `walrus read` invocations still download it. After the deletion finishes, the CLI checks the updated status of the blob to see if it is still accessible in Walrus, unless you specified the `--no-status-check` option. However, even if the blob is not accessible, copies of the public blob might be cached or downloaded by users, and those copies are not deleted.
 
-:::danger
-
-All blobs stored in Walrus are public and discoverable by all. The `delete` command does not delete slivers if other copies of the blob are stored on Walrus, possibly by other users. It does not delete blobs from caches, slivers from past storage nodes, or copies that users might have made before the blob was deleted.
-
-:::
-
+> **Danger**
+>
+> All blobs stored in Walrus are public and discoverable by all. The `delete` command does not delete slivers if other copies of the blob are stored on Walrus, possibly by other users. It does not delete blobs from caches, slivers from past storage nodes, or copies that users might have made before the blob was deleted.
 ## Burn blobs
 
 Burn a blob to remove the blob's corresponding object on Sui without deleting the data from Walrus and without refunding the storage. Burning a blob's corresponding Sui object forfeits control of that blob and the data it represents. After burning, you cannot extend permanent blobs and you cannot extend or delete deletable blobs.

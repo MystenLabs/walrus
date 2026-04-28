@@ -1,16 +1,15 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 Walrus enables apps to store data from within end-user browsers that have low to moderate machine specifications (mobile devices, low-powered laptops, and so on). This browser-based scenario is difficult to achieve in practice with an in-browser process that directly communicates with the storage nodes because of the high number of network connections required to upload all slivers to all shards.
 
 The upload relay is a downloadable program that community members, Mysten Labs, and app developers can run on internet-facing hosts to facilitate storing blob slivers onto the storage nodes on behalf of end users. This mitigates browser resource consumption and enables web-based store operations.
 
-:::tip
-
-Mysten Labs runs 2 publicly available upload relays at the following addresses:
-
-- **Testnet:** `https://upload-relay.testnet.walrus.space`
-- **Mainnet:** `https://upload-relay.mainnet.walrus.space`
-
-:::
-
+> **Tip**
+>
+> Mysten Labs runs 2 publicly available upload relays at the following addresses:
+> 
+> - **Testnet:** `https://upload-relay.testnet.walrus.space`
+> - **Mainnet:** `https://upload-relay.mainnet.walrus.space`
 ## Understand the design
 
 At a high level, a client stores a blob using an upload relay as follows:
@@ -127,7 +126,6 @@ $ docker run \
 
 The following is an example of the `walrus-upload-relay` configuration file:
 
-<!-- IMPORT_CONTENT_RESOLVED source="/crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml" mode="code" -->
 ```yaml title="crates/walrus-upload-relay/walrus_upload_relay_config_example.yaml"
 tip_config: !send_tip
   address: 0x2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a
@@ -137,7 +135,6 @@ tx_max_future_threshold:
   secs: 30
   nanos: 0
 ```
-<!-- /IMPORT_CONTENT_RESOLVED -->
 
 The available options are:
 

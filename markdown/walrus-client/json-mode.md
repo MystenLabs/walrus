@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 All Walrus client commands are available in JSON mode, which simplifies programmatic access to the [CLI](/docs/walrus-client/storing-blobs). You can specify all command-line flags of the original CLI command in JSON format.
 
 To store a blob, run the following command:

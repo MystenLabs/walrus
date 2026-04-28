@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use [Seal](/docs/data-security#seal-data-confidentially-and-access-control) or [Nautilus](/docs/data-security#nautilus-secure-and-verifiable-off-chain-computation) to encrypt the data before storing it on Walrus.
 
 Store blobs on Walrus with the following command:
@@ -6,7 +8,6 @@ Store blobs on Walrus with the following command:
 $ walrus store <FILES> --epochs <EPOCHS>
 ```
 
-<!-- IMPORT_CONTENT_RESOLVED source="blob-object-id" mode="snippet" -->
 After you upload a blob to Walrus, it has 2 identifiers:
 
 ```sh
@@ -19,7 +20,6 @@ Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe8
 - Sui Object ID: The blob's corresponding newly created Sui object identifier, as the system binds all blobs to one or more Sui objects.
 
 You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the blob's metadata, such as its storage duration. You might also use them to read blob data.
-<!-- /IMPORT_CONTENT_RESOLVED -->
 
 You can store a single file or multiple files, separated by spaces. This is compatible with glob patterns:
 

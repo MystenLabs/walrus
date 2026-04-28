@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its contents directly from a Walrus aggregator. This means that access control for Walrus Sites is not enforced at the storage layer. Instead, you apply it at the application layer, either through client-side encryption before upload, or through onchain policy enforcement using [Seal](https://seal-docs.wal.app/).
 
 ## Fully public content (default)
@@ -6,10 +8,9 @@ When you publish a Walrus Site using [`site-builder`](/docs/sites/getting-starte
 
 For these use cases, [site data authentication](/docs/sites/security/site-data-authentication) already provides integrity guarantees: the [portal](/docs/sites/portals/mainnet-testnet) verifies each resource's SHA-256 hash against the value stored on Sui before serving it, ensuring the content has not been tampered with in transit.
 
-:::info
-Integrity verification and access control are separate concerns. Authentication confirms that content has not been modified. It does not restrict who can retrieve it.
-:::
-
+> **Info**
+>
+> Integrity verification and access control are separate concerns. Authentication confirms that content has not been modified. It does not restrict who can retrieve it.
 ## Restricting access through Seal
  
 For content that should only be readable by specific users, [Seal](https://seal.mystenlabs.com/) is the recommended mechanism. Seal is a decentralized secrets management (DSM) service built on Sui. It combines client-side threshold encryption with onchain access policies defined in Move smart contracts, so that encrypted content can live permanently on Walrus while access rules remain independently updatable onchain.
@@ -42,10 +43,9 @@ A time-lock policy makes content decryptable only after a specific point in time
  
 Because `seal_approve` is arbitrary Move code, you can combine multiple conditions. Any state observable on Sui can be incorporated into an access policy. Additional high-level patterns are available in [`move/patterns`](https://github.com/MystenLabs/seal/tree/main/move/patterns) in the Seal repository.
  
-:::caution
-If your Move package is upgradeable, the access control policy can be modified at any time by the package owner. These changes are transparent and publicly visible onchain. For higher assurance, consider publishing an immutable package or using a versioned shared object pattern for your policy state.
-:::
- 
+> **Caution**
+>
+> If your Move package is upgradeable, the access control policy can be modified at any time by the package owner. These changes are transparent and publicly visible onchain. For higher assurance, consider publishing an immutable package or using a versioned shared object pattern for your policy state.
 ## Choosing an approach
  
 The following table summarizes when to use each option:

@@ -1,18 +1,14 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 [Sui Name Service (SuiNS)](https://suins.io/) provides human-readable names for Walrus Sites, similar to how DNS works for websites. Instead of sharing a long Base36 subdomain like `1lupgq2auevjruy7hs9z7tskqwjp5cc8c5ebhci4v57qyl4piy.wal.app`, you can link a SuiNS name to your site's object ID and browse it at a readable address like `my-project.wal.app`.
 
-:::info
+> **Info**
+>
+> Base36 subdomains are not supported on the `wal.app` portal. You must use a SuiNS name to browse Walrus Sites through `wal.app`. Base36 subdomains still work on [local servers and alternative portals](/docs/sites/portals/deploy-locally).
 
-Base36 subdomains are not supported on the `wal.app` portal. You must use a SuiNS name to browse Walrus Sites through `wal.app`. Base36 subdomains still work on [local servers and alternative portals](/docs/sites/portals/deploy-locally).
-
-:::
-
-<Tabs>
-<TabItem value="prereq" label="Prerequisites">
 - [x] A [deployed Walrus Site](/docs/sites/getting-started/publishing-your-first-site) with a known object ID
 - [x] A [Sui-compatible wallet](https://docs.sui.io/guides/developer/wallets/what-is-a-wallet) funded with SUI to pay for the SuiNS name registration and transaction fees
 - [x] A wallet connected to [suins.io](https://suins.io) (Mainnet) or [testnet.suins.io](https://testnet.suins.io) (Testnet) to register and manage names
-</TabItem>
-</Tabs>
 
 ## SuiNS names
 
@@ -68,12 +64,9 @@ New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba7
  
 You can also find the object ID by searching your wallet address in [Sui Explorer](https://suivision.xyz) and locating the Walrus Site object in your owned objects.
  
-:::tip
-
-Copy and save the object ID before you start the linking process. You need to paste it exactly as it appears, without extra spaces or characters.
-
-:::
-
+> **Tip**
+>
+> Copy and save the object ID before you start the linking process. You need to paste it exactly as it appears, without extra spaces or characters.
 ## Link your SuiNS name to your Walrus Site
 
 After you have both a SuiNS name and a Walrus Site object ID, link them together on the SuiNS portal.
@@ -117,10 +110,9 @@ Replace `YOUR_SUINS_NAME` with the name you registered. For example, if you regi
 
 The portal resolves the SuiNS name to your Walrus Site object ID and displays your site's content.
 
-:::info
-Onchain transactions take a few seconds to finalize. If your site does not load immediately after approving the transaction, wait a moment and refresh the page.
-:::
-
+> **Info**
+>
+> Onchain transactions take a few seconds to finalize. If your site does not load immediately after approving the transaction, wait a moment and refresh the page.
 ## Update the link
 
 You can update the Walrus Site your SuiNS name points to at any time. This is useful when you run `site-builder deploy` to publish a new version of your site and the command produces a new site object ID.

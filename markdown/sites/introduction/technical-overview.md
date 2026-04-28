@@ -1,3 +1,5 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
 A Walrus Site is a static web site published entirely onchain, with no origin server. [Sui](https://docs.sui.io/) stores the site's ownership and resource index, and Walrus stores the resource files themselves. A portal bridges these systems and serves the site to the browser over standard HTTP.
 
 This page explains how those pieces fit together. For a description of each component in detail, see [Walrus Sites Components](/docs/sites/introduction/components).
@@ -36,12 +38,9 @@ The subdomain is derived from the site's Sui object ID in one of 2 ways:
 - **SuiNS name:** A human-readable name registered through [SuiNS](https://suins.io/) and pointed at the site's object ID, for example `flatland` in `https://flatland.wal.app`.
 - **Base36-encoded object ID:** The full object ID re-encoded in Base36, which fits within the 63-character subdomain limit (a hex-encoded Sui object ID requires 64 characters) and is case-insensitive, unlike Base64 or Base58.
 
-:::danger
-
-The `wal.app` portal does not support Base36 domain resolution. To access a site by its raw object ID, use a self-hosted portal or [run a local portal](/docs/sites/portals/deploy-locally).
-
-:::
-
+> **Danger**
+>
+> The `wal.app` portal does not support Base36 domain resolution. To access a site by its raw object ID, use a self-hosted portal or [run a local portal](/docs/sites/portals/deploy-locally).
 ## Ownership and updates
 
 Because a Walrus Site is a standard Sui object, it participates in Sui's ownership model. The owner can transfer, share, or destroy the site object, and can assign it a SuiNS name. Updating a site re-uploads all resource files to Walrus as a new quilt and updates the onchain index to point to the new content. The site's Sui object ID does not change between updates, so any SuiNS name or bookmark pointing to it remains valid.
