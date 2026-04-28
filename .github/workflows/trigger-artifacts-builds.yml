@@ -16,13 +16,106 @@ concurrency: ${{ github.workflow }}-${{ github.ref_name }}
 jobs:
   trigger-artifact-builds:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
     steps:
-      # Legacy multi-OS artifact pipeline: cargo builds on ubuntu/macos/windows
-      # runners, DockerHub tagging, release tarballs. Scoped to branch-named
-      # release flows because walrus-build-artifacts.yml keys everything by
-      # branch name. Will shrink (and eventually drop ubuntu) once Phase 4d of
-      # the pipeline unification retires its ubuntu matrix in favor of mp3
-      # extraction.
+      # mp3 pre-warm: builds the walrus-service Docker image once per SHA and
+      # publishes mysten/walrus-service:<sha> + <sha>-arm64 to DockerHub. Its
+      # extraction sidecar also drops walrus/walrus-node/walrus-deploy into
+      #   gs://mysten-walrus-binaries/walrus[-arm64]/<sha>/
+      # so ansible deploys and sui-operations' walrus-deploy / walrus-deploy-ptn
+      # workflows hit a warm cache instead of serially rebuilding at deploy time.
+      #
+      # Always dispatched (every release-tracking branch push), matching the
+      # sui-side pattern of MystenLabs/sui/pre-build-images.yml →
+      # MystenLabs/sui-operations/prebuild-sui-images.yml. The branch-aliased
+      # pipeline below depends on the SHA-tagged DockerHub images this dispatch
+      # produces, so we wait for completion before kicking that off.
+      - name: Dispatch ensure-walrus-binaries in MystenLabs/sui-operations
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
+        with:
+          repository: MystenLabs/sui-operations
+          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
+          event-type: ensure-walrus-binaries
+          # build_arm64=true so the SHA-tagged arm64 DockerHub image
+          # (mysten/walrus-service:<sha>-arm64) gets published — the legacy
+          # docker buildx job in walrus-build-artifacts.yml that used to
+          # produce it has been retired in favor of mp3 + an in-pipeline
+          # GAR retag step. amd64 is on by default.
+          client-payload: >
+            {
+              "walrus_commit": "${{ github.sha }}",
+              "build_arm64": "true"
+            }
+
+      # Branch-aliased artifacts only matter for release-tracking branches:
+      #   * mysten/walrus-service:<branch>{,-arm64}{,-v<version>}
+      #   * walrus-<branch>-v<version>-<os>.tgz tarballs
+      # The tag-only retag job in sui-operations' walrus-build-artifacts.yml
+      # expects mysten/walrus-service:<sha>{,-arm64} to already exist —
+      # produced by the dispatch above. Wait for that run to complete before
+      # dispatching, so the retag doesn't race against an in-flight mp3 build
+      # and so an upstream ensure failure surfaces here rather than as a
+      # cryptic docker pull timeout downstream.
+      - name: Wait for ensure-walrus-binaries to complete
+        if: contains(fromJSON('["devnet", "testnet", "mainnet"]'), github.ref_name)
+        env:
+          WALRUS_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # repository_dispatch creates the workflow run asynchronously — there's
+          # a brief window before it appears in the listing. Poll
+          # ensure-walrus-binaries.yml runs filtered to event=repository_dispatch
+          # and match by display_title (run-name), which interpolates the
+          # walrus commit via inputs.walrus_commit / client_payload.walrus_commit.
+          deadline=$(( $(date +%s) + 30 * 60 ))   # 30 min cap (covers cache-miss mp3 builds)
+          run_id=""
+          while (( $(date +%s) < deadline )); do
+            run_id=$(gh api \
+              "/repos/MystenLabs/sui-operations/actions/workflows/ensure-walrus-binaries.yml/runs?event=repository_dispatch&per_page=20" \
+              --jq "[.workflow_runs[] | select(.display_title | contains(\"${WALRUS_SHA}\"))][0].id // empty")
+            if [[ -n "${run_id}" ]]; then
+              break
+            fi
+            echo "ensure-walrus-binaries run for ${WALRUS_SHA} not yet visible; sleeping 15s..."
+            sleep 15
+          done
+
+          if [[ -z "${run_id}" ]]; then
+            echo "::error::ensure-walrus-binaries dispatch never produced a run for ${WALRUS_SHA} within the 30-minute window"
+            exit 1
+          fi
+
+          run_url="https://github.com/MystenLabs/sui-operations/actions/runs/${run_id}"
+          echo "::notice::watching ensure-walrus-binaries run ${run_id}: ${run_url}"
+
+          status=""
+          while (( $(date +%s) < deadline )); do
+            run_json=$(gh api "/repos/MystenLabs/sui-operations/actions/runs/${run_id}")
+            status=$(echo "${run_json}" | jq -r '.status')
+            conclusion=$(echo "${run_json}" | jq -r '.conclusion')
+            if [[ "${status}" == "completed" ]]; then
+              if [[ "${conclusion}" == "success" ]]; then
+                echo "::notice::ensure-walrus-binaries succeeded for ${WALRUS_SHA}: ${run_url}"
+                exit 0
+              else
+                echo "::error::ensure-walrus-binaries finished with conclusion=${conclusion} for ${WALRUS_SHA}: ${run_url}"
+                exit 1
+              fi
+            fi
+            echo "ensure-walrus-binaries status=${status}; sleeping 30s..."
+            sleep 30
+          done
+
+          echo "::error::timed out waiting for ensure-walrus-binaries (${run_url}) — last status=${status}"
+          exit 1
+
+      # Branch-aliased artifact pipeline. Builds remaining cargo legs (macos/
+      # windows tarballs) and adds DockerHub branch/version tag aliases on top
+      # of the SHA-tagged images produced above. Will shrink further once
+      # Phase 4c-3 of the pipeline unification retires the ubuntu cargo legs
+      # in favor of mp3 binary extraction.
       - name: Dispatch Walrus Artifact Builds in MystenLabs/sui-operations
         if: contains(fromJSON('["devnet", "testnet", "mainnet"]'), github.ref_name)
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
@@ -31,23 +124,3 @@ jobs:
           token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
           event-type: walrus-build-artifacts
           client-payload: '{"branch": "${{ github.ref_name }}"}'
-
-      # mp3 pre-warm: builds the walrus-service Docker image once per SHA and
-      # its extraction sidecar drops walrus/walrus-node/walrus-deploy into
-      #   gs://mysten-walrus-binaries/walrus/<sha>/
-      # so ansible deploys and sui-operations' walrus-deploy / walrus-deploy-ptn
-      # workflows hit a warm cache instead of serially rebuilding at deploy time.
-      #
-      # Fires on every push to release-tracking branches (main + release cuts),
-      # matching the sui-side pattern of MystenLabs/sui/pre-build-images.yml →
-      # MystenLabs/sui-operations/prebuild-sui-images.yml.
-      - name: Dispatch ensure-walrus-binaries in MystenLabs/sui-operations
-        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
-        with:
-          repository: MystenLabs/sui-operations
-          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
-          event-type: ensure-walrus-binaries
-          client-payload: >
-            {
-              "walrus_commit": "${{ github.sha }}"
-            }
