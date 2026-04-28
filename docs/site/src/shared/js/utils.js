@@ -1,7 +1,6 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-
 // This component is used for embedding code files
 // into {@include: } snippets
 // It supports the same functionality as {@inject:}
