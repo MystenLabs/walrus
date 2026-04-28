@@ -161,7 +161,8 @@ jobs:
           done
 
           if [ ${#missing[@]} -ne 0 ]; then
-            echo "::error::Missing prebuilt binaries at ${gcs_prefix}/ — these must be produced by sui-operations/prebuild-walrus-images.yml + mp3:binary_upload_config before tagging: ${missing[*]}"
+            echo "::error::Missing prebuilt binaries at ${gcs_prefix}/: ${missing[*]}"
+            echo "::error::These must be produced by sui-operations/prebuild-walrus-images.yml + mp3:binary_upload_config before tagging."
             exit 1
           fi
 
