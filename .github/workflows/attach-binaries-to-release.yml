@@ -123,6 +123,51 @@ jobs:
           gcloud storage cp gs://mysten-walrus-binaries/${{ env.gcp_existing_archive }} ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz
           tar -xf ./tmp/walrus-${{ env.walrus_tag }}-${os_type}.tgz -C ${{ env.TMP_BUILD_DIR }}
 
+      - name: Resolve walrus_sha for prebuilt binary lookup (Linux)
+        if: ${{ startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
+        shell: bash
+        run: |
+          echo "walrus_sha=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Download prebuilt binaries from GCS (Linux)
+        if: ${{ startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
+        shell: bash
+        run: |
+          # Pulls binaries that mp3 (sui-operations/prebuild-walrus-images.yml) extracted
+          # from prebuilt walrus images. amd64 lands at gs://mysten-walrus-binaries/walrus/<sha>/<basename>,
+          # arm64 at gs://mysten-walrus-binaries/walrus-arm64/<sha>/<basename> — see mp3's
+          # binary_upload_config in sui-operations/pulumi/apps/mp3 (walrus-service[-arm64] and
+          # walrus-upload-relay[-arm64] rules). Fails loudly if any binary in
+          # binary-build-list.json release_binaries is missing.
+          mkdir -p ${{ env.TMP_BUILD_DIR }} ./tmp
+          [ ! -f ${{ env.BINARY_LIST_FILE }} ] && echo "${{ env.BINARY_LIST_FILE }} cannot be found" && exit 1
+
+          case "${arch}" in
+            aarch64|arm64) gcs_prefix="gs://mysten-walrus-binaries/walrus-arm64/${walrus_sha}" ;;
+            *)             gcs_prefix="gs://mysten-walrus-binaries/walrus/${walrus_sha}" ;;
+          esac
+
+          missing=()
+          for binary in $(jq -r '.release_binaries[]' ${{ env.BINARY_LIST_FILE }}); do
+            binary=$(echo "${binary}" | tr -d $'\r')
+            src="${gcs_prefix}/${binary}"
+            dest="${{ env.TMP_BUILD_DIR }}/${binary}"
+            echo "Downloading ${src}"
+            if ! gcloud storage cp "${src}" "${dest}"; then
+              missing+=("${binary}")
+              continue
+            fi
+            chmod +x "${dest}"
+          done
+
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing prebuilt binaries at ${gcs_prefix}/: ${missing[*]}"
+            echo "::error::These must be produced by sui-operations/prebuild-walrus-images.yml + mp3:binary_upload_config before tagging."
+            exit 1
+          fi
+
+          tar -cvzf ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz -C ${{ env.TMP_BUILD_DIR }} .
+
       - name: Install nexttest (Windows)
         if: ${{ startsWith(matrix.os, 'windows') && env.gcp_existing_archive == '' }}
         uses: taiki-e/install-action@cargo-hack # pin@cargo-hack
@@ -154,12 +199,6 @@ jobs:
         run: |
           brew install postgresql
 
-      - name: Install postgres (Ubuntu arm64)
-        if: ${{ matrix.os == 'ubuntu-arm64' && env.gcp_existing_archive == '' }}
-        shell: bash
-        run: |
-          sudo apt update && sudo apt install libpq-dev
-
       - name: Remove unused apps (MacOS arm64)
         if: ${{ matrix.os == 'macos-latest-xlarge' && env.gcp_existing_archive == '' }}
         continue-on-error: true
@@ -174,17 +213,17 @@ jobs:
           df -h /
 
       - name: Setup sccache
-        if: ${{ env.gcp_existing_archive == '' }}
+        if: ${{ !startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
         uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
 
       - name: Cargo build for ${{ matrix.os }} platform
-        if: ${{ env.gcp_existing_archive == '' }}
+        if: ${{ !startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
         shell: bash
         run: |
           [ -f ~/.cargo/env ] && source ~/.cargo/env ; cargo build --release
 
       - name: Rename and archive binaries for ${{ matrix.os }}
-        if: ${{ env.gcp_existing_archive == '' }}
+        if: ${{ !startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
         shell: bash
         run: |
           mkdir -p ${{ env.TMP_BUILD_DIR }}
