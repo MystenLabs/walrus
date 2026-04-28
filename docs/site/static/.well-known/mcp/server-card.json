@@ -3,7 +3,7 @@
   "serverInfo": {
     "name": "Walrus Documentation",
     "version": "1.0.0",
-    "description": "AI-powered Q&A over Walrus decentralized storage documentation. Ask questions about blob storage, erasure coding, storage nodes, CLI usage, HTTP API, and more.",
+    "description": "AI-powered Q&A over Walrus decentralized storage docs. Covers blob storage, erasure coding, nodes, CLI, HTTP API.",
     "homepage": "https://docs.wal.app"
   },
   "transport": {
