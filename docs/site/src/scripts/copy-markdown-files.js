@@ -7,6 +7,11 @@ const matter = require('gray-matter');
 
 const contentDir = path.join(__dirname, '../../.markdown/with-imports');
 const outputDir = path.join(__dirname, '../../static/markdown');
+const glossaryPath = path.join(__dirname, '../../static/glossary.json');
+
+// NOTE: The llms.txt directive is injected into build/markdown/ files by
+// generate-routes.js (post-build), not here, so that generate-llmstxt.mjs
+// reads clean content without the self-referential directive.
 
 /**
  * Checks if a markdown file should be skipped (draft or redirect)
@@ -14,48 +19,205 @@ const outputDir = path.join(__dirname, '../../static/markdown');
 function shouldSkip(content) {
   const { data } = matter(content);
   if (data.draft === true) return true;
-  if (data.title === 'Redirecting') return true;
+  if (typeof data.title === 'string' && data.title.startsWith('Redirecting')) return true;
+  if (data.sidebar_class_name === 'hidden') return true;
   return false;
 }
 
 /**
- * Strips frontmatter and cleans MDX/JSX components from markdown
+ * Checks if a file's frontmatter indicates it should be excluded from link lists.
  */
-function stripFrontmatter(content) {
-  const { content: markdownContent } = matter(content);
-  return cleanMdxComponents(markdownContent);
+function shouldExcludeFromLinkList(content) {
+  const { data } = matter(content);
+  if (data.draft === true) return true;
+  if (typeof data.title === 'string' && data.title.startsWith('Redirecting')) return true;
+  if (data.sidebar_class_name === 'hidden') return true;
+  return false;
 }
 
 /**
- * Removes or simplifies MDX/JSX components for cleaner markdown
+ * Converts a file path to a docs URL path.
  */
-function cleanMdxComponents(content) {
+function fileToUrlPath(filePath, baseDir) {
+  let rel = path.relative(baseDir, filePath).replace(/\.mdx?$/, '');
+  rel = rel.replace(/\/?index$/, '');
+  return rel ? `/docs/${rel}` : '/docs';
+}
+
+/**
+ * Generates a markdown link list to replace <DocCardList /> components.
+ * Reads sibling files and subdirectory index files to build a list of child pages.
+ */
+function generateDocCardList(filePath, baseDir) {
+  const dir = path.dirname(filePath);
+  const items = [];
+
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return '';
+  }
+
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      // Look for index file in subdirectory
+      for (const indexName of ['index.mdx', 'index.md']) {
+        const indexPath = path.join(dir, entry.name, indexName);
+        if (fs.existsSync(indexPath)) {
+          try {
+            const raw = fs.readFileSync(indexPath, 'utf8');
+            if (shouldExcludeFromLinkList(raw)) break;
+            const { data } = matter(raw);
+            items.push({
+              title: data.title || entry.name,
+              description: data.description || '',
+              url: fileToUrlPath(indexPath, baseDir),
+            });
+          } catch { /* skip unreadable files */ }
+          break;
+        }
+      }
+    } else if (
+      entry.name !== 'index.mdx' &&
+      entry.name !== 'index.md' &&
+      (entry.name.endsWith('.mdx') || entry.name.endsWith('.md'))
+    ) {
+      const childPath = path.join(dir, entry.name);
+      try {
+        const raw = fs.readFileSync(childPath, 'utf8');
+        if (shouldExcludeFromLinkList(raw)) continue;
+        const { data } = matter(raw);
+        items.push({
+          title: data.title || entry.name.replace(/\.mdx?$/, ''),
+          description: data.description || '',
+          url: fileToUrlPath(childPath, baseDir),
+        });
+      } catch { /* skip unreadable files */ }
+    }
+  }
+
+  if (items.length === 0) return '';
+
+  return items
+    .map(item =>
+      item.description
+        ? `- [${item.title}](${item.url}): ${item.description}`
+        : `- [${item.title}](${item.url})`,
+    )
+    .join('\n');
+}
+
+/**
+ * Generates markdown glossary content from glossary.json.
+ */
+function generateGlossaryContent() {
+  try {
+    const glossary = JSON.parse(fs.readFileSync(glossaryPath, 'utf8'));
+    return glossary
+      .map(entry => `**${entry.label}**: ${entry.definition}`)
+      .join('\n\n');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Removes or simplifies MDX/JSX components for cleaner markdown.
+ * Protects fenced code blocks from being modified.
+ */
+function cleanMdxComponents(content, filePath, baseDir) {
   let cleaned = content;
 
-  // Remove import statements
+  // ── Protect code blocks from JSX cleaning ──────────────────────────────
+  const codeBlocks = [];
+  cleaned = cleaned.replace(/```[\s\S]*?```/g, match => {
+    codeBlocks.push(match);
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+  });
+  cleaned = cleaned.replace(/`[^`\n]+`/g, match => {
+    codeBlocks.push(match);
+    return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
+  });
+
+  // ── Remove import statements ───────────────────────────────────────────
   cleaned = cleaned.replace(/^import\s+.*?from\s+['"].*?['"];?\s*$/gm, '');
 
-  // Convert Card components to markdown links
-  cleaned = cleaned.replace(/<Card[^>]*title="([^"]*)"[^>]*href="([^"]*)"[^>]*\/>/g, '- [$1]($2)');
+  // ── Remove IMPORT_CONTENT_RESOLVED HTML comments ───────────────────────
+  cleaned = cleaned.replace(/<!-- IMPORT_CONTENT_RESOLVED[\s\S]*?-->/g, '');
+  cleaned = cleaned.replace(/<!-- \/IMPORT_CONTENT_RESOLVED -->/g, '');
 
-  // Remove Cards wrapper
+  // ── Replace dynamic components with static content ─────────────────────
+  if (cleaned.includes('<DocCardList')) {
+    const cardContent = generateDocCardList(filePath, baseDir);
+    cleaned = cleaned.replace(/<DocCardList\s*\/>/g, cardContent);
+  }
+  if (cleaned.includes('<GlossaryPage')) {
+    const glossaryContent = generateGlossaryContent();
+    cleaned = cleaned.replace(/<GlossaryPage\s*\/>/g, glossaryContent);
+  }
+
+  // ── Convert Card components to markdown links ──────────────────────────
+  cleaned = cleaned.replace(
+    /<Card[^>]*title="([^"]*)"[^>]*href="([^"]*)"[^>]*\/>/g,
+    '- [$1]($2)',
+  );
   cleaned = cleaned.replace(/<Cards[^>]*>/g, '');
   cleaned = cleaned.replace(/<\/Cards>/g, '');
 
-  // Remove other common JSX components but keep their content
-  cleaned = cleaned.replace(/<(\w+)[^>]*>(.*?)<\/\1>/gs, '$2');
+  // ── Convert Docusaurus admonitions to blockquotes ──────────────────────
+  cleaned = cleaned.replace(
+    /^:::(tip|info|warning|danger|note|caution)(?:[ \t]+(.+))?\s*\n([\s\S]*?)^:::\s*$/gm,
+    (_match, type, title, body) => {
+      const label = type.charAt(0).toUpperCase() + type.slice(1);
+      const header = title ? title.trim() : label;
+      const lines = body
+        .trim()
+        .split('\n')
+        .map(l => `> ${l}`)
+        .join('\n');
+      return `> **${header}**\n>\n${lines}`;
+    },
+  );
 
-  // Remove self-closing JSX tags
+  // ── Convert <a> tags to markdown links before generic stripping ────────
+  cleaned = cleaned.replace(
+    /<a\s+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g,
+    '[$2]($1)',
+  );
+
+  // ── Remove paired JSX/HTML tags, keep content (loop for nesting) ───────
+  let prev;
+  do {
+    prev = cleaned;
+    cleaned = cleaned.replace(/<(\w+)[^>]*>([\s\S]*?)<\/\1>/g, '$2');
+  } while (cleaned !== prev);
+
+  // ── Remove remaining self-closing JSX/HTML tags ────────────────────────
   cleaned = cleaned.replace(/<\w+[^>]*\/>/g, '');
 
-  // Clean up excessive newlines
+  // ── Remove JSX expression comments ─────────────────────────────────────
+  cleaned = cleaned.replace(/\{\/\*[\s\S]*?\*\/\}/g, '');
+
+  // ── Restore code blocks ────────────────────────────────────────────────
+  cleaned = cleaned.replace(/__CODE_BLOCK_(\d+)__/g, (_match, idx) => codeBlocks[parseInt(idx)]);
+
+  // ── Clean up excessive newlines ────────────────────────────────────────
   cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
 
   return cleaned.trim();
 }
 
 /**
- * Recursively copies markdown files from content dir to build output
+ * Strips frontmatter and cleans MDX/JSX components from markdown.
+ */
+function stripFrontmatter(content, filePath, baseDir) {
+  const { content: markdownContent } = matter(content);
+  return cleanMdxComponents(markdownContent, filePath, baseDir);
+}
+
+/**
+ * Recursively copies markdown files from content dir to build output.
  */
 function copyMarkdownFiles(dir, baseDir = dir) {
   const files = fs.readdirSync(dir);
@@ -78,7 +240,14 @@ function copyMarkdownFiles(dir, baseDir = dir) {
         return;
       }
 
-      const cleanContent = stripFrontmatter(content);
+      const cleanContent = stripFrontmatter(content, filePath, baseDir);
+
+      // Skip files that are empty after cleaning
+      if (!cleanContent.trim()) {
+        const relativePath = path.relative(baseDir, filePath);
+        console.log(`  ⏭ Skipped (empty): ${relativePath}`);
+        return;
+      }
 
       // Preserve directory structure
       const relativePath = path.relative(baseDir, filePath);
@@ -93,14 +262,36 @@ function copyMarkdownFiles(dir, baseDir = dir) {
   });
 }
 
+const blogDir = path.join(__dirname, '../../../blog');
+
 console.log('📝 Starting markdown export...');
 console.log(`Source: ${contentDir}`);
 console.log(`Output: ${outputDir}\n`);
 
-// Create output directory
+// Clean and recreate output directory to remove stale files from previous builds
+if (fs.existsSync(outputDir)) {
+  fs.rmSync(outputDir, { recursive: true });
+}
 fs.mkdirSync(outputDir, { recursive: true });
 
-// Copy all markdown files
+// Copy all doc markdown files
 copyMarkdownFiles(contentDir);
+
+// Copy blog posts (these don't go through inline-imports, read directly from source)
+const blogOutputDir = path.join(outputDir, 'blog');
+fs.mkdirSync(blogOutputDir, { recursive: true });
+if (fs.existsSync(blogDir)) {
+  const blogFiles = fs.readdirSync(blogDir).filter(f => f.endsWith('.md') || f.endsWith('.mdx'));
+  for (const file of blogFiles) {
+    const filePath = path.join(blogDir, file);
+    const content = fs.readFileSync(filePath, 'utf8');
+    if (shouldSkip(content)) continue;
+    const cleanContent = stripFrontmatter(content, filePath, blogDir);
+    if (!cleanContent.trim()) continue;
+    const outputPath = path.join(blogOutputDir, file.replace(/\.mdx?$/, '.md'));
+    fs.writeFileSync(outputPath, cleanContent, 'utf8');
+    console.log(`  ✔ Blog: ${file}`);
+  }
+}
 
 console.log('\n✅ Markdown files exported successfully');

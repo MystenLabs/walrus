@@ -380,11 +380,12 @@ for (const file of files) {
   const { title, description } = parseMarkdown(file, content);
   const urlPath = fileToUrlPath(file, markdownDir);
 
-  const docUrlPath = urlPath.startsWith("/docs")
-    ? urlPath
+  // Blog posts keep their /blog/ prefix; docs get /docs/ prefix
+  const isBlogPost = urlPath === "blog" || urlPath.startsWith("blog/") || urlPath.startsWith("/blog");
+  const docUrlPath = urlPath.startsWith("/docs") || isBlogPost
+    ? (urlPath.startsWith("/") ? urlPath : "/" + urlPath)
     : "/docs" + (urlPath.startsWith("/") ? urlPath : "/" + urlPath);
 
-  // CHANGED: Only build .md URL — no HTML duplicate
   const mdUrl = joinUrl(resolvedBaseUrl, docUrlPath) + ".md";
 
   if (isLinearUrl(mdUrl)) continue;
@@ -453,28 +454,52 @@ const OPTIONAL_SECTIONS = new Set(["Design", "Dev Guide", "Legal", "Tusky Migrat
 
 // CHANGED: Single .md entry per page (no HTML duplicate)
 function formatEntry({ title, mdUrl, description }) {
-  return description
-    ? `- [${title}](${mdUrl}): ${description}`
-    : `- [${title}](${mdUrl})`;
+  // Return [linkLine, description] so wrapLine can handle them separately
+  const link = `- [${title}](${mdUrl})`;
+  return description ? [link, description] : [link, null];
 }
 
 function formatEntryCompact({ title, mdUrl }) {
-  return `- [${title}](${mdUrl})`;
+  return [`- [${title}](${mdUrl})`, null];
 }
 
-function wrapLine(line, indentSpaces = 0) {
-  if (line.length <= 100) return [line];
-  const indent = " ".repeat(indentSpaces);
-  const words = line.trimStart().split(" ");
+/**
+ * Wraps a [link, description] entry into lines of at most maxLen characters.
+ * The link is kept on one line (URLs can't be broken). The description is
+ * appended after ": " if it fits, otherwise wrapped onto continuation lines.
+ */
+function wrapEntry(entry, maxLen = 100) {
+  const [link, description] = entry;
+  if (!description) return [link];
+
+  const oneLiner = `${link}: ${description}`;
+  if (oneLiner.length <= maxLen) return [oneLiner];
+
+  // Try link + start of description on one line
+  const prefix = `${link}: `;
+  if (prefix.length < maxLen) {
+    return [link + ":", ...wrapText(description, maxLen, "    ")];
+  }
+
+  // Link alone exceeds maxLen — emit it as-is, description on next lines
+  return [link + ":", ...wrapText(description, maxLen, "    ")];
+}
+
+function wrapLine(line, _indentSpaces = 0, maxLen = 100) {
+  if (line.length <= maxLen) return [line];
+  return wrapText(line.trimStart(), maxLen, "");
+}
+
+function wrapText(text, maxLen, indent) {
+  const words = text.split(" ");
   const lines = [];
   let current = indent;
   for (const word of words) {
-    if (current.length + word.length + 1 > 100 && current.trim().length > 0) {
+    if (current.length + word.length >= maxLen && current.trim().length > 0) {
       lines.push(current.trimEnd());
-      current = indent + "    " + word + " ";
-    } else {
-      current += word + " ";
+      current = indent;
     }
+    current += word + " ";
   }
   if (current.trim()) lines.push(current.trimEnd());
   return lines;
@@ -515,9 +540,8 @@ function buildOutput(includeDescriptions, includeOptional) {
   for (const section of requiredSections) {
     lines.push(`## ${section}`, "");
     for (const page of grouped[section]) {
-      // CHANGED: formatEntry now returns a single string, not an array
       const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
-      lines.push(...wrapLine(entry, 0));
+      lines.push(...wrapEntry(entry));
     }
     lines.push("");
   }
@@ -528,7 +552,7 @@ function buildOutput(includeDescriptions, includeOptional) {
       lines.push(`### ${section}`, "");
       for (const page of grouped[section]) {
         const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
-        lines.push(...wrapLine(entry, 0));
+        lines.push(...wrapEntry(entry));
       }
       lines.push("");
     }
@@ -556,9 +580,7 @@ if (output.length > TARGET_CHARS) {
     const keep = Math.max(1, Math.floor(sectionPages.length * ratio));
     finalLines.push(`## ${section}`, "");
     for (const page of sectionPages.slice(0, keep)) {
-      for (const entry of formatEntry(page)) {
-        finalLines.push(...wrapLine(entry, 0));
-      }
+      finalLines.push(...wrapEntry(formatEntry(page)));
     }
     finalLines.push("");
   }
