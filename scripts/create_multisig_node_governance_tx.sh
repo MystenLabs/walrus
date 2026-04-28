@@ -6,9 +6,11 @@
 # Intended to be used using the github workflow defined in
 # `../.github/workflows/create-tx-for-multisig-node-governance.yml`
 
-UPGRADE_MANAGER_OBJECT_ID=""
+# UpgradeManager object ID default to mainnet
+UPGRADE_MANAGER_OBJECT_ID="0xc42868ad4861f22bd1bcd886ae1858d5c007458f647a49e502d44da8bbd17b51"
 NODE_ID=""
-MULTISIG_WALLET_ADDRESS=""
+# Multisig wallet address default to the Walrus mainnet node-governance multisig
+MULTISIG_WALLET_ADDRESS="0x14d908379bdcd56d0cdf3686de524ee7715decf30f7691f9a8abb0788db20ffb"
 DIGEST_BASE64=""
 # Staking object ID default to mainnet
 STAKING_OBJECT_ID="0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904"
@@ -17,9 +19,9 @@ GAS_OBJECT_ID=""
 usage() {
   echo "Usage: $0 [OPTIONS]"
   echo "OPTIONS:"
-  echo "  -u <upgrade_manager_object_id>  UpgradeManager object ID (required)"
+  echo "  -u <upgrade_manager_object_id>  UpgradeManager object ID (defaults to mainnet $UPGRADE_MANAGER_OBJECT_ID)"
   echo "  -n <node_id>                    Storage node ID (required)"
-  echo "  -m <multisig_wallet_address>    Multisig wallet address (required, transaction sender)"
+  echo "  -m <multisig_wallet_address>    Multisig wallet address, transaction sender (defaults to mainnet $MULTISIG_WALLET_ADDRESS)"
   echo "  -d <package_digest_base64>      Base64-encoded package digest (required)"
   echo "  -s <staking_object_id>          Staking object ID (defaults to mainnet $STAKING_OBJECT_ID)"
   echo "  -g <gas_object_id>              Gas object ID (defaults to highest balance gas object owned by the multisig)"
@@ -28,13 +30,17 @@ usage() {
 while getopts "u:n:m:d:s:g:h" arg; do
   case "${arg}" in
     u)
-      UPGRADE_MANAGER_OBJECT_ID=${OPTARG}
+      if [[ -n ${OPTARG} ]]; then
+        UPGRADE_MANAGER_OBJECT_ID=${OPTARG}
+      fi
       ;;
     n)
       NODE_ID=${OPTARG}
       ;;
     m)
-      MULTISIG_WALLET_ADDRESS=${OPTARG}
+      if [[ -n ${OPTARG} ]]; then
+        MULTISIG_WALLET_ADDRESS=${OPTARG}
+      fi
       ;;
     d)
       DIGEST_BASE64=${OPTARG}
@@ -57,16 +63,8 @@ while getopts "u:n:m:d:s:g:h" arg; do
   esac
 done
 
-if [[ -z $UPGRADE_MANAGER_OBJECT_ID ]]; then
-  echo "Error: -u <upgrade_manager_object_id> is required" >&2
-  exit 1
-fi
 if [[ -z $NODE_ID ]]; then
   echo "Error: -n <node_id> is required" >&2
-  exit 1
-fi
-if [[ -z $MULTISIG_WALLET_ADDRESS ]]; then
-  echo "Error: -m <multisig_wallet_address> is required" >&2
   exit 1
 fi
 if [[ -z $DIGEST_BASE64 ]]; then

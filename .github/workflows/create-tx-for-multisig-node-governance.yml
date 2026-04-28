@@ -4,16 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       upgrade_manager_object_id:
+        # The default value is the Walrus mainnet UpgradeManager object ID.
         description: "UpgradeManager object ID"
-        required: true
+        required: false
+        default: "0xc42868ad4861f22bd1bcd886ae1858d5c007458f647a49e502d44da8bbd17b51"
         type: string
       node_id:
         description: "Storage node ID (used to derive the Authenticated capability)"
         required: true
         type: string
       multisig_wallet_address:
+        # The default value is the Walrus mainnet node-governance multisig wallet address.
         description: "Multisig wallet address (transaction sender; must be the node's governance-authorized address)"
-        required: true
+        required: false
+        default: "0x14d908379bdcd56d0cdf3686de524ee7715decf30f7691f9a8abb0788db20ffb"
         type: string
       package_digest_base64:
         description: "Base64-encoded package digest of the upgrade target"
