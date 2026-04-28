@@ -8,7 +8,7 @@ import MDXComponents from "@theme/MDXComponents";
 import utils from "./utils";
 import MarkdownIt from "markdown-it";
 
-import { importContentMap } from "../../../.generated/ImportContentMap";
+import { importContentMap } from "@generated-imports/ImportContentMap";
 
 /// <reference types="webpack-env" />
 
@@ -101,6 +101,10 @@ snippetReq.keys().forEach((k: string) => {
   }
 });
 
+// Snippet directories to ignore for build error reporting
+// These are generated at runtime or by separate prebuild steps
+const IGNORED_SNIPPET_DIRS = ["console-output/"];
+
 type Props = {
   /** For mode="snippet": path under /snippets. For mode="code": repo-relative path like "packages/foo/src/x.ts". */
   source: string;
@@ -119,50 +123,16 @@ type Props = {
   dep?: string;
   test?: string; // target test blocks
   highlight?: string;
+  lines?: string; // line range to extract, e.g. "29-38"
   noComments?: boolean; // if included, remove ALL code comments
   noTests?: boolean; // if included, don't include tests
   noTitle?: boolean;
   style?: string;
   org?: string;
   repo?: string;
-  ref?: string;
+  branch?: string;
   signatureOnly?: boolean; // if included, only display function signature
 };
-
-/**
- * Wrapper that attaches resolved content as a data attribute for export consumers.
- *
- * Any downstream tool that walks the rendered DOM can find all imported content via:
- *   document.querySelectorAll('[data-import-content-source]')
- *
- * Each element exposes:
- *   - data-import-content-source: the source path
- *   - data-import-content-mode: "snippet" | "code"
- *   - data-import-content-resolved: the plain-text resolved content
- */
-function ExportableWrapper({
-  source,
-  mode,
-  resolvedText,
-  children,
-}: {
-  source: string;
-  mode: string;
-  resolvedText: string | null;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      data-import-content-source={source}
-      data-import-content-mode={mode}
-      {...(resolvedText != null && {
-        "data-import-content-resolved": resolvedText,
-      })}
-    >
-      {children}
-    </div>
-  );
-}
 
 export default function ImportContent({
   source,
@@ -184,10 +154,11 @@ export default function ImportContent({
   component,
   test,
   highlight,
+  lines,
   style,
   org,
   repo,
-  ref,
+  branch,
   signatureOnly,
 }: Props) {
   const md = React.useMemo(
@@ -207,9 +178,9 @@ export default function ImportContent({
       setGhLoading(true);
       setGhErr(null);
       try {
-        const branch = ref || "main";
+        const branchName = branch || "main";
         const path = String(source || "").replace(/^\.\/?/, "");
-        const url = `https://raw.githubusercontent.com/${org}/${repo}/${branch}/${path}`;
+        const url = `https://raw.githubusercontent.com/${org}/${repo}/${branchName}/${path}`;
         const headers: Record<string, string> = {};
 
         const res = await fetch(url, { headers });
@@ -226,7 +197,7 @@ export default function ImportContent({
     return () => {
       cancelled = true;
     };
-  }, [isGitHub, org, repo, ref, source]);
+  }, [isGitHub, org, repo, branch, source]);
 
   // Handle snippet mode
   if (mode === "snippet") {
@@ -239,6 +210,12 @@ export default function ImportContent({
 
     // Validate component before rendering
     if (!isValidComponent(Comp)) {
+      const isIgnored = IGNORED_SNIPPET_DIRS.some((dir) =>
+        normalized.startsWith(dir),
+      );
+      if (!isIgnored) {
+        console.error(`[ERROR] Missing or invalid snippet: ${source}`);
+      }
       return (
         <div className="alert alert--warning" role="alert">
           Missing or invalid snippet: <code>{source}</code>
@@ -265,14 +242,11 @@ export default function ImportContent({
     }
 
     // Wrap with MDXProvider so that components (Tabs, TabItem, etc.)
-    // imported inside the snippet MDX files resolve correctly.
-    // ExportableWrapper makes snippet content discoverable by export tools.
+    // imported inside the snippet MDX files resolve correctly
     return (
-      <ExportableWrapper source={source} mode="snippet" resolvedText={null}>
-        <MDXProvider components={MDXComponents}>
-          <Comp />
-        </MDXProvider>
-      </ExportableWrapper>
+      <MDXProvider components={MDXComponents}>
+        <Comp />
+      </MDXProvider>
     );
   }
 
@@ -329,6 +303,9 @@ export default function ImportContent({
   }
 
   if (content == null) {
+    if (!isGitHub) {
+      console.error(`[ERROR] Missing file for ImportContent: ${cleaned}`);
+    }
     return (
       <div className="alert alert--warning" role="alert">
         File not found in manifest: <code>{cleaned}</code>. You probably need to
@@ -346,6 +323,18 @@ export default function ImportContent({
       /\[dependencies\]\nsui\s?=\s?{\s?local\s?=.*sui-framework.*\n/i,
       "[dependencies]",
     );
+
+  if (lines) {
+    const parts = lines.split("-").map((n) => parseInt(n, 10));
+    const start = parts[0];
+    const end = parts[1] ?? parts[0];
+    if (!isNaN(start) && !isNaN(end)) {
+      out = out
+        .split("\n")
+        .slice(start - 1, end)
+        .join("\n");
+    }
+  }
 
   if (tag) {
     out = utils.returnTag(out, tag);
@@ -432,20 +421,16 @@ export default function ImportContent({
   if (/^m(?:d|arkdown)$/i.test(style || "")) {
     const html = md.render(out);
     return (
-      <ExportableWrapper source={source} mode="code" resolvedText={out}>
-        <div
-          className="import-content--nofence mdx-content"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
-      </ExportableWrapper>
+      <div
+        className="import-content--nofence mdx-content"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
     );
   }
 
   return (
-    <ExportableWrapper source={source} mode="code" resolvedText={out}>
-      <CodeBlock language={resolvedLanguage} metastring={meta}>
-        {out}
-      </CodeBlock>
-    </ExportableWrapper>
+    <CodeBlock language={resolvedLanguage} metastring={meta}>
+      {out}
+    </CodeBlock>
   );
 }
