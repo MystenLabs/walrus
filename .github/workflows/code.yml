@@ -248,8 +248,6 @@ jobs:
             done as part of a version bump of Sui dependencies or if the Testnet contracts are
             actually updated.
 
-            cc @karlwuest @mlegner
-
   mainnet-contracts-warning:
     name: Check if the PR touches the mainnet-contracts directory
     runs-on: ubuntu-latest
@@ -266,8 +264,6 @@ jobs:
           message: >
             **Warning:** This PR touches the `mainnet-contracts` directory. This should only be
             done if the Mainnet contracts are updated.
-
-            cc @karlwuest @mlegner
 
   example-config-warning:
     name: Check if the PR touches any of the example config files
@@ -341,8 +337,6 @@ jobs:
               responses.
             - Make sure the generated HTML files do not contain errors.
             - This probably requires release notes and maybe changes to the documentation.
-
-            cc @jpcsmith @mlegner
 
   check-all:
     name: Check if all code checks succeeded
