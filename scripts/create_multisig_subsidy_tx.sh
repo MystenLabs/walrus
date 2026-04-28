@@ -1,10 +1,11 @@
 #!/bin/bash
 # Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
-# This script allows creating unsigned transactions for operations that need to be signed
-# by a Walrus multisig address.
+# This script creates unsigned transactions for Walrus subsidies operations
+# (`upgrade-walrus-subsidies`, `set-walrus-subsidy-rates`, `add-wal-to-subsidies`)
+# that need to be signed by the Walrus subsidies multisig addresses.
 # Intended to be used using the github workflow defined in
-# `../.github/workflows/create-tx-for-multisig.yml`
+# `../.github/workflows/create-tx-for-multisig-subsidy.yml`
 
 GAS_OBJECT_ID=""
 TX_TYPE=""
