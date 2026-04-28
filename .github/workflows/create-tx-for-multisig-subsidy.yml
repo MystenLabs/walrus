@@ -1,17 +1,17 @@
-name: Build TX for Multisig Operation
+name: Build TX for Multisig Subsidy Operation
 
 on:
   workflow_dispatch:
     inputs:
       transaction_type:
-        description: "select transaction type to create"
+        description: "select subsidy transaction type to create"
         type: choice
         options:
           - upgrade-walrus-subsidies
           - set-walrus-subsidy-rates
           - add-wal-to-subsidies
       gas_object_id:
-        description: "object id to get gas from for multisig transaction"
+        description: "object id to get gas from for the multisig subsidy transaction"
         required: false
         type: string
       commit:
@@ -42,7 +42,7 @@ on:
 
 jobs:
   create-tx:
-    name: Create TX for multisig
+    name: Create TX for multisig subsidy
     runs-on: ubuntu-latest
 
     steps:
@@ -67,10 +67,10 @@ jobs:
         run: |
           sui client switch --env mainnet
 
-      - name: Create unsigned transaction for multisig
+      - name: Create unsigned transaction for multisig subsidy
         run: |
           mkdir -p artifacts
-          ./scripts/create_multisig_tx.sh \
+          ./scripts/create_multisig_subsidy_tx.sh \
             -t '${{ inputs.transaction_type }}' \
             -g '${{ inputs.gas_object_id }}' \
             -b '${{ inputs.base_subsidy_frost }}' \
