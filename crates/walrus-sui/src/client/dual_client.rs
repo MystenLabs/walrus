@@ -39,7 +39,6 @@ use sui_rpc::{
         UserSignature as ProtoUserSignature,
         changed_object,
         get_object_result,
-        state_service_client::StateServiceClient,
     },
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
@@ -54,7 +53,6 @@ use sui_types::{
     signature::GenericSignature,
     transaction::{SenderSignedData, Transaction, TransactionData, TransactionDataAPI},
 };
-use tonic::service::interceptor::InterceptedService;
 use walrus_core::ensure;
 
 use crate::{
@@ -464,7 +462,6 @@ impl DualClient {
             "DualClient::fetch_batch_of_objects called"
         );
         let mut grpc_client = self.grpc_client.clone();
-        let state_client = grpc_client.state_client();
 
         // NB: in the event of failover handled at the callsite, the `page_token` here might have
         // come from a previous gRPC response from a different host. The token is intentionally
@@ -477,7 +474,7 @@ impl DualClient {
             owner,
             object_type,
             page_token,
-            state_client,
+            &mut grpc_client,
             MAX_OWNED_OBJECTS_BATCH_SIZE,
         )
         .await
@@ -523,7 +520,6 @@ impl DualClient {
             "DualClient::fetch_batch_of_coins called"
         );
         let mut grpc_client = self.grpc_client.clone();
-        let state_client = grpc_client.state_client();
 
         // NB: in the event of failover handled at the callsite, the `page_token` here might have
         // come from a previous gRPC response from a different host. The token is intentionally
@@ -532,7 +528,8 @@ impl DualClient {
         // this is something to keep an eye on. If pagination tokens become server-specific, we may
         // need to rewrite the client to perform a full retry of the stream from the beginning,
         // instead of using this incremental approach across servers.
-        let response = list_owned_coin_objects(owner, object_type, page_token, state_client).await;
+        let response =
+            list_owned_coin_objects(owner, object_type, page_token, &mut grpc_client).await;
 
         let mut coins = Vec::new();
         match response {
@@ -860,9 +857,7 @@ async fn list_owned_objects(
     owner: SuiAddress,
     object_type: &str,
     next_page_token: Option<Bytes>,
-    mut state_client: StateServiceClient<
-        InterceptedService<&mut tonic::transport::Channel, &sui_rpc::client::HeadersInterceptor>,
-    >,
+    grpc_client: &mut GrpcClient,
     batch_size: u32,
 ) -> Result<tonic::Response<ListOwnedObjectsResponse>, tonic::Status> {
     let mut request = ListOwnedObjectsRequest::default()
@@ -881,22 +876,20 @@ async fn list_owned_objects(
     if let Some(next_page_token) = next_page_token {
         request = request.with_page_token(next_page_token);
     }
-    state_client.list_owned_objects(request).await
+    grpc_client.state_client().list_owned_objects(request).await
 }
 
 async fn list_owned_coin_objects(
     owner: SuiAddress,
     object_type: &str,
     next_page_token: Option<Bytes>,
-    state_client: StateServiceClient<
-        InterceptedService<&mut tonic::transport::Channel, &sui_rpc::client::HeadersInterceptor>,
-    >,
+    grpc_client: &mut GrpcClient,
 ) -> Result<tonic::Response<ListOwnedObjectsResponse>, tonic::Status> {
     list_owned_objects(
         owner,
         object_type,
         next_page_token,
-        state_client,
+        grpc_client,
         MAX_SELECT_COINS_BATCH_SIZE,
     )
     .await
