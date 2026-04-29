@@ -266,7 +266,6 @@ async fn new_client(
                 LazySuiClientBuilder::new(
                     rpc_url,
                     config.communication_config.sui_client_request_timeout,
-                    config.checkpoint_wait_timeout(),
                 )
             })
             .collect(),
@@ -274,7 +273,12 @@ async fn new_client(
     )?;
     let sui_read_client = config.new_read_client(sui_client).await?;
     let sui_contract_client = wallet.and_then(|wallet| {
-        SuiContractClient::new_with_read_client(wallet, gas_budget, Arc::new(sui_read_client))
+        SuiContractClient::new_with_read_client(
+            wallet,
+            gas_budget,
+            config.checkpoint_wait_timeout(),
+            Arc::new(sui_read_client),
+        )
     })?;
 
     let client = sui_contract_client.and_then(|contract_client| {

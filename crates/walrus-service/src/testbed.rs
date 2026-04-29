@@ -378,11 +378,7 @@ pub async fn deploy_walrus_contract(
 
         // Get coins from faucet for the wallet.
         let sui_client = RetriableSuiClient::new(
-            vec![LazySuiClientBuilder::new(
-                rpc_url,
-                None,
-                DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
-            )],
+            vec![LazySuiClientBuilder::new(rpc_url, None)],
             Default::default(),
         )?;
         request_sui_from_faucet(admin_wallet.active_address(), &sui_network, &sui_client).await?;

@@ -130,22 +130,14 @@ pub struct LazySuiClientBuilder {
     rpc_url: String,
     /// Override the default timeout for any requests.
     request_timeout: Option<Duration>,
-    /// Timeout for waiting for checkpoint inclusion after gRPC transaction execution.
-    checkpoint_wait_timeout: Duration,
 }
 
 impl LazySuiClientBuilder {
-    /// Creates a new [`LazySuiClientBuilder`] from a URL, an optional `request_timeout`, and a
-    /// `checkpoint_wait_timeout`.
-    pub fn new(
-        rpc_url: impl AsRef<str>,
-        request_timeout: Option<Duration>,
-        checkpoint_wait_timeout: Duration,
-    ) -> Self {
+    /// Creates a new [`LazySuiClientBuilder`] from a URL and an optional `request_timeout`.
+    pub fn new(rpc_url: impl AsRef<str>, request_timeout: Option<Duration>) -> Self {
         Self {
             rpc_url: rpc_url.as_ref().to_string(),
             request_timeout,
-            checkpoint_wait_timeout,
         }
     }
 }
@@ -185,14 +177,7 @@ impl LazyClientBuilder<DualClient> for LazySuiClientBuilder {
                 Some(RPC_MAX_TRIES),
             )
             .get_strategy(StdRng::from_entropy().next_u64()),
-            || async {
-                DualClient::new(
-                    self.rpc_url.as_str(),
-                    self.request_timeout,
-                    self.checkpoint_wait_timeout,
-                )
-                .await
-            },
+            || async { DualClient::new(self.rpc_url.as_str(), self.request_timeout).await },
             None,
             "build_sui_client",
         )
@@ -354,13 +339,10 @@ impl RetriableSuiClient {
         rpc_addresses: &[S],
         backoff_config: ExponentialBackoffConfig,
         request_timeout: Option<Duration>,
-        checkpoint_wait_timeout: Duration,
     ) -> SuiClientResult<Self> {
         let failover_clients = rpc_addresses
             .iter()
-            .map(|rpc_url| {
-                LazySuiClientBuilder::new(rpc_url, request_timeout, checkpoint_wait_timeout)
-            })
+            .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, request_timeout))
             .collect::<Vec<_>>();
         Ok(Self::new(failover_clients, backoff_config)?)
     }
@@ -1989,12 +1971,16 @@ impl RetriableSuiClient {
 
     /// Executes a transaction.
     ///
+    /// `checkpoint_wait_timeout` is consumed only by the gRPC path; the JSON-RPC fallback
+    /// ignores it.
+    ///
     /// Uses `Box::pin` to cap the future size on the stack, since the response types are large
     /// and cause stack overflows in deep async call chains.
     pub fn execute_transaction(
         &self,
         transaction: Transaction,
         method: &'static str,
+        checkpoint_wait_timeout: Duration,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<Output = SuiClientResult<ExecuteTransactionResponse>>
@@ -2004,7 +1990,7 @@ impl RetriableSuiClient {
     > {
         Box::pin(async move {
             if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_TRANSACTION_WRITES {
-                self.execute_transaction_with_grpc(transaction, method)
+                self.execute_transaction_with_grpc(transaction, method, checkpoint_wait_timeout)
                     .await
             } else {
                 self.execute_transaction_with_json_rpc(transaction, method)
@@ -2072,6 +2058,7 @@ impl RetriableSuiClient {
         &self,
         transaction: Transaction,
         method: &'static str,
+        checkpoint_wait_timeout: Duration,
     ) -> SuiClientResult<ExecuteTransactionResponse> {
         let span = tracing::debug_span!("execute_transaction", method);
         async {
@@ -2089,7 +2076,9 @@ impl RetriableSuiClient {
                                     &transaction,
                                 )?;
                             }
-                            client.execute_transaction_grpc(&transaction)?.await
+                            client
+                                .execute_transaction_grpc(&transaction, checkpoint_wait_timeout)?
+                                .await
                         }
                     },
                     self.metrics.clone(),

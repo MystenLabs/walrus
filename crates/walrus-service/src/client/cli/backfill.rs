@@ -257,7 +257,6 @@ async fn get_backfill_client(config: ClientConfig) -> Result<WalrusNodeClient<Su
         &config.rpc_urls,
         config.backoff_config().clone(),
         None,
-        config.checkpoint_wait_timeout(),
     )?;
     let sui_read_client = config.new_read_client(retriable_sui_client).await?;
     let refresh_handle = config
