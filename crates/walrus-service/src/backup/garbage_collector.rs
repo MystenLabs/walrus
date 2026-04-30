@@ -233,12 +233,54 @@ async fn collect_garbage(
 /// always in sync with the actual ref-table contents.
 ///
 /// Returns the number of refs drained in this tick. Zero means there's nothing to do.
-async fn drain_expired_pool_refs(
+pub(crate) async fn drain_expired_pool_refs(
     conn: &mut diesel_async::AsyncPgConnection,
     config: &BackupConfig,
     metric_set: &BackupGarbageCollectorMetricSet,
 ) -> Result<usize, diesel::result::Error> {
     let offset = config.garbage_collection_epoch_offset;
+
+    let drained = retry_serializable_query(
+        conn,
+        Location::caller(),
+        &config.db_config,
+        &metric_set
+            .db_serializability_retries
+            .with_label_values(&["pool_expiry_drain"]),
+        &metric_set.db_reconnects,
+        |conn| async move { drain_expired_pool_refs_step(conn, offset).await }.scope_boxed(),
+    )
+    .await?;
+
+    if drained > 0 {
+        tracing::info!(drained, "drained pool refs from expired pools");
+    }
+
+    // Once a pool has no remaining refs, drop its `storage_pool_state` row so it stops
+    // showing up as a candidate. This is its own statement so it can find pools that
+    // had their last ref removed in *any* previous drain batch (including this one).
+    retry_serializable_query(
+        conn,
+        Location::caller(),
+        &config.db_config,
+        &metric_set
+            .db_serializability_retries
+            .with_label_values(&["pool_expiry_cleanup"]),
+        &metric_set.db_reconnects,
+        |conn| async move { cleanup_drained_pools(conn, offset).await }.scope_boxed(),
+    )
+    .await?;
+
+    Ok(drained)
+}
+
+/// Atomically drains up to `POOL_EXPIRY_BATCH_SIZE` refs from a single expired pool and
+/// decrements the affected blobs' `pool_ref_count`. Returns the number of refs drained
+/// in this call (zero means there's nothing to drain right now). Exposed for tests.
+pub(crate) async fn drain_expired_pool_refs_step(
+    conn: &mut diesel_async::AsyncPgConnection,
+    offset: u64,
+) -> Result<usize, diesel::result::Error> {
     let query = format!(
         "
             WITH selected_pool AS (
@@ -278,68 +320,35 @@ async fn drain_expired_pool_refs(
         value: i64,
     }
 
-    let drained = retry_serializable_query(
-        conn,
-        Location::caller(),
-        &config.db_config,
-        &metric_set
-            .db_serializability_retries
-            .with_label_values(&["pool_expiry_drain"]),
-        &metric_set.db_reconnects,
-        |conn| {
-            let q = query.clone();
-            async move {
-                diesel::sql_query(q.as_str())
-                    .get_result::<CountRow>(conn)
-                    .await
-                    .map(|row| row.value)
-            }
-            .scope_boxed()
-        },
-    )
+    let drained = diesel::sql_query(query.as_str())
+        .get_result::<CountRow>(conn)
+        .await
+        .map(|row| row.value)?;
+
+    Ok(usize::try_from(drained).unwrap_or(0))
+}
+
+/// Deletes `storage_pool_state` rows for pools that are expired AND have no remaining
+/// `pooled_blob_ref` rows referencing them. Idempotent. Exposed for tests.
+pub(crate) async fn cleanup_drained_pools(
+    conn: &mut diesel_async::AsyncPgConnection,
+    offset: u64,
+) -> Result<usize, diesel::result::Error> {
+    let affected = diesel::sql_query(format!(
+        "
+            DELETE FROM storage_pool_state sps
+            WHERE sps.end_epoch + {offset}
+                    <= COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0)
+                AND NOT EXISTS (
+                    SELECT 1 FROM pooled_blob_ref pbr
+                    WHERE pbr.storage_pool_id = sps.storage_pool_id
+                )
+        ",
+        offset = offset,
+    ))
+    .execute(conn)
     .await?;
-
-    let drained_usize = usize::try_from(drained).unwrap_or(0);
-
-    if drained_usize > 0 {
-        tracing::info!(
-            drained = drained_usize,
-            "drained pool refs from expired pools"
-        );
-    }
-
-    // Once a pool has no remaining refs, drop its `storage_pool_state` row so it stops
-    // showing up as a candidate. This is its own statement so it can find pools that
-    // had their last ref removed in *any* previous drain batch (including this one).
-    retry_serializable_query(
-        conn,
-        Location::caller(),
-        &config.db_config,
-        &metric_set
-            .db_serializability_retries
-            .with_label_values(&["pool_expiry_cleanup"]),
-        &metric_set.db_reconnects,
-        |conn| {
-            async move {
-                diesel::sql_query(format!(
-                    "DELETE FROM storage_pool_state sps
-                    WHERE sps.end_epoch + {offset}
-                        <= COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0)
-                        AND NOT EXISTS (
-                            SELECT 1 FROM pooled_blob_ref pbr
-                            WHERE pbr.storage_pool_id = sps.storage_pool_id
-                        )",
-                    offset = offset,
-                ))
-                .execute(conn)
-                .await
-            }
-            .scope_boxed()
-        },
-    )
-    .await?;
-
-    Ok(drained_usize)
+    Ok(affected)
 }
 
 /// Deletes a blob from storage. Returns whether the blob should be set to 'deleted' in the

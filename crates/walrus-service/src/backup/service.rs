@@ -163,7 +163,7 @@ async fn record_event(
     Ok(())
 }
 
-async fn dispatch_contract_event(
+pub(crate) async fn dispatch_contract_event(
     version: &'static str,
     contract_event: &ContractEvent,
     conn: &mut AsyncPgConnection,
