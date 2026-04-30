@@ -34,7 +34,17 @@ use walrus_sdk::{
 };
 use walrus_sui::{
     client::{SuiReadClient, retry_client::RetriableSuiClient},
-    types::{BlobEvent, ContractEvent, EpochChangeEvent, EpochChangeStart},
+    types::{
+        BlobEvent,
+        ContractEvent,
+        EpochChangeEvent,
+        EpochChangeStart,
+        PooledBlobCertified,
+        PooledBlobDeleted,
+        StoragePoolCreatedEvent,
+        StoragePoolEvent,
+        StoragePoolExtendedEvent,
+    },
 };
 use walrus_utils::metrics::Registry;
 
@@ -219,6 +229,186 @@ async fn dispatch_contract_event(
                 "upserted blob into blob_state table"
             );
         }
+        // Pool blobs share blob_state with regular blobs. We track pool membership in
+        // pooled_blob_ref so the unified GC liveness predicate (regular OR any pool live)
+        // can evaluate every source for a blob_id in one query. end_epoch on blob_state
+        // is left untouched here: it tracks the regular-source lifetime only, and stays
+        // NULL for pool-only blobs so that pool liveness comes solely from the JOIN to
+        // storage_pool_state.
+        // Pool blobs share blob_state with regular blobs. We track pool membership in
+        // pooled_blob_ref (one row per (pool, blob_id) pair — guaranteed unique by the
+        // on-chain contract) and a denormalized live-ref count in blob_state.pool_ref_count.
+        // The GC's eligibility predicate is then a single per-row check:
+        //   (end_epoch IS NULL OR end_epoch + offset <= current_epoch) AND pool_ref_count = 0
+        // No JOIN, no classifier, no daily re-check.
+        //
+        // The two writes (pool ref insert, counter increment) live in a single statement
+        // so they're applied atomically inside the orchestrator's serializable transaction.
+        // The `WITH ... RETURNING` pattern lets us derive the counter delta from the
+        // actual ref-table change, so a replayed event (ON CONFLICT DO NOTHING) yields a
+        // delta of 0 and doesn't double-count.
+        ContractEvent::BlobEvent(BlobEvent::PooledBlobCertified(PooledBlobCertified {
+            blob_id,
+            object_id,
+            storage_pool_id,
+            ..
+        })) => {
+            tracing::info!(
+                blob_id = ?blob_id,
+                object_id = ?object_id,
+                storage_pool_id = ?storage_pool_id,
+                "writing pooled blob state to database"
+            );
+            diesel::dsl::sql_query(
+                "
+                WITH ref_inserted AS (
+                    INSERT INTO pooled_blob_ref (storage_pool_id, blob_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT (storage_pool_id, blob_id) DO NOTHING
+                    RETURNING 1
+                ),
+                delta AS (SELECT COUNT(*)::int AS d FROM ref_inserted)
+                INSERT INTO blob_state (
+                    blob_id,
+                    state,
+                    end_epoch,
+                    pool_ref_count,
+                    orchestrator_version,
+                    retry_count,
+                    initiate_fetch_after
+                )
+                SELECT $2, 'waiting', NULL, d, $3, 1, NOW() FROM delta
+                ON CONFLICT (blob_id)
+                DO UPDATE SET
+                    retry_count = CASE WHEN
+                        blob_state.state = 'archived' THEN
+                            NULL
+                        ELSE
+                            1
+                        END,
+                    state = CASE WHEN
+                        blob_state.state = 'archived' THEN
+                            blob_state.state
+                        ELSE
+                            'waiting'
+                        END,
+                    backup_url = CASE WHEN
+                        blob_state.state = 'archived' THEN
+                            blob_state.backup_url
+                        ELSE
+                            NULL
+                        END,
+                    initiate_fetch_after = CASE WHEN
+                        blob_state.state = 'archived' THEN
+                            NULL
+                        ELSE
+                            NOW()
+                        END,
+                    initiate_gc_after = NULL,
+                    pool_ref_count = blob_state.pool_ref_count + EXCLUDED.pool_ref_count,
+                    orchestrator_version = $3",
+            )
+            .bind::<Bytea, _>(storage_pool_id.to_vec())
+            .bind::<Bytea, _>(blob_id.0.to_vec())
+            .bind::<Text, _>(version)
+            .execute(conn)
+            .await?;
+        }
+        // Honoring user-initiated deletes bounds archive retention to "until the
+        // referencing pool ref is removed", instead of letting indefinitely-extended
+        // pools keep the archive alive forever. Pool-expiry-driven deletions go through
+        // the pool-expiry GC job, not this handler.
+        //
+        // Atomic with the counter decrement so pool_ref_count never observes a state
+        // where the ref is gone but the count hasn't been adjusted (or vice versa).
+        ContractEvent::BlobEvent(BlobEvent::PooledBlobDeleted(PooledBlobDeleted {
+            blob_id,
+            object_id,
+            storage_pool_id,
+            ..
+        })) => {
+            let affected = diesel::dsl::sql_query(
+                "WITH deleted AS (
+                    DELETE FROM pooled_blob_ref
+                    WHERE storage_pool_id = $1 AND blob_id = $2
+                    RETURNING blob_id
+                )
+                UPDATE blob_state
+                SET pool_ref_count = pool_ref_count - 1
+                WHERE blob_id IN (SELECT blob_id FROM deleted)",
+            )
+            .bind::<Bytea, _>(storage_pool_id.to_vec())
+            .bind::<Bytea, _>(blob_id.0.to_vec())
+            .execute(conn)
+            .await?;
+            tracing::info!(
+                blob_id = ?blob_id,
+                object_id = ?object_id,
+                storage_pool_id = ?storage_pool_id,
+                affected,
+                "removed pooled blob ref"
+            );
+        }
+        ContractEvent::StoragePoolEvent(StoragePoolEvent::StoragePoolCreated(
+            StoragePoolCreatedEvent {
+                storage_pool_id,
+                start_epoch,
+                end_epoch,
+                ..
+            },
+        )) => {
+            diesel::dsl::sql_query(
+                "INSERT INTO storage_pool_state (
+                    storage_pool_id, start_epoch, end_epoch, orchestrator_version
+                ) VALUES ($1, $2, $3, $4)
+                ON CONFLICT (storage_pool_id) DO NOTHING",
+            )
+            .bind::<Bytea, _>(storage_pool_id.to_vec())
+            .bind::<Int8, _>(i64::from(*start_epoch))
+            .bind::<Int8, _>(i64::from(*end_epoch))
+            .bind::<Text, _>(version)
+            .execute(conn)
+            .await?;
+            tracing::info!(
+                storage_pool_id = ?storage_pool_id,
+                start_epoch,
+                end_epoch,
+                "recorded storage pool"
+            );
+        }
+        ContractEvent::StoragePoolEvent(StoragePoolEvent::StoragePoolExtended(
+            StoragePoolExtendedEvent {
+                storage_pool_id,
+                new_end_epoch,
+                ..
+            },
+        )) => {
+            // O(1) — the unified GC reads pool end_epoch via JOIN, so we don't fan out
+            // to blob_state rows here.
+            let affected = diesel::dsl::sql_query(
+                "UPDATE storage_pool_state
+                    SET end_epoch = GREATEST(end_epoch, $1)
+                    WHERE storage_pool_id = $2",
+            )
+            .bind::<Int8, _>(i64::from(*new_end_epoch))
+            .bind::<Bytea, _>(storage_pool_id.to_vec())
+            .execute(conn)
+            .await?;
+            if affected == 0 {
+                tracing::warn!(
+                    storage_pool_id = ?storage_pool_id,
+                    new_end_epoch,
+                    "storage pool extension event for unknown pool; backup may have started \
+                    after the pool was created"
+                );
+            } else {
+                tracing::info!(
+                    storage_pool_id = ?storage_pool_id,
+                    new_end_epoch,
+                    "extended storage pool"
+                );
+            }
+        }
         ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(EpochChangeStart {
             epoch,
             ..
@@ -367,36 +557,47 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
     let backup_db_metric_set = BackupDbMetricSet::new(&metrics_runtime.registry);
     let database_url = config.db_config.database_url.clone();
 
+    // Liveness mirrors the GC and fetcher predicate: a blob is live iff its regular
+    // end_epoch is still in the future OR pool_ref_count > 0. The "garbage" stat is
+    // archived rows that are eligible for GC right now (same predicate as the GC scan).
     let stats_query = format!(
         "
             SELECT
                 state AS name,
                 COUNT(*)::bigint AS value
-            FROM blob_state
+            FROM blob_state bs
             WHERE
-                state = 'archived' AND
-                COALESCE(end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event),
-                            FALSE)
+                state = 'archived' AND (
+                    (bs.end_epoch IS NOT NULL
+                        AND bs.end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event))
+                    OR bs.pool_ref_count > 0
+                )
             GROUP BY 1
             UNION
             SELECT
                 state AS name,
                 COUNT(*)::bigint AS value
-            FROM blob_state
+            FROM blob_state bs
             WHERE
-                state = 'deleted' OR
-                (state = 'waiting' AND
-                    COALESCE(end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event), TRUE))
-
+                state = 'deleted' OR (
+                    state = 'waiting' AND (
+                        (bs.end_epoch IS NULL
+                            OR bs.end_epoch > (SELECT MAX(epoch) FROM epoch_change_start_event))
+                        OR bs.pool_ref_count > 0
+                    )
+                )
             GROUP BY 1
             UNION
             SELECT
                 'garbage' AS name,
                 COUNT(*)::bigint AS value
-            FROM blob_state
+            FROM blob_state bs
             WHERE
-                state = 'archived' AND
-                COALESCE(end_epoch + {} <= (SELECT MAX(epoch) FROM epoch_change_start_event), TRUE)
+                state = 'archived'
+                AND bs.pool_ref_count = 0
+                AND (bs.end_epoch IS NULL
+                    OR bs.end_epoch + {offset}
+                        <= COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0))
             UNION
             SELECT
                 'total_bytes_archived' AS name,
@@ -404,7 +605,7 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
             FROM blob_state
             WHERE state = 'archived';
         ",
-        config.garbage_collection_epoch_offset,
+        offset = config.garbage_collection_epoch_offset,
     );
     tokio::spawn(async move {
         let mut conn =
@@ -520,20 +721,25 @@ async fn backup_take_tasks(
                 // count, with a maximum of 24 hours. The exponential base is 1.5, which means that
                 // the backoff interval will increase by 50% with each retry.
                 //
-                // This query will also ensure that the blob is still unexpired by checking the
-                // end_epoch of the blob against the latest epoch_change_start_event.
+                // A blob is live if its regular-source end_epoch is in the future OR it has
+                // at least one live pool ref (pool_ref_count is denormalized on blob_state).
+                // pool_ref_count is decremented atomically with ref deletion, so a non-zero
+                // count means at least one ref to a not-yet-cleaned pool exists.
                 diesel::sql_query(
                     "WITH ready_blob_ids AS (
-                            SELECT blob_id FROM blob_state
+                            SELECT blob_id FROM blob_state bs
                             WHERE
                                 state = 'waiting'
-                                AND blob_state.initiate_fetch_after < NOW()
-                                AND blob_state.retry_count < $1
-                                AND COALESCE(
-                                    blob_state.end_epoch > (SELECT MAX(epoch)
-                                                            FROM epoch_change_start_event),
-                                    TRUE)
-                            ORDER BY blob_state.initiate_fetch_after ASC
+                                AND bs.initiate_fetch_after < NOW()
+                                AND bs.retry_count < $1
+                                AND (
+                                    (bs.end_epoch IS NOT NULL
+                                        AND bs.end_epoch > COALESCE(
+                                            (SELECT MAX(epoch) FROM epoch_change_start_event),
+                                            0))
+                                    OR bs.pool_ref_count > 0
+                                )
+                            ORDER BY bs.initiate_fetch_after ASC
                             LIMIT $2
                         ),
                         _updated_count AS (
