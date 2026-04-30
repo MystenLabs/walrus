@@ -1065,6 +1065,10 @@
     "/walrus-sites/tutorial/index": {
       "location": "/docs/sites",
       "status_code": 301
+    },
+    "https://docs.walrus.site": {
+      "location": "https://docs.wal.app",
+      "status_code": 301
     }
   },
   "object_id": "0xbd6014d74e37d94a299c932e70e0b009979d9c6dc6d941eb4afe4995b8df242c"
