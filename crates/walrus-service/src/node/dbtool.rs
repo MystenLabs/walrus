@@ -58,6 +58,7 @@ use crate::{
                 blob_info_cf_options,
                 per_object_blob_info_cf_options,
                 per_object_pooled_blob_info_cf_options,
+                storage_pool_info_cf_options,
             },
             constants::{
                 aggregate_blob_info_cf_name,
@@ -72,6 +73,7 @@ use crate::{
                 secondary_slivers_column_family_name,
                 storage_pool_info_cf_name,
             },
+            event_cursor_cf_options,
         },
     },
 };
@@ -1198,11 +1200,13 @@ fn cf_options_for_name(
                 name if name == per_object_pooled_blob_info_cf_name() => {
                     per_object_pooled_blob_info_cf_options(factory)
                 }
-                name if name == storage_pool_info_cf_name() => factory.storage_pool_info(),
+                name if name == storage_pool_info_cf_name() => {
+                    storage_pool_info_cf_options(factory)
+                }
                 name if name == event_index_cf_name() => factory.standard(),
                 name if name == metadata_cf_name() => factory.metadata(),
                 name if name == node_status_cf_name() => factory.node_status(),
-                name if name == event_cursor_cf_name() => factory.event_cursor(),
+                name if name == event_cursor_cf_name() => event_cursor_cf_options(factory),
                 name if name == garbage_collector_table_cf_name() => factory.garbage_collector(),
                 _ => RocksdbOptions::default(),
             }
