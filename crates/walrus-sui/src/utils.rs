@@ -3,14 +3,7 @@
 
 //! Helper functions for the crate.
 
-use std::{
-    collections::HashSet,
-    future::Future,
-    num::NonZeroU16,
-    path::Path,
-    str::FromStr,
-    time::Duration,
-};
+use std::{collections::HashSet, num::NonZeroU16, path::Path, str::FromStr, time::Duration};
 
 use anyhow::{Context as _, Result, anyhow};
 use move_core_types::language_storage::StructTag;
@@ -24,7 +17,7 @@ use sui_keys::keystore::{
     Keystore,
 };
 use sui_sdk::{
-    rpc_types::{Page, SuiObjectResponse},
+    rpc_types::SuiObjectResponse,
     sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
 };
@@ -209,39 +202,6 @@ where
             U::CONTRACT_STRUCT
         )
     })?)
-}
-
-pub(crate) async fn handle_pagination<F, T, C, Fut, ErrorT>(
-    closure: F,
-) -> Result<impl Iterator<Item = T>, ErrorT>
-where
-    F: FnMut(Option<C>) -> Fut,
-    T: 'static,
-    Fut: Future<Output = Result<Page<T, C>, ErrorT>>,
-    ErrorT: std::error::Error,
-{
-    handle_pagination_with_cursor(closure, None).await
-}
-
-pub(crate) async fn handle_pagination_with_cursor<F, T, C, Fut, ErrorT>(
-    mut closure: F,
-    mut cursor: Option<C>,
-) -> Result<impl Iterator<Item = T>, ErrorT>
-where
-    F: FnMut(Option<C>) -> Fut,
-    T: 'static,
-    Fut: Future<Output = Result<Page<T, C>, ErrorT>>,
-    ErrorT: std::error::Error,
-{
-    let mut cont = true;
-    let mut iterators = vec![];
-    while cont {
-        let page = closure(cursor).await?;
-        cont = page.has_next_page;
-        cursor = page.next_cursor;
-        iterators.push(page.data.into_iter());
-    }
-    Ok(iterators.into_iter().flatten())
 }
 
 // Wallet setup

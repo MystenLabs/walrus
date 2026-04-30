@@ -56,6 +56,9 @@ pub use transaction::{
     TransactionResponseOptions,
 };
 
+pub mod owned_objects;
+pub use owned_objects::{OwnedObjectEntry, OwnedObjectsCursor, OwnedObjectsPage};
+
 pub mod move_structs;
 pub use move_structs::{
     Blob,

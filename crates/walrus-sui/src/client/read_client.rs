@@ -16,17 +16,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use futures::FutureExt as _;
-use sui_sdk::{
-    apis::EventApi,
-    rpc_types::{
-        EventFilter,
-        SuiObjectData,
-        SuiObjectDataFilter,
-        SuiObjectDataOptions,
-        SuiObjectResponseQuery,
-    },
-    types::base_types::ObjectID,
-};
+use sui_sdk::{apis::EventApi, rpc_types::EventFilter, types::base_types::ObjectID};
 use sui_types::{
     Identifier,
     TypeTag,
@@ -80,7 +70,7 @@ use crate::{
             WalrusSubsidiesInner,
         },
     },
-    utils::{get_sui_object_from_bcs, handle_pagination},
+    utils::get_sui_object_from_bcs,
 };
 
 const EVENT_MODULE: &str = "events";
@@ -777,65 +767,58 @@ impl SuiReadClient {
             contract_struct = %U::CONTRACT_STRUCT,
         );
 
-        let results = self
-            .get_owned_object_data(owner, type_args, U::CONTRACT_STRUCT)
-            .instrument(span.clone())
-            .await?;
+        let struct_tag = U::CONTRACT_STRUCT
+            .to_move_struct_tag_with_type_map(&self.type_origin_map(), type_args)?;
 
-        Ok(results.filter_map(move |object_data| {
+        let entries = async {
+            let mut entries = Vec::new();
+            let mut cursor = None;
+            loop {
+                let page = self
+                    .sui_client
+                    .get_owned_objects(owner, Some(struct_tag.clone()), cursor)
+                    .await?;
+                entries.extend(page.data);
+                if !page.has_next_page {
+                    break;
+                }
+                let Some(next_cursor) = page.next_cursor else {
+                    break;
+                };
+                cursor = Some(next_cursor);
+            }
+            SuiClientResult::Ok(entries)
+        }
+        .instrument(span.clone())
+        .await?;
+
+        Ok(entries.into_iter().filter_map(move |entry| {
             let _entered = span.enter();
-            object_data.map_or_else(
-                |error| {
+            // The server-side filter already constrains the type, but keep the assertion as a
+            // defense-in-depth check, matching the JSON-RPC `try_from_object_data` path.
+            if entry.object_type.name.as_str() != U::CONTRACT_STRUCT.name
+                || entry.object_type.module.as_str() != U::CONTRACT_STRUCT.module
+            {
+                tracing::warn!(
+                    contract_struct = %U::CONTRACT_STRUCT,
+                    actual = %entry.object_type,
+                    object_id = %entry.object_id,
+                    "owned object did not match expected struct tag",
+                );
+                return None;
+            }
+            match bcs::from_bytes::<U>(&entry.bcs_bytes) {
+                Result::Ok(value) => Some(value),
+                Result::Err(error) => {
                     tracing::warn!(
                         ?error,
                         contract_struct = %U::CONTRACT_STRUCT,
-                        "failed to convert to local type",
+                        object_id = %entry.object_id,
+                        "failed to deserialize owned object",
                     );
                     None
-                },
-                |object_data| match U::try_from_object_data(&object_data) {
-                    Result::Ok(value) => Some(value),
-                    Result::Err(error) => {
-                        tracing::warn!(
-                            ?error,
-                            contract_struct = %U::CONTRACT_STRUCT,
-                            "failed to convert to local type",
-                        );
-                        None
-                    }
-                },
-            )
-        }))
-    }
-
-    /// Get all the [`SuiObjectData`] objects of the specified type for the specified owner.
-    async fn get_owned_object_data<'a>(
-        &'a self,
-        owner: SuiAddress,
-        type_args: &'a [TypeTag],
-        object_type: contracts::StructTag<'a>,
-    ) -> Result<impl Iterator<Item = Result<SuiObjectData>> + 'a> {
-        let struct_tag =
-            object_type.to_move_struct_tag_with_type_map(&self.type_origin_map(), type_args)?;
-        Ok(handle_pagination(move |cursor| {
-            self.sui_client.get_owned_objects(
-                owner,
-                Some(SuiObjectResponseQuery {
-                    filter: Some(SuiObjectDataFilter::StructType(struct_tag.clone())),
-                    options: Some(SuiObjectDataOptions::new().with_bcs().with_type()),
-                }),
-                cursor,
-                None,
-            )
-        })
-        .await?
-        .map(|resp| {
-            resp.data.ok_or_else(|| {
-                anyhow!(
-                    "response does not contain object data [err={:?}]",
-                    resp.error
-                )
-            })
+                }
+            }
         }))
     }
 
