@@ -94,8 +94,6 @@ pub struct DualClient {
     /// The Sui SDK client for JSON RPC calls. This will eventually be removed.
     sui_client: Option<SuiClient>,
     grpc_client: GrpcClient,
-    /// Timeout for waiting for checkpoint inclusion after gRPC transaction execution.
-    checkpoint_wait_timeout: Duration,
 }
 
 impl std::fmt::Debug for DualClient {
@@ -142,7 +140,6 @@ impl DualClient {
     pub async fn new(
         rpc_url: impl AsRef<str>,
         request_timeout: Option<Duration>,
-        checkpoint_wait_timeout: Duration,
     ) -> Result<Self, SuiClientError> {
         let mut client_builder = SuiClientBuilder::default();
         if let Some(request_timeout) = request_timeout {
@@ -154,7 +151,6 @@ impl DualClient {
         Ok(Self {
             sui_client,
             grpc_client,
-            checkpoint_wait_timeout,
         })
     }
 
@@ -712,6 +708,7 @@ impl DualClient {
     pub fn execute_transaction_grpc(
         &self,
         transaction: &Transaction,
+        checkpoint_wait_timeout: Duration,
     ) -> Result<BoxedExecuteTxFuture<'_>, SuiClientError> {
         let tx_data_bytes = bcs::to_bytes(transaction.transaction_data())
             .context("failed to BCS-serialize TransactionData")?;
@@ -757,7 +754,6 @@ impl DualClient {
                     .object_type(),
             ]));
 
-        let checkpoint_wait_timeout = self.checkpoint_wait_timeout;
         Ok(Box::pin(execute_transaction_and_convert(
             grpc_client,
             request,

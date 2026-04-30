@@ -91,7 +91,6 @@ use walrus_sui::{
         ReadClient,
         SuiClientError,
         SuiContractClient,
-        dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     coin::Coin,
@@ -2775,9 +2774,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
     let retry_client = RetriableSuiClient::new(
         rpc_urls
             .iter()
-            .map(|rpc_url| {
-                LazySuiClientBuilder::new(rpc_url, None, DEFAULT_CHECKPOINT_WAIT_TIMEOUT)
-            })
+            .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, None))
             .collect(),
         ExponentialBackoffConfig::default(),
     )?;
@@ -3043,11 +3040,7 @@ async fn test_store_with_upload_relay_with_tip() {
             .rpc_url()
             .to_string();
         RetriableSuiClient::new(
-            vec![LazySuiClientBuilder::new(
-                &rpc_url,
-                None,
-                DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
-            )],
+            vec![LazySuiClientBuilder::new(&rpc_url, None)],
             ExponentialBackoffConfig::default(),
         )
         .expect("create retry client")

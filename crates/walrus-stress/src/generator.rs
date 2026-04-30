@@ -75,7 +75,6 @@ impl LoadGenerator {
             client_config
                 .communication_config
                 .sui_client_request_timeout,
-            client_config.checkpoint_wait_timeout(),
         )?;
 
         let sui_read_client = client_config.new_read_client(sui_client.clone()).await?;

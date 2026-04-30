@@ -106,7 +106,6 @@ pub async fn get_walrus_nodes(
         &[rpc_address],
         &contract_config,
         backoff_config,
-        walrus_sui::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
     )
     .await
     .map_err(|e| {

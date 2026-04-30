@@ -541,17 +541,12 @@ impl SuiContractClient {
         tracing::debug!("creating a new `SuiContractClient`");
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(
-                    rpc_urls,
-                    backoff_config.clone(),
-                    None,
-                    checkpoint_wait_timeout,
-                )?,
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?,
                 contract_config,
             )
             .await?,
         );
-        Self::new_with_read_client(wallet, gas_budget, read_client)
+        Self::new_with_read_client(wallet, gas_budget, checkpoint_wait_timeout, read_client)
     }
 
     /// Constructor for [`SuiContractClient`] with metrics.
@@ -566,24 +561,20 @@ impl SuiContractClient {
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(
-                    rpc_urls,
-                    backoff_config.clone(),
-                    None,
-                    checkpoint_wait_timeout,
-                )?
-                .with_metrics(Some(metrics)),
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?
+                    .with_metrics(Some(metrics)),
                 contract_config,
             )
             .await?,
         );
-        Self::new_with_read_client(wallet, gas_budget, read_client)
+        Self::new_with_read_client(wallet, gas_budget, checkpoint_wait_timeout, read_client)
     }
 
     /// Constructor for [`SuiContractClient`] with an existing [`SuiReadClient`].
     pub fn new_with_read_client(
         wallet: Wallet,
         gas_budget: Option<u64>,
+        checkpoint_wait_timeout: Duration,
         read_client: Arc<SuiReadClient>,
     ) -> SuiClientResult<Self> {
         let wallet_address = wallet.active_address();
@@ -592,6 +583,7 @@ impl SuiContractClient {
                 wallet,
                 read_client.clone(),
                 gas_budget,
+                checkpoint_wait_timeout,
             )?),
             read_client,
             wallet_address,
@@ -1190,6 +1182,8 @@ struct SuiContractClientInner {
     /// The gas budget used by the client. If not set, the client will use a dry run to estimate
     /// the required gas budget.
     gas_budget: Option<u64>,
+    /// Timeout for waiting for checkpoint inclusion after gRPC transaction execution.
+    checkpoint_wait_timeout: Duration,
 }
 
 impl SuiContractClientInner {
@@ -1198,11 +1192,13 @@ impl SuiContractClientInner {
         wallet: Wallet,
         read_client: Arc<SuiReadClient>,
         gas_budget: Option<u64>,
+        checkpoint_wait_timeout: Duration,
     ) -> SuiClientResult<Self> {
         Ok(Self {
             wallet,
             read_client,
             gas_budget,
+            checkpoint_wait_timeout,
         })
     }
 
@@ -1746,7 +1742,7 @@ impl SuiContractClientInner {
         // Execute the transaction and wait for response
         let response = self
             .retriable_sui_client()
-            .execute_transaction(signed_transaction, method)
+            .execute_transaction(signed_transaction, method, self.checkpoint_wait_timeout)
             .await?;
 
         // Check transaction execution status from effects

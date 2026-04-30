@@ -40,16 +40,9 @@ use walrus_core::{EpochCount, ensure};
 #[cfg(any(test, feature = "test-utils"))]
 use crate::test_utils::system_setup;
 use crate::{
-    client::{
-        dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
-        retry_client::{
-            RetriableSuiClient,
-            retriable_sui_client::{
-                GasBudgetAndPrice,
-                LazySuiClientBuilder,
-                MAX_GAS_PAYMENT_OBJECTS,
-            },
-        },
+    client::retry_client::{
+        RetriableSuiClient,
+        retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder, MAX_GAS_PAYMENT_OBJECTS},
     },
     coin::Coin,
     contracts,
@@ -258,11 +251,7 @@ pub(crate) async fn publish_package(
 ) -> Result<ExecutedTransaction> {
     let sender = wallet.active_address();
     let retry_client = RetriableSuiClient::new(
-        vec![LazySuiClientBuilder::new(
-            wallet.get_rpc_url(),
-            None,
-            DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
-        )],
+        vec![LazySuiClientBuilder::new(wallet.get_rpc_url(), None)],
         Default::default(),
     )?;
 
@@ -654,11 +643,7 @@ pub async fn create_system_and_staking_objects(
     let address = wallet.active_address();
 
     let retry_client = RetriableSuiClient::new(
-        vec![LazySuiClientBuilder::new(
-            wallet.get_rpc_url(),
-            None,
-            DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
-        )],
+        vec![LazySuiClientBuilder::new(wallet.get_rpc_url(), None)],
         Default::default(),
     )?;
 

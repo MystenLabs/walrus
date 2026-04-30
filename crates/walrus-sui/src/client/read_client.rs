@@ -448,14 +448,8 @@ impl SuiReadClient {
         rpc_addresses: &[S],
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
-        checkpoint_wait_timeout: Duration,
     ) -> SuiClientResult<Self> {
-        let client = RetriableSuiClient::new_for_rpc_urls(
-            rpc_addresses,
-            backoff_config,
-            None,
-            checkpoint_wait_timeout,
-        )?;
+        let client = RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config, None)?;
         Self::new(client, contract_config).await
     }
 
