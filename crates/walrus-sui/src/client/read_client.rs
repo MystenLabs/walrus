@@ -1207,6 +1207,19 @@ impl SuiReadClient {
             )
             .await
     }
+
+    /// Returns the on-chain `(start_epoch, end_epoch)` lifetime of a storage pool.
+    ///
+    /// Reads via the inner-state path (`get_storage_pool_inner`) — the outer
+    /// `StoragePool` Move object only carries `id` and `version`; the lifetime fields
+    /// live on the dynamic-field-keyed inner state.
+    pub async fn get_storage_pool_lifetime(
+        &self,
+        storage_pool_object_id: ObjectID,
+    ) -> SuiClientResult<(walrus_core::Epoch, walrus_core::Epoch)> {
+        let inner = self.get_storage_pool_inner(storage_pool_object_id).await?;
+        Ok((inner.storage.start_epoch, inner.storage.end_epoch))
+    }
 }
 
 enum WhichCommittee {

@@ -45,7 +45,7 @@ use walrus_sui::{
 
 use super::{
     garbage_collector::{cleanup_drained_pools, drain_expired_pool_refs_step},
-    service::{MIGRATIONS, dispatch_contract_event},
+    service::{MIGRATIONS, dispatch_contract_event, pool_recorded, record_storage_pool_state},
 };
 
 const TEST_VERSION: &str = "test";
@@ -647,4 +647,121 @@ async fn pool_certify_does_not_disturb_archived_state() {
         blob_state_state(&mut conn, blob_id).await.as_deref(),
         Some("archived")
     );
+}
+
+/// `pool_recorded` returns false for an unknown pool, true after `record_storage_pool_state`
+/// inserts a row, and re-running `record_storage_pool_state` is idempotent (no duplicate row,
+/// existing values preserved).
+///
+/// These two helpers compose into `ensure_storage_pool_recorded`, which is the self-healing
+/// path for upgrade scenarios where `StoragePoolCreated` was missed. The Sui RPC call inside
+/// `ensure_storage_pool_recorded` isn't unit-testable without a live chain, but the surrounding
+/// SQL is what carries the correctness invariants — if these helpers behave as expected, the
+/// composed function does too.
+#[tokio::test]
+#[ignore = "requires WALRUS_BACKUP_TEST_DATABASE_URL"]
+async fn pool_recorded_and_record_storage_pool_state() {
+    let Some((_db, mut conn)) = setup().await else {
+        return;
+    };
+    let pool_id = unique_object_id();
+
+    assert!(
+        !pool_recorded(&mut conn, pool_id).await.unwrap(),
+        "fresh schema should have no pools"
+    );
+
+    record_storage_pool_state(&mut conn, pool_id, 1, 100, TEST_VERSION)
+        .await
+        .unwrap();
+    assert!(pool_recorded(&mut conn, pool_id).await.unwrap());
+    assert_eq!(pool_state_count(&mut conn, pool_id).await, 1);
+
+    // Second call: ON CONFLICT DO NOTHING means no error and no row duplication.
+    record_storage_pool_state(&mut conn, pool_id, 5, 999, TEST_VERSION)
+        .await
+        .expect("second insert is a no-op, not an error");
+    assert_eq!(pool_state_count(&mut conn, pool_id).await, 1);
+
+    // Existing row's epochs are preserved (DO NOTHING, not DO UPDATE).
+    #[derive(diesel::QueryableByName)]
+    struct Row {
+        #[diesel(sql_type = Int8)]
+        start_epoch: i64,
+        #[diesel(sql_type = Int8)]
+        end_epoch: i64,
+    }
+    let row: Row = diesel::sql_query(
+        "SELECT start_epoch, end_epoch FROM storage_pool_state WHERE storage_pool_id = $1",
+    )
+    .bind::<Bytea, _>(pool_id.to_vec())
+    .get_result(&mut conn)
+    .await
+    .unwrap();
+    assert_eq!(row.start_epoch, 1);
+    assert_eq!(row.end_epoch, 100);
+}
+
+/// Simulates the upgrade scenario: a backup that has somehow accumulated a
+/// `pooled_blob_ref` and a corresponding `pool_ref_count > 0` for a pool that was never
+/// recorded in `storage_pool_state`. After we backfill the pool via
+/// `record_storage_pool_state` (the same path `ensure_storage_pool_recorded` uses), the
+/// pool-expiry GC drains the orphan ref correctly.
+///
+/// This is the end-to-end shape of what the on-demand backfill achieves at runtime, just
+/// without invoking the Sui RPC step.
+#[tokio::test]
+#[ignore = "requires WALRUS_BACKUP_TEST_DATABASE_URL"]
+async fn backfill_recovers_pre_existing_pool() {
+    let Some((_db, mut conn)) = setup().await else {
+        return;
+    };
+    let pool_id = unique_object_id();
+    let blob_id = walrus_core::test_utils::blob_id_from_u64(60);
+
+    // Simulate a pool ref recorded against a pool we never observed `StoragePoolCreated` for.
+    diesel::sql_query("INSERT INTO pooled_blob_ref (storage_pool_id, blob_id) VALUES ($1, $2)")
+        .bind::<Bytea, _>(pool_id.to_vec())
+        .bind::<Bytea, _>(blob_id.0.to_vec())
+        .execute(&mut conn)
+        .await
+        .unwrap();
+    diesel::sql_query(
+        "
+            INSERT INTO blob_state (
+                blob_id, state, end_epoch, pool_ref_count, orchestrator_version,
+                retry_count, initiate_fetch_after
+            ) VALUES ($1, 'waiting', NULL, 1, $2, 1, NOW())
+        ",
+    )
+    .bind::<Bytea, _>(blob_id.0.to_vec())
+    .bind::<Text, _>(TEST_VERSION)
+    .execute(&mut conn)
+    .await
+    .unwrap();
+    force_archived(&mut conn, blob_id).await;
+
+    // Before backfill: GC sees `pool_ref_count = 1` and won't touch the blob.
+    let drained = drain_expired_pool_refs_step(&mut conn, 0).await.unwrap();
+    assert_eq!(drained, 0, "no expired pools yet — none recorded");
+
+    // Apply the backfill: record the pool with an already-expired end_epoch (simulating
+    // that this pool reached its end a while ago).
+    record_storage_pool_state(&mut conn, pool_id, 1, 5, TEST_VERSION)
+        .await
+        .unwrap();
+    dispatch(&mut conn, &epoch_change(20)).await;
+
+    // Now the pool-expiry GC drains the orphan ref and decrements the counter.
+    let drained = drain_expired_pool_refs_step(&mut conn, 0).await.unwrap();
+    assert_eq!(drained, 1);
+    assert_eq!(pool_ref_count(&mut conn, blob_id).await, Some(0));
+
+    // And the cleanup step removes the now-empty pool row.
+    cleanup_drained_pools(&mut conn, 0).await.unwrap();
+    assert_eq!(pool_state_count(&mut conn, pool_id).await, 0);
+
+    // The blob is now eligible for GC.
+    let eligible = gc_eligible_blob_ids(&mut conn, 0).await;
+    assert!(eligible.contains(&blob_id));
 }

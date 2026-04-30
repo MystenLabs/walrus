@@ -7,6 +7,7 @@ use std::{panic::Location, pin::Pin, sync::Arc, time::Duration};
 use anyhow::{Context, Result, bail};
 use diesel::{
     Connection as _,
+    OptionalExtension as _,
     QueryableByName,
     result::{DatabaseErrorKind, Error},
     sql_types::{Bytea, Int4, Int8, Text},
@@ -73,6 +74,7 @@ async fn stream_events(
     event_processor: Arc<EventProcessor>,
     _metrics_registry: Registry,
     db_config: &BackupDbConfig,
+    sui_read_client: SuiReadClient,
     backup_orchestrator_metric_set: BackupOrchestratorMetricSet,
 ) -> Result<()> {
     let mut pg_connection =
@@ -101,6 +103,7 @@ async fn stream_events(
                 record_event(
                     version,
                     &mut pg_connection,
+                    &sui_read_client,
                     &element,
                     checkpoint_event_position,
                     element_index,
@@ -126,6 +129,7 @@ async fn stream_events(
 async fn record_event(
     version: &'static str,
     pg_connection: &mut AsyncPgConnection,
+    sui_read_client: &SuiReadClient,
     element: &EventStreamElement,
     checkpoint_event_position: CheckpointEventPosition,
     element_index: u64,
@@ -133,7 +137,23 @@ async fn record_event(
     db_config: &BackupDbConfig,
     retry_counter: &GenericCounter<AtomicU64>,
     db_reconnects: &GenericCounter<AtomicU64>,
-) -> Result<(), Error> {
+) -> Result<()> {
+    // Self-heal for any pool whose StoragePoolCreated we never observed (e.g., a backup
+    // that started after the pool was created on-chain). This must run *before* the
+    // serializable transaction that processes the event so an RPC failure here doesn't
+    // chew through inner-tx retries; if it errors, the surrounding event-stream loop
+    // will surface the failure.
+    if let ContractEvent::BlobEvent(BlobEvent::PooledBlobCertified(p)) = contract_event {
+        ensure_storage_pool_recorded(version, pg_connection, sui_read_client, p.storage_pool_id)
+            .await
+            .with_context(|| {
+                format!(
+                    "ensure_storage_pool_recorded for pool {}",
+                    p.storage_pool_id
+                )
+            })?;
+    }
+
     let event_id: EventID = contract_event.event_id();
     retry_serializable_query(
         pg_connection,
@@ -159,6 +179,90 @@ async fn record_event(
             .scope_boxed()
         },
     )
+    .await?;
+    Ok(())
+}
+
+/// Ensures `storage_pool_state` has a row for `pool_id`. If the pool isn't already
+/// recorded, fetches its current state from Sui and inserts it idempotently.
+///
+/// Self-healing path for pools whose `StoragePoolCreated` event was emitted before
+/// this backup's orchestrator started observing events (typical on upgrades from
+/// a pre-pool-support deployment). The first `PooledBlobCertified` for any such pool
+/// triggers exactly one Sui RPC call; subsequent certifies short-circuit.
+pub(crate) async fn ensure_storage_pool_recorded(
+    version: &'static str,
+    conn: &mut AsyncPgConnection,
+    sui_read_client: &SuiReadClient,
+    pool_id: sui_types::base_types::ObjectID,
+) -> anyhow::Result<()> {
+    if pool_recorded(conn, pool_id).await? {
+        return Ok(());
+    }
+
+    tracing::info!(
+        ?pool_id,
+        "storage pool not recorded locally; fetching from Sui to backfill"
+    );
+    // Use the inner-state read path: the outer `StoragePool` Move object only carries
+    // `id` and `version`; lifetime fields live on the dynamic-field-keyed inner state.
+    let (start_epoch, end_epoch) = sui_read_client
+        .get_storage_pool_lifetime(pool_id)
+        .await
+        .with_context(|| format!("fetching storage pool {pool_id} from Sui"))?;
+    record_storage_pool_state(conn, pool_id, start_epoch, end_epoch, version).await?;
+    tracing::info!(
+        ?pool_id,
+        %start_epoch,
+        %end_epoch,
+        "backfilled storage pool from Sui"
+    );
+    Ok(())
+}
+
+/// Returns whether a row for `pool_id` exists in `storage_pool_state`. Pure DB; exposed
+/// for tests.
+pub(crate) async fn pool_recorded(
+    conn: &mut AsyncPgConnection,
+    pool_id: sui_types::base_types::ObjectID,
+) -> Result<bool, diesel::result::Error> {
+    #[derive(diesel::QueryableByName)]
+    struct OneRow {
+        #[diesel(sql_type = diesel::sql_types::Int4)]
+        #[allow(dead_code)]
+        one: i32,
+    }
+    Ok(diesel::sql_query(
+        "SELECT 1 AS one FROM storage_pool_state WHERE storage_pool_id = $1 LIMIT 1",
+    )
+    .bind::<diesel::sql_types::Bytea, _>(pool_id.to_vec())
+    .get_result::<OneRow>(conn)
+    .await
+    .optional()?
+    .is_some())
+}
+
+/// Idempotent insert into `storage_pool_state`. Pure DB; exposed for tests.
+pub(crate) async fn record_storage_pool_state(
+    conn: &mut AsyncPgConnection,
+    pool_id: sui_types::base_types::ObjectID,
+    start_epoch: walrus_core::Epoch,
+    end_epoch: walrus_core::Epoch,
+    version: &str,
+) -> Result<(), diesel::result::Error> {
+    diesel::sql_query(
+        "
+            INSERT INTO storage_pool_state (
+                storage_pool_id, start_epoch, end_epoch, orchestrator_version
+            ) VALUES ($1, $2, $3, $4)
+            ON CONFLICT (storage_pool_id) DO NOTHING
+        ",
+    )
+    .bind::<diesel::sql_types::Bytea, _>(pool_id.to_vec())
+    .bind::<diesel::sql_types::Int8, _>(i64::from(start_epoch))
+    .bind::<diesel::sql_types::Int8, _>(i64::from(end_epoch))
+    .bind::<diesel::sql_types::Text, _>(version)
+    .execute(conn)
     .await?;
     Ok(())
 }
@@ -527,6 +631,22 @@ pub async fn start_backup_orchestrator(
     )
     .await?;
 
+    // Build a read-only Sui client. The orchestrator uses it to fetch storage-pool state
+    // on demand when a `PooledBlobCertified` event arrives for a pool whose creation we
+    // never observed (the upgrade-from-pre-pool-support case).
+    let sui_read_client = SuiReadClient::new(
+        RetriableSuiClient::new_for_rpc_urls(
+            &combine_rpc_urls(&config.sui.rpc, &config.sui.additional_rpc_endpoints),
+            config.sui.backoff_config.clone(),
+            None,
+            walrus_sui::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+        )
+        .context("[orchestrator] cannot create RetriableSuiClient")?,
+        &config.sui.contract_config,
+    )
+    .await
+    .context("[orchestrator] cannot create SuiReadClient")?;
+
     let metrics_registry = metrics_runtime.registry.clone();
 
     let backup_orchestrator_metric_set =
@@ -538,6 +658,7 @@ pub async fn start_backup_orchestrator(
         event_processor,
         metrics_registry,
         &config.db_config,
+        sui_read_client,
         backup_orchestrator_metric_set,
     )
     .await

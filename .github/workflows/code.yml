@@ -388,6 +388,7 @@ jobs:
       - lint
       - build
       - test
+      - backup-test
       - simtests-build
       - simtests
       - test-move
