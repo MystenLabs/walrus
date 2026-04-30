@@ -22,8 +22,14 @@ services:
       - NO_COLOR=1
       - SUI_PROTOCOL_CONFIG_CHAIN_OVERRIDE=mainnet # Always use sui mainnet protocol config.
       - ANTITHESIS_ENABLE_EXECUTION_TIME_INJECTION=false # Disable execution time injection to avoid artificial congestion control.
+    # Heartbeat with PID 1 start time so we can detect whether Antithesis
+    # actually leaves sui-localnet alone when it's in exclude_from_faults.
+    # If pid1start changes across log entries, the container was restarted.
     command: >
-      /bin/sh -c "cp /usr/local/bin/sui /root/sui_bin/ && \
+      /bin/sh -c "cp /usr/local/bin/sui /root/sui_bin/ &&
+      PID1_START=$$(awk '{print $$22}' /proc/1/stat) &&
+      echo sui-heartbeat-startup pid1start=$$PID1_START &&
+      ( S=0; while true; do S=$$((S+1)); echo sui-heartbeat pid1start=$$PID1_START seq=$$S; sleep 60; done & ) &&
       sui start --with-faucet --force-regenesis --committee-size 1 --epoch-duration-ms 86400000"
     healthcheck:
       test: ["CMD", "/bin/bash", "-c", "echo > /dev/tcp/127.0.0.1/9123 && echo > /dev/tcp/127.0.0.1/9000"]
