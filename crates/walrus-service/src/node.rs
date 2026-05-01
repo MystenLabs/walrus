@@ -1849,13 +1849,16 @@ impl StorageNode {
         self.epoch_change_driver
             .cancel_scheduled_epoch_change_initiation(event.epoch);
 
-        // Here we need to wait for the previous shard removal to finish so that for the case
-        // where same shard is moved in again, we don't have shard removal and move-in running
-        // concurrently.
+        // Wait for the previous epoch transition's finisher task to complete. The
+        // finisher's `remove_storage_for_shards` (per-shard `drop_cf`) is what we don't
+        // want racing the create-storage path for shards re-gained in this transition:
+        // if shard X was removed at epoch N-1 and we gain X back at epoch N, the
+        // previous epoch's drop_cf must finish before we recreate storage for X.
         //
-        // Note that we expect this call to finish quickly because removing RocksDb column
-        // families is supposed to be fast, and we have an entire epoch duration to do so. By
-        // the time next epoch starts, the shard removal task should have completed.
+        // Normally a no-op or quick: with Fix 1 the previous epoch's finisher started
+        // shortly after that epoch's phase 1 and had the rest of the (~day-long) epoch
+        // to run. On HDD-backed storage the drop_cf itself is slow (tens of minutes for
+        // many shards), but the long epoch duration absorbs that.
         self.start_epoch_change_finisher
             .wait_until_previous_task_done()
             .await;
@@ -1900,7 +1903,12 @@ impl StorageNode {
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
-        // to bring the node state to the next epoch.
+        // to bring the node state to the next epoch. Inside, the finisher task — which
+        // signals epoch_sync_done, removes storage for shards this node no longer owns, and
+        // marks the event complete — is stashed via `schedule_finish_epoch_change_tasks` and
+        // launched only after GC phase 1 below. This keeps phase 1's reads from racing the
+        // per-shard `drop_cf` inside `remove_storage_for_shards` on the same RocksDB, which
+        // on HDD-backed storage had blocked the event loop for tens of minutes per transition.
         self.execute_epoch_change(event_handle, event, shard_map_lock)
             .await?;
 
@@ -1916,6 +1924,13 @@ impl StorageNode {
             .schedule_post_epoch_change_subsidies();
 
         self.start_garbage_collection_task(event.epoch).await?;
+
+        // GC phase 1 is done. Launch the finisher task now that phase 1 has released the
+        // disk. The slow part of the finisher is `remove_storage_for_shards` (per-shard
+        // `drop_cf`), which is what the schedule/launch split exists to keep off phase 1's
+        // disk path — see `schedule_finish_epoch_change_tasks`.
+        self.start_epoch_change_finisher
+            .launch_pending_finisher_task();
 
         Ok(())
     }
@@ -2258,7 +2273,7 @@ impl StorageNode {
         let shards_to_remove = shard_diff_calculator.shards_to_remove();
         if !shards_to_remove.is_empty() {
             self.start_epoch_change_finisher
-                .start_finish_epoch_change_tasks(
+                .schedule_finish_epoch_change_tasks(
                     event_handle,
                     event,
                     shard_diff_calculator.shards_to_remove().to_vec(),
@@ -2388,7 +2403,7 @@ impl StorageNode {
         }
 
         self.start_epoch_change_finisher
-            .start_finish_epoch_change_tasks(
+            .schedule_finish_epoch_change_tasks(
                 event_handle,
                 event,
                 shard_diff_calculator.shards_to_remove().to_vec(),

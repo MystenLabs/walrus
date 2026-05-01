@@ -16,12 +16,28 @@ use walrus_utils::backoff::{self, ExponentialBackoff};
 use super::{StorageNodeInner, system_events::EventHandle};
 use crate::node::system_events::CompletableHandle;
 
+/// Args for the finisher task captured by
+/// [`StartEpochChangeFinisher::schedule_finish_epoch_change_tasks`] and consumed by
+/// [`StartEpochChangeFinisher::launch_pending_finisher_task`].
+#[derive(Debug)]
+struct PendingFinisherTask {
+    event_handle: EventHandle,
+    event: EpochChangeStart,
+    shards: Vec<ShardIndex>,
+    committees: ActiveCommittees,
+    ongoing_shard_sync: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct StartEpochChangeFinisher {
     node: Arc<StorageNodeInner>,
 
-    // There can be at most one background start epoch change finisher task at a time.
+    // There can be at most one background finisher task at a time.
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+
+    // Args stashed by `schedule_finish_epoch_change_tasks`, consumed by
+    // `launch_pending_finisher_task` once GC phase 1 has completed.
+    pending: Arc<Mutex<Option<PendingFinisherTask>>>,
 }
 
 impl StartEpochChangeFinisher {
@@ -29,16 +45,25 @@ impl StartEpochChangeFinisher {
         Self {
             node,
             task_handle: Arc::new(Mutex::new(None)),
+            pending: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Starts background tasks to finish the epoch change.
+    /// Stashes args for the finisher task. The task itself is spawned by a subsequent
+    /// call to [`launch_pending_finisher_task`].
     ///
-    /// This includes the following:
-    /// - Sending epoch sync done if there is no newly scheduled shard syncs.
-    /// - Removing no longer owned storage for shards.
-    /// - Marking the event as completed.
-    pub fn start_finish_epoch_change_tasks(
+    /// The task does three things: signal `epoch_sync_done` to the contract (when this
+    /// node didn't gain new shards), call `remove_storage_for_shards` to discard shards
+    /// no longer owned by this node, and mark the `EpochChangeStart` event as complete.
+    ///
+    /// The schedule/launch split exists because of the second step. Removing a shard
+    /// means `drop_cf` against five column families and unlinking the SST/blob files
+    /// behind them. On HDD-backed storage this saturates the disk for minutes per shard,
+    /// and if it ran concurrently with GC phase 1's reads on the same RocksDB it blocked
+    /// the event loop for tens of minutes at epoch boundaries (see Apr 21 2026 incident:
+    /// ML1 phase 1 took ~31 min while removing 3 shards). Deferring the spawn until
+    /// after phase 1 keeps the disk uncontended during phase 1.
+    pub fn schedule_finish_epoch_change_tasks(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
@@ -46,8 +71,35 @@ impl StartEpochChangeFinisher {
         committees: ActiveCommittees,
         ongoing_shard_sync: bool,
     ) {
+        let mut pending = self.pending.lock().expect("mutex should not be poisoned");
+        if pending.is_some() {
+            tracing::warn!(
+                "discarding previously scheduled finisher task; reachable only if the \
+                outer epoch-change handler errored between schedule and launch"
+            );
+        }
+        *pending = Some(PendingFinisherTask {
+            event_handle,
+            event: event.clone(),
+            shards,
+            committees,
+            ongoing_shard_sync,
+        });
+    }
+
+    /// Spawns the finisher task previously stashed by
+    /// [`schedule_finish_epoch_change_tasks`]. No-op if nothing is pending.
+    pub fn launch_pending_finisher_task(&self) {
+        let Some(task) = self
+            .pending
+            .lock()
+            .expect("mutex should not be poisoned")
+            .take()
+        else {
+            return;
+        };
+
         let self_clone = self.clone();
-        let event_clone = event.clone();
 
         let mut locked_task_handle = self
             .task_handle
@@ -63,17 +115,19 @@ impl StartEpochChangeFinisher {
                 // keep retrying until success. Otherwise, the event process is blocked anyway.
                 None,
                 // Seed the backoff with the shard index.
-                shards.first().unwrap_or(&ShardIndex(0)).as_u64(),
+                task.shards.first().unwrap_or(&ShardIndex(0)).as_u64(),
             );
 
             fail_point_async!("blocking_finishing_epoch_change_start");
 
             if let Err(error) = backoff::retry(backoff, || async {
-                if !ongoing_shard_sync {
-                    self_clone.epoch_sync_done(&committees, &event_clone).await;
+                if !task.ongoing_shard_sync {
+                    self_clone
+                        .epoch_sync_done(&task.committees, &task.event)
+                        .await;
                 }
                 self_clone
-                    .remove_storage_for_shards(event_clone.clone(), &shards.clone())
+                    .remove_storage_for_shards(task.event.clone(), &task.shards)
                     .await?;
                 anyhow::Ok(())
             })
@@ -81,13 +135,13 @@ impl StartEpochChangeFinisher {
             {
                 // This should never happen as we don't have a max retry count.
                 tracing::error!(
-                    walrus.epoch = %event_clone.epoch,
+                    walrus.epoch = %task.event.epoch,
                     ?error,
                     "failed to finish epoch change start tasks",
                 );
             }
 
-            event_handle.mark_as_complete();
+            task.event_handle.mark_as_complete();
             self_clone
                 .task_handle
                 .lock()
@@ -152,8 +206,17 @@ impl StartEpochChangeFinisher {
         Ok(())
     }
 
-    /// Wait until the previous shard remove task is done.
+    /// Waits for the previous epoch transition's finisher task to complete.
+    ///
+    /// Drains `pending` first: if a prior attempt errored after
+    /// `schedule_finish_epoch_change_tasks` but before
+    /// `launch_pending_finisher_task` (e.g. `latest_event_epoch_sender.send` or
+    /// phase 1 errored), the args would still be sitting in `pending`. Launch
+    /// them now so they enter `task_handle` and are awaited below, instead of
+    /// being silently skipped.
     pub async fn wait_until_previous_task_done(&self) {
+        self.launch_pending_finisher_task();
+
         let existing_handle = self
             .task_handle
             .lock()
