@@ -36,6 +36,7 @@ use sui_sdk::{
         SuiMoveNormalizedStructType,
         SuiMoveNormalizedType,
         SuiObjectData,
+        SuiObjectDataFilter,
         SuiObjectDataOptions,
         SuiObjectResponse,
         SuiObjectResponseQuery,
@@ -88,6 +89,9 @@ use crate::{
         EventEnvelope,
         ExecuteTransactionResponse,
         ObjectChangeEntry,
+        OwnedObjectEntry,
+        OwnedObjectsCursor,
+        OwnedObjectsPage,
         SuiCommitteeInfo,
         TransactionEffectsStatus,
         TransactionResponse,
@@ -222,6 +226,7 @@ const GRPC_MIGRATION_LEVEL_GET_BALANCE: GrpcMigrationLevel = GrpcMigrationLevel(
 const GRPC_MIGRATION_LEVEL_TRANSACTION_READS: GrpcMigrationLevel = GrpcMigrationLevel(5);
 const GRPC_MIGRATION_LEVEL_SERVICE_INFO: GrpcMigrationLevel = GrpcMigrationLevel(6);
 const GRPC_MIGRATION_LEVEL_TRANSACTION_WRITES: GrpcMigrationLevel = GrpcMigrationLevel(7);
+const GRPC_MIGRATION_LEVEL_OWNED_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(8);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -889,37 +894,59 @@ impl RetriableSuiClient {
             .await
     }
 
-    /// Return a paginated response with the objects owned by the given address.
+    /// Return a paginated response with the objects owned by the given address, optionally
+    /// filtered to a single Move type.
     ///
-    /// Calls [`sui_sdk::apis::ReadApi::get_owned_objects`] internally.
+    /// At `WALRUS_GRPC_MIGRATION_LEVEL >= 8` this routes through the gRPC `ListOwnedObjects`
+    /// RPC; otherwise it falls back to the JSON-RPC `getOwnedObjects` endpoint. The returned
+    /// [`OwnedObjectsCursor`] is opaque and tied to whichever backend produced it.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_owned_objects(
         &self,
         address: SuiAddress,
-        query: Option<SuiObjectResponseQuery>,
-        cursor: Option<ObjectID>,
-        limit: Option<usize>,
-    ) -> SuiClientResult<ObjectsPage> {
-        async fn make_request(
-            client: Arc<DualClient>,
-            address: SuiAddress,
-            query: Option<SuiObjectResponseQuery>,
-            cursor: Option<ObjectID>,
-            limit: Option<usize>,
-        ) -> SuiClientResult<ObjectsPage> {
-            Ok(client
-                .sui_client()
-                .read_api()
-                .get_owned_objects(address, query, cursor, limit)
-                .await?)
+        type_filter: Option<StructTag>,
+        cursor: Option<OwnedObjectsCursor>,
+    ) -> SuiClientResult<OwnedObjectsPage> {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_OWNED_OBJECTS {
+            self.get_owned_objects_grpc(address, type_filter, cursor)
+                .await
+        } else {
+            self.get_owned_objects_json_rpc(address, type_filter, cursor)
+                .await
         }
+    }
+
+    async fn get_owned_objects_grpc(
+        &self,
+        address: SuiAddress,
+        type_filter: Option<StructTag>,
+        cursor: Option<OwnedObjectsCursor>,
+    ) -> SuiClientResult<OwnedObjectsPage> {
+        debug_assert!(self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_OWNED_OBJECTS);
+        let page_token = cursor
+            .map(OwnedObjectsCursor::into_grpc)
+            .transpose()
+            .map_err(SuiClientError::Internal)?;
+        let type_filter_str = type_filter.as_ref().map(StructTag::to_string);
+
         let request = |client: Arc<DualClient>, method: &'static str| {
-            let query = query.clone();
+            let type_filter_str = type_filter_str.clone();
+            let page_token = page_token.clone();
             retry_rpc_errors(
                 self.get_strategy(),
                 move || {
-                    let query = query.clone();
-                    make_request(client.clone(), address, query, cursor, limit)
+                    let type_filter_str = type_filter_str.clone();
+                    let page_token = page_token.clone();
+                    let client = client.clone();
+                    async move {
+                        client
+                            .list_owned_objects_grpc(
+                                address,
+                                type_filter_str.as_deref(),
+                                page_token,
+                            )
+                            .await
+                    }
                 },
                 self.metrics.clone(),
                 method,
@@ -929,6 +956,63 @@ impl RetriableSuiClient {
         self.failover_sui_client
             .with_failover(request, None, "get_owned_objects")
             .await
+    }
+
+    async fn get_owned_objects_json_rpc(
+        &self,
+        address: SuiAddress,
+        type_filter: Option<StructTag>,
+        cursor: Option<OwnedObjectsCursor>,
+    ) -> SuiClientResult<OwnedObjectsPage> {
+        debug_assert!(self.grpc_migration_level < GRPC_MIGRATION_LEVEL_OWNED_OBJECTS);
+        let json_cursor = cursor
+            .map(OwnedObjectsCursor::into_json_rpc)
+            .transpose()
+            .map_err(SuiClientError::Internal)?;
+        let query = SuiObjectResponseQuery {
+            filter: type_filter.map(SuiObjectDataFilter::StructType),
+            options: Some(SuiObjectDataOptions::new().with_bcs().with_type()),
+        };
+
+        async fn make_request(
+            client: Arc<DualClient>,
+            address: SuiAddress,
+            query: SuiObjectResponseQuery,
+            cursor: Option<ObjectID>,
+        ) -> SuiClientResult<ObjectsPage> {
+            Ok(client
+                .sui_client()
+                .read_api()
+                .get_owned_objects(address, Some(query), cursor, None)
+                .await?)
+        }
+        let request = |client: Arc<DualClient>, method: &'static str| {
+            let query = query.clone();
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || {
+                    let query = query.clone();
+                    make_request(client.clone(), address, query, json_cursor)
+                },
+                self.metrics.clone(),
+                method,
+            )
+        };
+
+        let raw_page = self
+            .failover_sui_client
+            .with_failover(request, None, "get_owned_objects")
+            .await?;
+
+        let mut data = Vec::with_capacity(raw_page.data.len());
+        for response in raw_page.data {
+            data.push(OwnedObjectEntry::try_from(response).map_err(SuiClientError::Internal)?);
+        }
+        Ok(OwnedObjectsPage {
+            data,
+            next_cursor: raw_page.next_cursor.map(OwnedObjectsCursor::from_json_rpc),
+            has_next_page: raw_page.has_next_page,
+        })
     }
 
     /// Returns a [`sui_types::object::Object`] based on the provided [`ObjectID`].

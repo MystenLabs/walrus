@@ -65,6 +65,9 @@ use crate::{
         EventEnvelope,
         ExecuteTransactionResponse,
         ObjectChangeEntry,
+        OwnedObjectEntry,
+        OwnedObjectsCursor,
+        OwnedObjectsPage,
         SuiCommitteeInfo,
         TransactionEffectsStatus,
         TransactionResponse,
@@ -445,6 +448,58 @@ impl DualClient {
         Ok(type_origins)
     }
 
+    /// List owned objects via the gRPC `ListOwnedObjects` RPC.
+    ///
+    /// Returns a single page in protocol-agnostic form. Callers paginate by feeding
+    /// `next_cursor` (when `has_next_page` is true) back in as `page_token`. The cursor is
+    /// opaque to the client; the server may rotate its representation.
+    pub async fn list_owned_objects_grpc(
+        &self,
+        owner: SuiAddress,
+        type_filter: Option<&str>,
+        page_token: Option<Bytes>,
+    ) -> Result<OwnedObjectsPage, SuiClientError> {
+        tracing::debug!(
+            ?owner,
+            ?type_filter,
+            ?page_token,
+            "DualClient::list_owned_objects_grpc called"
+        );
+        let mut grpc_client = self.grpc_client.clone();
+        let response = list_owned_objects(
+            owner,
+            type_filter,
+            page_token,
+            &mut grpc_client,
+            MAX_OWNED_OBJECTS_BATCH_SIZE,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "error listing owned objects for owner [owner={:?}, object_type={:?}]",
+                owner, type_filter
+            )
+        })?;
+
+        let response = response.into_inner();
+        let mut data = Vec::with_capacity(response.objects.len());
+        for object in response.objects {
+            data.push(convert_grpc_object_to_owned_object_entry(object).with_context(|| {
+                format!(
+                    "error converting object to OwnedObjectEntry [owner={:?}, object_type={:?}]",
+                    owner, type_filter
+                )
+            })?);
+        }
+        let next_cursor = response.next_page_token.map(OwnedObjectsCursor::from_grpc);
+        let has_next_page = next_cursor.is_some();
+        Ok(OwnedObjectsPage {
+            data,
+            next_cursor,
+            has_next_page,
+        })
+    }
+
     pub(crate) async fn fetch_batch_of_objects<U: AssociatedContractStruct>(
         &self,
         owner: SuiAddress,
@@ -468,7 +523,7 @@ impl DualClient {
         // instead of using this incremental approach across servers.
         let response = list_owned_objects(
             owner,
-            object_type,
+            Some(object_type),
             page_token,
             &mut grpc_client,
             MAX_OWNED_OBJECTS_BATCH_SIZE,
@@ -851,7 +906,7 @@ async fn execute_transaction_and_convert(
 
 async fn list_owned_objects(
     owner: SuiAddress,
-    object_type: &str,
+    object_type: Option<&str>,
     next_page_token: Option<Bytes>,
     grpc_client: &mut GrpcClient,
     batch_size: u32,
@@ -867,8 +922,10 @@ async fn list_owned_objects(
             Object::path_builder().balance(),
             Object::path_builder().previous_transaction(),
         ]))
-        .with_page_size(batch_size)
-        .with_object_type(object_type);
+        .with_page_size(batch_size);
+    if let Some(object_type) = object_type {
+        request = request.with_object_type(object_type);
+    }
     if let Some(next_page_token) = next_page_token {
         request = request.with_page_token(next_page_token);
     }
@@ -883,7 +940,7 @@ async fn list_owned_coin_objects(
 ) -> Result<tonic::Response<ListOwnedObjectsResponse>, tonic::Status> {
     list_owned_objects(
         owner,
-        object_type,
+        Some(object_type),
         next_page_token,
         grpc_client,
         MAX_SELECT_COINS_BATCH_SIZE,
@@ -920,6 +977,37 @@ fn convert_grpc_object_to_object_with_ref<U: AssociatedContractStruct>(
                 .context("parsing digest")?,
         ),
     ))
+}
+
+fn convert_grpc_object_to_owned_object_entry(
+    object: Object,
+) -> Result<OwnedObjectEntry, anyhow::Error> {
+    let object_type = object
+        .object_type
+        .context("no object_type in object")?
+        .parse::<StructTag>()
+        .context("parsing move object_type")?;
+    let bcs_bytes = object
+        .contents
+        .context("no contents in object")?
+        .value
+        .context("no value in contents")?
+        .to_vec();
+    Ok(OwnedObjectEntry {
+        object_id: object
+            .object_id
+            .context("no object_id in object")?
+            .parse()
+            .context("parsing object_id")?,
+        version: object.version.context("no version in object")?.into(),
+        digest: object
+            .digest
+            .context("no digest in object")?
+            .parse()
+            .context("parsing digest")?,
+        object_type,
+        bcs_bytes,
+    })
 }
 
 fn convert_grpc_object_to_coin(object: Object) -> Result<Coin, anyhow::Error> {
