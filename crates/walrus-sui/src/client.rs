@@ -1119,6 +1119,14 @@ impl SuiContractClient {
             .await
     }
 
+    /// Returns the most recent successful execute-transaction response, if any.
+    ///
+    /// Useful for tooling such as benchmarks that need access to gas-cost telemetry from the
+    /// last submitted transaction without re-querying the chain.
+    pub async fn last_execute_response(&self) -> Option<Arc<ExecuteTransactionResponse>> {
+        self.inner.lock().await.last_execute_response.clone()
+    }
+
     /// Same as [`Self::retry_on_wrong_version_unboxed`], but returns a boxed future to prevent very
     /// large futures stored on the stack.
     fn retry_on_wrong_version<F, Fut, T>(
@@ -1184,6 +1192,9 @@ struct SuiContractClientInner {
     gas_budget: Option<u64>,
     /// Timeout for waiting for checkpoint inclusion after gRPC transaction execution.
     checkpoint_wait_timeout: Duration,
+    /// The most recent execute-transaction response, retained for benchmarks and other tooling
+    /// that needs gas-cost telemetry without re-querying the chain.
+    last_execute_response: Option<Arc<ExecuteTransactionResponse>>,
 }
 
 impl SuiContractClientInner {
@@ -1199,6 +1210,7 @@ impl SuiContractClientInner {
             read_client,
             gas_budget,
             checkpoint_wait_timeout,
+            last_execute_response: None,
         })
     }
 
@@ -1744,6 +1756,8 @@ impl SuiContractClientInner {
             .retriable_sui_client()
             .execute_transaction(signed_transaction, method, self.checkpoint_wait_timeout)
             .await?;
+
+        self.last_execute_response = Some(Arc::new(response.clone()));
 
         // Check transaction execution status from effects
         match &response.effects_status {

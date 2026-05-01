@@ -11,6 +11,7 @@ use sui_types::{
     TypeTag,
     base_types::{ObjectID, SuiAddress},
     digests::TransactionDigest,
+    gas::GasCostSummary,
 };
 
 use super::events::EventEnvelope;
@@ -127,6 +128,10 @@ pub struct ExecuteTransactionResponse {
     pub effects_status: TransactionEffectsStatus,
     /// Object changes from the transaction.
     pub object_changes: Option<Vec<ObjectChangeEntry>>,
+    /// Gas cost summary from the transaction effects, when available.
+    pub gas_cost_summary: Option<GasCostSummary>,
+    /// Gas price used for this transaction, when available.
+    pub gas_price: Option<u64>,
 }
 
 /// Options controlling which fields to include in a [`TransactionResponse`].

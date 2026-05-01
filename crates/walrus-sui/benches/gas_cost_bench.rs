@@ -10,12 +10,6 @@ use std::{io::Write, num::NonZeroU16, ops::Range, path::PathBuf, str::FromStr, t
 
 use anyhow::{anyhow, bail};
 use clap::Parser;
-use sui_sdk::rpc_types::{
-    SuiTransactionBlockDataAPI,
-    SuiTransactionBlockEffectsAPI,
-    SuiTransactionBlockResponseOptions,
-    SuiTransactionBlockResponseQuery,
-};
 use sui_types::gas::GasCostSummary;
 use walrus_core::{
     BlobId,
@@ -319,38 +313,18 @@ fn write_data_entry(
 async fn gas_cost_summary_for_last_tx(
     walrus_client: &SuiContractClient,
 ) -> anyhow::Result<GasCostSummaryWithPrice> {
-    let address = walrus_client.address();
-    let query = SuiTransactionBlockResponseQuery::new(
-        Some(sui_sdk::rpc_types::TransactionFilter::FromAddress(address)),
-        Some(
-            SuiTransactionBlockResponseOptions::new()
-                .with_effects()
-                .with_input(),
-        ),
-    );
-    let transaction = walrus_client
-        .retriable_sui_client()
-        .query_transaction_blocks(query.clone(), None, None, true)
-        .await?
-        .data
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow!("no transaction received from RPC"))?;
-    let gas_price = transaction
-        .transaction
-        .ok_or_else(|| anyhow!("transaction block response does not contain input"))?
-        .data
-        .gas_data()
-        .price;
-    let gas_cost_summary = transaction
-        .effects
-        .ok_or_else(|| anyhow!("transaction block response does not contain effects"))?
-        .gas_cost_summary()
-        .to_owned();
-    Ok(GasCostSummaryWithPrice {
-        summary: gas_cost_summary,
-        price: gas_price,
-    })
+    let response = walrus_client
+        .last_execute_response()
+        .await
+        .ok_or_else(|| anyhow!("no execute response recorded for the last transaction"))?;
+    let summary = response
+        .gas_cost_summary
+        .clone()
+        .ok_or_else(|| anyhow!("execute response did not include a gas cost summary"))?;
+    let price = response
+        .gas_price
+        .ok_or_else(|| anyhow!("execute response did not include a gas price"))?;
+    Ok(GasCostSummaryWithPrice { summary, price })
 }
 
 #[tokio::main]

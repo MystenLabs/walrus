@@ -59,6 +59,9 @@ pub use transaction::{
 pub mod owned_objects;
 pub use owned_objects::{OwnedObjectEntry, OwnedObjectsCursor, OwnedObjectsPage};
 
+pub mod move_datatype;
+pub use move_datatype::{MoveDatatype, MoveField, MoveOpenSignatureBody};
+
 pub mod move_structs;
 pub use move_structs::{
     Blob,
