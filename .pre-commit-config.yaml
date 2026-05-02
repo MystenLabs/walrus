@@ -31,13 +31,13 @@ repos:
       - id: typos
         pass_filenames: false
   - repo: https://github.com/DavidAnson/markdownlint-cli2
-    rev: v0.21.0
+    rev: v0.22.1
     hooks:
       - id: markdownlint-cli2
         args: ["--fix"]
         pass_filenames: false
   - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: 0.19.0
+    rev: 0.19.4
     hooks:
       - id: cargo-deny
         args: ["--all-features", "check", "--hide-inclusion-graph"]
