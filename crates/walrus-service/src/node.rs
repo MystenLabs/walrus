@@ -709,9 +709,13 @@ pub enum BeginCommitteeChangeAction {
     EnterRecoveryMode,
 }
 
-/// Args for the finisher task that needs to run after GC phase 1 has finished
-/// (so that `drop_cf` for shards being removed does not contend with phase 1
-/// on the same RocksDB instance / disk).
+/// Args for the deferred shard-removal task that needs to run after GC phase 1
+/// has finished (so that `drop_cf` does not contend with phase 1 on the same
+/// RocksDB instance / disk).
+///
+/// `epoch_sync_done` is intentionally NOT carried here: it is a contract RPC
+/// that doesn't share resources with phase 1, so callers fire it synchronously
+/// before phase 1 instead of bundling it with the deferred task.
 ///
 /// Returned up the `execute_epoch_change` call chain to
 /// `process_epoch_change_start_event`, which spawns the actual task once phase
@@ -720,8 +724,6 @@ struct PendingFinisherTask {
     event_handle: EventHandle,
     event: EpochChangeStart,
     shards: Vec<ShardIndex>,
-    committees: ActiveCommittees,
-    ongoing_shard_sync: bool,
 }
 
 impl StorageNode {
@@ -1967,18 +1969,12 @@ impl StorageNode {
         }
 
         // Phase 1 has returned and the consistency-check snapshot is queued. Now spawn the
-        // deferred finisher task (if any), so its per-shard `drop_cf` work runs after phase 1
-        // has released the disk rather than concurrently with phase 1's reads on the same
-        // RocksDB.
+        // deferred shard-removal task (if any), so its per-shard `drop_cf` work runs after
+        // phase 1 has released the disk rather than concurrently with phase 1's reads on
+        // the same RocksDB.
         if let Some(task) = pending_finisher {
             self.start_epoch_change_finisher
-                .start_finish_epoch_change_tasks(
-                    task.event_handle,
-                    &task.event,
-                    task.shards,
-                    task.committees,
-                    task.ongoing_shard_sync,
-                );
+                .start_finish_epoch_change_tasks(task.event_handle, &task.event, task.shards);
         }
 
         Ok(())
@@ -2317,9 +2313,9 @@ impl StorageNode {
             .start_node_recovery(event.epoch)
             .await?;
 
-        // Last but not least, we need to remove any shards that are no longer owned by the node.
-        // The actual spawn of the finisher task happens in `process_epoch_change_start_event`
-        // after GC phase 1 has run; here we only return the args.
+        // The recovery path always has an ongoing shard sync, so `epoch_sync_done` is not
+        // sent here (it is signaled later when sync completes via a different code path).
+        // We only need to handle shard removal and event completion.
         let shards_to_remove = shard_diff_calculator.shards_to_remove().to_vec();
         if shards_to_remove.is_empty() {
             event_handle.mark_as_complete();
@@ -2330,8 +2326,6 @@ impl StorageNode {
             event_handle,
             event: event.clone(),
             shards: shards_to_remove,
-            committees,
-            ongoing_shard_sync: true,
         }))
     }
 
@@ -2450,14 +2444,28 @@ impl StorageNode {
                 .context("failed to lock shard")?;
         }
 
-        // The actual spawn of the finisher task happens in `process_epoch_change_start_event`
-        // after GC phase 1 has run; here we only return the args.
+        // Fire `epoch_sync_done` synchronously when there is no ongoing shard sync. It's a
+        // contract RPC that doesn't contend with phase 1, so there's no reason to delay it
+        // behind the deferred shard-removal task. Doing it here also means a phase-1 error
+        // doesn't suppress the contract signal.
+        let ongoing_shard_sync = !shards_gained.is_empty();
+        if !ongoing_shard_sync {
+            self.start_epoch_change_finisher
+                .epoch_sync_done(&committees, event)
+                .await;
+        }
+
+        let shards_to_remove = shard_diff_calculator.shards_to_remove().to_vec();
+        if shards_to_remove.is_empty() {
+            event_handle.mark_as_complete();
+            return Ok(None);
+        }
+
+        // Defer the actual spawn to `process_epoch_change_start_event`, after GC phase 1.
         Ok(Some(PendingFinisherTask {
             event_handle,
             event: event.clone(),
-            shards: shard_diff_calculator.shards_to_remove().to_vec(),
-            committees,
-            ongoing_shard_sync: !shards_gained.is_empty(),
+            shards: shards_to_remove,
         }))
     }
 

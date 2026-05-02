@@ -32,19 +32,18 @@ impl StartEpochChangeFinisher {
         }
     }
 
-    /// Starts background tasks to finish the epoch change.
+    /// Spawns the background task that removes storage for shards no longer owned by the
+    /// node and marks the `EpochChangeStart` event complete when done. The task retries
+    /// until success because event processing is blocked on completion.
     ///
-    /// This includes the following:
-    /// - Sending epoch sync done if there is no newly scheduled shard syncs.
-    /// - Removing no longer owned storage for shards.
-    /// - Marking the event as completed.
+    /// `epoch_sync_done` is **not** part of this task. Callers should fire it synchronously
+    /// before GC phase 1 (see [`Self::epoch_sync_done`]); the contract signal does not
+    /// contend with phase 1 and there is no reason to delay it behind `drop_cf`.
     pub fn start_finish_epoch_change_tasks(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
         shards: Vec<ShardIndex>,
-        committees: ActiveCommittees,
-        ongoing_shard_sync: bool,
     ) {
         let self_clone = self.clone();
         let event_clone = event.clone();
@@ -69,9 +68,6 @@ impl StartEpochChangeFinisher {
             fail_point_async!("blocking_finishing_epoch_change_start");
 
             if let Err(error) = backoff::retry(backoff, || async {
-                if !ongoing_shard_sync {
-                    self_clone.epoch_sync_done(&committees, &event_clone).await;
-                }
                 self_clone
                     .remove_storage_for_shards(event_clone.clone(), &shards.clone())
                     .await?;
@@ -83,7 +79,7 @@ impl StartEpochChangeFinisher {
                 tracing::error!(
                     walrus.epoch = %event_clone.epoch,
                     ?error,
-                    "failed to finish epoch change start tasks",
+                    "failed to remove shard storage at epoch change",
                 );
             }
 
@@ -99,7 +95,11 @@ impl StartEpochChangeFinisher {
     }
 
     /// Signals that the epoch sync is done if the node is in the current committee and no shards.
-    async fn epoch_sync_done(&self, committees: &ActiveCommittees, event: &EpochChangeStart) {
+    pub(super) async fn epoch_sync_done(
+        &self,
+        committees: &ActiveCommittees,
+        event: &EpochChangeStart,
+    ) {
         let is_node_in_committee = committees
             .current_committee()
             .contains(self.node.public_key());
