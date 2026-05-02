@@ -709,17 +709,20 @@ pub enum BeginCommitteeChangeAction {
     EnterRecoveryMode,
 }
 
-/// Args for the deferred shard-removal task that needs to run after GC phase 1
-/// has finished (so that `drop_cf` does not contend with phase 1 on the same
-/// RocksDB instance / disk).
+/// What `process_epoch_change_start_event` still needs to do *after* GC phase 1
+/// has finished. Returned up the `execute_epoch_change` call chain.
 ///
-/// `epoch_sync_done` is intentionally NOT carried here: it is a contract RPC
+/// - When `shards` is non-empty: spawn the deferred shard-removal task, which
+///   does `drop_cf` and then marks the event complete.
+/// - When `shards` is empty: there is no shard-removal work; the caller just
+///   marks the event complete inline.
+///
+/// `mark_as_complete` is *always* deferred until after phase 1 so a phase-1
+/// error never silently consumes the event without rerunning phase 1 on retry.
+///
+/// `epoch_sync_done` is intentionally not carried here: it is a contract RPC
 /// that doesn't share resources with phase 1, so callers fire it synchronously
-/// before phase 1 instead of bundling it with the deferred task.
-///
-/// Returned up the `execute_epoch_change` call chain to
-/// `process_epoch_change_start_event`, which spawns the actual task once phase
-/// 1 has returned.
+/// before phase 1 instead of deferring it.
 struct PendingFinisherTask {
     event_handle: EventHandle,
     event: EpochChangeStart,
@@ -1920,9 +1923,9 @@ impl StorageNode {
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
-        // to bring the node state to the next epoch. Any shard-removal work that would
-        // otherwise contend with GC phase 1 on the same RocksDB instance is returned here as
-        // `pending_finisher` and spawned only after phase 1 has run, below.
+        // to bring the node state to the next epoch. The `event_handle` (and any shards that
+        // need removing) is carried back here as a `PendingFinisherTask`, so we can mark the
+        // event complete only after phase 1 has run successfully.
         let pending_finisher = self
             .execute_epoch_change(event_handle, event, shard_map_lock)
             .await?;
@@ -1968,13 +1971,20 @@ impl StorageNode {
             );
         }
 
-        // Phase 1 has returned and the consistency-check snapshot is queued. Now spawn the
-        // deferred shard-removal task (if any), so its per-shard `drop_cf` work runs after
-        // phase 1 has released the disk rather than concurrently with phase 1's reads on
-        // the same RocksDB.
-        if let Some(task) = pending_finisher {
+        // Phase 1 has returned and the consistency-check snapshot is queued. Either spawn
+        // the deferred shard-removal task (which itself marks the event complete when done)
+        // or mark the event complete inline if there are no shards to remove. Marking
+        // complete is always after phase 1 so a phase-1 error forces a retry of the entire
+        // event rather than silently consuming it.
+        if pending_finisher.shards.is_empty() {
+            pending_finisher.event_handle.mark_as_complete();
+        } else {
             self.start_epoch_change_finisher
-                .start_finish_epoch_change_tasks(task.event_handle, &task.event, task.shards);
+                .start_finish_epoch_change_tasks(
+                    pending_finisher.event_handle,
+                    &pending_finisher.event,
+                    pending_finisher.shards,
+                );
         }
 
         Ok(())
@@ -2075,15 +2085,16 @@ impl StorageNode {
     /// Storage node execution of the epoch change start event, to bring the node state to the next
     /// epoch.
     ///
-    /// Returns the args for any deferred shard-removal task that should be spawned after GC
-    /// phase 1 has completed; `None` when there is no deferred work (either because there are
-    /// no shards to remove, or because the call already marked the event complete itself).
+    /// Returns the args for the post-phase-1 work the caller still needs to do. The
+    /// `event_handle` is carried back so `mark_as_complete` always happens after phase 1
+    /// (either inline when there are no shards to remove, or inside the spawned shard-removal
+    /// task when there are).
     async fn execute_epoch_change(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
-    ) -> anyhow::Result<Option<PendingFinisherTask>> {
+    ) -> anyhow::Result<PendingFinisherTask> {
         if self.inner.storage.node_status()?.is_catching_up() {
             self.execute_epoch_change_while_catching_up(event_handle, event, shard_map_lock)
                 .await
@@ -2097,10 +2108,11 @@ impl StorageNode {
                     )
                     .await
                 }
-                BeginCommitteeChangeAction::SkipEpochChange => {
-                    event_handle.mark_as_complete();
-                    Ok(None)
-                }
+                BeginCommitteeChangeAction::SkipEpochChange => Ok(PendingFinisherTask {
+                    event_handle,
+                    event: event.clone(),
+                    shards: vec![],
+                }),
                 BeginCommitteeChangeAction::EnterRecoveryMode => {
                     tracing::info!("storage node entering recovery mode during epoch change start");
                     sui_macros::fail_point!("fail-point-enter-recovery-mode");
@@ -2123,7 +2135,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
-    ) -> anyhow::Result<Option<PendingFinisherTask>> {
+    ) -> anyhow::Result<PendingFinisherTask> {
         self.inner
             .committee_service
             .begin_committee_change_to_latest_committee()
@@ -2137,8 +2149,11 @@ impl StorageNode {
 
         if event.epoch < self.inner.current_committee_epoch() {
             // We have not caught up to the latest epoch yet, so we can skip the event.
-            event_handle.mark_as_complete();
-            return Ok(None);
+            return Ok(PendingFinisherTask {
+                event_handle,
+                event: event.clone(),
+                shards: vec![],
+            });
         }
 
         tracing::info!(walrus.epoch = %event.epoch, "catching-up node reaches the current epoch");
@@ -2150,8 +2165,11 @@ impl StorageNode {
         {
             tracing::info!("node is not in the current committee, set node status to 'Standby'");
             self.inner.set_node_status(NodeStatus::Standby)?;
-            event_handle.mark_as_complete();
-            return Ok(None);
+            return Ok(PendingFinisherTask {
+                event_handle,
+                event: event.clone(),
+                shards: vec![],
+            });
         }
 
         if !active_committees
@@ -2188,7 +2206,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
-    ) -> anyhow::Result<Option<PendingFinisherTask>> {
+    ) -> anyhow::Result<PendingFinisherTask> {
         // For blobs that are expired in the new epoch, sends a notification to all the tasks
         // that may be affected by the blob expiration.
         self.inner
@@ -2261,7 +2279,7 @@ impl StorageNode {
         event_handle: EventHandle,
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
-    ) -> anyhow::Result<Option<PendingFinisherTask>> {
+    ) -> anyhow::Result<PendingFinisherTask> {
         self.inner
             .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
 
@@ -2315,18 +2333,13 @@ impl StorageNode {
 
         // The recovery path always has an ongoing shard sync, so `epoch_sync_done` is not
         // sent here (it is signaled later when sync completes via a different code path).
-        // We only need to handle shard removal and event completion.
-        let shards_to_remove = shard_diff_calculator.shards_to_remove().to_vec();
-        if shards_to_remove.is_empty() {
-            event_handle.mark_as_complete();
-            return Ok(None);
-        }
-
-        Ok(Some(PendingFinisherTask {
+        // Carry the event_handle and any shards-to-remove back so phase 1 runs before either
+        // is consumed.
+        Ok(PendingFinisherTask {
             event_handle,
             event: event.clone(),
-            shards: shards_to_remove,
-        }))
+            shards: shard_diff_calculator.shards_to_remove().to_vec(),
+        })
     }
 
     /// Initiates a committee transition to a new epoch. Upon the return of this function, the
@@ -2405,7 +2418,7 @@ impl StorageNode {
         event: &EpochChangeStart,
         new_node_joining_committee: bool,
         shard_map_lock: StorageShardLock,
-    ) -> anyhow::Result<Option<PendingFinisherTask>> {
+    ) -> anyhow::Result<PendingFinisherTask> {
         let public_key = self.inner.public_key();
         let storage = &self.inner.storage;
         let committees = self.inner.committee_service.active_committees();
@@ -2455,18 +2468,14 @@ impl StorageNode {
                 .await;
         }
 
-        let shards_to_remove = shard_diff_calculator.shards_to_remove().to_vec();
-        if shards_to_remove.is_empty() {
-            event_handle.mark_as_complete();
-            return Ok(None);
-        }
-
-        // Defer the actual spawn to `process_epoch_change_start_event`, after GC phase 1.
-        Ok(Some(PendingFinisherTask {
+        // Carry the event_handle and any shards-to-remove back so phase 1 runs before either
+        // is consumed. The actual spawn (or inline `mark_as_complete` when there are no
+        // shards) happens in `process_epoch_change_start_event` after phase 1.
+        Ok(PendingFinisherTask {
             event_handle,
             event: event.clone(),
-            shards: shards_to_remove,
-        }))
+            shards: shard_diff_calculator.shards_to_remove().to_vec(),
+        })
     }
 
     /// Creates the shards that are newly assigned to the node and starts the sync for them.
