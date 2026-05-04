@@ -31,6 +31,23 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# PID 1 start-time heartbeat for testing Antithesis exclude_from_faults.
+# Emits one tagged line every 60s. If pid1start changes across log entries,
+# the container was restarted (the exclusion didn't take effect for whatever
+# name field Antithesis matches against).
+# ---------------------------------------------------------------------------
+PID1_START="$(awk '{print $22}' /proc/1/stat 2>/dev/null || echo unavailable)"
+echo "observer-heartbeat-startup pid1start=${PID1_START}"
+(
+    seq=0
+    while true; do
+        seq=$((seq + 1))
+        echo "observer-heartbeat pid1start=${PID1_START} seq=${seq}"
+        sleep 60
+    done
+) &
+
+# ---------------------------------------------------------------------------
 # Configuration (override via environment variables)
 # ---------------------------------------------------------------------------
 NODES=("10.0.0.10" "10.0.0.11" "10.0.0.12" "10.0.0.13")
