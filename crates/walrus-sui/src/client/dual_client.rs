@@ -827,10 +827,6 @@ impl DualClient {
                 ExecutedTransaction::path_builder().checkpoint(),
                 ExecutedTransaction::path_builder().timestamp(),
                 ExecutedTransaction::path_builder()
-                    .transaction()
-                    .gas_payment()
-                    .price(),
-                ExecutedTransaction::path_builder()
                     .objects()
                     .objects()
                     .object_id(),
@@ -1367,13 +1363,6 @@ fn execute_response_to_transaction_response(
         None
     };
 
-    let gas_cost_summary = Some(native_effects.gas_cost_summary().clone());
-    let gas_price = executed_tx
-        .transaction
-        .as_ref()
-        .and_then(|t| t.gas_payment.as_ref())
-        .and_then(|gp| gp.price);
-
     Ok(ExecuteTransactionResponse {
         digest,
         checkpoint,
@@ -1382,8 +1371,6 @@ fn execute_response_to_transaction_response(
         events,
         effects_status,
         object_changes,
-        gas_cost_summary,
-        gas_price,
     })
 }
 

@@ -41,7 +41,6 @@ use sui_sdk::{
         SuiObjectResponse,
         SuiObjectResponseQuery,
         SuiRawData,
-        SuiTransactionBlockDataAPI,
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
         SuiTransactionBlockResponseOptions,
@@ -2558,9 +2557,6 @@ fn convert_sui_execute_response(
             .collect()
     });
 
-    let gas_cost_summary = resp.effects.as_ref().map(|e| e.gas_cost_summary().clone());
-    let gas_price = resp.transaction.as_ref().map(|t| t.data.gas_data().price);
-
     Ok(ExecuteTransactionResponse {
         digest: resp.digest,
         checkpoint: resp.checkpoint,
@@ -2585,8 +2581,6 @@ fn convert_sui_execute_response(
             .map(|e| e.data.into_iter().map(EventEnvelope::from).collect()),
         effects_status,
         object_changes,
-        gas_cost_summary,
-        gas_price,
     })
 }
 
