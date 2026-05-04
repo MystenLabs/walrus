@@ -44,8 +44,6 @@ use sui_sdk::{
         SuiTransactionBlockEffectsAPI,
         SuiTransactionBlockResponse,
         SuiTransactionBlockResponseOptions,
-        SuiTransactionBlockResponseQuery,
-        TransactionBlocksPage,
     },
 };
 #[cfg(msim)]
@@ -88,6 +86,8 @@ use crate::{
         BlobEvent,
         EventEnvelope,
         ExecuteTransactionResponse,
+        MoveDatatype,
+        MoveOpenSignatureBody,
         ObjectChangeEntry,
         OwnedObjectEntry,
         OwnedObjectsCursor,
@@ -227,6 +227,7 @@ const GRPC_MIGRATION_LEVEL_TRANSACTION_READS: GrpcMigrationLevel = GrpcMigration
 const GRPC_MIGRATION_LEVEL_SERVICE_INFO: GrpcMigrationLevel = GrpcMigrationLevel(6);
 const GRPC_MIGRATION_LEVEL_TRANSACTION_WRITES: GrpcMigrationLevel = GrpcMigrationLevel(7);
 const GRPC_MIGRATION_LEVEL_OWNED_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(8);
+const GRPC_MIGRATION_LEVEL_MOVE_PACKAGE_READS: GrpcMigrationLevel = GrpcMigrationLevel(9);
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -851,49 +852,6 @@ impl RetriableSuiClient {
             .await
     }
 
-    /// Return a paginated response with all transaction blocks information, or an error upon
-    /// failure.
-    ///
-    /// Calls [`sui_sdk::apis::ReadApi::query_transaction_blocks`] internally.
-    #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn query_transaction_blocks(
-        &self,
-        query: SuiTransactionBlockResponseQuery,
-        cursor: Option<TransactionDigest>,
-        limit: Option<usize>,
-        descending_order: bool,
-    ) -> SuiClientResult<TransactionBlocksPage> {
-        async fn make_request(
-            client: Arc<DualClient>,
-            query: SuiTransactionBlockResponseQuery,
-            cursor: Option<TransactionDigest>,
-            limit: Option<usize>,
-            descending_order: bool,
-        ) -> SuiClientResult<TransactionBlocksPage> {
-            Ok(client
-                .sui_client()
-                .read_api()
-                .query_transaction_blocks(query.clone(), cursor, limit, descending_order)
-                .await?)
-        }
-        let request = |client: Arc<DualClient>, method: &'static str| {
-            let query = query.clone();
-            retry_rpc_errors(
-                self.get_strategy(),
-                move || {
-                    let query = query.clone();
-                    make_request(client.clone(), query, cursor, limit, descending_order)
-                },
-                self.metrics.clone(),
-                method,
-            )
-        };
-
-        self.failover_sui_client
-            .with_failover(request, None, "query_transaction_blocks")
-            .await
-    }
-
     /// Return a paginated response with the objects owned by the given address, optionally
     /// filtered to a single Move type.
     ///
@@ -1334,11 +1292,19 @@ impl RetriableSuiClient {
     /// Returns a map consisting of the move package name and the normalized module.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::get_normalized_move_modules_by_package`] internally.
+    ///
+    /// Only kept to support the `wal_type_from_package` fallback at
+    /// `WALRUS_GRPC_MIGRATION_LEVEL < 9`; the gRPC path uses
+    /// `MovePackageService.GetDatatype` instead and never reaches this method.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
     pub async fn get_normalized_move_modules_by_package(
         &self,
         package_id: ObjectID,
     ) -> SuiClientResult<BTreeMap<String, SuiMoveNormalizedModule>> {
+        debug_assert!(
+            self.grpc_migration_level < GRPC_MIGRATION_LEVEL_MOVE_PACKAGE_READS,
+            "get_normalized_move_modules_by_package is only used at migration level < 9"
+        );
         async fn make_request(
             client: Arc<DualClient>,
             package_id: ObjectID,
@@ -1904,6 +1870,18 @@ impl RetriableSuiClient {
     /// in the `StakedWal` Move struct.
     #[tracing::instrument(err, skip(self))]
     pub async fn wal_type_from_package(&self, package_id: ObjectID) -> SuiClientResult<String> {
+        if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_MOVE_PACKAGE_READS {
+            self.wal_type_from_package_grpc(package_id).await
+        } else {
+            self.wal_type_from_package_json_rpc(package_id).await
+        }
+    }
+
+    /// JSON-RPC implementation of `wal_type_from_package`.
+    async fn wal_type_from_package_json_rpc(
+        &self,
+        package_id: ObjectID,
+    ) -> SuiClientResult<String> {
         let normalized_move_modules = self
             .get_normalized_move_modules_by_package(package_id)
             .await?;
@@ -1949,6 +1927,34 @@ impl RetriableSuiClient {
 
         tracing::debug!(?wal_type, "WAL type");
         Ok(wal_type)
+    }
+
+    /// gRPC implementation of `wal_type_from_package`.
+    ///
+    /// Uses `MovePackageService.GetDatatype` to fetch only the `StakedWal` descriptor instead of
+    /// the full normalized package, then walks the `principal: Balance<WAL>` field to extract
+    /// the WAL type.
+    async fn wal_type_from_package_grpc(&self, package_id: ObjectID) -> SuiClientResult<String> {
+        let request = move |client: Arc<DualClient>, method| {
+            retry_rpc_errors(
+                self.get_strategy(),
+                move || {
+                    let client = client.clone();
+                    async move {
+                        client
+                            .get_datatype_grpc(package_id, "staked_wal", "StakedWal")
+                            .await
+                    }
+                },
+                self.metrics.clone(),
+                method,
+            )
+        };
+        let datatype: MoveDatatype = self
+            .failover_sui_client
+            .with_failover(request, None, "wal_type_from_package")
+            .await?;
+        wal_type_from_staked_wal(package_id, &datatype)
     }
 
     /// If the `gas_budget` is passed in, this returns the gas budget and the current gas price.
@@ -2576,6 +2582,45 @@ fn convert_sui_execute_response(
         effects_status,
         object_changes,
     })
+}
+
+/// Walks a `StakedWal` Move struct descriptor and extracts the fully-qualified WAL type from the
+/// `principal: Balance<WAL>` field.
+///
+/// On any structural mismatch — missing `principal` field, non-datatype field type, missing type
+/// parameter, or a type that doesn't end in `::wal::WAL` — returns
+/// [`SuiClientError::WalTypeNotFound`].
+fn wal_type_from_staked_wal(
+    package_id: ObjectID,
+    datatype: &MoveDatatype,
+) -> SuiClientResult<String> {
+    let principal_field = datatype
+        .fields
+        .iter()
+        .find(|field| field.name == "principal")
+        .ok_or(SuiClientError::WalTypeNotFound(package_id))?;
+    let MoveOpenSignatureBody::Datatype {
+        type_parameters, ..
+    } = &principal_field.ty
+    else {
+        return Err(SuiClientError::WalTypeNotFound(package_id));
+    };
+    let wal_type_param = type_parameters
+        .first()
+        .ok_or(SuiClientError::WalTypeNotFound(package_id))?;
+    let MoveOpenSignatureBody::Datatype {
+        type_name: wal_type_name,
+        ..
+    } = wal_type_param
+    else {
+        return Err(SuiClientError::WalTypeNotFound(package_id));
+    };
+    ensure!(
+        wal_type_name.ends_with("::wal::WAL"),
+        SuiClientError::WalTypeNotFound(package_id)
+    );
+    tracing::debug!(?wal_type_name, "WAL type");
+    Ok(wal_type_name.clone())
 }
 
 #[derive(Clone)]

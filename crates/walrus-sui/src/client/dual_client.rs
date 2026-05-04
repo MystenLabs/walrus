@@ -25,6 +25,7 @@ use sui_rpc::{
         ExecuteTransactionRequest,
         ExecutedTransaction,
         GetBalanceRequest,
+        GetDatatypeRequest,
         GetEpochRequest,
         GetObjectRequest,
         GetServiceInfoRequest,
@@ -64,6 +65,7 @@ use crate::{
         BalanceChange,
         EventEnvelope,
         ExecuteTransactionResponse,
+        MoveDatatype,
         ObjectChangeEntry,
         OwnedObjectEntry,
         OwnedObjectsCursor,
@@ -446,6 +448,31 @@ impl DualClient {
             );
         }
         Ok(type_origins)
+    }
+
+    /// Fetch a single Move datatype descriptor via `MovePackageService.GetDatatype`.
+    ///
+    /// Returns a Walrus-owned [`MoveDatatype`] so callers do not need to import the proto types.
+    pub async fn get_datatype_grpc(
+        &self,
+        package_id: ObjectID,
+        module_name: &str,
+        datatype_name: &str,
+    ) -> Result<MoveDatatype, SuiClientError> {
+        let mut grpc_client = self.grpc_client.clone();
+        let request = GetDatatypeRequest::default()
+            .with_package_id(package_id.to_string())
+            .with_module_name(module_name.to_owned())
+            .with_name(datatype_name.to_owned());
+        let response = grpc_client
+            .package_client()
+            .get_datatype(request)
+            .await?
+            .into_inner();
+        let descriptor = response
+            .datatype
+            .context("missing datatype in GetDatatypeResponse")?;
+        MoveDatatype::try_from(descriptor).map_err(SuiClientError::from)
     }
 
     /// List owned objects via the gRPC `ListOwnedObjects` RPC.
