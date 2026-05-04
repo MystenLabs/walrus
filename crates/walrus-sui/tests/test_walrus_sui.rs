@@ -8,9 +8,7 @@
 
 use std::{num::NonZeroU16, sync::Arc, time::Duration};
 
-use anyhow::{anyhow, bail};
 use sui_types::base_types::SuiAddress;
-use tokio_stream::StreamExt;
 use walrus_core::{
     self,
     BlobId,
@@ -31,13 +29,8 @@ use walrus_sui::{
         system_setup::{SystemContext, initialize_contract_and_wallet_for_testing},
     },
     types::{
-        BlobEvent,
-        ContractEvent,
-        EpochChangeEvent,
         NodeRegistrationParams,
-        ProtocolEvent,
-        StoragePoolEvent,
-        move_structs::BlobWithAttribute,
+        move_structs::{BlobWithAttribute, PooledBlob},
     },
     utils,
 };
@@ -59,26 +52,6 @@ async fn initialize_contract_and_wallet_with_credits_with_single_node() -> anyho
     TestNodeKeys,
 )> {
     initialize_contract_and_wallet_for_testing(Duration::from_hours(1), true, 10_000, 1).await
-}
-
-async fn next_matching_event<T, F, S>(events: &mut S, matcher: F) -> anyhow::Result<T>
-where
-    F: Fn(ContractEvent) -> Option<T>,
-    S: tokio_stream::Stream<Item = ContractEvent> + Unpin,
-{
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let Some(event) = events.next().await else {
-                return Err(anyhow!("event stream ended before expected event"));
-            };
-
-            if let Some(matched_event) = matcher(event) {
-                return Ok(matched_event);
-            }
-        }
-    })
-    .await
-    .map_err(|_| anyhow!("timed out waiting for matching event"))?
 }
 
 #[tokio::test]
@@ -146,14 +119,6 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     // used to calculate the encoded size of the blob
     let encoding_config = EncodingConfig::new(NonZeroU16::new(1000).unwrap());
 
-    // Get event streams for the events
-    let polling_duration = std::time::Duration::from_millis(50);
-    let mut events = walrus_client
-        .as_ref()
-        .read_client
-        .event_stream(polling_duration, None)
-        .await?;
-
     let size = 10_000;
     let resource_size = encoding_config
         .get_for_type(encoding_type)
@@ -200,33 +165,8 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
     assert_eq!(blob_obj.storage, storage_resource);
     assert_eq!(blob_obj.registered_epoch, 1);
     assert!(!blob_obj.deletable);
-
-    // Make sure that we got the expected event
-    let ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochParametersSelected(_)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting EpochParametersSelected");
-    };
-    let ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(_)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting EpochChangeStart");
-    };
-    let ContractEvent::ProtocolEvent(ProtocolEvent::PricesUpdated(_)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting PricesUpdated");
-    };
-    let ContractEvent::BlobEvent(BlobEvent::Registered(blob_registered)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting BlobRegistered");
-    };
-    assert_eq!(blob_registered.blob_id, blob_id);
-    assert_eq!(blob_registered.epoch, blob_obj.registered_epoch);
-    assert_eq!(blob_registered.encoding_type, blob_obj.encoding_type);
-    assert_eq!(blob_registered.end_epoch, storage_resource.end_epoch);
-    assert_eq!(blob_registered.size, blob_obj.size);
+    assert_eq!(blob_obj.encoding_type, encoding_type);
+    assert_eq!(blob_obj.storage.end_epoch, storage_resource.end_epoch);
 
     let certificate = test_node_keys.blob_certificate_for_signers(&[0], blob_id, 1)?;
 
@@ -239,27 +179,8 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .certify_blobs(&[(&blob_with_attr, certificate)], PostStoreAction::Keep)
         .await?;
 
-    // Make sure that we got the expected event
-    let ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting BlobCertified");
-    };
-    assert_eq!(blob_certified.blob_id, blob_id);
-    assert_eq!(Some(blob_registered.epoch), Some(1));
-    assert_eq!(blob_certified.end_epoch, storage_resource.end_epoch);
-
-    // Drop event stream
-    drop(events);
-    // Get new event stream with cursors
-    let mut events = walrus_client
-        .as_ref()
-        .read_client
-        .event_stream(polling_duration, Some(blob_certified.event_id))
-        .await?;
-
-    // Now register and certify a blob with a different blob id again to check that
-    // we receive the event
+    // Now register and certify a blob with a different blob id to confirm the second tx
+    // succeeds end-to-end.
     let storage_resource = walrus_client
         .as_ref()
         .reserve_space(resource_size, 3)
@@ -290,14 +211,7 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         .into_iter()
         .next()
         .expect("expected one blob object");
-
-    // Make sure that we got the expected event
-    let ContractEvent::BlobEvent(BlobEvent::Registered(blob_registered)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting BlobRegistered");
-    };
-    assert_eq!(blob_registered.blob_id, blob_id);
+    assert_eq!(blob_obj.blob_id, blob_id);
 
     let blob_with_attr = BlobWithAttribute {
         blob: blob_obj,
@@ -314,14 +228,6 @@ async fn test_register_certify_blob() -> anyhow::Result<()> {
         )
         .await?;
 
-    // Make sure that we got the expected event
-    let ContractEvent::BlobEvent(BlobEvent::Certified(blob_certified)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting BlobCertified");
-    };
-    assert_eq!(blob_certified.blob_id, blob_id);
-
     Ok(())
 }
 
@@ -333,13 +239,6 @@ async fn test_storage_pool_pooled_blob_lifecycle() -> anyhow::Result<()> {
 
     let (_sui_cluster_handle, walrus_client, _system_context, test_node_keys) =
         initialize_contract_and_wallet_with_single_node().await?;
-
-    let polling_duration = std::time::Duration::from_millis(50);
-    let mut events = walrus_client
-        .as_ref()
-        .read_client
-        .event_stream(polling_duration, None)
-        .await?;
 
     let encoding_config = EncodingConfig::new(NonZeroU16::new(1000).unwrap());
     let size = 10_000;
@@ -353,16 +252,14 @@ async fn test_storage_pool_pooled_blob_lifecycle() -> anyhow::Result<()> {
         .create_storage_pool(encoded_size, 3)
         .await?;
 
-    let storage_pool_created = next_matching_event(&mut events, |event| match event {
-        ContractEvent::StoragePoolEvent(StoragePoolEvent::StoragePoolCreated(event))
-            if event.storage_pool_id == storage_pool_object_id =>
-        {
-            Some(event)
-        }
-        _ => None,
-    })
-    .await?;
-    assert_eq!(storage_pool_created.storage_pool_id, storage_pool_object_id);
+    let storage_pool_created = walrus_client
+        .as_ref()
+        .storage_pool_status(storage_pool_object_id)
+        .await?;
+    assert_eq!(
+        storage_pool_created.storage_pool_object_id,
+        storage_pool_object_id
+    );
     assert_eq!(
         storage_pool_created.reserved_encoded_capacity_bytes,
         encoded_size
@@ -401,22 +298,6 @@ async fn test_storage_pool_pooled_blob_lifecycle() -> anyhow::Result<()> {
         }
     );
 
-    let pooled_blob_registered = next_matching_event(&mut events, |event| match event {
-        ContractEvent::BlobEvent(BlobEvent::PooledBlobRegistered(event))
-            if event.object_id == first_pooled_blob.id =>
-        {
-            Some(event)
-        }
-        _ => None,
-    })
-    .await?;
-    assert_eq!(pooled_blob_registered.blob_id, first_blob_id);
-    assert_eq!(
-        pooled_blob_registered.storage_pool_id,
-        storage_pool_object_id
-    );
-    assert!(pooled_blob_registered.deletable);
-
     let certificate = test_node_keys.blob_certificate_for_signers_with_persistence(
         &[0],
         first_blob_id,
@@ -430,41 +311,33 @@ async fn test_storage_pool_pooled_blob_lifecycle() -> anyhow::Result<()> {
         .certify_pooled_blobs(storage_pool_object_id, &[(&first_pooled_blob, certificate)])
         .await?;
 
-    let pooled_blob_certified = next_matching_event(&mut events, |event| match event {
-        ContractEvent::BlobEvent(BlobEvent::PooledBlobCertified(event))
-            if event.object_id == first_pooled_blob.id =>
-        {
-            Some(event)
-        }
-        _ => None,
-    })
-    .await?;
-    assert_eq!(pooled_blob_certified.blob_id, first_blob_id);
+    let first_pooled_blob_after_certify: PooledBlob = walrus_client
+        .as_ref()
+        .retriable_sui_client()
+        .get_sui_object(first_pooled_blob.id)
+        .await?;
+    assert_eq!(first_pooled_blob_after_certify.blob_id, first_blob_id);
     assert_eq!(
-        pooled_blob_certified.storage_pool_id,
+        first_pooled_blob_after_certify.storage_pool_id,
         storage_pool_object_id
     );
-    assert!(pooled_blob_certified.deletable);
+    assert!(first_pooled_blob_after_certify.deletable);
+    assert!(first_pooled_blob_after_certify.is_certified());
 
     walrus_client
         .as_ref()
         .extend_storage_pool(storage_pool_object_id, 2)
         .await?;
 
-    let storage_pool_extended = next_matching_event(&mut events, |event| match event {
-        ContractEvent::StoragePoolEvent(StoragePoolEvent::StoragePoolExtended(event))
-            if event.storage_pool_id == storage_pool_object_id =>
-        {
-            Some(event)
-        }
-        _ => None,
-    })
-    .await?;
+    let storage_pool_extended = walrus_client
+        .as_ref()
+        .storage_pool_status(storage_pool_object_id)
+        .await?;
     assert_eq!(
-        storage_pool_extended.storage_pool_id,
+        storage_pool_extended.storage_pool_object_id,
         storage_pool_object_id
     );
-    assert!(storage_pool_extended.new_end_epoch > storage_pool_created.end_epoch);
+    assert!(storage_pool_extended.end_epoch > storage_pool_created.end_epoch);
 
     walrus_client
         .as_ref()
@@ -496,39 +369,33 @@ async fn test_storage_pool_pooled_blob_lifecycle() -> anyhow::Result<()> {
     assert_eq!(second_pooled_blob.storage_pool_id, storage_pool_object_id);
     assert!(!second_pooled_blob.deletable);
 
-    let second_pooled_blob_registered = next_matching_event(&mut events, |event| match event {
-        ContractEvent::BlobEvent(BlobEvent::PooledBlobRegistered(event))
-            if event.object_id == second_pooled_blob.id =>
-        {
-            Some(event)
-        }
-        _ => None,
-    })
-    .await?;
-    assert_eq!(second_pooled_blob_registered.blob_id, second_blob_id);
-    assert_eq!(
-        second_pooled_blob_registered.storage_pool_id,
-        storage_pool_object_id
-    );
-    assert!(!second_pooled_blob_registered.deletable);
+    let storage_pool_after_register = walrus_client
+        .as_ref()
+        .storage_pool_status(storage_pool_object_id)
+        .await?;
+    let blob_count_after_register = storage_pool_after_register.blob_count;
 
     walrus_client
         .as_ref()
         .delete_pooled_blob(storage_pool_object_id, first_blob_id)
         .await?;
 
-    let pooled_blob_deleted = next_matching_event(&mut events, |event| match event {
-        ContractEvent::BlobEvent(BlobEvent::PooledBlobDeleted(event))
-            if event.object_id == first_pooled_blob.id =>
-        {
-            Some(event)
-        }
-        _ => None,
-    })
-    .await?;
-    assert_eq!(pooled_blob_deleted.blob_id, first_blob_id);
-    assert_eq!(pooled_blob_deleted.storage_pool_id, storage_pool_object_id);
-    assert!(pooled_blob_deleted.was_certified);
+    let storage_pool_after_delete = walrus_client
+        .as_ref()
+        .storage_pool_status(storage_pool_object_id)
+        .await?;
+    assert_eq!(
+        storage_pool_after_delete.blob_count,
+        blob_count_after_register - 1
+    );
+
+    // The second blob should still be in the pool.
+    let second_pooled_blob_after_delete: PooledBlob = walrus_client
+        .as_ref()
+        .retriable_sui_client()
+        .get_sui_object(second_pooled_blob.id)
+        .await?;
+    assert_eq!(second_pooled_blob_after_delete.blob_id, second_blob_id);
 
     Ok(())
 }
@@ -540,14 +407,6 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
 
     let (_sui_cluster_handle, walrus_client, _, test_node_keys) =
         initialize_contract_and_wallet_with_single_node().await?;
-
-    // Get event streams for the events
-    let polling_duration = std::time::Duration::from_millis(50);
-    let mut events = walrus_client
-        .as_ref()
-        .read_client
-        .event_stream(polling_duration, None)
-        .await?;
 
     #[rustfmt::skip]
     let blob_id = BlobId([
@@ -564,29 +423,7 @@ async fn test_invalidate_blob() -> anyhow::Result<()> {
         .invalidate_blob_id(&certificate)
         .await?;
 
-    // Make sure that we got the expected event
-    let ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochParametersSelected(_)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting EpochParametersSelected");
-    };
-    let ContractEvent::EpochChangeEvent(EpochChangeEvent::EpochChangeStart(_)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting EpochChangeStart");
-    };
-    let ContractEvent::ProtocolEvent(ProtocolEvent::PricesUpdated(_)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting PricesUpdated");
-    };
-    let ContractEvent::BlobEvent(BlobEvent::InvalidBlobID(invalid_blob_id)) =
-        events.next().await.unwrap()
-    else {
-        bail!("unexpected event type. expecting InvalidBlobID");
-    };
-    assert_eq!(invalid_blob_id.blob_id, blob_id);
-    assert_eq!(invalid_blob_id.epoch, 1);
+    assert_eq!(walrus_client.as_ref().read_client.current_epoch().await?, 1);
     Ok(())
 }
 

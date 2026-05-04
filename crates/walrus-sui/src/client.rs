@@ -31,7 +31,6 @@ use sui_types::{
     transaction::{ObjectArg, TransactionData},
 };
 use tokio::sync::Mutex;
-use tokio_stream::Stream;
 use tracing::Level;
 use transaction_builder::{MAX_BURNS_PER_PTB, WalrusPtbBuilder};
 use walrus_core::{
@@ -54,7 +53,6 @@ use crate::{
     types::{
         BlobEvent,
         Committee,
-        ContractEvent,
         ExecuteTransactionResponse,
         NodeRegistrationParams,
         NodeUpdateParams,
@@ -1954,16 +1952,6 @@ impl ReadClient for SuiContractClient {
 
     async fn n_shards(&self) -> SuiClientResult<NonZeroU16> {
         self.read_client.n_shards().await
-    }
-
-    async fn event_stream(
-        &self,
-        polling_interval: Duration,
-        cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = ContractEvent>> {
-        self.read_client
-            .event_stream(polling_interval, cursor)
-            .await
     }
 
     async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {

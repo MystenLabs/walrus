@@ -8,24 +8,20 @@ use std::{
     fmt::{self, Debug},
     future::Future,
     num::NonZeroU16,
-    ops::ControlFlow,
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
     time::{Duration, SystemTime},
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use futures::FutureExt as _;
-use sui_sdk::{apis::EventApi, rpc_types::EventFilter, types::base_types::ObjectID};
+use sui_sdk::types::base_types::ObjectID;
 use sui_types::{
-    Identifier,
     TypeTag,
     base_types::{ObjectRef, SequenceNumber, SuiAddress},
     event::EventID,
     transaction::{ObjectArg, SharedObjectMutability},
 };
-use tokio::sync::mpsc;
-use tokio_stream::{Stream, wrappers::ReceiverStream};
 use tracing::{Instrument as _, Level};
 use walrus_core::{Epoch, ensure};
 use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -43,7 +39,6 @@ use crate::{
     types::{
         BlobEvent,
         Committee,
-        ContractEvent,
         StakingObject,
         StorageNode,
         StorageNodeCap,
@@ -72,8 +67,6 @@ use crate::{
     },
     utils::get_sui_object_from_bcs,
 };
-
-const EVENT_MODULE: &str = "events";
 
 /// The current, previous, and next committee, and the current epoch state.
 ///
@@ -120,19 +113,6 @@ pub trait ReadClient: Send + Sync {
 
     /// Returns the configured number of shards for the Walrus network.
     fn n_shards(&self) -> impl Future<Output = SuiClientResult<NonZeroU16>> + Send;
-
-    /// Returns a stream of new blob events.
-    ///
-    /// The `polling_interval` defines how often the connected full node is polled for events.
-    /// If a `cursor` is provided, the stream will contain only events that are emitted
-    /// after the event with the provided [`EventID`]. Otherwise the event stream contains all
-    /// events available from the connected full node. Since the full node may prune old
-    /// events, the stream is not guaranteed to contain historic events.
-    fn event_stream(
-        &self,
-        polling_interval: Duration,
-        cursor: Option<EventID>,
-    ) -> impl Future<Output = SuiClientResult<impl Stream<Item = ContractEvent> + Send>> + Send;
 
     /// Returns the blob event with the given Event ID.
     fn get_blob_event(
@@ -344,9 +324,6 @@ impl Debug for SuiReadClient {
             .finish()
     }
 }
-
-const MAX_POLLING_INTERVAL: Duration = Duration::from_secs(5);
-const EVENT_CHANNEL_CAPACITY: usize = 1024;
 
 impl SuiReadClient {
     /// Constructor for `SuiReadClient`.
@@ -1263,36 +1240,6 @@ impl ReadClient for SuiReadClient {
         Ok(self.get_staking_object().await?.inner.n_shards)
     }
 
-    async fn event_stream(
-        &self,
-        polling_interval: Duration,
-        cursor: Option<EventID>,
-    ) -> SuiClientResult<impl Stream<Item = ContractEvent>> {
-        let (tx_event, rx_event) = mpsc::channel::<ContractEvent>(EVENT_CHANNEL_CAPACITY);
-
-        // Note: this code does not handle failing over in the event of an RPC connection error.
-        #[allow(deprecated)]
-        let event_api = self
-            .sui_client
-            .get_current_client()
-            .await
-            .sui_client()
-            .event_api()
-            .clone();
-
-        let event_filter = EventFilter::MoveEventModule {
-            package: *self
-                .walrus_package_id
-                .read()
-                .expect("mutex should not be poisoned"),
-            module: Identifier::new(EVENT_MODULE)?,
-        };
-        tokio::spawn(async move {
-            poll_for_events(tx_event, polling_interval, event_api, event_filter, cursor).await
-        });
-        Ok(ReceiverStream::new(rx_event))
-    }
-
     async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
         let blob = self
             .get_system_object()
@@ -1499,103 +1446,4 @@ impl ReadClient for SuiReadClient {
     fn read_client(&self) -> &SuiReadClient {
         self
     }
-}
-
-#[tracing::instrument(err, skip_all)]
-async fn poll_for_events<U>(
-    tx_event: mpsc::Sender<U>,
-    initial_polling_interval: Duration,
-    event_api: EventApi,
-    event_filter: EventFilter,
-    mut last_event: Option<EventID>,
-) -> Result<()>
-where
-    U: TryFrom<crate::types::EventEnvelope> + Send + Sync + Debug + 'static,
-{
-    // The actual interval with which we poll, increases if there is an RPC error
-    let mut polling_interval = initial_polling_interval;
-    let mut page_available = false;
-    while !tx_event.is_closed() {
-        // only wait if no event pages were left in the last iteration
-        if !page_available {
-            tokio::time::sleep(polling_interval).await;
-        }
-        // Get the next page of events/newly emitted events
-        match event_api
-            .query_events(event_filter.clone(), last_event, None, false)
-            .await
-        {
-            Ok(events) => {
-                let tx_event_ref = &tx_event;
-                page_available = events.has_next_page;
-                polling_interval = initial_polling_interval;
-
-                for event in events.data {
-                    last_event = Some(event.id);
-                    let span = tracing::error_span!(
-                        "sui-event",
-                        event_id = ?event.id,
-                        event_type = ?event.type_
-                    );
-                    let envelope = crate::types::EventEnvelope::from(event);
-
-                    let continue_or_exit = async move {
-                        let event_obj = match envelope.try_into() {
-                            Ok(event_obj) => event_obj,
-                            Err(_) => {
-                                tracing::error!("could not convert event");
-                                return ControlFlow::Continue(());
-                            }
-                        };
-
-                        match tx_event_ref.send(event_obj).await {
-                            Ok(()) => {
-                                tracing::debug!("received event");
-                                ControlFlow::Continue(())
-                            }
-                            Err(_) => {
-                                tracing::debug!("channel was closed by receiver");
-                                ControlFlow::Break(())
-                            }
-                        }
-                    }
-                    .instrument(span)
-                    .await;
-
-                    if continue_or_exit.is_break() {
-                        return Ok(());
-                    }
-                }
-            }
-            Err(sui_sdk::error::Error::RpcError(e)) => {
-                // We retry here, since this error generally (only?)
-                // occurs if the cursor could not be found, but this is
-                // resolved quickly after retrying.
-
-                // Do an exponential backoff until `MAX_POLLING_INTERVAL` is reached
-                // unless `initial_polling_interval` is larger
-                // TODO (WAL-213): Stop retrying and switch to a different full node.
-                // Ideally, we cut off the stream after retrying for a few times and then switch to
-                // a different full node. This logic would need to be handled by a consumer of the
-                // stream. Until that is in place, retry indefinitely.
-                polling_interval = polling_interval
-                    .saturating_mul(2)
-                    .min(MAX_POLLING_INTERVAL)
-                    .max(initial_polling_interval);
-                page_available = false;
-                tracing::warn!(
-                    event_cursor = ?last_event,
-                    backoff = ?polling_interval,
-                    rpc_error = ?e,
-                    "RPC error for otherwise valid RPC call, retrying event polling after backoff",
-                );
-                continue;
-            }
-            Err(e) => {
-                bail!("unexpected error from event api: {}", e);
-            }
-        };
-    }
-    tracing::debug!("channel was closed by receiver");
-    return Ok(());
 }

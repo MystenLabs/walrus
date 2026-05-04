@@ -99,8 +99,6 @@ use walrus_sui::{
     test_utils::{self, fund_addresses, wallet_for_testing},
     types::{
         Blob,
-        BlobEvent,
-        ContractEvent,
         move_errors::{MoveExecutionError, RawMoveError},
         move_structs::{BlobAttribute, BlobWithAttribute, Credits, SharedBlob},
     },
@@ -520,21 +518,26 @@ async fn test_inconsistency(failed_nodes: &[usize]) -> TestResult {
         .certify_blobs(&[(&blob_with_attr, certificate)], PostStoreAction::Keep)
         .await?;
 
-    // Wait to receive an inconsistent blob event.
-    let events = client
-        .as_mut()
-        .sui_client()
-        .event_stream(Duration::from_millis(50), None)
-        .await?;
-    let mut events = std::pin::pin!(events);
+    // Wait for any non-cancelled node to surface the on-chain `InvalidBlobID` event by
+    // returning `BlobStatus::Invalid` from its `get_blob_status` endpoint. Each node only
+    // transitions to that state after its checkpoint-based event processor consumes the
+    // `InvalidBlobID` event emitted by the contract.
+    let failed_nodes_set: HashSet<usize> = failed_nodes.iter().copied().collect();
+    let n_nodes = cluster.nodes.len();
     tokio::time::timeout(Duration::from_secs(30), async {
-        while let Some(event) = events.next().await {
-            tracing::debug!("event: {event:?}");
-            if let ContractEvent::BlobEvent(BlobEvent::InvalidBlobID(_)) = event {
-                return;
+        loop {
+            for idx in 0..n_nodes {
+                if failed_nodes_set.contains(&idx) {
+                    continue;
+                }
+                if let Ok(BlobStatus::Invalid { .. }) =
+                    cluster.client(idx).get_blob_status(&blob_id).await
+                {
+                    return;
+                }
             }
+            tokio::time::sleep(Duration::from_millis(250)).await;
         }
-        panic!("should be infinite stream")
     })
     .await?;
 
