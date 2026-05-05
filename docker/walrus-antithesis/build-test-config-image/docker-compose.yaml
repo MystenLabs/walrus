@@ -14,7 +14,8 @@ services:
     networks:
       testbed-network:
         ipv4_address: 10.0.0.20
-    hostname: sui-node
+    hostname: sui-localnet
+    container_name: sui-localnet
     image: ${SUI_IMAGE_NAME}
     platform: ${SUI_PLATFORM:-linux/amd64}
     environment:
