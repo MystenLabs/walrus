@@ -644,7 +644,7 @@ mod tests {
             Ok(true)
         }
 
-        fn metadata_status(
+        async fn metadata_status(
             &self,
             blob_id: &BlobId,
         ) -> Result<walrus_storage_node_client::api::StoredOnNodeStatus, RetrieveMetadataError>
@@ -758,7 +758,7 @@ mod tests {
 
         /// Returns a "certified" blob status for blob ID starting with zero, `Nonexistent` when
         /// starting with 1, and otherwise an error.
-        fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
+        async fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
             if blob_id.0[0] == 0 {
                 Ok(BlobStatus::Permanent {
                     end_epoch: 3,
