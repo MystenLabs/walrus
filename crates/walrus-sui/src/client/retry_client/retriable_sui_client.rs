@@ -2194,11 +2194,8 @@ impl RetriableSuiClient {
             .get_strategy(ThreadRng::default().r#gen())
     }
 
-    /// Returns the events for the given transaction digest.
-    ///
-    /// Routes through [`Self::get_transaction_with_options`] for both gRPC and JSON-RPC,
-    /// intentionally using `read_api().get_transaction_with_options()` instead of
-    /// `event_api().get_events()` to consolidate code paths.
+    /// Returns the events for the given transaction digest. Routes through
+    /// [`Self::get_transaction_with_options`].
     pub async fn get_events(
         &self,
         tx_digest: TransactionDigest,
