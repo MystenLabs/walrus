@@ -127,11 +127,7 @@ impl StartEpochChangeFinisher {
     }
 
     /// Signals that the epoch sync is done if the node is in the current committee and no shards.
-    async fn epoch_sync_done(
-        &self,
-        committees: &ActiveCommittees,
-        event: &EpochChangeStart,
-    ) {
+    async fn epoch_sync_done(&self, committees: &ActiveCommittees, event: &EpochChangeStart) {
         let is_node_in_committee = committees
             .current_committee()
             .contains(self.node.public_key());
