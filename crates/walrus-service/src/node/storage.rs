@@ -530,8 +530,13 @@ impl Storage {
         for shard_index in removed {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
             if let Some(shard_storage) = shard_map_lock.shards_guard.remove(shard_index) {
-                // Do not hold the `shards` lock when deleting column families.
-                shard_storage.delete_shard_storage()?;
+                // `delete_shard_storage` calls `drop_cf` on five column families, which is
+                // synchronous and can take ~10 minutes per shard on HDD-backed storage. Run
+                // it on a dedicated blocking thread so it doesn't tie up a tokio worker for
+                // that long.
+                tokio::task::spawn_blocking(move || shard_storage.delete_shard_storage())
+                    .map(utils::unwrap_or_resume_unwind)
+                    .await?;
             }
             tracing::info!(
                 walrus.shard_index = %shard_index,
