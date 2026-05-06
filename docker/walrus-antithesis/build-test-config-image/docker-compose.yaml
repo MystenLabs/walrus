@@ -16,6 +16,11 @@ services:
         ipv4_address: 10.0.0.20
     hostname: sui-localnet
     container_name: sui-localnet
+    annotations:
+      # Sui SDK emits Sometimes assertions that aren't relevant to Walrus testing,
+      # and Sui itself isn't the system under test here.
+      com.antithesis.exclude.faults: "all"
+      com.antithesis.exclude.assertion_type: "sometimes"
     image: ${SUI_IMAGE_NAME}
     platform: ${SUI_PLATFORM:-linux/amd64}
     environment:
@@ -149,6 +154,8 @@ services:
     platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: walrus-stress-0
     container_name: walrus-stress-0
+    annotations:
+      com.antithesis.exclude.faults: "all"
     environment:
       - NODE_NAME=walrus-stress-0
       - NO_COLOR=1
@@ -171,6 +178,8 @@ services:
     platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: walrus-staking-0
     container_name: walrus-staking-0
+    annotations:
+      com.antithesis.exclude.faults: "all"
     environment:
       - NODE_NAME=walrus-staking-0
       - NO_COLOR=1
@@ -195,6 +204,8 @@ services:
     platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: walrus-observer
     container_name: walrus-observer
+    annotations:
+      com.antithesis.exclude.faults: "all"
     environment:
       - NO_COLOR=1
       - CHECK_INTERVAL=60
