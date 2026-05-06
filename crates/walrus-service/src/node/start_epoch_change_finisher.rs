@@ -95,11 +95,32 @@ impl StartEpochChangeFinisher {
             // Wait for the in-flight `epoch_sync_done` (if one was spawned) to complete
             // before marking the event done. This keeps the on-chain "sync done" signal
             // and the local "event handled" marker in the same order they would be in main.
-            if let Some(handle) = epoch_sync_done_handle {
-                let _ = handle.await;
+            //
+            // Handle the failure modes explicitly: a panic propagates so the event is *not*
+            // marked complete (matching the inline behaviour `epoch_sync_done` would have
+            // had if it ran in the same task body); a cancellation logs and skips
+            // `mark_as_complete` so the event retries on the next iteration.
+            let should_mark_complete = match epoch_sync_done_handle {
+                None => true,
+                Some(handle) => match handle.await {
+                    Ok(()) => true,
+                    Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+                    Err(error) => {
+                        tracing::error!(
+                            walrus.epoch = %event_clone.epoch,
+                            ?error,
+                            "epoch_sync_done task was cancelled; \
+                            not marking EpochChangeStart complete",
+                        );
+                        false
+                    }
+                },
+            };
+
+            if should_mark_complete {
+                event_handle.mark_as_complete();
             }
 
-            event_handle.mark_as_complete();
             self_clone
                 .task_handle
                 .lock()
