@@ -238,28 +238,16 @@ pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfi
 pub use garbage_collector::GarbageCollectionConfig;
 
 // The number of events are dominated by the checkpoints, as we don't expect all checkpoints
-// contain Walrus events. 2K events per recording is roughly 1 recording per 9 minutes, which
-// gives a 3-hour Antithesis test ~20 recordings to cross-check across nodes. Label cardinality
-// is bounded by NUM_DIGEST_BUCKETS below.
+// contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
 #[cfg(not(msim))]
-const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 2_000;
+const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
 
 // In simtest, we record event source for events to make event index consistency checking more
 // accurate.
 #[cfg(msim)]
 const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 1;
 
-// Number of distinct buckets for the `periodic_event_source_for_deterministic_events`
-// metric. The bucket label is `(event_index / NUM_EVENTS_PER_DIGEST_RECORDING) %
-// NUM_DIGEST_BUCKETS`, so buckets are reused every
-// `NUM_DIGEST_BUCKETS * NUM_EVENTS_PER_DIGEST_RECORDING` events.
-//
-// With 1000 buckets and the non-msim recording interval of 2_000 events, reuse only
-// happens after 2_000_000 events (tens of hours of cluster runtime), which keeps the
-// cross-node observer from seeing two different recordings collide in the same bucket
-// and flagging it as a spurious divergence. Analogous to `EPOCH_BUCKET_COUNT` in
-// consistency_check.rs.
-const NUM_DIGEST_BUCKETS: u64 = 1_000;
+const NUM_DIGEST_BUCKETS: u64 = 10;
 const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
 
 /// Indicates how the node should treat uploads.
@@ -2498,8 +2486,8 @@ impl StorageNode {
         event_source: &CheckpointEventPosition,
     ) -> Result<(), TypedStoreError> {
         // Only record every Nth event.
-        // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen so a node produces a recording roughly
-        // every ~9 minutes, giving a 3-hour Antithesis test ~20 recordings to cross-check.
+        // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen in a way that a node produces a recording
+        // every few hours.
 
         if !event_index.is_multiple_of(NUM_EVENTS_PER_DIGEST_RECORDING) {
             return Ok(());
