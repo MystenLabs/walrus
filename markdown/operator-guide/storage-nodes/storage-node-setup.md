@@ -238,7 +238,8 @@ The `walrus-node setup` command generates the node configuration and a Sui walle
 - `--sui-rpc`: The Sui RPC URL used for all Sui interactions. This can be the same as `--sui-network` or a separate endpoint. See the [FAQ](/docs/operator-guide/storage-nodes/storage-node-faq#sui-rpc) for the distinction.
 - `--checkpoint-bucket`: URL for checkpoint-based transaction reading as a fallback.
 - `--additional-rpc-endpoints`: Additional Sui RPC endpoints for redundancy (you can specify this option multiple times).
-- `--storage-price` and `--write-price`: Your voting parameters for the storage price per MiB and epoch, and write price per MiB (one-time fee). You can specify the currency with the `--price-currency` flag (defaults to FROST). Check with the Walrus Foundation for the current recommended values.
+- `--storage-price` and `--write-price`: Your voting parameters for the storage price per MiB per epoch, and the write price per MiB (one-time fee). The unit is determined by `--price-currency`. Check with the Walrus Foundation for the current recommended values.
+- `--price-currency`: The currency unit for `--storage-price` and `--write-price`. Accepts `frost` (default) or `nanousd`. See [Pricing currency: FROST and NanoUSD](#pricing-currency) for the difference between the two and how stable pricing works.
 - `--commission-rate`: Commission rate in basis points (100 bp = 1%). See the [FAQ](/docs/operator-guide/storage-nodes/storage-node-faq#commission) for details. The default value of 6000 bp (60%) is the maximum commission rate if you intend to receive staking from the Walrus Foundation.
 - `--metrics-push-url`: URL for pushing Prometheus metrics. The Walrus Foundation provides a metrics endpoint for committee members.
 - `--image-url`, `--project-url`, `--description`: Optional metadata about your node.
@@ -284,6 +285,58 @@ Run `walrus-node setup --help` for a full description of all options.
 
 After setup, review the generated configuration file at `/opt/walrus/config/walrus-node.yaml` and verify IP addresses, DNS names, port numbers, and file paths. You can edit the file directly or re-run the `setup` command.
 
+### Pricing currency: FROST and NanoUSD {#pricing-currency}
+
+The `--price-currency` flag selects the unit in which you express your storage and write price votes. The choice does not change the unit charged to clients onchain, which is always FROST. It only changes how the node interprets the values you configure and whether they automatically adjust to the WAL/USD market price.
+
+#### FROST
+
+`frost` (the default) denominates your votes in FROST, the smallest subdivision of the WAL token (1 WAL = 10^9 FROST). The node submits your `storage_price` and `write_price` to the chain unchanged. The effective price in USD therefore moves with the WAL/USD exchange rate: if WAL appreciates, your storage becomes more expensive in real terms, and vice versa. This is the right option if you want full manual control over the FROST amounts you charge.
+
+#### NanoUSD (stable pricing)
+
+`nanousd` denominates your votes in NanoUSD, a stable-pricing unit (1 USD = 10^9 NanoUSD). The node periodically fetches the current WAL/USD price and converts your USD-denominated votes into the equivalent FROST amount before voting onchain:
+
+```text
+storage_price_frost = ceil(storage_price_nano_usd / wal_price_usd)
+write_price_frost   = ceil(write_price_nano_usd   / wal_price_usd)
+```
+
+This keeps your effective price stable in USD as the WAL token price moves, which is useful for matching real-world infrastructure costs.
+
+#### How the WAL price monitor works
+
+When you select `nanousd`, the node automatically starts a background WAL price monitor that:
+
+1. Polls multiple public price sources in parallel: CoinGecko, Coinbase, Binance, and Pyth Hermes.
+1. Takes the median of the successfully fetched prices to dampen outliers from any single source.
+1. Caches the most recent price and exposes it to the configuration synchronizer.
+1. Pushes a new vote onchain only when the converted FROST price differs from the current onchain price by more than a configurable threshold (default 10%). This avoids spamming the chain with small fluctuations.
+
+If no source returns a usable price (for example, all endpoints time out, or the median falls below a near-zero floor), the node skips the price update for that cycle and retries on the next interval. Your existing onchain prices remain in effect until a fresh price is available.
+
+You can tune the monitor through the following keys in `walrus-node.yaml`:
+
+```yaml
+voting_params:
+  currency: NanoUsd
+  storage_price: 11000          # 0.000011 USD per MiB per epoch
+  write_price: 20000            # 0.00002 USD per MiB
+  price_update_threshold_percent: 10   # Only push a new vote when the
+                                       # converted FROST price moves by
+                                       # more than this percentage.
+
+wal_price_monitor:
+  check_interval_secs: 600      # How often to refetch the WAL price.
+  request_timeout_secs: 60      # Per-source HTTP timeout.
+  force_enable_wal_price_monitor: false   # Set to true to run the
+                                          # monitor even when currency
+                                          # is FROST (for observability).
+```
+
+> **Tip**
+>
+> You can switch between `frost` and `nanousd` later by editing `voting_params` in `walrus-node.yaml`. The node picks up configuration changes automatically, so you do not need to re-run `walrus-node setup`. Make sure your stored `storage_price` and `write_price` values match the new currency unit before saving.
 ### Wallet configuration
 
 The `walrus-node setup` command creates a Sui wallet at `/opt/walrus/config/sui_config.yaml` with the private key in `/opt/walrus/config/sui.keystore`. You can replace these with a different wallet, but you might have to adjust absolute paths in `sui_config.yaml`.
