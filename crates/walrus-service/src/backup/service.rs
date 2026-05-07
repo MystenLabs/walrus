@@ -639,7 +639,6 @@ pub async fn start_backup_orchestrator(
             &combine_rpc_urls(&config.sui.rpc, &config.sui.additional_rpc_endpoints),
             config.sui.backoff_config.clone(),
             None,
-            walrus_sui::client::dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         )
         .context("[orchestrator] cannot create RetriableSuiClient")?,
         &config.sui.contract_config,
