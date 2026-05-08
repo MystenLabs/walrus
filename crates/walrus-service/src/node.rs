@@ -303,7 +303,7 @@ pub trait ServiceState {
     fn metadata_status(
         &self,
         blob_id: &BlobId,
-    ) -> Result<StoredOnNodeStatus, RetrieveMetadataError>;
+    ) -> impl Future<Output = Result<StoredOnNodeStatus, RetrieveMetadataError>> + Send;
 
     /// Retrieves a primary or secondary sliver for a blob for a shard held by this storage node.
     fn retrieve_sliver(
@@ -370,7 +370,10 @@ pub trait ServiceState {
     > + Send;
 
     /// Retrieves the blob status for the given `blob_id`.
-    fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError>;
+    fn blob_status(
+        &self,
+        blob_id: &BlobId,
+    ) -> impl Future<Output = Result<BlobStatus, BlobStatusError>> + Send;
 
     /// Returns the number of shards the node is currently operating with.
     fn n_shards(&self) -> NonZeroU16;
@@ -3290,11 +3293,15 @@ impl StorageNodeInner {
         blob_id: &BlobId,
         verified: Arc<VerifiedBlobMetadataWithId>,
     ) -> Result<bool, StoreMetadataError> {
-        if self
-            .storage
-            .has_metadata(blob_id)
-            .context("could not check metadata existence")?
-        {
+        let has_metadata = {
+            let storage = self.storage.clone();
+            let blob_id = *blob_id;
+            tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await
+                .context("could not check metadata existence")?
+        };
+        if has_metadata {
             return Ok(false);
         }
 
@@ -3337,7 +3344,7 @@ impl StorageNodeInner {
         }
 
         let pending = self.pending_metadata_cache.get(blob_id).await;
-        let is_registered = self.is_blob_registered(blob_id)?;
+        let is_registered = self.is_blob_registered(blob_id).await?;
 
         match (pending, is_registered, allow_pending) {
             (Some(metadata), _, _) => Ok((metadata, false)),
@@ -3350,11 +3357,15 @@ impl StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> Result<(), StoreMetadataError> {
-        if self
-            .storage
-            .has_metadata(blob_id)
-            .context("could not check metadata existence")?
-        {
+        let has_metadata = {
+            let storage = self.storage.clone();
+            let blob_id = *blob_id;
+            tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await
+                .context("could not check metadata existence")?
+        };
+        if has_metadata {
             return Ok(());
         }
 
@@ -3490,12 +3501,15 @@ impl StorageNodeInner {
         Ok(())
     }
 
-    fn is_blob_registered(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
-        Ok(self
-            .storage
-            .get_blob_info(blob_id)
-            .context("could not retrieve blob info")?
-            .is_some_and(|blob_info| blob_info.is_registered(self.current_committee_epoch())))
+    async fn is_blob_registered(&self, blob_id: &BlobId) -> Result<bool, anyhow::Error> {
+        let storage = self.storage.clone();
+        let blob_id = *blob_id;
+        let blob_info = tokio::task::spawn_blocking(move || storage.get_blob_info(&blob_id))
+            .map(unwrap_or_resume_unwind)
+            .await
+            .context("could not retrieve blob info")?;
+        let epoch = self.current_committee_epoch();
+        Ok(blob_info.is_some_and(|blob_info| blob_info.is_registered(epoch)))
     }
 
     fn notify_registration(&self, blob_id: &BlobId) {
@@ -3507,13 +3521,13 @@ impl StorageNodeInner {
         // blob scoped, so it can return `true` due to registration of a different object that
         // references the same `BlobId`.
         if timeout.is_zero() {
-            return self.is_blob_registered(blob_id).unwrap_or(false);
+            return self.is_blob_registered(blob_id).await.unwrap_or(false);
         }
 
         let notify = self.registration_notifier.acquire(blob_id);
         let notified = notify.notified();
 
-        if self.is_blob_registered(blob_id).unwrap_or(false) {
+        if self.is_blob_registered(blob_id).await.unwrap_or(false) {
             return true;
         }
 
@@ -3533,7 +3547,7 @@ impl StorageNodeInner {
         }
 
         match tokio::time::timeout(timeout, notified).await {
-            Ok(()) => self.is_blob_registered(blob_id).unwrap_or(false),
+            Ok(()) => self.is_blob_registered(blob_id).await.unwrap_or(false),
             Err(_) => false,
         }
     }
@@ -3575,7 +3589,7 @@ impl StorageNodeInner {
     }
 
     /// Common validation for blob operations
-    fn validate_blob_access<E>(
+    async fn validate_blob_access<E>(
         &self,
         blob_id: &BlobId,
         forbidden_error: E,
@@ -3585,7 +3599,7 @@ impl StorageNodeInner {
         E: From<anyhow::Error>,
     {
         ensure!(!self.is_blocked(blob_id), forbidden_error);
-        ensure!(self.is_blob_registered(blob_id)?, unavailable_error,);
+        ensure!(self.is_blob_registered(blob_id).await?, unavailable_error,);
         Ok(())
     }
 
@@ -3849,7 +3863,7 @@ impl StorageNodeInner {
         blob_id: BlobId,
         defer_duration: std::time::Duration,
     ) -> Result<(), SetRecoveryDeferralError> {
-        let is_registered = self.is_blob_registered(&blob_id).map_err(|error| {
+        let is_registered = self.is_blob_registered(&blob_id).await.map_err(|error| {
             tracing::warn!(
                 walrus.blob_id = %blob_id,
                 ?error,
@@ -4062,7 +4076,7 @@ impl ServiceState for StorageNode {
     fn metadata_status(
         &self,
         blob_id: &BlobId,
-    ) -> Result<StoredOnNodeStatus, RetrieveMetadataError> {
+    ) -> impl Future<Output = Result<StoredOnNodeStatus, RetrieveMetadataError>> + Send {
         self.inner.metadata_status(blob_id)
     }
 
@@ -4136,7 +4150,10 @@ impl ServiceState for StorageNode {
             .retrieve_multiple_decoding_symbols(blob_id, target_slivers, target_type)
     }
 
-    fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
+    fn blob_status(
+        &self,
+        blob_id: &BlobId,
+    ) -> impl Future<Output = Result<BlobStatus, BlobStatusError>> + Send {
         self.inner.blob_status(blob_id)
     }
 
@@ -4194,16 +4211,18 @@ impl ServiceState for StorageNodeInner {
             blob_id,
             RetrieveMetadataError::Forbidden,
             RetrieveMetadataError::Unavailable,
-        )?;
+        )
+        .await?;
 
         let storage = self.storage.clone();
         let blob_id = *blob_id;
-        tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
+        let metadata = tokio::task::spawn_blocking(move || storage.get_metadata(&blob_id))
             .map(unwrap_or_resume_unwind)
             .await
             .context("database error when retrieving metadata")?
-            .ok_or(RetrieveMetadataError::Unavailable)
-            .inspect(|_| self.metrics.metadata_retrieved_total.inc())
+            .ok_or(RetrieveMetadataError::Unavailable)?;
+        self.metrics.metadata_retrieved_total.inc();
+        Ok(metadata)
     }
 
     /// Stores metadata for a blob.
@@ -4217,10 +4236,13 @@ impl ServiceState for StorageNodeInner {
     ) -> Result<bool, StoreMetadataError> {
         let blob_id = *metadata.blob_id();
 
-        let blob_info = self
-            .storage
-            .get_blob_info(&blob_id)
-            .context("could not retrieve blob info")?;
+        let blob_info = {
+            let storage = self.storage.clone();
+            tokio::task::spawn_blocking(move || storage.get_blob_info(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await
+                .context("could not retrieve blob info")?
+        };
 
         if let Some(event) = blob_info
             .as_ref()
@@ -4229,11 +4251,14 @@ impl ServiceState for StorageNodeInner {
             return Err(StoreMetadataError::InvalidBlob(event));
         }
 
-        if self
-            .storage
-            .has_metadata(&blob_id)
-            .context("could not check metadata existence")?
-        {
+        let has_metadata = {
+            let storage = self.storage.clone();
+            tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
+                .map(unwrap_or_resume_unwind)
+                .await
+                .context("could not check metadata existence")?
+        };
+        if has_metadata {
             return Ok(false);
         }
 
@@ -4282,7 +4307,7 @@ impl ServiceState for StorageNodeInner {
             return Ok(false);
         }
 
-        if self.is_blob_registered(&blob_id)? {
+        if self.is_blob_registered(&blob_id).await? {
             // Read the blob info again because registration can race between the initial blob_info
             // check and adding to the cache. Flush immediately in that case so the pending metadata
             // doesn’t linger indefinitely.
@@ -4297,11 +4322,16 @@ impl ServiceState for StorageNodeInner {
         Ok(true)
     }
 
-    fn metadata_status(
+    async fn metadata_status(
         &self,
         blob_id: &BlobId,
     ) -> Result<StoredOnNodeStatus, RetrieveMetadataError> {
-        match self.storage.has_metadata(blob_id) {
+        let storage = self.storage.clone();
+        let blob_id = *blob_id;
+        match tokio::task::spawn_blocking(move || storage.has_metadata(&blob_id))
+            .map(unwrap_or_resume_unwind)
+            .await
+        {
             Ok(true) => Ok(StoredOnNodeStatus::Stored),
             Ok(false) => Ok(StoredOnNodeStatus::Nonexistent),
             Err(err) => Err(RetrieveMetadataError::Internal(err.into())),
@@ -4320,7 +4350,8 @@ impl ServiceState for StorageNodeInner {
             blob_id,
             RetrieveSliverError::Forbidden,
             RetrieveSliverError::Unavailable,
-        )?;
+        )
+        .await?;
 
         self.retrieve_sliver_unchecked(blob_id, sliver_pair_index, sliver_type)
             .await
@@ -4391,7 +4422,7 @@ impl ServiceState for StorageNodeInner {
                     inserted,
                     "store_sliver: buffered sliver in pending cache"
                 );
-                if self.is_blob_registered(&blob_id)? {
+                if self.is_blob_registered(&blob_id).await? {
                     // Registration may arrive between the initial registration check and the point
                     // where we enqueue the sliver. If it does, flush everything immediately so the
                     // data doesn’t stay buffered without another trigger.
@@ -4420,7 +4451,7 @@ impl ServiceState for StorageNodeInner {
         blob_persistence_type: &BlobPersistenceType,
     ) -> Result<StorageConfirmation, ComputeStorageConfirmationError> {
         ensure!(
-            self.is_blob_registered(blob_id)?,
+            self.is_blob_registered(blob_id).await?,
             ComputeStorageConfirmationError::NotCurrentlyRegistered,
         );
 
@@ -4489,11 +4520,14 @@ impl ServiceState for StorageNodeInner {
         self.wait_for_registration_inner(blob_id, timeout)
     }
 
-    fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
-        Ok(self
-            .storage
-            .get_blob_info(blob_id)
-            .context("could not retrieve blob info")?
+    async fn blob_status(&self, blob_id: &BlobId) -> Result<BlobStatus, BlobStatusError> {
+        let storage = self.storage.clone();
+        let blob_id = *blob_id;
+        let blob_info = tokio::task::spawn_blocking(move || storage.get_blob_info(&blob_id))
+            .map(unwrap_or_resume_unwind)
+            .await
+            .context("could not retrieve blob info")?;
+        Ok(blob_info
             .map(|blob_info| blob_info.to_blob_status(self.current_committee_epoch()))
             .unwrap_or_default())
     }
@@ -4526,6 +4560,7 @@ impl ServiceState for StorageNodeInner {
             RetrieveSliverError::Forbidden,
             RetrieveSliverError::Unavailable,
         )
+        .await
         .map_err(RetrieveSymbolError::RetrieveSliver)?;
 
         let encoding_type = self
@@ -4599,6 +4634,7 @@ impl ServiceState for StorageNodeInner {
             RetrieveSliverError::Forbidden,
             RetrieveSliverError::Unavailable,
         )
+        .await
         .map_err(RetrieveSymbolError::RetrieveSliver)?;
 
         if target_sliver_indexes.is_empty() {
@@ -5383,7 +5419,7 @@ mod tests {
             status_event,
             is_certified,
             ..
-        } = node.as_ref().blob_status(&BLOB_ID)?
+        } = node.as_ref().blob_status(&BLOB_ID).await?
         else {
             panic!("got nonexistent blob status")
         };
@@ -5604,7 +5640,8 @@ mod tests {
         let metadata_status = storage_node
             .as_ref()
             .inner
-            .metadata_status(metadata.blob_id())?;
+            .metadata_status(metadata.blob_id())
+            .await?;
         assert_eq!(metadata_status, StoredOnNodeStatus::Stored);
         Ok(())
     }
@@ -5619,7 +5656,7 @@ mod tests {
             .await?;
 
         assert!(matches!(
-            node.as_ref().blob_status(&BLOB_ID),
+            node.as_ref().blob_status(&BLOB_ID).await,
             Ok(BlobStatus::Nonexistent)
         ));
 
@@ -8693,6 +8730,7 @@ mod tests {
                     .storage_node
                     .inner
                     .blob_status(&OTHER_BLOB_ID)
+                    .await
                     .expect("getting blob status should succeed"),
                 BlobStatus::Nonexistent
             );
@@ -9906,7 +9944,8 @@ mod tests {
             cluster.nodes[0]
                 .storage_node
                 .inner
-                .is_blob_registered(blob_details.blob_id())?
+                .is_blob_registered(blob_details.blob_id())
+                .await?
         );
 
         Ok(())
