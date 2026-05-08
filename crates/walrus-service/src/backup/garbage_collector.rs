@@ -89,10 +89,9 @@ async fn collect_garbage(
     //
     // The expiry predicate is written as `end_epoch <= current_epoch - offset` rather
     // than `end_epoch + offset <= current_epoch` so the planner can range-bound the
-    // scan against the indexed `end_epoch` column. EXPLAIN ANALYZE on a production
-    // dataset confirmed this rewrite is meaningfully faster than the additive form,
-    // because the planner's predicate-prover handles `column <= constant` but doesn't
-    // rewrite arithmetic on the indexed side.
+    // scan against the indexed `end_epoch` column. The planner's predicate-prover
+    // handles `column <= constant` but doesn't rewrite arithmetic on the indexed side,
+    // so the additive form forces a full index iteration with a per-row filter.
     let garbage_query = format!(
         "
             WITH expired_blob_ids AS (
