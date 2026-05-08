@@ -77,8 +77,8 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The total amount of archived blob data"]
         total_bytes_archived: Gauge[],
         // --- Storage pool / pooled blob ---
-        #[help = "Storage pools known to the backup, by lifetime status (live or expired)"]
-        storage_pools: GaugeVec["status"],
+        #[help = "Number of live storage pools (end_epoch in the future)"]
+        storage_pools_live: Gauge[],
         #[help = "Total number of pooled_blob_ref rows (one per (pool, blob) pair)"]
         pooled_blob_refs: Gauge[],
         #[help = "Number of blob_ids currently kept alive by at least one pool ref"]

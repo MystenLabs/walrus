@@ -682,16 +682,18 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
     // archived rows that are eligible for GC right now (same predicate as the GC scan).
     //
     // Storage-pool / pooled-blob-ref counters give visibility into pool activity:
-    //   storage_pools{status='live'}    — pool's end_epoch is in the future
-    //   storage_pools{status='expired'} — pool's end_epoch has passed; some of these
-    //                                     are still within the GC retention margin,
-    //                                     others are eligible for the pool-expiry sweep
-    //   pooled_blob_refs                — total junction-table size (pending GC work)
-    //   pool_referenced_blobs           — distinct blob_ids currently kept alive
-    //                                     by at least one pool ref
+    //   storage_pools_live    — pools whose end_epoch is in the future
+    //   pooled_blob_refs      — total junction-table size (pending GC work)
+    //   pool_referenced_blobs — distinct blob_ids currently kept alive by at least
+    //                           one pool ref
     //
-    // All four pool-related branches scan small auxiliary tables or use index
-    // probes, so they add negligible cost to the existing metrics query.
+    // We deliberately don't expose an "expired pools" count: the pool-expiry GC
+    // deletes `storage_pool_state` rows once their last ref is drained, so a row
+    // is only visible while the pool is either live or mid-cleanup — not a stable
+    // "expired" population.
+    //
+    // All three pool-related branches scan small auxiliary tables or use simple
+    // predicates, so they add negligible cost to the existing metrics query.
     let stats_query = format!(
         "
             SELECT
@@ -747,13 +749,6 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
                 > COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0)
             UNION
             SELECT
-                'storage_pools_expired' AS name,
-                COUNT(*)::bigint AS value
-            FROM storage_pool_state
-            WHERE end_epoch
-                <= COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0)
-            UNION
-            SELECT
                 'pooled_blob_refs' AS name,
                 COUNT(*)::bigint AS value
             FROM pooled_blob_ref
@@ -794,16 +789,7 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
                         backup_db_metric_set.total_bytes_archived.set(value_f64);
                     }
                     "storage_pools_live" => {
-                        backup_db_metric_set
-                            .storage_pools
-                            .with_label_values(&["live"])
-                            .set(value_f64);
-                    }
-                    "storage_pools_expired" => {
-                        backup_db_metric_set
-                            .storage_pools
-                            .with_label_values(&["expired"])
-                            .set(value_f64);
+                        backup_db_metric_set.storage_pools_live.set(value_f64);
                     }
                     "pooled_blob_refs" => {
                         backup_db_metric_set.pooled_blob_refs.set(value_f64);
