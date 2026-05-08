@@ -53,6 +53,9 @@ mod service;
 #[cfg(feature = "backup")]
 mod metrics;
 
+#[cfg(all(test, feature = "backup"))]
+mod tests;
+
 #[cfg(feature = "backup")]
 pub use self::{
     garbage_collector::start_backup_garbage_collector,

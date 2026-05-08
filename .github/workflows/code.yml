@@ -136,6 +136,47 @@ jobs:
       - name: Run all unit tests and doctests with `cargo test`
         run: cargo test
 
+  backup-test:
+    name: Test backup module against Postgres
+    needs: diff
+    if: ${{ needs.diff.outputs.isRust == 'true' }}
+    runs-on: ubuntu-ghcloud
+    env:
+      RUST_LOG: walrus=info,error
+      OPENSSL_STATIC: "1"
+      OPENSSL_NO_VENDOR: "0"
+      # Pointed at the Postgres service container below. Without this env var the
+      # tests would skip themselves; with it set they exercise real SQL paths
+      # against a real Postgres instance.
+      WALRUS_BACKUP_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/walrus_backup_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: walrus_backup_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: taiki-e/install-action@a2352fc6ce487f030a3aa709482d57823eadfb37 # pin@v2.75.16
+        with:
+          tool: cargo-nextest
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: ./.github/actions/sccache
+        with:
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
+      - name: Run backup integration tests
+        run: cargo nextest run -p walrus-service --features backup backup::tests --run-ignored all
+
   simtests:
     name: Run all simtests
     needs: diff
@@ -347,6 +388,7 @@ jobs:
       - lint
       - build
       - test
+      - backup-test
       - simtests-build
       - simtests
       - test-move
