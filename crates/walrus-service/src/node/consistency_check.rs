@@ -96,6 +96,12 @@ struct BlobConsistencyCheckResult {
 /// Schedule a background task to compute the hash of the list of certified blobs at the
 /// beginning of the epoch, and conduct blob sliver data existence check. This is used to detect
 /// inconsistencies in the blob info table between the nodes.
+///
+/// This must be called after garbage collection's blob-info cleanup has completed for `epoch`.
+/// The aggregate-blob-info iterator's `is_certified` filter relies on counters that GC
+/// decrements for newly-expired deletable and pooled blobs (see `BlobInfoV2::is_certified`),
+/// so the digest depends on whether GC has run. Taking the snapshot post-GC keeps the digest
+/// deterministic across nodes and across replay of `EpochChangeStart` after a crash.
 pub(super) async fn schedule_background_consistency_check(
     node: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,

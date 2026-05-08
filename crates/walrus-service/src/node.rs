@@ -1867,27 +1867,9 @@ impl StorageNode {
             c.sync_node_params().await?;
         }
 
-        // Start storage node consistency check if
-        // - consistency check is enabled
-        // - node is not reprocessing events (blob info table should not be affected by future
-        //   events)
-        let node_is_reprocessing_events =
-            self.inner.storage.get_latest_handled_event_index()? >= event_handle.index();
-        if self.inner.consistency_check_config.enable_consistency_check
-            && !node_is_reprocessing_events
-            && let Err(err) = consistency_check::schedule_background_consistency_check(
-                self.inner.clone(),
-                self.blob_sync_handler.clone(),
-                event.epoch,
-            )
-            .await
-        {
-            tracing::warn!(
-                ?err,
-                walrus.epoch = event.epoch,
-                "failed to schedule background blob info consistency check"
-            );
-        }
+        // Capture the event index before the handle is moved into `execute_epoch_change` so
+        // we can later detect whether this event is being reprocessed.
+        let event_index = event_handle.index();
 
         // During epoch change, we need to lock the read access to shard map until all the new
         // shards are created.
@@ -1910,6 +1892,34 @@ impl StorageNode {
             .schedule_post_epoch_change_subsidies();
 
         self.start_garbage_collection_task(event.epoch).await?;
+
+        // Schedule the storage node consistency check after garbage collection has settled the
+        // aggregate blob info table. The iterator's `is_certified` filter relies on counters
+        // that GC decrements for newly-expired deletable and pooled blobs, so the digest
+        // depends on whether GC has run. Taking the snapshot after GC keeps the digest
+        // deterministic across nodes and across replay of `EpochChangeStart` after a crash.
+        //
+        // Skipped when:
+        // - consistency check is disabled
+        // - node is reprocessing events (blob info table should not be affected by future
+        //   events)
+        let node_is_reprocessing_events =
+            self.inner.storage.get_latest_handled_event_index()? >= event_index;
+        if self.inner.consistency_check_config.enable_consistency_check
+            && !node_is_reprocessing_events
+            && let Err(err) = consistency_check::schedule_background_consistency_check(
+                self.inner.clone(),
+                self.blob_sync_handler.clone(),
+                event.epoch,
+            )
+            .await
+        {
+            tracing::warn!(
+                ?err,
+                walrus.epoch = event.epoch,
+                "failed to schedule background blob info consistency check"
+            );
+        }
 
         Ok(())
     }
