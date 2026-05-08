@@ -139,6 +139,11 @@ impl GarbageCollector {
     /// info tables is possible because event processing is sequential — new
     /// events won't be processed until the caller returns.
     ///
+    /// Phase 1 must also be inline (not spawned) for read-side correctness:
+    /// pooled-blob certified refcounts live only on the aggregate `BlobInfo`,
+    /// so concurrent per-object deletion would let `is_certified` queries
+    /// observe a torn state between the aggregate and the per-object entries.
+    ///
     /// The previous epoch's data deletion task (phase 2) may still be running
     /// in the background during phase 1. Phase 2 uses per-blob optimistic
     /// transactions that detect concurrent re-registrations and fail
@@ -199,11 +204,17 @@ impl GarbageCollector {
     /// Processes the `storage_pool_info` and `per_object_blob_info` tables
     /// to remove entries for blobs that are no longer registered.
     async fn perform_blob_info_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
-        // Note: compaction suppression is intentionally omitted here. Phase 1 runs inline
-        // (blocking the event loop) and is expected to complete quickly. The previous epoch's
-        // phase 2 may still be running with its own compaction guard; adding a guard here would
-        // re-enable compactions on drop while phase 2 is still doing bulk deletes. A future
-        // reference-counted guard would allow both phases to suppress compactions independently.
+        // This phase must run inline on the epoch-change handler, not in a spawned task.
+        // Pooled blobs track their certified refcount only on the aggregate `BlobInfo`; the
+        // per-object pooled entries don't carry it. The aggregate is updated in the same
+        // RocksDB write batch as each per-object delete, so if this work ran concurrently
+        // with read traffic, `is_certified` queries could observe a state where the aggregate
+        // refcount and the surviving per-object entries disagree, and return wrong answers.
+        //
+        // Compaction suppression is also intentionally omitted: the previous epoch's phase 2
+        // may still hold its own compaction guard, and adding one here would re-enable
+        // compactions on drop while phase 2 is still doing bulk deletes. A ref-counted guard
+        // would let both phases suppress compactions independently.
         tracing::info!("starting garbage collection phase 1: blob info cleanup");
         let start = Instant::now();
 

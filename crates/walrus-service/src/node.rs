@@ -1925,7 +1925,10 @@ impl StorageNode {
     }
 
     /// Starts garbage collection for the given epoch. Phase 1 (blob info cleanup) runs inline
-    /// and blocks the event loop. Phase 2 (data deletion) is spawned as a background task.
+    /// and blocks the event loop; this is required for correctness because pooled-blob
+    /// certified refcounts live only on the aggregate `BlobInfo`, so per-object cleanup
+    /// must not race read queries like `is_certified`. Phase 2 (data deletion) is spawned
+    /// as a background task.
     async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
         // Try to get the epoch start time from the contract service. If the epoch state is not
         // available (e.g., in tests), use the current time as the epoch start.
