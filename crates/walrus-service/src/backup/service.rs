@@ -680,6 +680,18 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
     // Liveness mirrors the GC and fetcher predicate: a blob is live iff its regular
     // end_epoch is still in the future OR pool_ref_count > 0. The "garbage" stat is
     // archived rows that are eligible for GC right now (same predicate as the GC scan).
+    //
+    // Storage-pool / pooled-blob-ref counters give visibility into pool activity:
+    //   storage_pools{status='live'}    — pool's end_epoch is in the future
+    //   storage_pools{status='expired'} — pool's end_epoch has passed; some of these
+    //                                     are still within the GC retention margin,
+    //                                     others are eligible for the pool-expiry sweep
+    //   pooled_blob_refs                — total junction-table size (pending GC work)
+    //   pool_referenced_blobs           — distinct blob_ids currently kept alive
+    //                                     by at least one pool ref
+    //
+    // All four pool-related branches scan small auxiliary tables or use index
+    // probes, so they add negligible cost to the existing metrics query.
     let stats_query = format!(
         "
             SELECT
@@ -725,7 +737,32 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
                 'total_bytes_archived' AS name,
                 COALESCE(SUM(size), 0)::bigint AS value
             FROM blob_state
-            WHERE state = 'archived';
+            WHERE state = 'archived'
+            UNION
+            SELECT
+                'storage_pools_live' AS name,
+                COUNT(*)::bigint AS value
+            FROM storage_pool_state
+            WHERE end_epoch
+                > COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0)
+            UNION
+            SELECT
+                'storage_pools_expired' AS name,
+                COUNT(*)::bigint AS value
+            FROM storage_pool_state
+            WHERE end_epoch
+                <= COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0)
+            UNION
+            SELECT
+                'pooled_blob_refs' AS name,
+                COUNT(*)::bigint AS value
+            FROM pooled_blob_ref
+            UNION
+            SELECT
+                'pool_referenced_blobs' AS name,
+                COUNT(*)::bigint AS value
+            FROM blob_state
+            WHERE pool_ref_count > 0;
         ",
         offset = config.garbage_collection_epoch_offset,
     );
@@ -749,17 +786,39 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
 
             tracing::info!(?stats, "fetched blob state statistics");
             for stat in stats {
-                // Note that the above query is a bit overloaded in order to reduce the number of
-                // roundtrips to the db.
-                if stat.name == "total_bytes_archived" {
-                    backup_db_metric_set
-                        .total_bytes_archived
-                        .set(stat.value as f64);
-                } else {
-                    backup_db_metric_set
-                        .blob_states
-                        .with_label_values(&[&stat.name])
-                        .set(stat.value as f64);
+                let value_f64 = stat.value as f64;
+                // The above query is a bit overloaded in order to reduce the number of
+                // roundtrips to the db. Each row's `name` selects which gauge it lands in.
+                match stat.name.as_str() {
+                    "total_bytes_archived" => {
+                        backup_db_metric_set.total_bytes_archived.set(value_f64);
+                    }
+                    "storage_pools_live" => {
+                        backup_db_metric_set
+                            .storage_pools
+                            .with_label_values(&["live"])
+                            .set(value_f64);
+                    }
+                    "storage_pools_expired" => {
+                        backup_db_metric_set
+                            .storage_pools
+                            .with_label_values(&["expired"])
+                            .set(value_f64);
+                    }
+                    "pooled_blob_refs" => {
+                        backup_db_metric_set.pooled_blob_refs.set(value_f64);
+                    }
+                    "pool_referenced_blobs" => {
+                        backup_db_metric_set.pool_referenced_blobs.set(value_f64);
+                    }
+                    // Anything else is a blob_state state name: 'archived' / 'waiting' /
+                    // 'deleted' / 'garbage'.
+                    state => {
+                        backup_db_metric_set
+                            .blob_states
+                            .with_label_values(&[state])
+                            .set(value_f64);
+                    }
                 }
             }
             tokio::time::sleep(Duration::from_secs(30)).await;
