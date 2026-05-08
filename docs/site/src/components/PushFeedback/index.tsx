@@ -56,6 +56,22 @@ export default function FeedbackWidget() {
     useEffect(() => {
         if (typeof window !== "undefined") {
             defineCustomElements(window);
+
+            const handleFeedback = () => {
+                const instance = (window as any).__plausible_instance__;
+                const track = instance?.track;
+                if (typeof track === "function") {
+                    track("Feedback", {
+                        props: {
+                            user_agent: navigator.userAgent.substring(0, 150),
+                            page: window.location.pathname,
+                        },
+                    });
+                }
+            };
+
+            document.addEventListener("feedbackSent", handleFeedback);
+            return () => document.removeEventListener("feedbackSent", handleFeedback);
         }
     }, []);
 
