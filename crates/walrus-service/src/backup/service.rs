@@ -343,7 +343,7 @@ pub(crate) async fn dispatch_contract_event(
         // pooled_blob_ref (one row per (pool, blob_id) pair — guaranteed unique by the
         // on-chain contract) and a denormalized live-ref count in blob_state.pool_ref_count.
         // The GC's eligibility predicate is then a single per-row check:
-        //   (end_epoch IS NULL OR end_epoch + offset <= current_epoch) AND pool_ref_count = 0
+        //   (end_epoch IS NULL OR end_epoch <= current_epoch - offset) AND pool_ref_count = 0
         // No JOIN, no classifier, no daily re-check.
         //
         // The two writes (pool ref insert, counter increment) live in a single statement
@@ -716,8 +716,10 @@ fn start_db_metrics_loop(metrics_runtime: &MetricsAndLoggingRuntime, config: &Ba
                 state = 'archived'
                 AND bs.pool_ref_count = 0
                 AND (bs.end_epoch IS NULL
-                    OR bs.end_epoch + {offset}
-                        <= COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0))
+                    OR bs.end_epoch <= COALESCE(
+                            (SELECT MAX(epoch) FROM epoch_change_start_event),
+                            0
+                        ) - {offset})
             UNION
             SELECT
                 'total_bytes_archived' AS name,

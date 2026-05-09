@@ -70,7 +70,7 @@ async fn collect_garbage(
         .expect("failed to connect to postgres for collect_garbage");
 
     // GC eligibility for a blob is a single per-row predicate:
-    //   regular source dead — `end_epoch IS NULL OR end_epoch + offset <= current_epoch`
+    //   regular source dead — `end_epoch IS NULL OR end_epoch <= current_epoch - offset`
     //   AND no live pool refs — `pool_ref_count = 0`
     //
     // The `blob_state_gc_eligible` partial index materializes exactly this row set
@@ -86,6 +86,12 @@ async fn collect_garbage(
     // subsequent object-storage delete succeeds, the blob's state moves to 'deleted'
     // and `initiate_gc_after` becomes irrelevant. If the delete fails, the deferral
     // throttles retries so a persistent storage outage doesn't hot-loop.
+    //
+    // The expiry predicate is written as `end_epoch <= current_epoch - offset` rather
+    // than `end_epoch + offset <= current_epoch` so the planner can range-bound the
+    // scan against the indexed `end_epoch` column. The planner's predicate-prover
+    // handles `column <= constant` but doesn't rewrite arithmetic on the indexed side,
+    // so the additive form forces a full index iteration with a per-row filter.
     let garbage_query = format!(
         "
             WITH expired_blob_ids AS (
@@ -95,8 +101,10 @@ async fn collect_garbage(
                     AND pool_ref_count = 0
                     AND (
                         end_epoch IS NULL
-                        OR end_epoch + {offset}
-                            <= COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0)
+                        OR end_epoch <= COALESCE(
+                                (SELECT MAX(epoch) FROM epoch_change_start_event),
+                                0
+                            ) - {offset}
                     )
                     AND (initiate_gc_after IS NULL OR initiate_gc_after < NOW())
                 ORDER BY end_epoch NULLS FIRST
@@ -221,7 +229,7 @@ async fn collect_garbage(
 /// Drains a bounded batch of `pooled_blob_ref` rows belonging to expired pools.
 ///
 /// Each batch atomically:
-///   1. picks an expired pool (`end_epoch + offset <= current_epoch`),
+///   1. picks an expired pool (`end_epoch <= current_epoch - offset`),
 ///   2. deletes up to `POOL_EXPIRY_BATCH_SIZE` of its refs,
 ///   3. decrements `pool_ref_count` on the affected blobs by exactly the number of
 ///      refs deleted, and
@@ -285,8 +293,10 @@ pub(crate) async fn drain_expired_pool_refs_step(
         "
             WITH selected_pool AS (
                 SELECT storage_pool_id FROM storage_pool_state
-                WHERE end_epoch + {offset}
-                    <= COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0)
+                WHERE end_epoch <= COALESCE(
+                        (SELECT MAX(epoch) FROM epoch_change_start_event),
+                        0
+                    ) - {offset}
                 ORDER BY end_epoch
                 LIMIT 1
             ),
@@ -337,8 +347,10 @@ pub(crate) async fn cleanup_drained_pools(
     let affected = diesel::sql_query(format!(
         "
             DELETE FROM storage_pool_state sps
-            WHERE sps.end_epoch + {offset}
-                    <= COALESCE((SELECT MAX(epoch) FROM epoch_change_start_event), 0)
+            WHERE sps.end_epoch <= COALESCE(
+                    (SELECT MAX(epoch) FROM epoch_change_start_event),
+                    0
+                ) - {offset}
                 AND NOT EXISTS (
                     SELECT 1 FROM pooled_blob_ref pbr
                     WHERE pbr.storage_pool_id = sps.storage_pool_id
