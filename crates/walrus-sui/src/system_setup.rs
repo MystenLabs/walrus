@@ -278,10 +278,6 @@ pub(crate) async fn publish_package(
         compile_package(package_path, build_config, Some(chain_id.clone()), wallet).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
-
-    // Publish the package: build the publish TransactionKind locally. Equivalent to
-    // sui_sdk's TransactionBuilder::publish_tx_kind, which is a pure PTB construction
-    // with no RPC.
     let transaction_kind = {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
         let upgrade_cap = pt_builder.publish_upgradeable(

@@ -1478,20 +1478,6 @@ impl RetriableSuiClient {
             .await
     }
 
-    /// Returns a reference to the current internal [`DualClient`]. Avoid using this function.
-    ///
-    // TODO: WAL-778 find callsites to this method, and replace them with implementations that make
-    // use of failover, since this call is a cheat to bypass the failover mechanism.
-    #[deprecated(
-        note = "please implement a full treatment in RetriableSuiClient for your use case"
-    )]
-    pub async fn get_current_client(&self) -> Arc<DualClient> {
-        self.failover_sui_client
-            .get_current_client()
-            .await
-            .expect("client must have been created")
-    }
-
     /// Returns the Sui Object of type `U` with the provided [`ObjectID`].
     #[tracing::instrument(
         level = Level::DEBUG, skip_all, fields(object_type = %U::CONTRACT_STRUCT)
