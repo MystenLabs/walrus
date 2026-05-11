@@ -25,7 +25,7 @@ RUN cargo build \
 # Production Image for walrus backup CLI
 FROM debian:bookworm-slim AS walrus-backup
 
-RUN apt-get update && apt-get install -y ca-certificates curl libpq-dev
+RUN apt-get update && apt-get install -y ca-certificates curl libpq-dev postgresql-client
 ARG PROFILE=release
 ARG RUST_LOG=info,walrus_service::common::event_blob_downloader=warn
 ENV RUST_LOG=$RUST_LOG
