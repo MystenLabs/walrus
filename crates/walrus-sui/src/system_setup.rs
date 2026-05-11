@@ -279,24 +279,22 @@ pub(crate) async fn publish_package(
 
     let compiled_modules = compiled_package.get_package_bytes(false);
 
-    // Publish the package
-    // TODO: WAL-778 support `publish_tx_kind` with failover mechanics.
-    #[allow(deprecated)]
-    let transaction_kind = retry_client
-        .get_current_client()
-        .await
-        .sui_client()
-        .transaction_builder()
-        .publish_tx_kind(
-            sender,
+    // Publish the package: build the publish TransactionKind locally. Equivalent to
+    // sui_sdk's TransactionBuilder::publish_tx_kind, which is a pure PTB construction
+    // with no RPC.
+    let transaction_kind = {
+        let mut pt_builder = ProgrammableTransactionBuilder::new();
+        let upgrade_cap = pt_builder.publish_upgradeable(
             compiled_modules,
             compiled_package
                 .dependency_ids
                 .published
                 .into_values()
                 .collect(),
-        )
-        .await?;
+        );
+        pt_builder.transfer_arg(sender, upgrade_cap);
+        TransactionKind::programmable(pt_builder.finish())
+    };
 
     let GasBudgetAndPrice {
         gas_budget,
