@@ -27,6 +27,7 @@ jobs:
           client-payload: >
             {
               "walrus_commit": "${{ github.sha }}",
+              "cache_family": "${{ github.ref_name }}",
               "build_arm64": "true"
             }
 
