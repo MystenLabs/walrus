@@ -1,5 +1,7 @@
 # Walrus
 
+[![Tracked on web3-discover](https://web3-discover.vercel.app/badge/walrus-storage.svg)](https://web3-discover.vercel.app/airdrops/walrus-storage)
+
 A decentralized blob store using [Sui](https://github.com/MystenLabs/sui) for coordination and
 governance.
 
