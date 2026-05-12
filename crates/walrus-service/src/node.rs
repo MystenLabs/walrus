@@ -238,22 +238,46 @@ pub use config_synchronizer::{ConfigLoader, ConfigSynchronizer, StorageNodeConfi
 pub use garbage_collector::GarbageCollectionConfig;
 
 // The number of events are dominated by the checkpoints, as we don't expect all checkpoints
-// contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours.
-// Label cardinality is bounded by NUM_DIGEST_BUCKETS below.
+// contain Walrus events. 20K events per recording is roughly 1 recording per 1.5 hours in
+// production. Antithesis runs override this via `WALRUS_NUM_EVENTS_PER_DIGEST_RECORDING` to get
+// recordings every few minutes for cross-node consistency checking. Label cardinality is bounded
+// by `NUM_DIGEST_BUCKETS` below.
 #[cfg(not(msim))]
-const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 20_000;
+fn num_events_per_digest_recording() -> u64 {
+    static VALUE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        std::env::var("WALRUS_NUM_EVENTS_PER_DIGEST_RECORDING")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v| v > 0)
+            .unwrap_or(20_000)
+    })
+}
 
 // In simtest, we record event source for events to make event index consistency checking more
 // accurate.
 #[cfg(msim)]
-const NUM_EVENTS_PER_DIGEST_RECORDING: u64 = 1;
+fn num_events_per_digest_recording() -> u64 {
+    1
+}
 
 // Number of distinct buckets for the `periodic_event_source_for_deterministic_events`
-// metric. The bucket label is `(event_index / NUM_EVENTS_PER_DIGEST_RECORDING) %
-// NUM_DIGEST_BUCKETS`, so buckets are reused every
-// `NUM_DIGEST_BUCKETS * NUM_EVENTS_PER_DIGEST_RECORDING` events. Analogous to
-// `EPOCH_BUCKET_COUNT` in consistency_check.rs.
-const NUM_DIGEST_BUCKETS: u64 = 10;
+// metric. The bucket label is `(event_index / num_events_per_digest_recording()) %
+// num_digest_buckets()`, so buckets are reused every
+// `num_digest_buckets() * num_events_per_digest_recording()` events. Antithesis runs override
+// this via `WALRUS_NUM_DIGEST_BUCKETS` to prevent the cross-node observer from seeing bucket
+// reuse as spurious divergence. Analogous to `EPOCH_BUCKET_COUNT` in consistency_check.rs.
+fn num_digest_buckets() -> u64 {
+    static VALUE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        std::env::var("WALRUS_NUM_DIGEST_BUCKETS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v| v > 0)
+            .unwrap_or(10)
+    })
+}
+
 const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
 
 /// Indicates how the node should treat uploads.
@@ -2508,10 +2532,11 @@ impl StorageNode {
         event_source: &CheckpointEventPosition,
     ) -> Result<(), TypedStoreError> {
         // Only record every Nth event.
-        // `NUM_EVENTS_PER_DIGEST_RECORDING` is chosen so a node produces a recording roughly
-        // every 1.5 hours.
+        // `num_events_per_digest_recording()` is chosen so a node produces a recording roughly
+        // every 1.5 hours in production; Antithesis runs override it via env var for
+        // ~minute-scale cadence.
 
-        if !event_index.is_multiple_of(NUM_EVENTS_PER_DIGEST_RECORDING) {
+        if !event_index.is_multiple_of(num_events_per_digest_recording()) {
             return Ok(());
         }
 
@@ -2524,8 +2549,9 @@ impl StorageNode {
             return Ok(());
         }
 
-        let bucket = (event_index / NUM_EVENTS_PER_DIGEST_RECORDING) % NUM_DIGEST_BUCKETS;
-        debug_assert!(bucket < NUM_DIGEST_BUCKETS);
+        let num_digest_buckets = num_digest_buckets();
+        let bucket = (event_index / num_events_per_digest_recording()) % num_digest_buckets;
+        debug_assert!(bucket < num_digest_buckets);
 
         // The event source is the combination of checkpoint sequence number and counter.
         // We scale the checkpoint sequence number by `CHECKPOINT_EVENT_POSITION_SCALE` to add

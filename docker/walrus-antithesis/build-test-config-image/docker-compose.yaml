@@ -92,9 +92,15 @@ services:
     platform: ${WALRUS_PLATFORM:-linux/amd64}
     hostname: dryrun-node-0
     container_name: dryrun-node-0
+    # The three WALRUS_* env vars below widen consistency-check bucket counts to avoid
+    # bucket-reuse false positives during long Antithesis runs. Production keeps the lower
+    # defaults baked into the binary. See node.rs and node/consistency_check.rs.
     environment:
       - NODE_NAME=dryrun-node-0
       - NO_COLOR=1
+      - WALRUS_NUM_EVENTS_PER_DIGEST_RECORDING=2000
+      - WALRUS_NUM_DIGEST_BUCKETS=1000
+      - WALRUS_EPOCH_BUCKET_COUNT=1000
     volumes:
       - sui-bin:/root/sui_bin
       - walrus-deploy-outputs:/opt/walrus/outputs
@@ -113,6 +119,9 @@ services:
     environment:
       - NODE_NAME=dryrun-node-1
       - NO_COLOR=1
+      - WALRUS_NUM_EVENTS_PER_DIGEST_RECORDING=2000
+      - WALRUS_NUM_DIGEST_BUCKETS=1000
+      - WALRUS_EPOCH_BUCKET_COUNT=1000
 
   walrus-node-2:
     <<: *walrus-node
@@ -124,6 +133,9 @@ services:
     environment:
       - NODE_NAME=dryrun-node-2
       - NO_COLOR=1
+      - WALRUS_NUM_EVENTS_PER_DIGEST_RECORDING=2000
+      - WALRUS_NUM_DIGEST_BUCKETS=1000
+      - WALRUS_EPOCH_BUCKET_COUNT=1000
 
   walrus-node-3:
     <<: *walrus-node
@@ -135,6 +147,9 @@ services:
     environment:
       - NODE_NAME=dryrun-node-3
       - NO_COLOR=1
+      - WALRUS_NUM_EVENTS_PER_DIGEST_RECORDING=2000
+      - WALRUS_NUM_DIGEST_BUCKETS=1000
+      - WALRUS_EPOCH_BUCKET_COUNT=1000
 
   # Stress client for testing
   walrus-stress-0:

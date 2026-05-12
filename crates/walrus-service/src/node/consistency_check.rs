@@ -167,13 +167,25 @@ pub(super) async fn schedule_background_consistency_check(
 
 /// Number of distinct epoch buckets used for consistency-check Prometheus labels.
 ///
-/// Metrics like `walrus_blob_info_consistency_check{epoch="N"}` use `epoch % EPOCH_BUCKET_COUNT`
+/// Metrics like `walrus_blob_info_consistency_check{epoch="N"}` use `epoch % epoch_bucket_count()`
 /// as the label so that Prometheus label cardinality stays bounded. A bucket is reused (and its
-/// old value overwritten) every `EPOCH_BUCKET_COUNT` epochs.
-const EPOCH_BUCKET_COUNT: u32 = 10;
+/// old value overwritten) every `epoch_bucket_count()` epochs.
+///
+/// Antithesis runs override this via `WALRUS_EPOCH_BUCKET_COUNT` to prevent the cross-node
+/// observer from seeing bucket reuse as a spurious cross-node divergence on long test runs.
+fn epoch_bucket_count() -> u32 {
+    static VALUE: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *VALUE.get_or_init(|| {
+        std::env::var("WALRUS_EPOCH_BUCKET_COUNT")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&v| v > 0)
+            .unwrap_or(10)
+    })
+}
 
 fn get_epoch_bucket(epoch: Epoch) -> String {
-    (epoch % EPOCH_BUCKET_COUNT).to_string()
+    (epoch % epoch_bucket_count()).to_string()
 }
 
 fn handle_existence_check_result(
