@@ -203,6 +203,7 @@ const sidebars = {
               "operator-guide/storage-nodes/storage-node-maintenance",
               "operator-guide/storage-nodes/storage-node-migration",
               "operator-guide/storage-nodes/commission-governance",
+              "operator-guide/storage-nodes/slashing",
               "operator-guide/storage-nodes/backup-restore-guide",
               "operator-guide/storage-nodes/storage-node-faq",
           ],
