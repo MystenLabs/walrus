@@ -16,6 +16,8 @@ use walrus_subsidies::walrus_subsidies_inner::{Self, WalrusSubsidiesInnerV1};
 const EUnauthorizedAdminCap: u64 = 0;
 /// The package version is not compatible with the WalrusSubsidies object.
 const EWrongVersion: u64 = 1;
+/// Migration cannot run because the object is already at or above the current version.
+const EInvalidMigration: u64 = 2;
 
 // === Versioning ===
 
@@ -24,20 +26,22 @@ const EWrongVersion: u64 = 1;
 // without requiring the AdminCap.
 
 /// The current version of this contract.
-const VERSION: u64 = 1;
+const VERSION: u64 = 2;
 
 /// Helper struct to get the package ID for the version 1 of this contract.
 public struct V1()
+/// Helper struct to get the package ID for the version 2 of this contract.
+public struct V2()
 
 /// Returns the package ID for the current version of this contract.
 /// Needs to be updated whenever the package is upgraded.
 fun package_id_for_current_version(): ID {
-    package_id_for_type<V1>()
+    package_id_for_type<V2>()
 }
 
 /// Returns the package ID for the given type.
 fun package_id_for_type<T>(): ID {
-    let address_str = type_name::get<T>().get_address().to_lowercase();
+    let address_str = type_name::with_defining_ids<T>().address_string().to_lowercase();
     let address_bytes = hex::decode(address_str.into_bytes());
     object::id_from_bytes(address_bytes)
 }
@@ -165,6 +169,23 @@ public fun process_subsidies(
     self.inner_mut().process_subsidies(staking, system, clock);
 }
 
+// === Migration ===
+
+/// Migrate the `WalrusSubsidies` object to the current package version.
+///
+/// Must be called once per package upgrade. Bumps the on-chain version and
+/// updates the stored `package_id` so that clients route to the new package.
+///
+/// Permissionless: callable by anyone after a package upgrade. Safe because
+/// `package_id_for_current_version()` resolves to the upgraded package via the
+/// `V{N}` marker type's defining package, which only the `UpgradeCap` holder
+/// can have published.
+public fun migrate(self: &mut WalrusSubsidies) {
+    assert!(self.version < VERSION, EInvalidMigration);
+    self.version = VERSION;
+    self.package_id = package_id_for_current_version();
+}
+
 // === Internal Functions ===
 
 /// Check if the admin cap is valid for this subsidies object.
@@ -226,5 +247,8 @@ use std::unit_test::assert_eq;
 #[test]
 fun test_package_id_for_current_version() {
     let package_id = package_id_for_current_version();
-    assert_eq!(type_name::get<V1>().get_address(), package_id.to_address().to_ascii_string());
+    assert_eq!(
+        type_name::with_defining_ids<V2>().address_string(),
+        package_id.to_address().to_ascii_string(),
+    );
 }
