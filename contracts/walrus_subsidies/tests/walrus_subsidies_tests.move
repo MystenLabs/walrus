@@ -360,3 +360,31 @@ fun test_variable_subsidy_rates_across_epochs() {
     nodes.destroy!(|node| node.destroy());
     runner.destroy();
 }
+
+#[test, expected_failure(abort_code = walrus_subsidies::EInvalidMigration)]
+fun test_migrate_aborts_when_already_at_current_version() {
+    let admin = @0xA11CE;
+    let mut runner = e2e_runner::prepare(admin).build();
+
+    let admin_cap;
+    runner.tx!(admin, |staking, system, ctx| {
+        admin_cap =
+            walrus_subsidies::new(
+                system,
+                staking,
+                DEFAULT_SYSTEM_SUBSIDY_RATE,
+                DEFAULT_BASE_SUBSIDY,
+                DEFAULT_PER_SHARD_SUBSIDY,
+                ctx,
+            );
+    });
+    runner.scenario().next_tx(admin);
+
+    let mut subsidies = runner.scenario().take_shared<WalrusSubsidies>();
+    // Freshly-created object is already at the current VERSION; migrate must abort.
+    subsidies.migrate();
+
+    test_scenario::return_shared(subsidies);
+    destroy(admin_cap);
+    runner.destroy();
+}
