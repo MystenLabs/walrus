@@ -377,10 +377,13 @@ impl RetriableRpcClient {
             }
         };
 
-        if let Some(metrics) = self.metrics.as_ref()
-            && Self::is_checkpoint_parsing_error(&result)
-        {
-            metrics.checkpoint_parsing_errors_count.inc();
+        if let Some(metrics) = self.metrics.as_ref() {
+            if result.is_ok() {
+                metrics.record_downloaded_checkpoint(sequence_number);
+            }
+            if Self::is_checkpoint_parsing_error(&result) {
+                metrics.checkpoint_parsing_errors_count.inc();
+            }
         }
 
         result

@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use prometheus::{HistogramVec, IntCounter, IntCounterVec};
+use prometheus::{HistogramVec, IntCounter, IntCounterVec, IntGauge};
 
 fn default_buckets_for_slow_operations() -> Vec<f64> {
     prometheus::exponential_buckets(0.001, 2.0, 14).expect("count, start, and factor are valid")
@@ -37,6 +37,9 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "Number of checkpoint parsing errors. This error indicates incompatibility of \
         the checkpoint data received"]
         checkpoint_parsing_errors_count: IntCounter[],
+
+        #[help = "Highest sequence number of a successfully downloaded full checkpoint"]
+        highest_downloaded_checkpoint: IntGauge[],
     }
 }
 
@@ -97,5 +100,14 @@ impl SuiClientMetricSet {
         self.checkpoint_download_success_source
             .with_label_values(&[source])
             .inc();
+    }
+
+    /// Records the sequence number of a successfully downloaded full checkpoint, advancing
+    /// the high-water mark gauge if the value is greater than the current one.
+    pub fn record_downloaded_checkpoint(&self, sequence_number: u64) {
+        let signed: i64 = sequence_number.try_into().unwrap_or(i64::MAX);
+        if signed > self.highest_downloaded_checkpoint.get() {
+            self.highest_downloaded_checkpoint.set(signed);
+        }
     }
 }
