@@ -3,7 +3,9 @@
 # This file SHOULD be committed to source control
 
 [published.testnet]
+build-config = { flavor = "sui", edition = "2024" }
 chain-id = "4c78adac"
 original-id = "0x51b0bdfba7ac0ac232402fbb36e17769e41a5c93bb1271f3b7daf1cfea81ca4c"
-published-at = "0x51b0bdfba7ac0ac232402fbb36e17769e41a5c93bb1271f3b7daf1cfea81ca4c"
-version = 1
+published-at = "0x0aeb403b32b6cc627de48aa791fd2f709977035a2b6bdc00dda247de89dce3a7"
+toolchain-version = "1.71.1"
+version = 2
