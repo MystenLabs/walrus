@@ -188,6 +188,11 @@ Sui smart contract as the on-chain index.
     This section covers everything you need to set up and operate a Walrus storage node. Backup and
     Restore Guide: Back up and restore Walrus storage node databases with automated and manual
     procedures.
+- [Slashing Walkthrough](https://docs.wal.app/docs/operator-guide/storage-nodes/slashing-walkthrough.md):
+    This page walks through a hypothetical slashing event on Mainnet so you can see how the pieces
+    fit together. It assumes you have already read Slashing for the conceptual model and the object
+    IDs. The commands below are the ones operators actually run, with the live Mainnet object IDs
+    filled in.
 - [Slashing](https://docs.wal.app/docs/operator-guide/storage-nodes/slashing.md):
     Walrus protects the network from misbehaving storage nodes through an onchain slashing
     mechanism. Committee members vote against a candidate node, and when a quorum of voting weight
