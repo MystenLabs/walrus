@@ -9,21 +9,22 @@
 # Stage 1: Base Build Environment + Builder
 # -------------------------------------
 FROM rust:1.93-bookworm AS builder
-ARG GIT_REVISION
-ENV GIT_REVISION=$GIT_REVISION
-WORKDIR "/walrus"
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y cmake clang
+RUN apt-get update && apt-get install -y --no-install-recommends cmake clang \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR "/walrus"
 
-# Copy project files
+# Copy project files. COPYs ordered least- to most-frequently-changing for
+# deeper layer cache hits.
+COPY rust-toolchain.toml ./
 COPY Cargo.toml Cargo.lock ./
-COPY crates crates
 COPY setup setup
 COPY contracts ./contracts
 # Note: Duplicate contracts copy can be removed
 COPY contracts /contracts
 COPY docker/walrus-antithesis/build-walrus-image-for-antithesis/update_move_toml.sh /tmp/
+COPY crates crates
 
 COPY docker/walrus-antithesis/sui_version.toml .
 RUN export SUI_VERSION=$(grep SUI_VERSION sui_version.toml | cut -d'"' -f2) && \
@@ -48,6 +49,9 @@ ENV RUSTFLAGS="$RUSTFLAGS"
 # Build all binaries with Antithesis instrumentation
 ARG LD_LIBRARY_PATH="/usr/lib/libvoidstar.so"
 ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+# GIT_REVISION declared late so SHA changes don't invalidate the COPYs above.
+ARG GIT_REVISION
+ENV GIT_REVISION=$GIT_REVISION
 # Persist cargo registry, git deps, and target across docker build runs so repeat builds are incremental.
 # Cargo uses /usr/local/cargo/registry (crates.io) and /usr/local/cargo/git (git deps) by default during
 # `cargo build`; mounting them keeps downloaded deps across builds. /walrus/target holds the build output.
