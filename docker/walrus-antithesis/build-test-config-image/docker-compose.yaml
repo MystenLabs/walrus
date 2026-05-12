@@ -20,7 +20,7 @@ services:
       # Sui SDK emits Sometimes assertions that aren't relevant to Walrus testing,
       # and Sui itself isn't the system under test here.
       com.antithesis.exclude.faults: "all"
-      com.antithesis.exclude.assertion_type: "sometimes"
+      com.antithesis.exclude.assertion_type: "sometimes, reachable"
     image: ${SUI_IMAGE_NAME}
     platform: ${SUI_PLATFORM:-linux/amd64}
     environment:
