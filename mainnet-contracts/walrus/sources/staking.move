@@ -7,10 +7,11 @@ module walrus::staking;
 
 use std::string::String;
 use sui::{balance::Balance, clock::Clock, coin::Coin, dynamic_field as df};
-use wal::wal::WAL;
+use wal::wal::{WAL, ProtectedTreasury};
 use walrus::{
     auth::{Self, Authenticated, Authorized},
     committee::Committee,
+    events,
     node_metadata::NodeMetadata,
     staked_wal::StakedWal,
     staking_inner::{Self, StakingInnerV1},
@@ -24,11 +25,11 @@ use walrus::{
 const EInvalidMigration: u64 = 0;
 /// The package version is not compatible with the staking object.
 const EWrongVersion: u64 = 1;
-/// The migration epoch is not set or has not started yet.
-const EInvalidMigrationEpoch: u64 = 2;
+/// The function is deprecated and should not be used.
+const EDeprecatedFunction: u64 = 2;
 
 /// Flag to indicate the version of the Walrus system.
-const VERSION: u64 = 2;
+const VERSION: u64 = 3;
 
 /// The key for the migration epoch.
 const MIGRATION_EPOCH_KEY: vector<u8> = b"migration_epoch";
@@ -174,6 +175,11 @@ public fun committee(staking: &Staking): &Committee {
     staking.inner().committee()
 }
 
+/// Get the previous committee.
+public fun previous_committee(staking: &Staking): &Committee {
+    staking.inner().previous_committee()
+}
+
 /// Computes the committee for the next epoch.
 public fun compute_next_committee(staking: &Staking): Committee {
     staking.inner().compute_next_committee()
@@ -194,6 +200,16 @@ public fun set_write_price_vote(self: &mut Staking, cap: &StorageNodeCap, write_
 /// Sets the node capacity vote for the pool.
 public fun set_node_capacity_vote(self: &mut Staking, cap: &StorageNodeCap, node_capacity: u64) {
     self.inner_mut().set_node_capacity_vote(cap, node_capacity);
+}
+
+/// Recalculates the quorum storage and write prices from the current committee
+/// and applies them to the system. Should be called after price votes are cast
+/// (in the same PTB) and is also called during epoch change.
+public fun update_prices(staking: &mut Staking, system: &mut System) {
+    let (storage_price, write_price) = staking.inner().recalculate_prices();
+    system.set_storage_price(storage_price);
+    system.set_write_price(write_price);
+    events::emit_prices_updated(staking.inner().epoch(), storage_price, write_price);
 }
 
 // === Get/ Update Node Parameters ===
@@ -249,17 +265,38 @@ public fun voting_end(staking: &mut Staking, clock: &Clock) {
     staking.inner_mut().voting_end(clock)
 }
 
+public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
+    abort EDeprecatedFunction
+}
+
 /// Initiates the epoch change if the current time allows.
 ///
 /// Emits the `EpochChangeStart` event.
-public fun initiate_epoch_change(staking: &mut Staking, system: &mut System, clock: &Clock) {
-    let staking_inner = staking.inner_mut();
-    let rewards = system.advance_epoch(
-        staking_inner.next_bls_committee(),
-        staking_inner.next_epoch_params(),
-    );
+public fun initiate_epoch_change_v2(
+    staking: &mut Staking,
+    system: &mut System,
+    treasury: &mut ProtectedTreasury,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    {
+        // Calculate and burn rewards.
+        let burn_balance = system.extract_burn_balance();
+        wal::wal::burn(treasury, burn_balance.into_coin(ctx));
 
-    staking_inner.initiate_epoch_change(clock, rewards);
+        // After this point, the burned reward has been removed from the system's current epoch
+        // reward balance.
+        let staking_inner = staking.inner_mut();
+        let committee_rewards = system.advance_epoch(
+            staking_inner.next_bls_committee(),
+            staking_inner.next_epoch_params(),
+        );
+
+        staking_inner.initiate_epoch_change(clock, committee_rewards);
+    };
+
+    // Recalculate and apply prices from the new committee.
+    update_prices(staking, system);
 }
 
 /// Signals to the contract that the node has received all its shards for the new epoch.
@@ -313,6 +350,18 @@ public fun withdraw_stake(
 /// to the active set either the next time stake is added or by calling this function.
 public fun try_join_active_set(staking: &mut Staking, cap: &StorageNodeCap) {
     staking.inner_mut().try_join_active_set(cap)
+}
+
+/// Burns the commission balance of the pool for the given node.
+/// Used by the slashing mechanism to penalize misbehaving nodes.
+public(package) fun burn_commission(
+    staking: &mut Staking,
+    node_id: ID,
+    treasury: &mut ProtectedTreasury,
+    ctx: &mut TxContext,
+) {
+    let balance = staking.inner_mut().extract_commission_to_burn(node_id);
+    wal::wal::burn(treasury, balance.into_coin(ctx));
 }
 
 /// Adds `commissions[i]` to the commission of pool `node_ids[i]`.
@@ -388,17 +437,21 @@ entry fun set_migration_epoch(staking: &mut Staking) {
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `staking_inner` object if needed.
 public(package) fun migrate(staking: &mut Staking) {
+    // Below logic is for upgrading to version 3. When upgrading to future versions, this function
+    // needs to be revisited to perform correct migration steps.
     assert!(staking.version < VERSION, EInvalidMigration);
+    assert!(VERSION == 3, EInvalidMigration);
 
     // Check that the migration epoch is set and that the current epoch is greater than or equal to
     // the migration epoch.
-    let migration_epoch = df::remove_if_exists(&mut staking.id, MIGRATION_EPOCH_KEY).destroy_or!(
-        abort EInvalidMigrationEpoch,
-    );
-    assert!(
-        staking.inner_without_version_check().epoch() >= migration_epoch,
-        EInvalidMigrationEpoch,
-    );
+    // Note that this is not needed for version 3. But we keep it here for future reference.
+    // let migration_epoch = df::remove_if_exists(&mut staking.id, MIGRATION_EPOCH_KEY).destroy_or!(
+    //     abort EInvalidMigrationEpoch,
+    // );
+    // assert!(
+    //     staking.inner_without_version_check().epoch() >= migration_epoch,
+    //     EInvalidMigrationEpoch,
+    // );
 
     // Move the old staking inner to the new version.
     let staking_inner: StakingInnerV1 = df::remove(&mut staking.id, staking.version);
