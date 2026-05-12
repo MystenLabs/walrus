@@ -1,59 +1,39 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-When choosing a platform to store and verify data, you should consider reliability, uptime,
-availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated
-storage cost of **$0.023/GB/month**, allowing you to budget and scale with confidence.
+When choosing a platform to store and verify data, you should consider reliability, uptime, availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated storage cost of **$0.023/GB/month**, allowing you to budget and scale with confidence.
+
+Use the [Walrus Cost Calculator](https://costcalculator.wal.app/) to estimate total storage costs interactively.
 
 ## How pricing works
 
-Storage on Walrus is paid in WAL but priced at a fixed rate of **$0.023/GB/month**. The amount of
-WAL required adjusts automatically as the WAL token price changes.
+Storage on Walrus is paid in WAL but priced at a fixed rate of **$0.023/GB/month**. The amount of WAL required adjusts automatically as the WAL token price changes.
 
-Behind the scenes, Walrus storage nodes track WAL prices from multiple sources and periodically
-update their onchain price vote to keep costs aligned with USD.
+Behind the scenes, Walrus storage nodes track WAL prices from multiple sources and periodically update their onchain price vote to keep costs aligned with USD.
 
-You also pay **SUI** for executing transactions on Sui Mainnet. Each operation that interacts with
-the Sui blockchain (registering a blob, posting a certificate, extending storage) incurs a gas fee
-in SUI. See [SUI tokenomics](https://docs.sui.io/concepts/tokenomics) and
-[SUI gas fee calculation](https://docs.sui.io/concepts/tokenomics/gas-in-sui) for more details.
+You also pay **SUI** for executing transactions on Sui Mainnet. Each operation that interacts with the Sui blockchain (registering a blob, posting a certificate, extending storage) incurs a gas fee in SUI. See [SUI tokenomics](https://docs.sui.io/concepts/tokenomics) and [SUI gas fee calculation](https://docs.sui.io/concepts/tokenomics/gas-in-sui) for more details.
 
 > **Tip**
 >
 > Walrus uses erasure coding with approximately 5x expansion. The storage cost shown by `walrus info` accounts for this. You do not need to calculate the expansion yourself.
 ## What you get for $0.023/GB/month
 
-At $0.023 per GB per month, Walrus is in line with centralized storage providers but includes
-additional capabilities and lower configuration requirements.
+At $0.023 per GB per month, Walrus is in line with centralized storage providers but includes additional capabilities and lower configuration requirements.
 
 #### Built-in redundancy
 
-Data is encoded using erasure coding with approximately 4.5x redundancy across independent storage
-nodes. Achieving similar redundancy in a centralized provider typically requires storing additional
-copies in multiple regions.
+Data is encoded using erasure coding with approximately 4.5x redundancy across independent storage nodes. Achieving similar redundancy in a centralized provider typically requires storing additional copies in multiple regions.
 
 #### Portability
 
-Data is not tied to a single provider and can be accessed across environments without migration
-overhead. Moving data across centralized cloud storage can be costly (egress fees) and operationally
-complex.
+Data is not tied to a single provider and can be accessed across environments without migration overhead. Moving data across centralized cloud storage can be costly (egress fees) and operationally complex.
 
 #### Verifiability
 
-Data is content-addressed and cryptographically verifiable, so you can prove it has not been
-altered. Cloud storage providers rely on internal checksums to maintain integrity but do not provide
-independent verification.
+Data is content-addressed and cryptographically verifiable, so you can prove it has not been altered. Cloud storage providers rely on internal checksums to maintain integrity but do not provide independent verification.
 
 #### Programmable access control
 
-Access is enforced through onchain policies, enabling fine-grained, dynamic permissioning reusable
-across systems. Cloud storage providers manage access through centralized policies outside
-application logic, often requiring additional infrastructure for dynamic behavior.
-
-## Cost calculator
-
-Use the [Walrus Cost Calculator](https://costcalculator.wal.app/) to estimate total storage costs interactively.
-
-Walrus storage costs are a combination of WAL and SUI fees incurred from storage resources, upload costs, Sui transaction fees, and Sui object storage resources.
+Access is enforced through onchain policies, enabling fine-grained, dynamic permissioning reusable across systems. Cloud storage providers manage access through centralized policies outside application logic, often requiring additional infrastructure for dynamic behavior.
 
 #### Storage resources
 
