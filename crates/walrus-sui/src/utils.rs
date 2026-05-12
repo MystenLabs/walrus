@@ -341,6 +341,7 @@ pub async fn create_wallet(
         address: new_address,
         public_key: _,
         scheme: _,
+        mnemonic: _,
     } = keystore.generate(None, GenerateOptions::default()).await?;
 
     let keystore = Keystore::from(keystore);
