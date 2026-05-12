@@ -16,6 +16,8 @@ use walrus_subsidies::walrus_subsidies_inner::{Self, WalrusSubsidiesInnerV1};
 const EUnauthorizedAdminCap: u64 = 0;
 /// The package version is not compatible with the WalrusSubsidies object.
 const EWrongVersion: u64 = 1;
+/// Migration cannot run because the object is already at or above the current version.
+const EInvalidMigration: u64 = 2;
 
 // === Versioning ===
 
@@ -165,6 +167,23 @@ public fun process_subsidies(
 ) {
     check_version(self);
     self.inner_mut().process_subsidies(staking, system, clock);
+}
+
+// === Migration ===
+
+/// Migrate the `WalrusSubsidies` object to the current package version.
+///
+/// Must be called once per package upgrade. Bumps the on-chain version and
+/// updates the stored `package_id` so that clients route to the new package.
+///
+/// Permissionless: callable by anyone after a package upgrade. Safe because
+/// `package_id_for_current_version()` resolves to the upgraded package via the
+/// `V{N}` marker type's defining package, which only the `UpgradeCap` holder
+/// can have published.
+public fun migrate(self: &mut WalrusSubsidies) {
+    assert!(self.version < VERSION, EInvalidMigration);
+    self.version = VERSION;
+    self.package_id = package_id_for_current_version();
 }
 
 // === Internal Functions ===
