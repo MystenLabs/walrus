@@ -11,7 +11,7 @@ use std::{
 use anyhow::Result;
 use move_package_alt::schema::Environment;
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
-use sui_package_alt::find_environment;
+use sui_package_alt::{SuiFlavor, find_environment};
 use sui_rpc_api::client::ExecutedTransaction;
 use sui_sdk::{sui_client_config::SuiEnv, wallet_context::WalletContext};
 use sui_types::{
@@ -118,6 +118,12 @@ impl Wallet {
     /// Get the active environment.
     pub fn get_active_env(&self) -> &SuiEnv {
         &self.active_env
+    }
+
+    /// Constructs a [`SuiFlavor`] connected to this wallet's network, used by the package
+    /// management system to resolve system dependencies at the correct protocol version.
+    pub fn sui_flavor(&self) -> SuiFlavor {
+        SuiFlavor::with_client(&self.wallet_context)
     }
 
     /// Constructs the environment for the package management system based on the package path,

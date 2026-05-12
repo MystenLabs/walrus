@@ -115,7 +115,7 @@ pub async fn compile_package(
     let package_path_clone = package_path.clone();
 
     let root_pkg: RootPackage<SuiFlavor> = build_config_clone
-        .package_loader(&package_path_clone, &env)
+        .package_loader(&package_path_clone, &env, wallet.sui_flavor())
         .load()
         .await?;
 
