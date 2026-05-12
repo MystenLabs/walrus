@@ -6,7 +6,7 @@
 FROM rust:1.93-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends cmake clang \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 ARG PROFILE=release
 WORKDIR "$WORKDIR/walrus"
 

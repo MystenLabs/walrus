@@ -12,7 +12,7 @@ FROM rust:1.93-bookworm AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends cmake clang \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR "/walrus"
 
 # Copy project files. COPYs ordered least- to most-frequently-changing for
