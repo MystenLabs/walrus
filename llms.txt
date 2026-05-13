@@ -61,10 +61,9 @@ Sui smart contract as the on-chain index.
     complexity of writing to multiple storage nodes. It provides batching capabilities and improved
     reliability for client applications.
 - [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md):
-    Storing blobs on Walrus Mainnet incurs 2 separate costs: WAL for the storage operation. You pay
-    per storage unit per epoch. In other words, the cost scales with blob size and epoch. Run
-    walrus info to see current pricing, including the price per encoded storage unit and the
-    additional write fee.
+    When choosing a platform to store and verify data, you should consider reliability, uptime,
+    availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated
+    storage cost of $0.023/GB/month, allowing you to budget and scale with confidence.
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md):
     This page describes the practical limits and constraints you should consider when designing
     applications on Walrus. For current values, run walrus info. Walrus supports blobs up to
