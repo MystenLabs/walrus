@@ -1894,13 +1894,18 @@ impl StorageNode {
             c.sync_node_params().await?;
         }
 
-        // Run GC phase 1 (blob info cleanup) before the rest of the epoch-change work.
-        // Phase 1 only iterates global blob-info CFs against `event.epoch`; it does not depend
-        // on the upcoming committee or shard transitions. Running it first means a phase-1
-        // error stops processing before any committee/shard state changes, and shard removal
-        // (spawned by `execute_epoch_change` as part of the finisher task) cannot contend with
-        // phase 1's disk traffic on the same RocksDB instance.
-        self.start_garbage_collection_task(event.epoch).await?;
+        // Run the two GC phases up front so they read as a paired block, before the epoch
+        // transition itself. Phase 1 is inline (must complete; clears expired entries from
+        // the global blob-info CFs and decrements aggregate refcounts). Phase 2 is a
+        // fire-and-forget spawn — the spawned task sleeps until its deterministic random
+        // target time before doing any actual deletion work, so the spawn's wall-clock
+        // position within this function doesn't affect when phase 2 actually runs.
+        //
+        // Phase 1 must precede the rest because a phase-1 error stops processing before any
+        // committee/shard state changes, and because shard removal (spawned by
+        // `execute_epoch_change` as part of the finisher task) shares the disk with phase 1.
+        self.run_blob_info_cleanup(event.epoch).await?;
+        self.spawn_data_deletion(event.epoch).await?;
 
         // Capture the event index before the handle is moved into `execute_epoch_change` so
         // we can later detect whether this event is being reprocessed.
@@ -1959,12 +1964,20 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Starts garbage collection for the given epoch. Phase 1 (blob info cleanup) runs inline
-    /// and blocks the event loop; this is required for correctness because pooled-blob
-    /// certified refcounts live only on the aggregate `BlobInfo`, so per-object cleanup
-    /// must not race read queries like `is_certified`. Phase 2 (data deletion) is spawned
-    /// as a background task.
-    async fn start_garbage_collection_task(&self, epoch: Epoch) -> anyhow::Result<()> {
+    /// Phase 1 wrapper: runs blob-info cleanup inline. Must be awaited before
+    /// [`Self::spawn_data_deletion`] for the same epoch. Returns errors verbatim.
+    async fn run_blob_info_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
+        if let Err(error) = self.garbage_collector.run_blob_info_cleanup(epoch).await {
+            tracing::error!(?error, epoch, "failed to run blob-info cleanup (phase 1)");
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    /// Phase 2 wrapper: spawns the background data-deletion task with the configured random
+    /// delay. Looks up the epoch start time from the contract service so the delay is
+    /// computed against the on-chain epoch boundary.
+    async fn spawn_data_deletion(&self, epoch: Epoch) -> anyhow::Result<()> {
         // Try to get the epoch start time from the contract service. If the epoch state is not
         // available (e.g., in tests), use the current time as the epoch start.
         let epoch_start = self
@@ -1983,10 +1996,14 @@ impl StorageNode {
             .unwrap_or_else(Utc::now);
         if let Err(error) = self
             .garbage_collector
-            .start_garbage_collection_task(epoch, epoch_start)
+            .spawn_data_deletion(epoch, epoch_start)
             .await
         {
-            tracing::error!(?error, epoch, "failed to start garbage-collection task");
+            tracing::error!(
+                ?error,
+                epoch,
+                "failed to spawn data-deletion task (phase 2)"
+            );
             return Err(error);
         }
         Ok(())
@@ -2048,7 +2065,8 @@ impl StorageNode {
             current_epoch,
             "restarting unfinished garbage-collection task on startup"
         );
-        self.start_garbage_collection_task(current_epoch).await
+        self.run_blob_info_cleanup(current_epoch).await?;
+        self.spawn_data_deletion(current_epoch).await
     }
 
     /// Storage node execution of the epoch change start event, to bring the node state to the next

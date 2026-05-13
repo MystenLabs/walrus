@@ -120,64 +120,37 @@ impl GarbageCollector {
         }
     }
 
-    /// Runs garbage collection for the given epoch.
+    /// Phase 1: runs blob-info cleanup inline (awaited).
     ///
-    /// Garbage collection is split into two phases:
+    /// Cleans up `storage_pool_info` and `per_object_blob_info` for entries expired at
+    /// `epoch`, and decrements the matching `aggregate_blob_info` refcounts. Expected to
+    /// complete in seconds.
     ///
-    /// - **Phase 1 (blob info cleanup):** Runs inline (awaited). Cleans up
-    ///   `storage_pool_info` and `per_object_blob_info` for expired entries.
-    ///   Expected to complete quickly (a few seconds).
-    /// - **Phase 2 (data deletion):** Spawned as a background task after a
-    ///   deterministic random delay computed by [`Self::cleanup_target_time`]
-    ///   based on the node's public key and epoch. This is to avoid multiple
-    ///   nodes performing heavy I/O at the same time, which could impact the
-    ///   performance of the network.
+    /// Phase 1 must run inline (not spawned) for read-side correctness: pooled-blob
+    /// certified refcounts live only on the aggregate `BlobInfo`, so concurrent per-object
+    /// deletion would let `is_certified` queries observe a torn state between the aggregate
+    /// and the per-object entries. The caller blocks the event consumer for the duration of
+    /// this call, so no concurrent writers to the blob-info tables exist.
     ///
-    /// Phase 1 runs inline so that it completes before the caller returns,
-    /// producing a deterministic and consistent snapshot of blob info across
-    /// nodes at the epoch boundary. No concurrent modification of the blob
-    /// info tables is possible because event processing is sequential — new
-    /// events won't be processed until the caller returns.
-    ///
-    /// Phase 1 must also be inline (not spawned) for read-side correctness:
-    /// pooled-blob certified refcounts live only on the aggregate `BlobInfo`,
-    /// so concurrent per-object deletion would let `is_certified` queries
-    /// observe a torn state between the aggregate and the per-object entries.
-    ///
-    /// The previous epoch's data deletion task (phase 2) may still be running
-    /// in the background during phase 1. Phase 2 uses per-blob optimistic
-    /// transactions that detect concurrent re-registrations and fail
-    /// gracefully. Phase 2 also reads the current `aggregate_blob_info`
-    /// state, so it can observe refcount changes made by phase 1 and may
-    /// delete a blob one GC cycle earlier than it otherwise would. This does
-    /// not affect correctness.
+    /// The previous epoch's data deletion task (phase 2) may still be running in the
+    /// background during phase 1. Phase 2 uses per-blob optimistic transactions that detect
+    /// concurrent re-registrations and fail gracefully. Phase 2 also reads the current
+    /// `aggregate_blob_info` state, so it can observe refcount changes made by phase 1 and
+    /// may delete a blob one GC cycle earlier than it otherwise would. This does not affect
+    /// correctness.
     ///
     /// # Errors
     ///
-    /// Returns an error if phase 1 fails. Phase 2 errors are logged but not
-    /// propagated since data deletion is a background optimization.
+    /// Returns an error if any DB operation fails.
     #[tracing::instrument(skip_all)]
-    pub async fn start_garbage_collection_task(
-        &self,
-        epoch: Epoch,
-        epoch_start: DateTime<Utc>,
-    ) -> anyhow::Result<()> {
+    pub async fn run_blob_info_cleanup(&self, epoch: Epoch) -> anyhow::Result<()> {
         if epoch == GENESIS_EPOCH {
             tracing::info!("garbage collection is not relevant in the genesis epoch");
             return Ok(());
         }
 
-        let garbage_collection_config = self.config;
-
-        if !garbage_collection_config.enable_blob_info_cleanup {
-            if garbage_collection_config.enable_data_deletion {
-                tracing::warn!(
-                    "data deletion is enabled, but requires blob info cleanup to be \
-                    enabled; skipping data deletion",
-                );
-            } else {
-                tracing::info!("garbage collection is disabled, skipping cleanup");
-            }
+        if !self.config.enable_blob_info_cleanup {
+            tracing::info!("blob info cleanup is disabled, skipping");
             return Ok(());
         }
 
@@ -188,15 +161,48 @@ impl GarbageCollector {
         self.metrics
             .set_garbage_collection_last_started_epoch(epoch);
 
-        // Phase 1: blob info cleanup (runs inline, no delay).
-        self.perform_blob_info_cleanup(epoch).await?;
+        self.perform_blob_info_cleanup(epoch).await
+    }
 
-        // Phase 2: data deletion (spawned as a background task with delay).
-        if self.config.enable_data_deletion {
-            self.start_data_deletion_task(epoch, epoch_start).await?;
+    /// Phase 2: spawns the background data-deletion task.
+    ///
+    /// Returns as soon as the spawn lands. The spawned task waits for a deterministic random
+    /// delay computed by [`Self::cleanup_target_time`] (based on the node's public key and
+    /// epoch) before doing the heavy I/O, to avoid multiple nodes performing bulk deletes at
+    /// the same time.
+    ///
+    /// Must only be called after [`Self::run_blob_info_cleanup`] has succeeded for this
+    /// epoch — data deletion relies on the aggregate refcounts that phase 1 produces.
+    /// Calling this without prior phase 1 (e.g., if `enable_blob_info_cleanup` is false)
+    /// logs a warning and skips the spawn.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the abort-and-replace of any previous phase-2 task fails. The
+    /// spawned task's own errors are logged but not propagated.
+    #[tracing::instrument(skip_all)]
+    pub async fn spawn_data_deletion(
+        &self,
+        epoch: Epoch,
+        epoch_start: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        if epoch == GENESIS_EPOCH {
+            return Ok(());
         }
 
-        Ok(())
+        if !self.config.enable_data_deletion {
+            return Ok(());
+        }
+
+        if !self.config.enable_blob_info_cleanup {
+            tracing::warn!(
+                "data deletion is enabled, but requires blob info cleanup to be enabled; \
+                skipping data deletion",
+            );
+            return Ok(());
+        }
+
+        self.start_data_deletion_task(epoch, epoch_start).await
     }
 
     /// Phase 1: Cleans up per-object blob info for expired blobs.
