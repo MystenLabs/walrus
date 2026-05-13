@@ -526,13 +526,29 @@ impl Storage {
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        let mut shard_map_lock = self.lock_shards().await;
-        for shard_index in removed {
+        // Take the shards out of the map under the write lock, then drop the lock before the
+        // blocking `drop_cf` calls. `delete_shard_storage` calls `drop_cf` on five column
+        // families synchronously and can take ~10 minutes per shard on HDD-backed storage;
+        // holding the shard-map write lock for that long would block every reader (shard
+        // lookups, `existing_shards`, the next epoch transition's `lock_shards`).
+        let removed_storages: Vec<(ShardIndex, Arc<ShardStorage>)> = {
+            let mut shard_map_lock = self.lock_shards().await;
+            removed
+                .iter()
+                .filter_map(|shard_index| {
+                    shard_map_lock
+                        .shards_guard
+                        .remove(shard_index)
+                        .map(|s| (*shard_index, s))
+                })
+                .collect()
+        };
+
+        for (shard_index, shard_storage) in removed_storages {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
-            if let Some(shard_storage) = shard_map_lock.shards_guard.remove(shard_index) {
-                // Do not hold the `shards` lock when deleting column families.
-                shard_storage.delete_shard_storage()?;
-            }
+            tokio::task::spawn_blocking(move || shard_storage.delete_shard_storage())
+                .map(utils::unwrap_or_resume_unwind)
+                .await?;
             tracing::info!(
                 walrus.shard_index = %shard_index,
                 "successfully removed storage for shard"
