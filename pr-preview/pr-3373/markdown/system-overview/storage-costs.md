@@ -25,7 +25,7 @@ Data is encoded using erasure coding with approximately 4.5x redundancy across i
 
 #### Portability
 
-Data is not tied to a single provider and can be accessed across environments without migration overhead. Moving data across centralized cloud storage can be costly (egress fees) and operationally complex.
+Data is not tied to a single provider and can be accessed across environments efficiently without migration overhead. Moving data across centralized cloud storage can be costly (egress fees) and operationally complex.
 
 #### Verifiability
 
