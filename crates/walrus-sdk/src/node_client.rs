@@ -18,7 +18,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use bimap::BiMap;
 use futures::{
     Future,
@@ -3225,8 +3225,10 @@ fn encode_blob(
 
 /// Verifies the [`BlobStatus`] using the on-chain event.
 ///
-/// This only verifies the [`BlobStatus::Invalid`] and [`BlobStatus::Permanent`] variants and does
-/// not check the quoted counts for deletable blobs.
+/// This only verifies the [`BlobStatus::Invalid`] and [`BlobStatus::Permanent`] variants. The
+/// [`BlobStatus::Deletable`] and [`BlobStatus::Nonexistent`] variants are treated as a no-op
+/// success — there is no on-chain event that meaningfully verifies the quoted counts for
+/// deletable blobs.
 #[tracing::instrument(skip(sui_read_client), err(level = Level::WARN))]
 async fn verify_blob_status_event(
     blob_id: &BlobId,
@@ -3236,10 +3238,7 @@ async fn verify_blob_status_event(
     let event = match status {
         BlobStatus::Invalid { event } => event,
         BlobStatus::Permanent { status_event, .. } => status_event,
-        BlobStatus::Deletable { .. } => {
-            bail!("deletable status cannot be verified with an on-chain event")
-        }
-        BlobStatus::Nonexistent => return Ok(()),
+        BlobStatus::Deletable { .. } | BlobStatus::Nonexistent => return Ok(()),
     };
     tracing::debug!(?event, "verifying blob status with on-chain event");
 
@@ -3274,4 +3273,141 @@ async fn verify_blob_status_event(
     };
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use sui_types::event::EventID;
+    use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
+    use walrus_sui::{
+        client::{
+            CommitteesAndState,
+            FixedSystemParameters,
+            ReadClient,
+            SuiClientResult,
+            SuiReadClient,
+        },
+        types::{
+            BlobEvent,
+            Committee,
+            StorageNode,
+            move_structs::{BlobAttribute, BlobWithAttribute, EpochState, EventBlob},
+        },
+    };
+
+    use super::*;
+
+    // Stub `ReadClient` whose methods panic on call. Used to verify that
+    // `verify_blob_status_event` short-circuits before touching the chain.
+    struct PanicReadClient;
+
+    impl ReadClient for PanicReadClient {
+        async fn storage_price_per_unit_size(&self) -> SuiClientResult<u64> {
+            unimplemented!()
+        }
+        async fn write_price_per_unit_size(&self) -> SuiClientResult<u64> {
+            unimplemented!()
+        }
+        async fn storage_and_write_price_per_unit_size(&self) -> SuiClientResult<(u64, u64)> {
+            unimplemented!()
+        }
+        async fn n_shards(&self) -> SuiClientResult<NonZeroU16> {
+            unimplemented!()
+        }
+        async fn get_blob_event(&self, _event_id: EventID) -> SuiClientResult<BlobEvent> {
+            unimplemented!()
+        }
+        async fn current_committee(&self) -> SuiClientResult<Committee> {
+            unimplemented!()
+        }
+        async fn previous_committee(&self) -> SuiClientResult<Committee> {
+            unimplemented!()
+        }
+        async fn next_committee(&self) -> SuiClientResult<Option<Committee>> {
+            unimplemented!()
+        }
+        async fn get_storage_nodes_from_active_set(&self) -> Result<Vec<StorageNode>> {
+            unimplemented!()
+        }
+        async fn get_storage_nodes_from_committee(&self) -> SuiClientResult<Vec<StorageNode>> {
+            unimplemented!()
+        }
+        async fn get_storage_nodes_by_ids(
+            &self,
+            _node_ids: &[ObjectID],
+        ) -> Result<Vec<StorageNode>> {
+            unimplemented!()
+        }
+        async fn get_blob_attribute(
+            &self,
+            _blob_object_id: &ObjectID,
+        ) -> SuiClientResult<Option<BlobAttribute>> {
+            unimplemented!()
+        }
+        async fn get_blob_by_object_id(
+            &self,
+            _blob_id: &ObjectID,
+        ) -> SuiClientResult<BlobWithAttribute> {
+            unimplemented!()
+        }
+        async fn epoch_state(&self) -> SuiClientResult<EpochState> {
+            unimplemented!()
+        }
+        async fn current_epoch(&self) -> SuiClientResult<Epoch> {
+            unimplemented!()
+        }
+        async fn get_committees_and_state(&self) -> SuiClientResult<CommitteesAndState> {
+            unimplemented!()
+        }
+        fn fixed_system_parameters(&self) -> FixedSystemParameters {
+            unimplemented!()
+        }
+        async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
+            unimplemented!()
+        }
+        async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
+            unimplemented!()
+        }
+        async fn refresh_package_id(&self) -> SuiClientResult<()> {
+            unimplemented!()
+        }
+        async fn refresh_credits_package_id(&self) -> SuiClientResult<()> {
+            unimplemented!()
+        }
+        async fn refresh_walrus_subsidies_package_id(&self) -> SuiClientResult<()> {
+            unimplemented!()
+        }
+        async fn system_object_version(&self) -> SuiClientResult<u64> {
+            unimplemented!()
+        }
+        async fn flush_cache(&self) {
+            unimplemented!()
+        }
+        fn read_client(&self) -> &SuiReadClient {
+            unimplemented!()
+        }
+    }
+
+    #[tokio::test]
+    async fn deletable_status_passes_verification() {
+        let blob_id = BlobId([0u8; 32]);
+        let status = BlobStatus::Deletable {
+            initial_certified_epoch: Some(7),
+            deletable_counts: DeletableCounts {
+                count_deletable_total: 3,
+                count_deletable_certified: 2,
+            },
+        };
+        let result = verify_blob_status_event(&blob_id, status, &PanicReadClient).await;
+        assert!(result.is_ok(), "got error: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn nonexistent_status_passes_verification() {
+        let blob_id = BlobId([0u8; 32]);
+        let result =
+            verify_blob_status_event(&blob_id, BlobStatus::Nonexistent, &PanicReadClient).await;
+        assert!(result.is_ok(), "got error: {result:?}");
+    }
 }
