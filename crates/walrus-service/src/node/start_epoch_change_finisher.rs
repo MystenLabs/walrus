@@ -44,8 +44,11 @@ impl StartEpochChangeFinisher {
     /// 3. `mark_as_complete` on the event handle.
     ///
     /// `epoch_sync_done` itself runs in a *separate* spawned task (see
-    /// [`Self::spawn_epoch_sync_done`]) which the caller should fire before GC phase 1.
-    /// That separation prevents the contract RPC's unbounded retry from blocking phase 1.
+    /// [`Self::spawn_epoch_sync_done`]) which the caller fires *after* GC phase 1
+    /// succeeds. Keeping it spawned (rather than awaited inline) prevents the contract
+    /// RPC's unbounded retry from blocking phase 1; gating the spawn on phase-1 success
+    /// prevents a detached `epoch_sync_done` task from outliving an event whose
+    /// `EpochChangeStart` was not completed.
     pub fn start_finish_epoch_change_tasks(
         &self,
         event_handle: EventHandle,
@@ -132,10 +135,13 @@ impl StartEpochChangeFinisher {
     }
 
     /// Spawns the contract `epoch_sync_done` RPC as a background task and returns its
-    /// `JoinHandle`. Used by the caller to fire the signal *before* GC phase 1 without
-    /// blocking on the contract service's unbounded retry loop. The returned handle is
-    /// later awaited by [`Self::start_finish_epoch_change_tasks`] so the event is not
-    /// marked complete until the contract signal has actually landed.
+    /// `JoinHandle`. The caller fires this *after* GC phase 1 has succeeded so a phase-1
+    /// failure cannot leave a detached task posting to the contract for an epoch whose
+    /// `EpochChangeStart` was not completed. The spawn (rather than inline await) is
+    /// required because the contract service's `epoch_sync_done` has unbounded retry —
+    /// awaiting it would block the event handler. The returned handle is later awaited
+    /// by [`Self::start_finish_epoch_change_tasks`] so the event is not marked complete
+    /// until the contract signal has actually landed.
     pub(super) fn spawn_epoch_sync_done(
         &self,
         committees: ActiveCommittees,

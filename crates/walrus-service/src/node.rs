@@ -715,16 +715,20 @@ pub enum BeginCommitteeChangeAction {
 /// `mark_as_complete` is always deferred until after phase 1 so a phase-1 error
 /// never silently consumes the event without rerunning phase 1 on retry.
 ///
-/// `epoch_sync_done_handle`, when `Some`, points at a background task that was
-/// spawned *before* phase 1. The deferred shard-removal task awaits it before
-/// `mark_as_complete`, so the on-chain signal lands before the event is marked
-/// done — but the contract RPC's unbounded retry loop never blocks the event
-/// handler itself.
+/// `epoch_sync_done_request`, when `Some`, asks
+/// `process_epoch_change_start_event` to spawn the contract `epoch_sync_done`
+/// RPC as a background task *after* phase 1 succeeds. Spawning is gated on phase
+/// 1 success so we never leak a detached task posting to the contract for an
+/// epoch whose `EpochChangeStart` was not completed (and will be retried on
+/// restart). The resulting `JoinHandle` is awaited by the deferred shard-removal
+/// task before `mark_as_complete`, so the on-chain signal lands before the event
+/// is marked done — but the contract RPC's unbounded retry loop never blocks
+/// the event handler itself.
 struct PendingFinisherTask {
     event_handle: EventHandle,
     event: EpochChangeStart,
     shards: Vec<ShardIndex>,
-    epoch_sync_done_handle: Option<tokio::task::JoinHandle<()>>,
+    epoch_sync_done_request: Option<ActiveCommittees>,
 }
 
 impl StorageNode {
@@ -1969,17 +1973,28 @@ impl StorageNode {
             );
         }
 
-        // Phase 1 has returned and the consistency-check snapshot is queued. Spawn the
-        // deferred finisher task (always, even when there are no shards) so it can do
-        // the shard-removal work, await any in-flight `epoch_sync_done` task, and mark
-        // the event complete. Marking complete is always after phase 1 so a phase-1
+        // Phase 1 has returned and the consistency-check snapshot is queued. If
+        // `execute_epoch_change` requested an `epoch_sync_done` signal (committee member,
+        // no shards gained), spawn it now — strictly after phase 1 succeeded — so a
+        // phase-1 error cannot leave a detached task posting to the contract for an epoch
+        // whose `EpochChangeStart` was not completed. The handle is awaited by the
+        // deferred finisher before `mark_as_complete`, so the on-chain signal lands
+        // before the event is acked.
+        let epoch_sync_done_handle = pending_finisher.epoch_sync_done_request.map(|committees| {
+            self.start_epoch_change_finisher
+                .spawn_epoch_sync_done(committees, pending_finisher.event.clone())
+        });
+
+        // Spawn the deferred finisher task (always, even when there are no shards) so it
+        // can do the shard-removal work, await any in-flight `epoch_sync_done` task, and
+        // mark the event complete. Marking complete is always after phase 1 so a phase-1
         // error forces a retry of the entire event rather than silently consuming it.
         self.start_epoch_change_finisher
             .start_finish_epoch_change_tasks(
                 pending_finisher.event_handle,
                 &pending_finisher.event,
                 pending_finisher.shards,
-                pending_finisher.epoch_sync_done_handle,
+                epoch_sync_done_handle,
             );
 
         Ok(())
@@ -2107,7 +2122,7 @@ impl StorageNode {
                     event_handle,
                     event: event.clone(),
                     shards: vec![],
-                    epoch_sync_done_handle: None,
+                    epoch_sync_done_request: None,
                 }),
                 BeginCommitteeChangeAction::EnterRecoveryMode => {
                     tracing::info!("storage node entering recovery mode during epoch change start");
@@ -2149,7 +2164,7 @@ impl StorageNode {
                 event_handle,
                 event: event.clone(),
                 shards: vec![],
-                epoch_sync_done_handle: None,
+                epoch_sync_done_request: None,
             });
         }
 
@@ -2166,7 +2181,7 @@ impl StorageNode {
                 event_handle,
                 event: event.clone(),
                 shards: vec![],
-                epoch_sync_done_handle: None,
+                epoch_sync_done_request: None,
             });
         }
 
@@ -2337,7 +2352,7 @@ impl StorageNode {
             event_handle,
             event: event.clone(),
             shards: shard_diff_calculator.shards_to_remove().to_vec(),
-            epoch_sync_done_handle: None,
+            epoch_sync_done_request: None,
         })
     }
 
@@ -2456,25 +2471,18 @@ impl StorageNode {
                 .context("failed to lock shard")?;
         }
 
-        // Spawn `epoch_sync_done` as a background task before GC phase 1 if there's no
-        // ongoing shard sync. The contract RPC has unbounded retry internally, so we must
-        // *not* await it inline here; otherwise a contract failure would block phase 1
-        // and the rest of event processing. The handle is carried through and awaited by
-        // the deferred finisher task before it marks the event complete.
+        // Carry the event_handle, any shards-to-remove, and an `epoch_sync_done`
+        // spawn-request back to the caller. The request is fulfilled only after phase 1
+        // succeeds (in `process_epoch_change_start_event`), so a phase-1 error cannot
+        // leave a detached task posting `epoch_sync_done` to the contract for an epoch
+        // whose `EpochChangeStart` was not completed.
         let ongoing_shard_sync = !shards_gained.is_empty();
-        let epoch_sync_done_handle = (!ongoing_shard_sync).then(|| {
-            self.start_epoch_change_finisher
-                .spawn_epoch_sync_done(committees.clone(), event.clone())
-        });
-
-        // Carry the event_handle and any shards-to-remove back so phase 1 runs before
-        // either is consumed. The actual spawn happens in `process_epoch_change_start_event`
-        // after phase 1.
+        let epoch_sync_done_request = (!ongoing_shard_sync).then(|| committees.clone());
         Ok(PendingFinisherTask {
             event_handle,
             event: event.clone(),
             shards: shard_diff_calculator.shards_to_remove().to_vec(),
-            epoch_sync_done_handle,
+            epoch_sync_done_request,
         })
     }
 
