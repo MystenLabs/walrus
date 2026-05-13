@@ -32,23 +32,8 @@ impl StartEpochChangeFinisher {
         }
     }
 
-    /// Spawns the background finisher task that does any post-phase-1 work for an epoch
-    /// change and marks the `EpochChangeStart` event complete when done.
-    ///
-    /// The task does, in order:
-    /// 1. `remove_storage_for_shards` for `shards` (skipped if empty), with retry on each
-    ///    `drop_cf` failure.
-    /// 2. Awaits `epoch_sync_done_handle` if any, so the contract signal lands before the
-    ///    event is marked complete (it could already be done — `await`ing a completed
-    ///    JoinHandle is a no-op).
-    /// 3. `mark_as_complete` on the event handle.
-    ///
-    /// `epoch_sync_done` itself runs in a *separate* spawned task (see
-    /// [`Self::spawn_epoch_sync_done`]) which the caller fires *after* GC phase 1
-    /// succeeds. Keeping it spawned (rather than awaited inline) prevents the contract
-    /// RPC's unbounded retry from blocking phase 1; gating the spawn on phase-1 success
-    /// prevents a detached `epoch_sync_done` task from outliving an event whose
-    /// `EpochChangeStart` was not completed.
+    /// Spawns the background finisher task: removes any `shards` (with retry), awaits
+    /// `epoch_sync_done_handle` if any, then `mark_as_complete` on the event.
     pub fn start_finish_epoch_change_tasks(
         &self,
         event_handle: EventHandle,
@@ -95,14 +80,9 @@ impl StartEpochChangeFinisher {
                 );
             }
 
-            // Wait for the in-flight `epoch_sync_done` (if one was spawned) to complete
-            // before marking the event done. This keeps the on-chain "sync done" signal
-            // and the local "event handled" marker in the same order they would be in main.
-            //
-            // Handle the failure modes explicitly: a panic propagates so the event is *not*
-            // marked complete (matching the inline behaviour `epoch_sync_done` would have
-            // had if it ran in the same task body); a cancellation logs and skips
-            // `mark_as_complete` so the event retries on the next iteration.
+            // Order the on-chain "sync done" signal before the local "event handled"
+            // marker. A panic propagates (no `mark_as_complete`, matching inline-await
+            // behaviour); a cancellation logs and skips so the event retries.
             let should_mark_complete = match epoch_sync_done_handle {
                 None => true,
                 Some(handle) => match handle.await {
@@ -134,14 +114,9 @@ impl StartEpochChangeFinisher {
         *locked_task_handle = Some(handle);
     }
 
-    /// Spawns the contract `epoch_sync_done` RPC as a background task and returns its
-    /// `JoinHandle`. The caller fires this *after* GC phase 1 has succeeded so a phase-1
-    /// failure cannot leave a detached task posting to the contract for an epoch whose
-    /// `EpochChangeStart` was not completed. The spawn (rather than inline await) is
-    /// required because the contract service's `epoch_sync_done` has unbounded retry —
-    /// awaiting it would block the event handler. The returned handle is later awaited
-    /// by [`Self::start_finish_epoch_change_tasks`] so the event is not marked complete
-    /// until the contract signal has actually landed.
+    /// Spawns the contract `epoch_sync_done` RPC as a background task. Spawned (not
+    /// awaited inline) because the RPC has unbounded retry; gated on phase-1 success
+    /// by the caller — see `PendingFinisherTask`.
     pub(super) fn spawn_epoch_sync_done(
         &self,
         committees: ActiveCommittees,
