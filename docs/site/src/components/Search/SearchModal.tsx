@@ -81,16 +81,24 @@ function HitItem({ hit }: { hit: any }) {
             : cleanTooltipText(hit.hierarchy?.lvl0 || "Untitled");
     const breadcrumb = crumbs.length > 1 ? crumbs.slice(0, -1) : [];
 
+    const linkClasses =
+        "text-[--color-walrus-purple] dark:text-[--color-walrus-mint]";
+
     return (
         <a
             href={hit.url}
-            className="modal-result block px-4 py-3 -mx-2 rounded-lg no-underline hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className={
+                "modal-result block px-4 py-3 -mx-2 rounded-lg" +
+                " no-underline transition-colors" +
+                " hover:bg-[--color-walrus-light-gray-100]" +
+                " dark:hover:bg-[--color-walrus-dark-gray-150]"
+            }
         >
             {breadcrumb.length > 0 && (
                 <div
                     className={
                         "text-xs mb-1 truncate" +
-                        " text-[--color-walrus-dark-gray-300]" +
+                        " text-[--color-walrus-light-gray-400]" +
                         " dark:text-[--color-walrus-dark-gray-450]"
                     }
                 >
@@ -99,9 +107,7 @@ function HitItem({ hit }: { hit: any }) {
             )}
             <div
                 className={
-                    "text-sm font-medium" +
-                    " text-[--color-walrus-dark-gray-100]" +
-                    " dark:text-[--color-walrus-white-90]"
+                    "text-sm font-medium " + linkClasses
                 }
             >
                 {title}
@@ -110,8 +116,8 @@ function HitItem({ hit }: { hit: any }) {
                 <p
                     className={
                         "text-xs mt-1 mb-0 line-clamp-2" +
-                        " text-[--color-walrus-dark-gray-400]" +
-                        " dark:text-[--color-walrus-dark-gray-500]"
+                        " text-[--color-walrus-light-gray-400]" +
+                        " dark:text-[--color-walrus-dark-gray-450]"
                     }
                     dangerouslySetInnerHTML={{
                         __html: truncateAtWord(
@@ -272,10 +278,10 @@ export default function MultiIndexSearchModal({
         " border-l-transparent border-r-transparent";
 
     const footerLinkClasses =
-        "text-[--color-walrus-purple]" +
-        " hover:text-[--color-walrus-violet]" +
-        " dark:text-[--color-walrus-mint]" +
-        " dark:hover:text-[--color-walrus-violet] underline";
+        "text-[--color-walrus-light-gray-400]" +
+        " hover:text-[--color-walrus-purple]" +
+        " dark:text-[--color-walrus-dark-gray-450]" +
+        " dark:hover:text-[--color-walrus-mint] no-underline";
 
     const hintClasses =
         "text-xs text-[--color-walrus-dark-gray-300]" +
@@ -284,29 +290,36 @@ export default function MultiIndexSearchModal({
 
     return (
         <div
-            className="fixed inset-0 z-500 flex justify-center p-4"
+            className="fixed inset-0 z-500 flex justify-center items-start pt-[10vh]"
             style={{ backgroundColor: overlayBg }}
             onClick={(e) => {
                 if (e.target === e.currentTarget) onClose();
             }}
         >
             <div
-                className={
-                    "w-full max-w-4xl px-6 rounded-lg" +
-                    " shadow-md max-h-[600px] flex flex-col"
-                }
-                style={{ backgroundColor: bg }}
+                className="w-full max-w-4xl rounded-xl shadow-2xl"
+                style={{
+                    backgroundColor: bg,
+                    maxHeight: "min(600px, 80vh)",
+                    display: "flex",
+                    flexDirection: "column",
+                    overflow: "hidden",
+                }}
             >
                 <div
                     ref={scrollContainerRef}
-                    className="flex-1 overflow-y-auto"
+                    style={{
+                        flex: "1 1 0%",
+                        minHeight: 0,
+                        overflowY: "auto",
+                    }}
                 >
                     <InstantSearch
                         searchClient={searchClient}
                         indexName={activeIndex}
                     >
                         <div
-                            className="rounded-t sticky top-0 z-10"
+                            className="rounded-t sticky top-0 z-10 px-6"
                             style={{ backgroundColor: bg }}
                         >
                             <div
