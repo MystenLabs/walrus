@@ -7,6 +7,6 @@
 - [Batch Storage with Quilt](/docs/system-overview/quilt): Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.
 - [RedStuff Encoding Algorithm](/docs/system-overview/red-stuff): Learn how the RedStuff encoding algorithm works in Walrus, including erasure coding, RaptorQ fountain codes, sliver encoding, recovery, and blob metadata.
 - [Upload Relay](/docs/system-overview/relay): Learn how the Walrus upload relay simplifies blob uploads by batching requests, handling retries, and generating certificates on behalf of your application.
-- [Storage Costs](/docs/system-overview/storage-costs): Comprehensive guide to Walrus storage costs including WAL tokens, SUI gas fees, and cost optimization strategies.
+- [Storage Costs](/docs/system-overview/storage-costs): Comprehensive guide to Walrus storage costs including fixed USD-denominated pricing, WAL tokens, SUI gas fees, and cost optimization strategies.
 - [System Constraints & Considerations](/docs/system-overview/system-constraints): Storage limits, cost considerations, memory requirements, and other constraints to consider when building on Walrus.
 - [View System Information](/docs/system-overview/view-system-info): Use the walrus info command to view Walrus system parameters, storage node details, epoch information, and current storage costs.
