@@ -7,7 +7,12 @@ use std::{collections::BTreeSet, future::Future, iter::once, sync::Arc, time::Du
 use sui_macros::fail_point_if;
 use tokio::sync::Mutex;
 
-use super::{RetriableClientError, ToErrorType, retry_count_guard::RetryCountGuard};
+use super::{
+    CheckpointRpcError,
+    RetriableClientError,
+    ToErrorType,
+    retry_count_guard::RetryCountGuard,
+};
 use crate::client::{SuiClientError, SuiClientMetricSet};
 
 /// A trait that defines the implementation of a thunk to build (or re-use) a client lazily.
@@ -65,6 +70,50 @@ impl MakeRetriableError for SuiClientError {
 impl MakeRetriableError for RetriableClientError {
     fn make_retriable_error() -> Self {
         RetriableClientError::RetryableTimeoutError
+    }
+}
+
+/// A trait that allows error types to opt out of triggering failover to the next client.
+///
+/// The default failover behavior tries every available client when an operation fails. Some
+/// errors, such as a gRPC `Cancelled` status from a locally cancelled request, indicate that
+/// retrying against a different endpoint is pointless. Implementors return `true` for such
+/// errors so that [`FailoverWrapper::with_failover`] returns them immediately.
+pub trait SkipFailover {
+    /// Returns `true` if this error should not trigger failover to the next client.
+    fn should_skip_failover(&self) -> bool;
+}
+
+impl SkipFailover for tonic::Status {
+    fn should_skip_failover(&self) -> bool {
+        // A `Cancelled` status typically means the request was cancelled by the caller (for
+        // example, the future was dropped or a deadline was hit on the client side). Trying a
+        // different RPC endpoint won't help in that case.
+        self.code() == tonic::Code::Cancelled
+    }
+}
+
+impl SkipFailover for CheckpointRpcError {
+    fn should_skip_failover(&self) -> bool {
+        self.status.should_skip_failover()
+    }
+}
+
+impl SkipFailover for SuiClientError {
+    fn should_skip_failover(&self) -> bool {
+        match self {
+            SuiClientError::GrpcError(status) => status.should_skip_failover(),
+            _ => false,
+        }
+    }
+}
+
+impl SkipFailover for RetriableClientError {
+    fn should_skip_failover(&self) -> bool {
+        match self {
+            RetriableClientError::RpcError(rpc_error) => rpc_error.should_skip_failover(),
+            _ => false,
+        }
     }
 }
 
@@ -247,7 +296,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
     where
         F: FnMut(Arc<ClientT>, &'static str) -> Fut,
         Fut: Future<Output = Result<R, E>>,
-        E: MakeRetriableError + ToErrorType + std::fmt::Debug + From<FailoverError>,
+        E: MakeRetriableError + ToErrorType + SkipFailover + std::fmt::Debug + From<FailoverError>,
     {
         Box::pin(self.with_failover_unboxed(operation, metrics, method))
     }
@@ -263,7 +312,7 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
     where
         F: FnMut(Arc<ClientT>, &'static str) -> Fut,
         Fut: Future<Output = Result<R, E>>,
-        E: MakeRetriableError + ToErrorType + std::fmt::Debug + From<FailoverError>,
+        E: MakeRetriableError + ToErrorType + SkipFailover + std::fmt::Debug + From<FailoverError>,
     {
         let mut retry_guard = metrics
             .as_ref()
@@ -325,16 +374,23 @@ impl<ClientT, BuilderT: LazyClientBuilder<ClientT> + std::fmt::Debug>
                     return Ok(result);
                 }
                 Err(error) => {
-                    // Note that currently, for any kind of errors, we will failover to the next
-                    // client, event including application level errors. Although this is not
-                    // desirable, it is also hard to compose an extensive list of errors that we
-                    // should or should not failover on.
-                    // For any error that is not supposed to failover, we should return the error
-                    // here immediately. This process can be based on experience and add any error
-                    // that is not supposed to failover to the list.
-                    //
-                    // TODO(zhewu): we should add a new trait for this, and implement it for all
-                    // errors that are not supposed to failover.
+                    // Some errors should not trigger failover to the next client. For example, a
+                    // gRPC `Cancelled` status indicates the request was cancelled by the caller,
+                    // so retrying against a different endpoint won't help. Errors opt out via the
+                    // `SkipFailover` trait; new variants can be added there as we learn which
+                    // errors should not trigger failover.
+                    if error.should_skip_failover() {
+                        let failed_rpc_url = self
+                            .get_current_rpc_url()
+                            .await
+                            .unwrap_or_else(|error| error.to_string());
+                        tracing::debug!(
+                            ?error,
+                            failed_rpc_url,
+                            "error opts out of failover, returning immediately"
+                        );
+                        return Err(error);
+                    }
 
                     let failed_rpc_url = self
                         .get_current_rpc_url()
@@ -404,7 +460,7 @@ mod tests {
     #[derive(Debug)]
     struct MockClient {
         call_count: Arc<AtomicUsize>,
-        should_fail: bool,
+        error_code: Option<tonic::Code>,
     }
 
     impl LazyClientBuilder<MockClient> for Arc<MockClient> {
@@ -419,23 +475,25 @@ mod tests {
 
     impl MockClient {
         fn new(should_fail: bool) -> Self {
+            Self::with_error_code(should_fail.then_some(tonic::Code::Unavailable))
+        }
+
+        fn with_error_code(error_code: Option<tonic::Code>) -> Self {
             Self {
                 call_count: Arc::new(AtomicUsize::new(0)),
-                should_fail,
+                error_code,
             }
         }
 
         fn operation(&self) -> Result<String, RetriableClientError> {
             self.call_count
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            if self.should_fail {
-                Err(RetriableClientError::RpcError(CheckpointRpcError {
-                    // Return a retryable error.
-                    status: tonic::Status::unavailable("mock error"),
+            match self.error_code {
+                Some(code) => Err(RetriableClientError::RpcError(CheckpointRpcError {
+                    status: tonic::Status::new(code, "mock error"),
                     checkpoint_seq_num: None,
-                }))
-            } else {
-                Ok("success".to_string())
+                })),
+                None => Ok("success".to_string()),
             }
         }
     }
@@ -471,11 +529,44 @@ mod tests {
             1
         );
         assert!(
-            !failover_wrapper
+            failover_wrapper
                 .get_current_client()
                 .await
                 .expect("client must have been created")
-                .should_fail,
+                .error_code
+                .is_none(),
+        );
+    }
+
+    #[tokio::test]
+    async fn test_failover_wrapper_skip_failover_on_cancelled() {
+        // First client returns a `Cancelled` status; failover should not advance to the second.
+        let cancelled_client = Arc::new(MockClient::with_error_code(Some(tonic::Code::Cancelled)));
+        let succeeding_client = Arc::new(MockClient::new(false));
+
+        let cancelled_calls = cancelled_client.call_count.clone();
+        let succeeding_calls = succeeding_client.call_count.clone();
+
+        let clients = vec![cancelled_client, succeeding_client];
+        let failover_wrapper = FailoverWrapper::new(clients).expect("failed to create wrapper");
+
+        let result = failover_wrapper
+            .with_failover(
+                |client, _method| async move { client.operation() },
+                None,
+                "operation",
+            )
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(RetriableClientError::RpcError(ref e))
+                if e.status.code() == tonic::Code::Cancelled
+        ));
+        assert_eq!(cancelled_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            succeeding_calls.load(std::sync::atomic::Ordering::SeqCst),
+            0
         );
     }
 
