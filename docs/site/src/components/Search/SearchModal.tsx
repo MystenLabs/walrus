@@ -12,7 +12,6 @@ import {
 import {
     truncateAtWord,
     getDeepestHierarchyLabel,
-    getHierarchyBreadcrumbs,
     cleanTooltipText,
 } from "./utils";
 import ControlledSearchBox from "./ControlledSearchBox";
@@ -74,60 +73,45 @@ function useIsDark() {
 }
 
 function HitItem({ hit }: { hit: any }) {
-    const crumbs = getHierarchyBreadcrumbs(hit.hierarchy);
-    const title =
-        crumbs.length > 0
-            ? crumbs[crumbs.length - 1]
-            : cleanTooltipText(hit.hierarchy?.lvl0 || "Untitled");
-    const breadcrumb = crumbs.length > 1 ? crumbs.slice(0, -1) : [];
+    const level = hit.type;
+    let sectionTitle = hit.lvl0;
+    if (level === "content") {
+        sectionTitle = cleanTooltipText(
+            getDeepestHierarchyLabel(hit.hierarchy),
+        );
+    } else {
+        sectionTitle = cleanTooltipText(
+            hit.hierarchy?.[level] || level,
+        );
+    }
 
     const linkClasses =
-        "text-[--color-walrus-purple] dark:text-[--color-walrus-mint]";
+        "text-[--color-walrus-purple] dark:text-[--color-walrus-mint]" +
+        " dark:hover:text-[--color-walrus-violet]";
 
     return (
-        <a
-            href={hit.url}
-            className={
-                "modal-result block px-4 py-3 -mx-2 rounded-lg" +
-                " no-underline transition-colors" +
-                " hover:bg-[--color-walrus-light-gray-100]" +
-                " dark:hover:bg-[--color-walrus-dark-gray-150]"
-            }
-        >
-            {breadcrumb.length > 0 && (
-                <div
-                    className={
-                        "text-xs mb-1 truncate" +
-                        " text-[--color-walrus-light-gray-400]" +
-                        " dark:text-[--color-walrus-dark-gray-450]"
-                    }
-                >
-                    {breadcrumb.join(" > ")}
-                </div>
-            )}
-            <div
-                className={
-                    "text-sm font-medium " + linkClasses
-                }
+        <div className="modal-result">
+            <a
+                href={hit.url}
+                className={`${linkClasses} font-medium`}
             >
-                {title}
-            </div>
-            {hit.content && (
-                <p
-                    className={
-                        "text-xs mt-1 mb-0 line-clamp-2" +
-                        " text-[--color-walrus-light-gray-400]" +
-                        " dark:text-[--color-walrus-dark-gray-450]"
-                    }
-                    dangerouslySetInnerHTML={{
-                        __html: truncateAtWord(
-                            hit._highlightResult.content.value,
-                            120,
-                        ),
-                    }}
-                />
-            )}
-        </a>
+                {sectionTitle}
+            </a>
+            <p
+                className={
+                    "text-sm text-[--color-walrus-dark-gray-400]" +
+                    " dark:text-[--color-walrus-dark-gray-500]"
+                }
+                dangerouslySetInnerHTML={{
+                    __html: hit.content
+                        ? truncateAtWord(
+                              hit._highlightResult.content.value,
+                              100,
+                          )
+                        : "",
+                }}
+            ></p>
+        </div>
     );
 }
 
@@ -271,39 +255,39 @@ export default function MultiIndexSearchModal({
         : "rgba(83,87,90,0.7)";
 
     const footerClasses =
-        "h-12 flex items-center justify-between text-xs" +
+        "h-14 flex items-center justify-between text-sm" +
         " border-t border-solid" +
         " border-[--color-walrus-dark-gray-300]" +
         " border-b-transparent" +
         " border-l-transparent border-r-transparent";
 
     const footerLinkClasses =
-        "text-[--color-walrus-light-gray-400]" +
-        " hover:text-[--color-walrus-purple]" +
-        " dark:text-[--color-walrus-dark-gray-450]" +
-        " dark:hover:text-[--color-walrus-mint] no-underline";
+        "text-[--color-walrus-purple]" +
+        " hover:text-[--color-walrus-violet]" +
+        " dark:text-[--color-walrus-mint]" +
+        " dark:hover:text-[--color-walrus-violet] underline";
 
     const hintClasses =
-        "text-xs text-[--color-walrus-dark-gray-300]" +
+        "text-sm text-[--color-walrus-dark-gray-300]" +
         " dark:text-[--color-walrus-dark-gray-450]" +
         " pl-4 mb-2 -mt-6";
 
     return (
         <div
-            className="fixed inset-0 z-500 flex justify-center items-start pt-[10vh]"
+            className="fixed inset-0 z-500 flex justify-center p-4"
             style={{ backgroundColor: overlayBg }}
             onClick={(e) => {
                 if (e.target === e.currentTarget) onClose();
             }}
         >
             <div
-                className="w-full max-w-4xl rounded-xl shadow-2xl"
+                className={
+                    "w-full max-w-3xl px-6 rounded-lg" +
+                    " shadow-md flex flex-col"
+                }
                 style={{
                     backgroundColor: bg,
                     maxHeight: "min(600px, 80vh)",
-                    display: "flex",
-                    flexDirection: "column",
-                    overflow: "hidden",
                 }}
             >
                 <div
@@ -319,7 +303,7 @@ export default function MultiIndexSearchModal({
                         indexName={activeIndex}
                     >
                         <div
-                            className="rounded-t sticky top-0 z-10 px-6"
+                            className="rounded-t sticky top-0 z-10"
                             style={{ backgroundColor: bg }}
                         >
                             <div
@@ -330,13 +314,11 @@ export default function MultiIndexSearchModal({
                                     onClick={onClose}
                                     className={
                                         "bg-transparent border-none" +
-                                        " outline-none text-xs" +
-                                        " cursor-pointer" +
-                                        " text-[--color-walrus-dark-gray-300]" +
-                                        " dark:text-[--color-walrus-dark-gray-450]"
+                                        " outline-none text-sm" +
+                                        " underline cursor-pointer"
                                     }
                                 >
-                                    ESC
+                                    Close
                                 </button>
                             </div>
                             <ControlledSearchBox
@@ -347,8 +329,8 @@ export default function MultiIndexSearchModal({
                             />
                             {query.length < 3 && (
                                 <p className={hintClasses}>
-                                    Type at least 3 characters to
-                                    search
+                                    Three characters initiates
+                                    search...
                                 </p>
                             )}
                             <TabbedResults
@@ -363,47 +345,45 @@ export default function MultiIndexSearchModal({
                                 }))}
                             />
                         </div>
-                        <div className="px-6 pb-4">
-                            {indices.map((index) => (
-                                <Index
-                                    indexName={index.indexName}
-                                    key={index.indexName}
-                                >
-                                    <ResultsUpdater
-                                        indexName={
-                                            index.indexName
-                                        }
-                                        onUpdate={(
-                                            indexName,
-                                            count,
-                                        ) =>
-                                            setTabCounts(
-                                                (prev) => ({
-                                                    ...prev,
-                                                    [indexName]:
-                                                        count,
-                                                }),
-                                            )
-                                        }
-                                    />
-                                    {index.indexName ===
-                                        activeIndex && (
-                                        <>
-                                            <HitsList
-                                                scrollContainerRef={
-                                                    scrollContainerRef
-                                                }
-                                            />
-                                            <EmptyState
-                                                label={
-                                                    index.label
-                                                }
-                                            />
-                                        </>
-                                    )}
-                                </Index>
-                            ))}
-                        </div>
+                        {indices.map((index) => (
+                            <Index
+                                indexName={index.indexName}
+                                key={index.indexName}
+                            >
+                                <ResultsUpdater
+                                    indexName={
+                                        index.indexName
+                                    }
+                                    onUpdate={(
+                                        indexName,
+                                        count,
+                                    ) =>
+                                        setTabCounts(
+                                            (prev) => ({
+                                                ...prev,
+                                                [indexName]:
+                                                    count,
+                                            }),
+                                        )
+                                    }
+                                />
+                                {index.indexName ===
+                                    activeIndex && (
+                                    <>
+                                        <HitsList
+                                            scrollContainerRef={
+                                                scrollContainerRef
+                                            }
+                                        />
+                                        <EmptyState
+                                            label={
+                                                index.label
+                                            }
+                                        />
+                                    </>
+                                )}
+                            </Index>
+                        ))}
                     </InstantSearch>
                 </div>
                 <div
@@ -414,7 +394,7 @@ export default function MultiIndexSearchModal({
                         href={`/search?q=${encodeURIComponent(query)}`}
                         className={footerLinkClasses}
                     >
-                        View all results
+                        Go to full search page
                     </a>
                     {activeMeta && (
                         <a
