@@ -9,7 +9,11 @@ import {
     useInstantSearch,
     Index,
 } from "react-instantsearch";
-import { truncateAtWord, getDeepestHierarchyLabel } from "./utils";
+import {
+    truncateAtWord,
+    getDeepestHierarchyLabel,
+    cleanTooltipText,
+} from "./utils";
 import ControlledSearchBox from "./ControlledSearchBox";
 import TabbedResults from "./TabbedResults";
 
@@ -72,9 +76,13 @@ function HitItem({ hit }: { hit: any }) {
     const level = hit.type;
     let sectionTitle = hit.lvl0;
     if (level === "content") {
-        sectionTitle = getDeepestHierarchyLabel(hit.hierarchy);
+        sectionTitle = cleanTooltipText(
+            getDeepestHierarchyLabel(hit.hierarchy),
+        );
     } else {
-        sectionTitle = hit.hierarchy?.[level] || level;
+        sectionTitle = cleanTooltipText(
+            hit.hierarchy?.[level] || level,
+        );
     }
 
     const linkClasses =
@@ -83,14 +91,9 @@ function HitItem({ hit }: { hit: any }) {
 
     return (
         <div className="modal-result">
-            <a href={hit.url} className={`${linkClasses} font-medium`}>
-                {hit.title}
-            </a>
             <a
                 href={hit.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`text-base ${linkClasses} underline pb-2`}
+                className={`${linkClasses} font-medium`}
             >
                 {sectionTitle}
             </a>
@@ -215,6 +218,16 @@ export default function MultiIndexSearchModal({
         };
     }, [isOpen]);
 
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") onClose();
+        };
+        document.addEventListener("keydown", handleKeyDown);
+        return () =>
+            document.removeEventListener("keydown", handleKeyDown);
+    }, [isOpen, onClose]);
+
     const activeMeta = {
         walrus_docs: null,
         sui_docs: {
@@ -263,17 +276,27 @@ export default function MultiIndexSearchModal({
         <div
             className="fixed inset-0 z-500 flex justify-center p-4"
             style={{ backgroundColor: overlayBg }}
+            onClick={(e) => {
+                if (e.target === e.currentTarget) onClose();
+            }}
         >
             <div
                 className={
                     "w-full max-w-3xl px-6 rounded-lg" +
-                    " shadow-md max-h-[600px] flex flex-col"
+                    " shadow-md flex flex-col"
                 }
-                style={{ backgroundColor: bg }}
+                style={{
+                    backgroundColor: bg,
+                    maxHeight: "min(600px, 80vh)",
+                }}
             >
                 <div
                     ref={scrollContainerRef}
-                    className="flex-1 overflow-y-auto"
+                    style={{
+                        flex: "1 1 0%",
+                        minHeight: 0,
+                        overflowY: "auto",
+                    }}
                 >
                     <InstantSearch
                         searchClient={searchClient}
@@ -328,15 +351,20 @@ export default function MultiIndexSearchModal({
                                 key={index.indexName}
                             >
                                 <ResultsUpdater
-                                    indexName={index.indexName}
+                                    indexName={
+                                        index.indexName
+                                    }
                                     onUpdate={(
                                         indexName,
                                         count,
                                     ) =>
-                                        setTabCounts((prev) => ({
-                                            ...prev,
-                                            [indexName]: count,
-                                        }))
+                                        setTabCounts(
+                                            (prev) => ({
+                                                ...prev,
+                                                [indexName]:
+                                                    count,
+                                            }),
+                                        )
                                     }
                                 />
                                 {index.indexName ===
@@ -348,7 +376,9 @@ export default function MultiIndexSearchModal({
                                             }
                                         />
                                         <EmptyState
-                                            label={index.label}
+                                            label={
+                                                index.label
+                                            }
                                         />
                                     </>
                                 )}

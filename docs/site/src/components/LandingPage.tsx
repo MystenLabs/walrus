@@ -117,6 +117,15 @@ html, body { background: #FFFFFF !important; }
 .landing-root .topbar-links a.primary:hover {
   background: var(--purple-dim); border-color: var(--purple);
 }
+.landing-root .topbar-links .kapa-landing-btn {
+  font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
+  color: var(--purple); background: var(--purple-dim);
+  border: 1px solid rgba(97,61,255,0.15); font-weight: 500;
+  cursor: pointer; transition: all 0.2s; font-family: var(--sans);
+}
+.landing-root .topbar-links .kapa-landing-btn:hover {
+  background: var(--purple-hover); border-color: var(--purple);
+}
 
 /* ── Hero ── */
 .landing-root .hero {
@@ -465,6 +474,12 @@ export default function LandingPage() {
             >
               Discord
             </a>
+            <button
+              className="kapa-landing-btn"
+              onClick={() => { if ((window as any).Kapa) (window as any).Kapa.open(); }}
+            >
+              Ask Walrus AI
+            </button>
             <a href="/docs/getting-started" className="primary">
               Get Started →
             </a>

@@ -4,13 +4,12 @@
 import React from "react";
 import { useHits } from "react-instantsearch";
 import { useHistory } from "@docusaurus/router";
-import { truncateAtWord } from "./utils";
-
-// Strips the crawler "__" format: "Page Title__Section__" → "Page Title"
-function cleanHierarchyValue(value: string | null | undefined): string {
-    if (!value) return "";
-    return value.split("__")[0].trim();
-}
+import {
+    truncateAtWord,
+    getDeepestHierarchyLabel,
+    getHierarchyBreadcrumbs,
+    cleanTooltipText,
+} from "./utils";
 
 export default function CustomHitsContent({ name }) {
     const { hits: items } = useHits();
@@ -60,12 +59,11 @@ export default function CustomHitsContent({ name }) {
     return (
         <>
             {Object.entries(grouped).map(([key, group], index) => {
-                // Clean group header — strips "__" crawler format from other indices
-                const groupTitle =
-                    cleanHierarchyValue(group[0].hierarchy?.lvl1) ||
-                    cleanHierarchyValue(group[0].hierarchy?.lvl0) ||
-                    group[0].title ||
-                    "[no title]";
+                const pageCrumbs = getHierarchyBreadcrumbs(group[0].hierarchy);
+                const pageTitle =
+                    pageCrumbs.length > 0
+                        ? pageCrumbs[Math.min(1, pageCrumbs.length - 1)]
+                        : "[no title]";
 
                 return (
                     <div
@@ -74,54 +72,52 @@ export default function CustomHitsContent({ name }) {
                     >
                         {/* Group header: page title */}
                         <div className="text-xl text-wal-purple-dark dark:text-wal-purple font-semibold mb-4">
-                            {groupTitle}
+                            {pageTitle}
                         </div>
+                        {pageCrumbs.length > 0 && (
+                            <div className="text-xs text-[--color-walrus-dark-gray-300] dark:text-[--color-walrus-dark-gray-450] mb-4">
+                                {pageCrumbs.join(" > ")}
+                            </div>
+                        )}
 
                         <div>
                             {group.map((hit, i) => {
-                                const level = hit.type;
-
-                                // For content type, sectionTitle would duplicate the page title — skip it
-                                // For lvl1/lvl2/lvl3, show the specific heading
-                                const rawSectionTitle =
-                                    level === "content" ? null : hit.hierarchy?.[level];
+                                const hitCrumbs = getHierarchyBreadcrumbs(hit.hierarchy);
                                 const sectionTitle =
-                                    cleanHierarchyValue(rawSectionTitle) || null;
-
-                                // Don't show sectionTitle if identical to group header
-                                const showSectionTitle =
-                                    sectionTitle && sectionTitle !== groupTitle;
+                                    hitCrumbs.length > 0
+                                        ? hitCrumbs[hitCrumbs.length - 1]
+                                        : cleanTooltipText(
+                                              getDeepestHierarchyLabel(hit.hierarchy),
+                                          );
 
                                 const hitHost = new URL(hit.url).host;
                                 const isInternal = hitHost === currentHost;
 
                                 return (
                                     <div key={i} className="mb-2">
-                                        {showSectionTitle && (
-                                            isInternal ? (
-                                                <button
-                                                    onClick={() =>
-                                                        history.push(new URL(hit.url).pathname)
-                                                    }
-                                                    className={
-                                                        "text-base text-blue-600 " +
-                                                        "hover:text-wal-green-dark underline " +
-                                                        "text-left bg-transparent border-0 pl-0 " +
-                                                        "cursor-pointer font-[Inter]"
-                                                    }
-                                                >
-                                                    {sectionTitle}
-                                                </button>
-                                            ) : (
-                                                <a
-                                                    href={hit.url}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="text-base text-wal-link underline pb-2"
-                                                >
-                                                    {sectionTitle}
-                                                </a>
-                                            )
+                                        {isInternal ? (
+                                            <button
+                                                onClick={() =>
+                                                    history.push(new URL(hit.url).pathname)
+                                                }
+                                                className={
+                                                    "text-base text-blue-600 " +
+                                                    "hover:text-wal-green-dark underline " +
+                                                    "text-left bg-transparent border-0 pl-0 " +
+                                                    "cursor-pointer font-[Inter]"
+                                                }
+                                            >
+                                                {sectionTitle}
+                                            </button>
+                                        ) : (
+                                            <a
+                                                href={hit.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-base text-wal-link underline pb-2"
+                                            >
+                                                {sectionTitle}
+                                            </a>
                                         )}
                                         <p
                                             className="font-normal text-base text-wal-gray-50 dark:text-wal-white-80"

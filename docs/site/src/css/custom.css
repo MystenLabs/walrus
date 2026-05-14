@@ -693,11 +693,11 @@ font-weight: 700;
 
 .sui-search mark,
 .modal-result mark {
-background-color: #e5e5e2;
+background-color: rgba(114, 83, 237, 0.12);
 }
 [data-theme="dark"] .sui-search mark,
 [data-theme="dark"] .modal-result mark {
-background-color: #53575a;
+background-color: rgba(114, 83, 237, 0.25);
 }
 
 /* ══════════════════════════════════════════════
