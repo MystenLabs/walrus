@@ -552,6 +552,7 @@ mod tests {
         InconsistencyProof,
         PublicKey,
         RecoverySymbol,
+        ShardIndex,
         Sliver,
         SliverIndex,
         SliverPairIndex,
@@ -577,6 +578,7 @@ mod tests {
             SignedMessage,
             StorageConfirmation,
             SyncShardMsg,
+            SyncShardRequest,
             SyncShardResponse,
         },
         metadata::{UnverifiedBlobMetadataWithId, VerifiedBlobMetadataWithId},
@@ -1181,6 +1183,40 @@ mod tests {
             .expect_err("confirmation request should fail");
 
         assert_eq!(err.http_status_code(), Some(code));
+    }
+
+    #[tokio::test]
+    async fn sync_shard_missing_authorization_header() {
+        let (config, _handle) = start_rest_api_with_test_config().await;
+
+        let url = format!(
+            "https://{}{}",
+            config.as_ref().rest_api_address,
+            routes::SYNC_SHARD_ENDPOINT
+        );
+
+        let key_pair = ProtocolKeyPair::generate();
+        let sync_shard_msg = SyncShardMsg::new(
+            1,
+            SyncShardRequest::new(
+                ShardIndex(0),
+                SliverType::Primary,
+                walrus_core::test_utils::random_blob_id(),
+                10,
+                1,
+            ),
+        );
+        let signed_request = key_pair.sign_message(&sync_shard_msg);
+
+        let client = storage_node_client(config.as_ref()).into_inner();
+        let response = client
+            .post(url)
+            .body(bcs::to_bytes(&signed_request).expect("signed request serializes"))
+            .send()
+            .await
+            .expect("request should be sent without error");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]
