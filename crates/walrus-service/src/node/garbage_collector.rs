@@ -271,21 +271,33 @@ impl GarbageCollector {
         );
 
         let new_task = tokio::spawn(async move {
+            tracing::error!(
+                walrus.epoch = epoch,
+                "DEBUG-DEADLOCK: phase 2 task SPAWNED (entering)"
+            );
             let sleep_duration = (data_deletion_target_time - Utc::now())
                 .to_std()
                 .unwrap_or(Duration::ZERO);
             if !sleep_duration.is_zero() {
-                tracing::info!(
-                    target_time = data_deletion_target_time.to_rfc3339(),
+                tracing::error!(
+                    walrus.epoch = epoch,
                     ?sleep_duration,
-                    "sleeping before performing data deletion",
+                    "DEBUG-DEADLOCK: phase 2 SLEEPING before perform_data_deletion"
                 );
                 tokio::time::sleep(sleep_duration).await;
+                tracing::error!(
+                    walrus.epoch = epoch,
+                    "DEBUG-DEADLOCK: phase 2 woke from sleep"
+                );
             }
 
             garbage_collector
                 .metrics
                 .set_garbage_collection_data_deletion_started_epoch(epoch);
+            tracing::error!(
+                walrus.epoch = epoch,
+                "DEBUG-DEADLOCK: phase 2 BEFORE perform_data_deletion"
+            );
             if let Err(error) = garbage_collector.perform_data_deletion(epoch).await {
                 tracing::error!(
                     ?error,
@@ -293,6 +305,10 @@ impl GarbageCollector {
                     "garbage collection phase 2 (data deletion) failed"
                 );
             }
+            tracing::error!(
+                walrus.epoch = epoch,
+                "DEBUG-DEADLOCK: phase 2 task END"
+            );
         });
 
         *task_handle = Some(new_task);
@@ -355,13 +371,25 @@ impl GarbageCollector {
     ///
     /// Returns an error if a DB operation fails.
     async fn perform_data_deletion(&self, epoch: Epoch) -> anyhow::Result<()> {
+        tracing::error!(
+            walrus.epoch = epoch,
+            "DEBUG-DEADLOCK: perform_data_deletion ENTRY (about to acquire compaction guard)"
+        );
         // Disable DB compactions during data deletion to improve performance. DB compactions are
         // automatically re-enabled when the guard is dropped.
         let _guard = self.node.storage.temporarily_disable_auto_compactions()?;
+        tracing::error!(
+            walrus.epoch = epoch,
+            "DEBUG-DEADLOCK: perform_data_deletion acquired compaction guard"
+        );
         tracing::info!("starting garbage collection phase 2: data deletion");
         fail_point_async!("data_deletion_start");
         let start = Instant::now();
 
+        tracing::error!(
+            walrus.epoch = epoch,
+            "DEBUG-DEADLOCK: perform_data_deletion BEFORE delete_expired_blob_data"
+        );
         if self
             .node
             .storage
@@ -381,6 +409,10 @@ impl GarbageCollector {
             .garbage_collection_phase2_duration_seconds
             .set(duration.as_secs_f64());
         tracing::info!(?duration, "garbage collection phase 2 completed");
+        tracing::error!(
+            walrus.epoch = epoch,
+            "DEBUG-DEADLOCK: perform_data_deletion EXIT (compaction guard about to drop)"
+        );
 
         Ok(())
     }

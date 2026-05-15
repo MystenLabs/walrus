@@ -208,6 +208,12 @@ impl StorageShardLock {
     }
 }
 
+impl Drop for StorageShardLock {
+    fn drop(&mut self) {
+        tracing::error!("DEBUG-DEADLOCK: StorageShardLock DROPPED (write_owned guard released)");
+    }
+}
+
 impl Storage {
     /// Opens the storage database located at the specified path, creating the database if absent.
     pub fn open(
@@ -459,7 +465,13 @@ impl Storage {
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
     pub(crate) async fn lock_shards(&self) -> StorageShardLock {
+        tracing::error!("DEBUG-DEADLOCK: lock_shards BEFORE write_owned (acquiring)");
+        let t = std::time::Instant::now();
         let shards_guard = self.shards.clone().write_owned().await;
+        tracing::error!(
+            elapsed_ms = t.elapsed().as_millis() as u64,
+            "DEBUG-DEADLOCK: lock_shards AFTER write_owned (acquired)"
+        );
         let existing_shards = shards_guard.keys().cloned().collect::<Vec<_>>();
         StorageShardLock {
             existing_shards,
@@ -526,18 +538,41 @@ impl Storage {
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
+        tracing::error!(
+            removed_count = removed.len(),
+            "DEBUG-DEADLOCK: remove_storage_for_shards ENTRY, BEFORE lock_shards (write)"
+        );
+        let t = std::time::Instant::now();
         let mut shard_map_lock = self.lock_shards().await;
+        tracing::error!(
+            elapsed_ms = t.elapsed().as_millis() as u64,
+            "DEBUG-DEADLOCK: remove_storage_for_shards AFTER lock_shards (write)"
+        );
         for shard_index in removed {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
             if let Some(shard_storage) = shard_map_lock.shards_guard.remove(shard_index) {
+                tracing::error!(
+                    walrus.shard_index = %shard_index,
+                    "DEBUG-DEADLOCK: BEFORE delete_shard_storage"
+                );
+                let dt = std::time::Instant::now();
                 // Do not hold the `shards` lock when deleting column families.
                 shard_storage.delete_shard_storage()?;
+                tracing::error!(
+                    walrus.shard_index = %shard_index,
+                    elapsed_ms = dt.elapsed().as_millis() as u64,
+                    "DEBUG-DEADLOCK: AFTER delete_shard_storage"
+                );
             }
             tracing::info!(
                 walrus.shard_index = %shard_index,
                 "successfully removed storage for shard"
             );
         }
+        tracing::error!(
+            removed_count = removed.len(),
+            "DEBUG-DEADLOCK: remove_storage_for_shards EXIT"
+        );
         Ok(())
     }
 
@@ -557,6 +592,8 @@ impl Storage {
     }
 
     async fn owned_shard_storages(&self) -> Result<Vec<Arc<ShardStorage>>, TypedStoreError> {
+        tracing::error!("DEBUG-DEADLOCK: owned_shard_storages BEFORE shards.read");
+        let t = std::time::Instant::now();
         // Snapshot the shard references under the read lock and release it before awaiting
         // `shard.status()`. Holding the read lock across the awaits can deadlock against the
         // write_owned guard taken by `lock_shards` (used by `remove_storage_for_shards`): if a
@@ -564,6 +601,11 @@ impl Storage {
         // side can make progress.
         let shard_clones: Vec<Arc<ShardStorage>> =
             self.shards.read().await.values().cloned().collect();
+        tracing::error!(
+            elapsed_ms = t.elapsed().as_millis() as u64,
+            count = shard_clones.len(),
+            "DEBUG-DEADLOCK: owned_shard_storages AFTER shards.read (lock released, cloned)"
+        );
         let owned =
             futures::future::try_join_all(shard_clones.into_iter().map(|shard| async move {
                 match shard.status().await {
@@ -575,6 +617,9 @@ impl Storage {
             .into_iter()
             .flatten()
             .collect::<Vec<_>>();
+        tracing::error!(
+            "DEBUG-DEADLOCK: owned_shard_storages AFTER try_join_all"
+        );
         Ok(owned)
     }
 
@@ -774,6 +819,10 @@ impl Storage {
         node_metrics: &NodeMetricSet,
         batch_size: usize,
     ) -> anyhow::Result<bool> {
+        tracing::error!(
+            walrus.epoch = current_epoch,
+            "DEBUG-DEADLOCK: delete_expired_blob_data ENTRY"
+        );
         if self.database.as_optimistic().is_none() {
             tracing::warn!("data deletion is only possible when the DB supports transactions");
             return Ok(false);
@@ -792,10 +841,19 @@ impl Storage {
 
         tracing::info!("starting to delete expired blob data");
         let start_time = Instant::now();
+        tracing::error!(
+            walrus.epoch = current_epoch,
+            "DEBUG-DEADLOCK: delete_expired_blob_data BEFORE owned_shard_storages"
+        );
         let shards = Arc::new(
             self.owned_shard_storages()
                 .await
                 .context("error while collecting shards for data deletion")?,
+        );
+        tracing::error!(
+            walrus.epoch = current_epoch,
+            shards_count = shards.len(),
+            "DEBUG-DEADLOCK: delete_expired_blob_data AFTER owned_shard_storages"
         );
 
         let this = self.clone();

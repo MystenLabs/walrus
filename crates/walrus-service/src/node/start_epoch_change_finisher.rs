@@ -48,6 +48,15 @@ impl StartEpochChangeFinisher {
     ) {
         let self_clone = self.clone();
         let event_clone = event.clone();
+        let event_epoch = event.epoch;
+        let shards_count = shards.len();
+
+        tracing::error!(
+            walrus.epoch = event_epoch,
+            shards_count,
+            ongoing_shard_sync,
+            "DEBUG-DEADLOCK: start_finish_epoch_change_tasks called"
+        );
 
         let mut locked_task_handle = self
             .task_handle
@@ -56,6 +65,12 @@ impl StartEpochChangeFinisher {
         assert!(locked_task_handle.is_none());
 
         let handle = tokio::spawn(async move {
+            tracing::error!(
+                walrus.epoch = event_epoch,
+                shards_count,
+                ongoing_shard_sync,
+                "DEBUG-DEADLOCK: finisher task START"
+            );
             let backoff = ExponentialBackoff::new_with_seed(
                 Duration::from_secs(10),
                 Duration::from_mins(5),
@@ -70,11 +85,28 @@ impl StartEpochChangeFinisher {
 
             if let Err(error) = backoff::retry(backoff, || async {
                 if !ongoing_shard_sync {
+                    tracing::error!(
+                        walrus.epoch = event_epoch,
+                        "DEBUG-DEADLOCK: finisher BEFORE epoch_sync_done"
+                    );
                     self_clone.epoch_sync_done(&committees, &event_clone).await;
+                    tracing::error!(
+                        walrus.epoch = event_epoch,
+                        "DEBUG-DEADLOCK: finisher AFTER epoch_sync_done"
+                    );
                 }
+                tracing::error!(
+                    walrus.epoch = event_epoch,
+                    shards_count,
+                    "DEBUG-DEADLOCK: finisher BEFORE remove_storage_for_shards"
+                );
                 self_clone
                     .remove_storage_for_shards(event_clone.clone(), &shards.clone())
                     .await?;
+                tracing::error!(
+                    walrus.epoch = event_epoch,
+                    "DEBUG-DEADLOCK: finisher AFTER remove_storage_for_shards"
+                );
                 anyhow::Ok(())
             })
             .await
@@ -87,12 +119,24 @@ impl StartEpochChangeFinisher {
                 );
             }
 
+            tracing::error!(
+                walrus.epoch = event_epoch,
+                "DEBUG-DEADLOCK: finisher BEFORE mark_as_complete"
+            );
             event_handle.mark_as_complete();
+            tracing::error!(
+                walrus.epoch = event_epoch,
+                "DEBUG-DEADLOCK: finisher AFTER mark_as_complete"
+            );
             self_clone
                 .task_handle
                 .lock()
                 .expect("take lock should not fail")
                 .take();
+            tracing::error!(
+                walrus.epoch = event_epoch,
+                "DEBUG-DEADLOCK: finisher task END"
+            );
         });
 
         *locked_task_handle = Some(handle);
@@ -160,7 +204,11 @@ impl StartEpochChangeFinisher {
             .expect("grab lock should not fail")
             .take();
         if let Some(handle) = existing_handle {
+            tracing::error!("DEBUG-DEADLOCK: wait_until_previous_task_done awaiting handle");
             handle.await.expect("task should not have panicked");
+            tracing::error!("DEBUG-DEADLOCK: wait_until_previous_task_done handle resolved");
+        } else {
+            tracing::error!("DEBUG-DEADLOCK: wait_until_previous_task_done no handle");
         }
     }
 }

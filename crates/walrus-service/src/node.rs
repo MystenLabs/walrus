@@ -1853,13 +1853,17 @@ impl StorageNode {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all)]
+    #[tracing::instrument(skip_all, fields(walrus.epoch = event.epoch))]
     async fn process_epoch_change_start_event(
         &self,
         blob_event_processor: &BlobEventProcessor,
         event_handle: EventHandle,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: process_epoch_change_start_event ENTRY"
+        );
         // There shouldn't be an epoch change event for the genesis epoch.
         assert!(event.epoch != GENESIS_EPOCH);
 
@@ -1877,9 +1881,17 @@ impl StorageNode {
         // Note that we expect this call to finish quickly because removing RocksDb column
         // families is supposed to be fast, and we have an entire epoch duration to do so. By
         // the time next epoch starts, the shard removal task should have completed.
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: BEFORE wait_until_previous_task_done"
+        );
         self.start_epoch_change_finisher
             .wait_until_previous_task_done()
             .await;
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: AFTER wait_until_previous_task_done"
+        );
 
         // Before processing the epoch change start event, we need to wait for all the events in
         // the current epoch to be processed (note that this does not include waiting for all
@@ -1900,7 +1912,15 @@ impl StorageNode {
         // error stops processing before any committee/shard state changes, and shard removal
         // (spawned by `execute_epoch_change` as part of the finisher task) cannot contend with
         // phase 1's disk traffic on the same RocksDB instance.
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: BEFORE start_garbage_collection_task"
+        );
         self.start_garbage_collection_task(event.epoch).await?;
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: AFTER start_garbage_collection_task"
+        );
 
         // Capture the event index before the handle is moved into `execute_epoch_change` so
         // we can later detect whether this event is being reprocessed.
@@ -1908,14 +1928,30 @@ impl StorageNode {
 
         // During epoch change, we need to lock the read access to shard map until all the new
         // shards are created.
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: BEFORE handler lock_shards"
+        );
         let shard_map_lock = self.inner.storage.lock_shards().await;
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: AFTER handler lock_shards"
+        );
 
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
         // to bring the node state to the next epoch. `execute_epoch_change` ends by spawning
         // the finisher task (shard removal + `epoch_sync_done` + `mark_as_complete`), so the
         // finisher is guaranteed to fire only after phase 1 succeeded.
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: BEFORE execute_epoch_change"
+        );
         self.execute_epoch_change(event_handle, event, shard_map_lock)
             .await?;
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: AFTER execute_epoch_change"
+        );
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
         // check for shard ownership.
@@ -1927,6 +1963,10 @@ impl StorageNode {
         // for the epoch that just ended.
         self.epoch_change_driver
             .schedule_post_epoch_change_subsidies();
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            "DEBUG-DEADLOCK: process_epoch_change_start_event handler EXIT (finisher may still run)"
+        );
 
         // Schedule the storage node consistency check after garbage collection has settled the
         // aggregate blob info table. The iterator's `is_certified` filter relies on counters
@@ -3525,13 +3565,32 @@ impl StorageNodeInner {
         shard_map_lock: StorageShardLock,
     ) -> Result<(), anyhow::Error> {
         let this = self.clone();
+        let n = new_shards.len();
+        tracing::error!(
+            count = n,
+            "DEBUG-DEADLOCK: create_storage_for_shards_in_background BEFORE spawn_blocking await"
+        );
         tokio::task::spawn_blocking(move || {
-            this.storage
-                .create_storage_for_shards_locked(shard_map_lock, &new_shards)
+            tracing::error!(
+                count = new_shards.len(),
+                "DEBUG-DEADLOCK: spawn_blocking closure ENTRY (holds write_owned)"
+            );
+            let r = this
+                .storage
+                .create_storage_for_shards_locked(shard_map_lock, &new_shards);
+            tracing::error!(
+                count = new_shards.len(),
+                "DEBUG-DEADLOCK: spawn_blocking closure EXIT (write_owned dropped)"
+            );
+            r
         })
         .in_current_span()
         .map(unwrap_or_resume_unwind)
         .await?;
+        tracing::error!(
+            count = n,
+            "DEBUG-DEADLOCK: create_storage_for_shards_in_background AFTER spawn_blocking await"
+        );
         Ok(())
     }
 
