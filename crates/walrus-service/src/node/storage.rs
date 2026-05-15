@@ -557,19 +557,25 @@ impl Storage {
     }
 
     async fn owned_shard_storages(&self) -> Result<Vec<Arc<ShardStorage>>, TypedStoreError> {
-        let shards = futures::future::try_join_all(self.shards.read().await.values().map(
-            |shard| async move {
+        // Snapshot the shard references under the read lock and release it before awaiting
+        // `shard.status()`. Holding the read lock across the awaits can deadlock against the
+        // write_owned guard taken by `lock_shards` (used by `remove_storage_for_shards`): if a
+        // writer is queued while this function is parked at `shard.status().await`, neither
+        // side can make progress.
+        let shard_clones: Vec<Arc<ShardStorage>> =
+            self.shards.read().await.values().cloned().collect();
+        let owned =
+            futures::future::try_join_all(shard_clones.into_iter().map(|shard| async move {
                 match shard.status().await {
-                    Ok(status) => Ok(status.is_owned_by_node().then_some(shard.clone())),
+                    Ok(status) => Ok(status.is_owned_by_node().then_some(shard)),
                     Err(error) => Err(error),
                 }
-            },
-        ))
-        .await?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-        Ok(shards)
+            }))
+            .await?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+        Ok(owned)
     }
 
     /// Returns a handle over the storage for a single shard.
