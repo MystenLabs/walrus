@@ -219,13 +219,6 @@ impl ShardSyncProgress {
             sliver_type,
         })
     }
-
-    #[cfg(test)]
-    fn last_synced_blob_id(&self) -> Option<BlobId> {
-        match self {
-            ShardSyncProgress::V1(p) => Some(p.last_synced_blob_id),
-        }
-    }
 }
 
 // Represents the last synced status of the shard after restart.
@@ -1764,11 +1757,10 @@ impl ShardStorage {
             .collect()
     }
 
+    /// Returns `true` when no `ShardSyncProgress` entry is recorded for this shard.
     #[cfg(test)]
-    pub(crate) fn get_last_synced_blob_id(&self) -> Result<Option<BlobId>, TypedStoreError> {
-        self.shard_sync_progress
-            .get(&())
-            .map(|progress| progress.and_then(|p| p.last_synced_blob_id()))
+    pub(crate) fn is_shard_sync_progress_empty(&self) -> Result<bool, TypedStoreError> {
+        Ok(self.shard_sync_progress.get(&())?.is_none())
     }
 }
 
@@ -2025,6 +2017,29 @@ mod tests {
         }
 
         assert_eq!(shard.is_sliver_pair_stored(&BLOB_ID)?, is_pair_stored);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn record_start_shard_sync_clears_existing_progress() -> TestResult {
+        let storage = empty_storage().await;
+        let shard = storage
+            .as_ref()
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard should exist");
+
+        // Seed a residual progress entry, as if a previous sync was interrupted partway through.
+        shard
+            .shard_sync_progress
+            .insert(&(), &ShardSyncProgress::new(BLOB_ID, SliverType::Primary))?;
+        assert!(!shard.is_shard_sync_progress_empty()?);
+
+        shard.record_start_shard_sync().await?;
+
+        assert!(shard.is_shard_sync_progress_empty()?);
+        assert_eq!(shard.status().await?, ShardStatus::ActiveSync);
 
         Ok(())
     }

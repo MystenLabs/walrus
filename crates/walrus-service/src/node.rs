@@ -7813,12 +7813,11 @@ mod tests {
         // Checks that the shard is completely migrated.
         check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
-        // Checks that the shard sync progress is reset.
+        // Checks that the shard sync progress entry is removed at the end of the sync.
         assert!(
             shard_storage_dst
-                .get_last_synced_blob_id()
-                .expect("getting last synced blob id should succeed")
-                .is_none()
+                .is_shard_sync_progress_empty()
+                .expect("reading shard sync progress should succeed")
         );
         Ok(())
     }
@@ -7931,12 +7930,11 @@ mod tests {
             &[],
         )?;
 
-        // Checks that the shard sync progress is reset.
+        // Checks that the shard sync progress entry is removed at the end of the sync.
         assert!(
             shard_storage_dst
-                .get_last_synced_blob_id()
-                .expect("getting last synced blob id should succeed")
-                .is_none()
+                .is_shard_sync_progress_empty()
+                .expect("reading shard sync progress should succeed")
         );
 
         Ok(())
@@ -8010,12 +8008,11 @@ mod tests {
             &[],
         )?;
 
-        // Checks that the shard sync progress is reset.
+        // Checks that the shard sync progress entry is removed at the end of the sync.
         assert!(
             shard_storage_dst
-                .get_last_synced_blob_id()
-                .expect("getting last synced blob id should succeed")
-                .is_none()
+                .is_shard_sync_progress_empty()
+                .expect("reading shard sync progress should succeed")
         );
 
         Ok(())
@@ -8138,12 +8135,11 @@ mod tests {
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
-            // Checks that the shard sync progress is reset.
+            // Checks that the shard sync progress entry is removed at the end of the sync.
             assert!(
                 shard_storage_dst
-                    .get_last_synced_blob_id()
-                    .expect("getting last synced blob id should succeed")
-                    .is_none()
+                    .is_shard_sync_progress_empty()
+                    .expect("reading shard sync progress should succeed")
             );
 
             Ok(())
@@ -8313,12 +8309,11 @@ mod tests {
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
-            // Checks that the shard sync progress is reset.
+            // Checks that the shard sync progress entry is removed at the end of the sync.
             assert!(
                 shard_storage_dst
-                    .get_last_synced_blob_id()
-                    .expect("getting last synced blob id should succeed")
-                    .is_none()
+                    .is_shard_sync_progress_empty()
+                    .expect("reading shard sync progress should succeed")
             );
 
             if must_use_recovery {
@@ -8362,12 +8357,11 @@ mod tests {
             wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
             check_all_blobs_are_synced(&_blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
-            // Checks that the shard sync progress is reset.
+            // Checks that the shard sync progress entry is removed at the end of the sync.
             assert!(
                 shard_storage_dst
-                    .get_last_synced_blob_id()
-                    .expect("getting last synced blob id should succeed")
-                    .is_none()
+                    .is_shard_sync_progress_empty()
+                    .expect("reading shard sync progress should succeed")
             );
 
             Ok(())
@@ -8485,12 +8479,11 @@ mod tests {
             // All blobs should be recovered in the new dst node.
             check_all_blobs_are_synced(&details, &node_inner.storage, &shard_storage_dst, &[])?;
 
-            // Checks that the shard sync progress is reset.
+            // Checks that the shard sync progress entry is removed at the end of the sync.
             assert!(
                 shard_storage_dst
-                    .get_last_synced_blob_id()
-                    .expect("getting last synced blob id should succeed")
-                    .is_none()
+                    .is_shard_sync_progress_empty()
+                    .expect("reading shard sync progress should succeed")
             );
 
             // Checks that shard sync recovery is not triggered.
@@ -8601,12 +8594,11 @@ mod tests {
                 &[],
             )?;
 
-            // Checks that the shard sync progress is reset.
+            // Checks that the shard sync progress entry is removed at the end of the sync.
             assert!(
                 shard_storage_dst
-                    .get_last_synced_blob_id()
-                    .expect("getting last synced blob id should succeed")
-                    .is_none()
+                    .is_shard_sync_progress_empty()
+                    .expect("reading shard sync progress should succeed")
             );
 
             Ok(())
@@ -8685,12 +8677,11 @@ mod tests {
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
-            // Checks that the shard sync progress is reset.
+            // Checks that the shard sync progress entry is removed at the end of the sync.
             assert!(
                 shard_storage_dst
-                    .get_last_synced_blob_id()
-                    .expect("getting last synced blob id should succeed")
-                    .is_none()
+                    .is_shard_sync_progress_empty()
+                    .expect("reading shard sync progress should succeed")
             );
 
             Ok(())
@@ -8980,12 +8971,11 @@ mod tests {
                 &non_synced_blob_index,
             )?;
 
-            // Checks that the shard sync progress is reset.
+            // Checks that the shard sync progress entry is removed at the end of the sync.
             assert!(
                 shard_storage_dst
-                    .get_last_synced_blob_id()
-                    .expect("getting last synced blob id should succeed")
-                    .is_none()
+                    .is_shard_sync_progress_empty()
+                    .expect("reading shard sync progress should succeed")
             );
 
             clear_fail_point("shard_recovery_skip_initial_blob_certification_check");
