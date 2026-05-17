@@ -5,6 +5,7 @@ use alloc::{collections::BTreeSet, vec, vec::Vec};
 use core::{cmp, marker::PhantomData, num::NonZeroU16, ops::Range, slice::Chunks};
 
 use fastcrypto::hash::Blake2b256;
+use rayon::prelude::*;
 use tracing::{Level, Span};
 
 use super::{
@@ -29,6 +30,21 @@ use crate::{
     merkle::{MerkleTree, Node, leaf_hash},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
 };
+
+/// Peak intermediate memory we let the per-batch parallel encoder collect before scattering.
+///
+/// Each batch parallel-encodes a set of source slivers and collects the resulting symbol
+/// bodies (plus per-symbol leaf hashes for the primary path) into a `Vec`. The batch size is
+/// then `BUDGET / per_item_bytes`, clamped to `[1, total_items]`. 256 MB is comfortably below
+/// any reasonable server's RAM and large enough to keep rayon work-stealing saturated even at
+/// the 13 GiB blob limit (where `per_item_bytes ~ 65 MiB` and the batch shrinks to ~4 items).
+const PARALLEL_BATCH_MEM_BUDGET_BYTES: usize = 256 * 1024 * 1024;
+
+/// Compute a per-batch item count from a memory budget.
+fn parallel_batch_size(per_item_bytes: usize, total_items: usize) -> usize {
+    let raw = PARALLEL_BATCH_MEM_BUDGET_BYTES / per_item_bytes.max(1);
+    raw.max(1).min(total_items.max(1))
+}
 
 /// A wrapper around a blob that can be either owned (i.e., `Vec<u8>`) or borrowed (`&[u8]`).
 #[derive(Debug)]
@@ -303,30 +319,53 @@ impl<'a> BlobEncoder<'a> {
 
         drop(self.blob);
 
+        let n_rows = self.inner.n_rows_usize();
+        let n_cols = self.inner.n_columns_usize();
+        let n_shards = self.inner.config.n_shards_as_usize();
+        let symbol_size = self.inner.symbol_size.get() as usize;
+
         // Compute the remaining secondary slivers by encoding the rows (i.e., primary slivers)
         // using the secondary encoding.
-        let mut secondary_encoder = self.inner.get_encoder::<Secondary>();
-        for (r, row) in primary_slivers
-            .iter()
-            .take(self.inner.n_rows_usize())
-            .enumerate()
-        {
-            let encode_result = secondary_encoder
-                .encode(row.symbols.data())
-                .expect("size has already been checked");
-            for (symbol, sliver) in encode_result.recovery_iter().zip(
-                secondary_slivers
-                    .iter_mut()
-                    .skip(self.inner.n_columns_usize()),
-            ) {
-                sliver.copy_symbol_to(r, symbol);
+        //
+        // PERF: this loop is the dominant cost of `encode_with_metadata` for medium and large
+        // blobs. We parallelize across rows via rayon, collecting recovery symbols per row in a
+        // batch, then sequentially scattering them into `secondary_slivers` (whose writes form
+        // a scatter pattern that the borrow checker can't safely express across parallel tasks).
+        // Batches are sized to bound peak intermediate memory at
+        // [`PARALLEL_BATCH_MEM_BUDGET_BYTES`]; on the multi-GB blob path this is what keeps the
+        // collect step from blowing up RSS.
+        let recovery_per_row = n_shards.saturating_sub(n_cols);
+        let secondary_batch_size = parallel_batch_size(recovery_per_row * symbol_size, n_rows);
+        let mut batch_results: Vec<Vec<Vec<u8>>> = Vec::with_capacity(secondary_batch_size);
+        for batch_start in (0..n_rows).step_by(secondary_batch_size) {
+            let batch_end = cmp::min(batch_start + secondary_batch_size, n_rows);
+            batch_results.clear();
+            primary_slivers[batch_start..batch_end]
+                .par_iter()
+                .map_init(
+                    || self.inner.get_encoder::<Secondary>(),
+                    |encoder, sliver| {
+                        let result = encoder
+                            .encode(sliver.symbols.data())
+                            .expect("size has already been checked");
+                        result.recovery_iter().map(|s| s.to_vec()).collect()
+                    },
+                )
+                .collect_into_vec(&mut batch_results);
+            for (i, symbols) in batch_results.iter().enumerate() {
+                let r = batch_start + i;
+                for (symbol, sliver) in symbols
+                    .iter()
+                    .zip(secondary_slivers.iter_mut().skip(n_cols))
+                {
+                    sliver.copy_symbol_to(r, symbol);
+                }
             }
         }
-        drop(secondary_encoder);
+        drop(batch_results);
 
         // Now we can encode all secondary slivers, computing the remaining primary slivers and all
         // symbol hashes.
-        let n_shards = self.inner.config.n_shards_as_usize();
         let mut symbol_hashes = vec![Node::Empty; n_shards * n_shards];
 
         // Create the non-systematic primary slivers.
@@ -334,25 +373,64 @@ impl<'a> BlobEncoder<'a> {
             self.inner.n_rows.get()..self.inner.config.n_shards().get(),
         ));
 
-        let mut primary_encoder = self.inner.get_encoder::<Primary>();
-        for (col_index, column) in secondary_slivers.iter().enumerate() {
-            let symbols = primary_encoder
-                .encode_all_ref(column.symbols.data())
-                .expect("size has already been checked");
-            for (row_index, symbol) in symbols.to_symbols().enumerate() {
-                symbol_hashes[n_shards * row_index + col_index] = leaf_hash::<Blake2b256>(symbol);
-            }
-            if col_index < self.inner.n_columns_usize() {
-                for (symbol, sliver) in symbols
-                    .to_symbols()
-                    .zip(primary_slivers.iter_mut())
-                    .skip(self.inner.n_rows_usize())
-                {
-                    sliver.copy_symbol_to(col_index, symbol);
+        // PERF: same batched-parallel strategy as the secondary loop above. Each column produces
+        // (a) a full set of leaf hashes (one per row) and (b) optionally a set of symbol bodies
+        // for the non-systematic primary slivers. We compute hashes inside the parallel task
+        // (saves a second pass over encoded symbols on the host) but defer the scatter into
+        // `symbol_hashes` / `primary_slivers` to a serial step because both have indexed writes
+        // that aliasing-check would reject across rayon tasks.
+        type PrimaryBatchItem = (Vec<Node>, Option<Vec<Vec<u8>>>);
+        let per_col_bytes = (n_shards * symbol_size) + (n_shards * 32 /* Blake2b256 */);
+        let primary_batch_size = parallel_batch_size(per_col_bytes, n_shards);
+        let mut primary_batch: Vec<PrimaryBatchItem> = Vec::with_capacity(primary_batch_size);
+        for batch_start in (0..n_shards).step_by(primary_batch_size) {
+            let batch_end = cmp::min(batch_start + primary_batch_size, n_shards);
+            primary_batch.clear();
+            secondary_slivers[batch_start..batch_end]
+                .par_iter()
+                .enumerate()
+                .map_init(
+                    || self.inner.get_encoder::<Primary>(),
+                    |encoder, (i, column)| {
+                        let col_index = batch_start + i;
+                        let symbols_result = encoder
+                            .encode_all_ref(column.symbols.data())
+                            .expect("size has already been checked");
+                        let hashes: Vec<Node> = symbols_result
+                            .to_symbols()
+                            .map(leaf_hash::<Blake2b256>)
+                            .collect();
+                        let sliver_symbols = if col_index < n_cols {
+                            Some(
+                                symbols_result
+                                    .to_symbols()
+                                    .skip(n_rows)
+                                    .map(|s| s.to_vec())
+                                    .collect(),
+                            )
+                        } else {
+                            None
+                        };
+                        (hashes, sliver_symbols)
+                    },
+                )
+                .collect_into_vec(&mut primary_batch);
+            for (i, (hashes, sliver_symbols)) in primary_batch.drain(..).enumerate() {
+                let col_index = batch_start + i;
+                for (row_index, hash) in hashes.into_iter().enumerate() {
+                    symbol_hashes[n_shards * row_index + col_index] = hash;
+                }
+                if let Some(symbols) = sliver_symbols {
+                    for (symbol, sliver) in symbols
+                        .iter()
+                        .zip(primary_slivers.iter_mut().skip(n_rows))
+                    {
+                        sliver.copy_symbol_to(col_index, symbol);
+                    }
                 }
             }
         }
-        drop(primary_encoder);
+        drop(primary_batch);
 
         let sliver_pairs = primary_slivers
             .into_iter()
