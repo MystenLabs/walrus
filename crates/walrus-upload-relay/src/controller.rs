@@ -165,16 +165,26 @@ impl Controller {
         }
 
         let encode_start_timer = Instant::now();
-        // PERF: encoding should probably be done on a separate thread pool.
-        let (sliver_pairs, metadata) = self
-            .client
-            .encoding_config()
-            .get_for_type(
-                params
-                    .encoding_type
-                    .unwrap_or(walrus_sdk::core::DEFAULT_ENCODING),
-            )
-            .encode_with_metadata(body.into())?;
+        // Encoding is CPU-bound and can take hundreds of milliseconds for
+        // multi-GB blobs. Run it on `spawn_blocking` so the tokio reactor
+        // thread stays free to drive other concurrent requests. The
+        // `EncodingConfig` is cheap to clone (all `Copy` fields), and
+        // `Bytes` is `Send`, so the move into the blocking task is free.
+        let encoding_config = self.client.encoding_config().clone();
+        let encoding_type = params
+            .encoding_type
+            .unwrap_or(walrus_sdk::core::DEFAULT_ENCODING);
+        let (sliver_pairs, metadata) = tokio::task::spawn_blocking(move || {
+            encoding_config
+                .get_for_type(encoding_type)
+                .encode_with_metadata(body.into())
+        })
+        .await
+        .map_err(|join_err| {
+            WalrusUploadRelayError::Other(anyhow::anyhow!(
+                "blob encoding task failed to join: {join_err}"
+            ))
+        })??;
         let duration = encode_start_timer.elapsed();
 
         tracing::debug!(

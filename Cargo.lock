@@ -13102,6 +13102,7 @@ dependencies = [
  "p256",
  "proptest",
  "rand 0.8.5",
+ "rayon",
  "reed-solomon-simd",
  "serde",
  "serde_test",
