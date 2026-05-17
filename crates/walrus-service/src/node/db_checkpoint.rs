@@ -58,7 +58,10 @@ use tokio::{task::JoinHandle, time};
 use tokio_util::sync::CancellationToken;
 use typed_store::rocks::RocksDB;
 
-use crate::node::errors::DbCheckpointError;
+use crate::node::{
+    errors::DbCheckpointError,
+    metrics::{NodeMetricSet, STATUS_FAILURE, STATUS_SUCCESS},
+};
 
 /// Configuration for RocksDB db_checkpoint management.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -282,9 +285,14 @@ impl DbCheckpointManager {
     const DEFAULT_TASK_TIMEOUT: StdDuration = time::Duration::from_hours(1);
 
     /// Create a new db_checkpoint manager for RocksDB.
-    //
-    // TODO(WAL-845): Add metrics for db_checkpoint creation and restore.
-    pub fn new(db: Arc<RocksDB>, config: DbCheckpointConfig) -> Result<Self, DbCheckpointError> {
+    ///
+    /// When `metrics` is provided, db_checkpoint creation attempts are tracked via the
+    /// `db_checkpoint_create_*` metrics on [`NodeMetricSet`].
+    pub(crate) fn new(
+        db: Arc<RocksDB>,
+        config: DbCheckpointConfig,
+        metrics: Option<Arc<NodeMetricSet>>,
+    ) -> Result<Self, DbCheckpointError> {
         tracing::info!(?config, "DbCheckpointManager starting...");
         if let Some(db_checkpoint_dir) = config.db_checkpoint_dir.as_ref() {
             create_dir_all(db_checkpoint_dir).map_err(|e| DbCheckpointError::Other(e.into()))?;
@@ -298,7 +306,14 @@ impl DbCheckpointManager {
         let (command_tx, command_rx) = tokio::sync::mpsc::channel(10);
 
         let execution_loop: JoinHandle<Result<(), DbCheckpointError>> = tokio::spawn(async move {
-            Self::execution_loop(db_clone, config_clone, cancel_token_clone, command_rx).await?;
+            Self::execution_loop(
+                db_clone,
+                config_clone,
+                cancel_token_clone,
+                command_rx,
+                metrics,
+            )
+            .await?;
             Ok(())
         });
 
@@ -404,6 +419,7 @@ impl DbCheckpointManager {
         config: DbCheckpointConfig,
         cancel_token: CancellationToken,
         mut command_rx: tokio::sync::mpsc::Receiver<DbCheckpointRequest>,
+        metrics: Option<Arc<NodeMetricSet>>,
     ) -> Result<(), DbCheckpointError> {
         let mut current_task: Option<Arc<DelayedTask>> = None;
 
@@ -430,26 +446,34 @@ impl DbCheckpointManager {
                             } else {
                                 let db_clone = db.clone();
                                 let config_clone = config.clone();
+                                let metrics_clone = metrics.clone();
                                 current_task = Some(Arc::new(DelayedTask::new(
                                     time::Instant::now() + delay.unwrap_or_default(),
                                     Self::DEFAULT_TASK_TIMEOUT,
                                     move || {
+                                        let start = std::time::Instant::now();
                                         let result = Self::create_backup_impl(
                                             &db_clone, &db_checkpoint_dir, config_clone.sync,
                                             Some(config_clone.max_background_operations)
                                         );
-                                        match &result {
+                                        let elapsed = start.elapsed().as_secs_f64();
+                                        let status = match &result {
                                             Ok(_) => {
                                                 Self::purge_old_db_checkpoints(
                                                     &db_checkpoint_dir, config.max_db_checkpoints
                                                 );
+                                                STATUS_SUCCESS
                                             },
                                             Err(error) => {
                                                 tracing::error!(
                                                     ?error,
                                                     "failed to create DB checkpoint"
                                                 );
+                                                STATUS_FAILURE
                                             }
+                                        };
+                                        if let Some(metrics) = metrics_clone.as_ref() {
+                                            Self::record_create_metrics(metrics, status, elapsed);
                                         }
                                         result
                                     },
@@ -477,6 +501,20 @@ impl DbCheckpointManager {
         }
 
         Ok(())
+    }
+
+    /// Records db_checkpoint creation metrics. Called from the blocking thread inside the
+    /// create-backup task so timing reflects the actual checkpoint operation.
+    fn record_create_metrics(metrics: &NodeMetricSet, status: &str, elapsed_seconds: f64) {
+        walrus_utils::with_label!(metrics.db_checkpoint_create_total, status).inc();
+        walrus_utils::with_label!(metrics.db_checkpoint_create_duration_seconds, status)
+            .observe(elapsed_seconds);
+        if status == STATUS_SUCCESS {
+            let now_secs = Utc::now().timestamp();
+            metrics
+                .db_checkpoint_last_successful_timestamp_seconds
+                .set(now_secs);
+        }
     }
 
     async fn schedule_loop(
@@ -838,6 +876,7 @@ mod tests {
                     db_checkpoint_dir: Some(db_checkpoint_dir.path().to_path_buf()),
                     ..Default::default()
                 },
+                None,
             )?;
 
             db_checkpoint_manager
@@ -890,6 +929,77 @@ mod tests {
                 );
             }
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn db_checkpoint_create_records_success_metrics() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let db_dir = tempdir()?;
+        let db_checkpoint_dir = tempdir()?;
+        let metrics = Arc::new(NodeMetricSet::new(
+            &walrus_utils::metrics::Registry::default(),
+        ));
+
+        let mut db_opts = Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
+        let db = rocks::open_cf_opts(
+            db_dir.path(),
+            Some(db_opts),
+            MetricConf::default(),
+            &[("default", cf_options_with_blobs())],
+        )?;
+        let db_map = DBMap::<Vec<u8>, Vec<u8>>::reopen(
+            &db,
+            Some("default"),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        for (key, value) in generate_test_data(10, MIN_BLOB_SIZE.into()) {
+            db_map.insert(&key, &value)?;
+        }
+
+        let db_checkpoint_manager = DbCheckpointManager::new(
+            db,
+            DbCheckpointConfig {
+                db_checkpoint_dir: Some(db_checkpoint_dir.path().to_path_buf()),
+                ..Default::default()
+            },
+            Some(metrics.clone()),
+        )?;
+
+        db_checkpoint_manager
+            .schedule_and_wait_for_db_checkpoint_creation(Some(db_checkpoint_dir.path()), None)
+            .await?;
+
+        assert_eq!(
+            walrus_utils::with_label!(metrics.db_checkpoint_create_total, STATUS_SUCCESS).get(),
+            1,
+            "success counter should be incremented exactly once"
+        );
+        assert_eq!(
+            walrus_utils::with_label!(metrics.db_checkpoint_create_total, STATUS_FAILURE).get(),
+            0,
+            "failure counter should not be incremented on success"
+        );
+        assert_eq!(
+            walrus_utils::with_label!(
+                metrics.db_checkpoint_create_duration_seconds,
+                STATUS_SUCCESS
+            )
+            .get_sample_count(),
+            1,
+            "duration histogram should observe exactly one success sample"
+        );
+        assert!(
+            metrics
+                .db_checkpoint_last_successful_timestamp_seconds
+                .get()
+                > 0,
+            "last-successful timestamp should be set to a positive unix timestamp"
+        );
 
         Ok(())
     }

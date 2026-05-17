@@ -276,6 +276,18 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "Total number of failed WAL price fetch requests"]
         wal_price_fetch_failure_total: IntCounterVec["price_source"],
+
+        #[help = "Total number of db checkpoint creation attempts per outcome"]
+        db_checkpoint_create_total: IntCounterVec["status"],
+
+        #[help = "Duration of db checkpoint creation in seconds"]
+        db_checkpoint_create_duration_seconds: HistogramVec {
+            labels: ["status"],
+            buckets: db_checkpoint_duration_buckets(),
+        },
+
+        #[help = "Unix timestamp (in seconds) of the most recent successful db checkpoint"]
+        db_checkpoint_last_successful_timestamp_seconds: IntGauge[],
     }
 }
 
@@ -346,6 +358,12 @@ impl NodeMetricSet {
 /// histograms created by Prometheus.
 fn default_buckets_for_slow_operations() -> Vec<f64> {
     prometheus::exponential_buckets(0.03125, 2.0, 14).expect("count, start, and factor are valid")
+}
+
+/// Returns 13 buckets from 1 second to 4096 seconds (~68 minutes), suitable for db checkpoint
+/// creation times which can range from seconds (small DBs) to nearly an hour.
+fn db_checkpoint_duration_buckets() -> Vec<f64> {
+    prometheus::exponential_buckets(1.0, 2.0, 13).expect("count, start, and factor are valid")
 }
 
 fn with_zero_bucket(mut buckets: Vec<f64>) -> Vec<f64> {

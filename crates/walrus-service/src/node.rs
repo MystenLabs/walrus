@@ -826,14 +826,17 @@ impl StorageNode {
             config.pending_metadata_cache.cache_ttl,
             metrics.clone(),
         );
-        let checkpoint_manager =
-            match DbCheckpointManager::new(storage.get_db(), config.checkpoint_config.clone()) {
-                Ok(manager) => Some(Arc::new(manager)),
-                Err(error) => {
-                    tracing::warn!(?error, "failed to initialize checkpoint manager");
-                    None
-                }
-            };
+        let checkpoint_manager = match DbCheckpointManager::new(
+            storage.get_db(),
+            config.checkpoint_config.clone(),
+            Some(metrics.clone()),
+        ) {
+            Ok(manager) => Some(Arc::new(manager)),
+            Err(error) => {
+                tracing::warn!(?error, "failed to initialize checkpoint manager");
+                None
+            }
+        };
         let system_parameters = contract_service.fixed_system_parameters();
         let (latest_event_epoch_sender, latest_event_epoch_watcher) = watch::channel(None);
         let inner = Arc::new(StorageNodeInner {
