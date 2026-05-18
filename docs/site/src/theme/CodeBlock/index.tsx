@@ -6,7 +6,13 @@ import type { Props } from "@theme/CodeBlock";
 import OriginalCodeBlock from "@theme-original/CodeBlock";
 
 export default function CodeBlock(props: Props) {
-    // Delegate to the theme's original component so we keep its Context provider
-    // and any built-in behavior, while still allowing future customizations here.
-    return <OriginalCodeBlock {...props} />;
+    const meta = (props as any).metastring ?? "";
+    const match = meta.match(/agentPrompt="([^"]+)"/);
+    const prompt = match?.[1];
+
+    return (
+        <div data-agent-prompt={prompt}>
+            <OriginalCodeBlock {...props} />
+        </div>
+    );
 }
