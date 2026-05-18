@@ -92,10 +92,7 @@ export default function CopyButton({ className }: Props): ReactNode {
                     </span>
                 </span>
             </Button>
-            <OpenInAgentButton
-                className={className}
-                ButtonComponent={Button}
-            />
+            <OpenInAgentButton className={className} />
         </span>
     );
 }
