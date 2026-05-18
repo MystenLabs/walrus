@@ -2,13 +2,10 @@
   Copyright (c) Walrus Foundation
   SPDX-License-Identifier: Apache-2.0
 */
-/* Wrapper keeps the dropdown anchored to the trigger button.
-  Override Docusaurus button-bar opacity so the button is always visible. */
+/* Wrapper keeps the dropdown anchored to the trigger button */
 .wrapper {
   position: relative;
   display: inline-flex;
-  opacity: 1 !important;
-  visibility: visible !important;
 }
 
 /* Trigger button: inherits code-block button styling from the theme.
@@ -104,4 +101,12 @@
   font-size: 12px;
   opacity: 0.65;
   line-height: 1.4;
+}
+
+/* Force the Docusaurus code block button group to always be visible.
+  By default it hides with opacity:0 and only shows on hover. */
+:global(.buttonGroup_node_modules),
+:global([class*="buttonGroup_"]) {
+  opacity: 1 !important;
+  transition: none !important;
 }
