@@ -5,7 +5,7 @@
 
 use core::fmt::{self, Display};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ops::Bound::{Excluded, Unbounded},
     path::Path,
     sync::{Arc, OnceLock},
@@ -1443,10 +1443,17 @@ impl ShardStorage {
             &self.id.to_string()
         );
 
-        // Update the metric for the total number of blobs pending recovery, so that we know how
-        // many blobs are pending recovery.
-        let mut total_blobs_pending_recovery = self.pending_recover_slivers.safe_iter()?.count();
-        self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
+        // Update the metrics for pending recovery: count both total sliver entries and the number
+        // of unique blob IDs (a blob can have entries for both primary and secondary slivers).
+        let mut pending_sliver_entries = 0usize;
+        let mut entries_per_blob: HashMap<BlobId, usize> = HashMap::new();
+        for entry in self.pending_recover_slivers.safe_iter()? {
+            let ((_, blob_id), _) = entry?;
+            pending_sliver_entries += 1;
+            *entries_per_blob.entry(blob_id).or_default() += 1;
+        }
+        let mut pending_blob_count = entries_per_blob.len();
+        self.record_pending_recovery_metrics(&node, pending_sliver_entries, pending_blob_count);
 
         let maybe_log_error = |result: Result<_, _>| {
             if let Err(error) = result {
@@ -1487,8 +1494,15 @@ impl ShardStorage {
                 );
             }
 
-            total_blobs_pending_recovery -= 1;
-            self.record_pending_recovery_metrics(&node, total_blobs_pending_recovery);
+            pending_sliver_entries -= 1;
+            if let Some(remaining) = entries_per_blob.get_mut(&blob_id) {
+                *remaining -= 1;
+                if *remaining == 0 {
+                    entries_per_blob.remove(&blob_id);
+                    pending_blob_count -= 1;
+                }
+            }
+            self.record_pending_recovery_metrics(&node, pending_sliver_entries, pending_blob_count);
 
             // Wait for some futures to complete if we reach the concurrent blob recovery limit
             if futures.len() >= config.max_concurrent_blob_recovery_during_shard_recovery
@@ -1516,16 +1530,27 @@ impl ShardStorage {
     fn record_pending_recovery_metrics(
         &self,
         node: &Arc<StorageNodeInner>,
-        total_blobs_pending_recovery: usize,
+        pending_sliver_entries: usize,
+        pending_blob_count: usize,
     ) {
+        let shard_label = self.id.to_string();
         walrus_utils::with_label!(
             node.metrics.sync_shard_recover_sliver_pending_total,
-            &self.id.to_string()
+            &shard_label
         )
         .set(
-            total_blobs_pending_recovery
+            pending_sliver_entries
                 .try_into()
-                .expect("number of pending recoveries should fit into an i64"),
+                .expect("number of pending sliver entries should fit into an i64"),
+        );
+        walrus_utils::with_label!(
+            node.metrics.sync_shard_recover_blob_pending_total,
+            &shard_label
+        )
+        .set(
+            pending_blob_count
+                .try_into()
+                .expect("number of pending blobs should fit into an i64"),
         );
     }
 
