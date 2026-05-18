@@ -9,8 +9,9 @@
 use move_core_types::language_storage::StructTag;
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, SuiAddress},
+    base_types::{ObjectDigest, ObjectID, SequenceNumber, SuiAddress},
     digests::TransactionDigest,
+    object::Owner,
 };
 
 use super::events::EventEnvelope;
@@ -52,19 +53,31 @@ pub enum ObjectChangeEntry {
     Created {
         /// The sender of the transaction.
         sender: SuiAddress,
+        /// The owner of the object after creation.
+        owner: Owner,
         /// The object type.
         object_type: StructTag,
         /// The object ID.
         object_id: ObjectID,
+        /// The version of the object after creation.
+        version: SequenceNumber,
+        /// The digest of the object after creation.
+        digest: ObjectDigest,
     },
     /// An object was mutated.
     Mutated {
         /// The sender of the transaction.
         sender: SuiAddress,
+        /// The owner of the object after mutation.
+        owner: Owner,
         /// The object type.
         object_type: StructTag,
         /// The object ID.
         object_id: ObjectID,
+        /// The version of the object after mutation.
+        version: SequenceNumber,
+        /// The digest of the object after mutation.
+        digest: ObjectDigest,
     },
     /// An object was deleted.
     Deleted {
