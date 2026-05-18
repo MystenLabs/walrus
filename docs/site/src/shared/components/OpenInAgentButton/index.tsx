@@ -135,6 +135,47 @@ const GEMINI_PATH = [
   " 15.866 10.134C12 6.268 12 0 12 0Z",
 ].join("");
 
+/* ---------- prompt presets ---------- */
+
+/**
+ * Prompt presets configurable per code block via the `agentPrompt` metastring.
+ *
+ * Usage in markdown:
+ *   ```move agentPrompt="build"
+ *   module hello::world { ... }
+ *   ```
+ *
+ * Add new presets here as needed. The key is the value authors pass in
+ * `agentPrompt="<key>"`. The value is a function receiving (code, lang)
+ * that returns the full prompt string.
+ */
+const PROMPT_PRESETS: Record<string, (code: string, lang: string) => string> = {
+  explain: (code, lang) => {
+    const l = lang ? ` ${lang}` : "";
+    return `Explain this${l} code:\n\n\`\`\`${lang}\n${code}\n\`\`\``;
+  },
+  build: (code, lang) =>
+    `Use this prompt for building on Sui:\n\n\`\`\`${lang}\n${code}\n\`\`\``,
+};
+
+const DEFAULT_PRESET = "explain";
+
+/** Walk up from `start` to find the nearest `data-agent-prompt` attribute. */
+function getNearestPromptPreset(start: HTMLElement | null): string {
+  let el: HTMLElement | null = start;
+  while (el) {
+    const preset = el.getAttribute("data-agent-prompt");
+    if (preset) return preset;
+    el = el.parentElement;
+  }
+  return DEFAULT_PRESET;
+}
+
+function buildPrompt(code: string, lang: string, preset: string): string {
+  const fn = PROMPT_PRESETS[preset] ?? PROMPT_PRESETS[DEFAULT_PRESET];
+  return fn(code, lang);
+}
+
 /* ---------- agent definitions ---------- */
 
 interface AgentItem {
@@ -142,7 +183,7 @@ interface AgentItem {
   title: string;
   description: string;
   icon: ReactNode;
-  url: (code: string, lang: string) => string;
+  url: (code: string, lang: string, preset: string) => string;
 }
 
 const AGENTS: AgentItem[] = [
@@ -162,11 +203,8 @@ const AGENTS: AgentItem[] = [
         <path d={CLAUDE_PATH} />
       </svg>
     ),
-    url: (code, lang) => {
-      const l = lang ? ` ${lang}` : "";
-      const prompt = `Explain this${l} code:\n\n\`\`\`${lang}\n${code}\n\`\`\``;
-      return `https://claude.ai/new?q=${encodeURIComponent(prompt)}`;
-    },
+    url: (code, lang, preset) =>
+      `https://claude.ai/new?q=${encodeURIComponent(buildPrompt(code, lang, preset))}`,
   },
   {
     id: "chatgpt",
@@ -184,11 +222,8 @@ const AGENTS: AgentItem[] = [
         <path d={CHATGPT_PATH} />
       </svg>
     ),
-    url: (code, lang) => {
-      const l = lang ? ` ${lang}` : "";
-      const prompt = `Explain this${l} code:\n\n\`\`\`${lang}\n${code}\n\`\`\``;
-      return `https://chatgpt.com/?q=${encodeURIComponent(prompt)}`;
-    },
+    url: (code, lang, preset) =>
+      `https://chatgpt.com/?q=${encodeURIComponent(buildPrompt(code, lang, preset))}`,
   },
   {
     id: "gemini",
@@ -208,10 +243,8 @@ const AGENTS: AgentItem[] = [
         />
       </svg>
     ),
-    url: (code, lang) => {
-      const prompt = `Explain this${lang ? ` ${lang}` : ""} code:\n\n\`\`\`${lang}\n${code}\n\`\`\``;
-      return `https://gemini.google.com/app?q=${encodeURIComponent(prompt)}`;
-    },
+    url: (code, lang, preset) =>
+      `https://gemini.google.com/app?q=${encodeURIComponent(buildPrompt(code, lang, preset))}`,
   },
 ];
 
@@ -257,8 +290,9 @@ export default function OpenInAgentButton({
     (agent: AgentItem) => {
       const code = getNearestCodeText(wrapperRef.current);
       const lang = getNearestLanguage(wrapperRef.current);
+      const preset = getNearestPromptPreset(wrapperRef.current);
       if (!code) return;
-      window.open(agent.url(code, lang), "_blank", "noopener");
+      window.open(agent.url(code, lang, preset), "_blank", "noopener");
       setIsOpen(false);
     },
     [],
@@ -300,7 +334,7 @@ export default function OpenInAgentButton({
           <path d="M10 18v4" />
           <path d="M14 18v4" />
         </svg>
-        <span className={styles.label}>Agent</span>
+        <span className={styles.label}>Use an Agent</span>
         <svg
           width="10"
           height="10"

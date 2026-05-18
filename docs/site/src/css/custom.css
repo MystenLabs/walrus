@@ -1420,3 +1420,10 @@ padding-right: 0.3rem !important;
 .navbar .DocSearch-Button { width: 7rem !important; }
 .navbar .DocSearch-Button-Placeholder { font-size: 0.72rem !important; }
 }
+
+/* Force code block buttons to always be visible (not just on hover) */
+[class*="buttonGroup_"] button,
+[class*="buttonGroup_"] span {
+  opacity: 1 !important;
+  transition: none !important;
+}
