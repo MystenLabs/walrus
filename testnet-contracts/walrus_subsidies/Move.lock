@@ -35,13 +35,13 @@ manifest_digest = "B58373A94905C6E956264F433F624B48344BF14FFDEE47138E050FC1B09DA
 deps = { Sui = "Sui", WAL = "WAL", Walrus = "Walrus" }
 
 [pinned.testnet.MoveStdlib]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "94ad8ccd0ed6c089a9fe072ff80c918b5ab44943" }
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "85b460a63fd76a15672bbe4820bde6db78a3cfb8" }
 use_environment = "testnet"
 manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
 deps = {}
 
 [pinned.testnet.Sui]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "94ad8ccd0ed6c089a9fe072ff80c918b5ab44943" }
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "85b460a63fd76a15672bbe4820bde6db78a3cfb8" }
 use_environment = "testnet"
 manifest_digest = "7AFB66695545775FBFBB2D3078ADFD084244D5002392E837FDE21D9EA1C6D01C"
 deps = { MoveStdlib = "MoveStdlib" }
@@ -49,17 +49,17 @@ deps = { MoveStdlib = "MoveStdlib" }
 [pinned.testnet.WAL]
 source = { local = "../wal" }
 use_environment = "testnet"
-manifest_digest = "F0817A27EEB09499A677D94F47D2C46D1E5D370D1DDB38CAF44830C0F77E50FF"
+manifest_digest = "FE47E9468FC06A45CF365D1C79B6403F4081E0FBAC28E0B097ADCA7DA1EAFFB5"
 deps = { Sui = "Sui" }
 
 [pinned.testnet.Walrus]
 source = { local = "../walrus" }
 use_environment = "testnet"
-manifest_digest = "D43C634C4C144C2DCC4B227CC3400ADE79BD5D31766E27710A2B7BA7F97647B0"
+manifest_digest = "0EAFDDA653B6FDBB41BBC02D27A0EB3FCEE5F459617FF2B1BEA72E2D8A2B9757"
 deps = { Sui = "Sui", WAL = "WAL" }
 
 [pinned.testnet.walrus_subsidies]
 source = { root = true }
 use_environment = "testnet"
-manifest_digest = "DBDBB6E17BC0B6AED9EE47AB1A76A80B52AE4B2BBFD309059A79E6567AE407EF"
+manifest_digest = "FD86E526A52FB45D9B8756BEC3B94F8DBDC713D4DE5751F86DB24F3982B91B2B"
 deps = { Sui = "Sui", WAL = "WAL", Walrus = "Walrus" }
