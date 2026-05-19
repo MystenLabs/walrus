@@ -14,6 +14,7 @@ WORKDIR "$WORKDIR/walrus"
 COPY rust-toolchain.toml ./
 COPY Cargo.toml Cargo.lock ./
 COPY setup setup
+COPY contracts contracts
 COPY crates crates
 
 # GIT_REVISION declared late so SHA changes don't invalidate the COPYs above.
