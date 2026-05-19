@@ -1736,7 +1736,6 @@ mod tests {
         owner
     }
 
-    /// Helper: attach owner + digest fields needed for Created/Mutated conversions.
     fn with_output_owner_and_digest(mut co: ChangedObject, owner: ProtoOwner) -> ChangedObject {
         co.output_owner = Some(owner);
         co.output_digest = Some(ObjectDigest::random().to_string());
