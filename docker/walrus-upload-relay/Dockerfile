@@ -18,7 +18,7 @@ COPY crates crates
 # GIT_REVISION declared late so SHA changes don't invalidate the COPYs above.
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
-RUN cargo build --profile $PROFILE --bin walrus-upload-relay
+RUN cargo build --locked --profile ${PROFILE} --bin walrus-upload-relay
 
 # Production Image for walrus walrus-upload-relay
 FROM debian:bookworm-slim AS walrus-upload-relay

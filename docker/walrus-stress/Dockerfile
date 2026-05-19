@@ -20,7 +20,7 @@ COPY crates crates
 # GIT_REVISION declared late so SHA changes don't invalidate the COPYs above.
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
-RUN cargo build --profile $PROFILE --bin walrus-stress --bin walrus
+RUN cargo build --locked --profile ${PROFILE} --bin walrus-stress --bin walrus
 
 # Production Image for walrus stress
 FROM debian:bookworm-slim AS walrus-stress
