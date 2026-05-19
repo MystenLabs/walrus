@@ -649,19 +649,32 @@ impl StorageNodeClient {
             "the server returned recovery symbols"
         );
 
+        // Capture identifiers out of `metadata`/`Arc` so they can be logged from inside the
+        // `spawn_blocking` closure, where the parent tracing span context is lost.
+        let blob_id = *metadata.blob_id();
+
         tokio::task::spawn_blocking(move || {
             let mut final_error =
                 NodeError::other(ListAndVerifyRecoverySymbolsError::EmptyResponse);
 
             symbols.retain(|symbol| {
+                let symbol_id = symbol.id();
+                let proof_axis = symbol.proof_axis();
                 let _guard = tracing::info_span!(
                     "list_and_verify_recovery_symbols__retain",
-                    walrus.symbol.id = %symbol.id()
+                    walrus.symbol.id = %symbol_id
                 )
                 .entered();
 
                 if !filter.accepts(symbol) {
-                    tracing::warn!("server returned a symbol with an unrequested proof axis");
+                    tracing::warn!(
+                        walrus.blob_id = %blob_id,
+                        walrus.symbol.id = %symbol_id,
+                        walrus.symbol.proof_axis = ?proof_axis,
+                        walrus.target_index = %target_index,
+                        walrus.target_type = ?target_type,
+                        "server returned a symbol with an unrequested proof axis"
+                    );
                     return false;
                 }
 
@@ -671,7 +684,15 @@ impl StorageNodeClient {
                     target_index,
                     target_type,
                 ) {
-                    tracing::warn!(?error, "recovery symbol verification failed");
+                    tracing::warn!(
+                        ?error,
+                        walrus.blob_id = %blob_id,
+                        walrus.symbol.id = %symbol_id,
+                        walrus.symbol.proof_axis = ?proof_axis,
+                        walrus.target_index = %target_index,
+                        walrus.target_type = ?target_type,
+                        "recovery symbol verification failed"
+                    );
                     final_error = NodeError::other(error);
                     return false;
                 }
