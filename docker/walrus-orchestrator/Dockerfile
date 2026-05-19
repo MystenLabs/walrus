@@ -19,7 +19,7 @@ COPY crates crates
 # GIT_REVISION declared late so SHA changes don't invalidate the COPYs above.
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
-RUN cargo build --locked --profile ${PROFILE} --bin walrus-orchestrator
+RUN cargo build --locked --profile ${PROFILE} -p walrus-orchestrator --bin walrus-orchestrator
 
 # Production Image for walrus orchestrator
 FROM debian:bookworm-slim AS walrus-orchestrator
