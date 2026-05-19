@@ -35,22 +35,25 @@ use sui_rpc::{
         ListOwnedObjectsResponse,
         Object,
         ObjectSet,
+        Owner as ProtoOwner,
         SimulateTransactionRequest,
         Transaction as ProtoTransaction,
         UserSignature as ProtoUserSignature,
         changed_object,
         get_object_result,
+        owner::OwnerKind,
     },
 };
 use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::{
     TypeTag,
-    base_types::{ObjectID, ObjectRef, SuiAddress},
+    base_types::{ObjectDigest, ObjectID, ObjectRef, SequenceNumber, SuiAddress},
     crypto::{AuthorityPublicKeyBytes, ToFromBytes},
     digests::TransactionDigest,
     effects::{TransactionEffects as NativeTransactionEffects, TransactionEffectsAPI},
     event::EventID,
     gas::GasCostSummary,
+    object::Owner,
     signature::GenericSignature,
     transaction::{SenderSignedData, Transaction, TransactionData, TransactionDataAPI},
 };
@@ -1400,6 +1403,42 @@ fn grpc_changed_objects_to_object_change_entries(
     result
 }
 
+/// Convert a proto `Owner` into `sui_types::object::Owner`.
+fn convert_proto_owner(proto: &ProtoOwner) -> Result<Owner, anyhow::Error> {
+    let kind = proto
+        .kind
+        .and_then(|k| OwnerKind::try_from(k).ok())
+        .context("no owner kind in proto Owner")?;
+    let parse_address = || -> Result<SuiAddress, anyhow::Error> {
+        proto
+            .address
+            .as_ref()
+            .context("no address in proto Owner")?
+            .parse()
+            .context("parsing proto Owner address")
+    };
+    match kind {
+        OwnerKind::Address => Ok(Owner::AddressOwner(parse_address()?)),
+        OwnerKind::Object => Ok(Owner::ObjectOwner(parse_address()?)),
+        OwnerKind::Shared => Ok(Owner::Shared {
+            initial_shared_version: SequenceNumber::from_u64(
+                proto.version.context("no version in shared proto Owner")?,
+            ),
+        }),
+        OwnerKind::Immutable => Ok(Owner::Immutable),
+        OwnerKind::ConsensusAddress => Ok(Owner::ConsensusAddressOwner {
+            start_version: SequenceNumber::from_u64(
+                proto
+                    .version
+                    .context("no version in consensus-address proto Owner")?,
+            ),
+            owner: parse_address()?,
+        }),
+        OwnerKind::Unknown => anyhow::bail!("unknown owner kind in proto Owner"),
+        other => anyhow::bail!("unsupported owner kind in proto Owner: {other:?}"),
+    }
+}
+
 /// Resolve the `object_type` string for a `ChangedObject`, falling back to the `ObjectSet`.
 fn resolve_object_type(co: &ChangedObject, objects: Option<&ObjectSet>) -> Option<String> {
     // Prefer the type directly on the ChangedObject.
@@ -1462,10 +1501,25 @@ fn convert_single_changed_object(
             let object_type: StructTag = object_type_str
                 .parse()
                 .context("parsing created object type")?;
+            let owner = convert_proto_owner(
+                co.output_owner
+                    .as_ref()
+                    .context("no output_owner for created object")?,
+            )
+            .context("converting owner for created object")?;
+            let digest: ObjectDigest = co
+                .output_digest
+                .as_ref()
+                .context("no output_digest for created object")?
+                .parse()
+                .context("parsing output_digest for created object")?;
             Ok(Some(ObjectChangeEntry::Created {
                 sender,
+                owner,
                 object_type,
                 object_id,
+                version: SequenceNumber::from_u64(version),
+                digest,
             }))
         }
         // Object mutated (id unchanged, was written, existed before).
@@ -1475,10 +1529,25 @@ fn convert_single_changed_object(
             let object_type: StructTag = object_type_str
                 .parse()
                 .context("parsing mutated object type")?;
+            let owner = convert_proto_owner(
+                co.output_owner
+                    .as_ref()
+                    .context("no output_owner for mutated object")?,
+            )
+            .context("converting owner for mutated object")?;
+            let digest: ObjectDigest = co
+                .output_digest
+                .as_ref()
+                .context("no output_digest for mutated object")?
+                .parse()
+                .context("parsing output_digest for mutated object")?;
             Ok(Some(ObjectChangeEntry::Mutated {
                 sender,
+                owner,
                 object_type,
                 object_id,
+                version: SequenceNumber::from_u64(version),
+                digest,
             }))
         }
         // Wrapped (id unchanged, output doesn't exist, existed before).
@@ -1660,6 +1729,19 @@ mod tests {
         co
     }
 
+    fn make_address_owner(address: SuiAddress) -> ProtoOwner {
+        let mut owner = ProtoOwner::default();
+        owner.kind = Some(OwnerKind::Address.into());
+        owner.address = Some(address.to_string());
+        owner
+    }
+
+    fn with_output_owner_and_digest(mut co: ChangedObject, owner: ProtoOwner) -> ChangedObject {
+        co.output_owner = Some(owner);
+        co.output_digest = Some(ObjectDigest::random().to_string());
+        co
+    }
+
     const SUI_COIN_OBJECT_TYPE: &str = "0x2::coin::Coin<0x2::sui::SUI>";
 
     #[test]
@@ -1750,16 +1832,26 @@ mod tests {
     #[test]
     fn test_convert_changed_object_created() {
         let object_id = ObjectID::random();
-        let co = make_changed_object(
-            object_id,
-            changed_object::IdOperation::Created,
-            changed_object::OutputObjectState::ObjectWrite,
-            None,
-            Some(SUI_COIN_OBJECT_TYPE),
-            None,
+        let co = with_output_owner_and_digest(
+            make_changed_object(
+                object_id,
+                changed_object::IdOperation::Created,
+                changed_object::OutputObjectState::ObjectWrite,
+                None,
+                Some(SUI_COIN_OBJECT_TYPE),
+                Some(7),
+            ),
+            make_address_owner(SuiAddress::default()),
         );
         let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
-        assert!(matches!(result, Some(ObjectChangeEntry::Created { .. })));
+        assert!(matches!(
+            result,
+            Some(ObjectChangeEntry::Created {
+                owner: Owner::AddressOwner(_),
+                version,
+                ..
+            }) if version == SequenceNumber::from_u64(7)
+        ));
     }
 
     #[test]
@@ -1785,16 +1877,26 @@ mod tests {
 
     #[test]
     fn test_convert_changed_object_mutated() {
-        let co = make_changed_object(
-            ObjectID::random(),
-            changed_object::IdOperation::None,
-            changed_object::OutputObjectState::ObjectWrite,
-            Some(changed_object::InputObjectState::Exists),
-            Some(SUI_COIN_OBJECT_TYPE),
-            None,
+        let co = with_output_owner_and_digest(
+            make_changed_object(
+                ObjectID::random(),
+                changed_object::IdOperation::None,
+                changed_object::OutputObjectState::ObjectWrite,
+                Some(changed_object::InputObjectState::Exists),
+                Some(SUI_COIN_OBJECT_TYPE),
+                Some(11),
+            ),
+            make_address_owner(SuiAddress::default()),
         );
         let result = convert_single_changed_object(&co, None, SuiAddress::default()).unwrap();
-        assert!(matches!(result, Some(ObjectChangeEntry::Mutated { .. })));
+        assert!(matches!(
+            result,
+            Some(ObjectChangeEntry::Mutated {
+                owner: Owner::AddressOwner(_),
+                version,
+                ..
+            }) if version == SequenceNumber::from_u64(11)
+        ));
     }
 
     #[test]
@@ -1871,13 +1973,16 @@ mod tests {
     fn test_changed_objects_type_from_object_set_fallback() {
         let object_id = ObjectID::random();
         // No object_type on the ChangedObject itself.
-        let co = make_changed_object(
-            object_id,
-            changed_object::IdOperation::Created,
-            changed_object::OutputObjectState::ObjectWrite,
-            None,
-            None,
-            None,
+        let co = with_output_owner_and_digest(
+            make_changed_object(
+                object_id,
+                changed_object::IdOperation::Created,
+                changed_object::OutputObjectState::ObjectWrite,
+                None,
+                None,
+                None,
+            ),
+            make_address_owner(SuiAddress::default()),
         );
         // Provide the type via ObjectSet fallback.
         let mut obj = Object::default();

@@ -2497,23 +2497,34 @@ fn convert_sui_execute_response(
                 }),
                 ObjectChange::Created {
                     sender,
+                    owner,
                     object_type,
                     object_id,
-                    ..
+                    version,
+                    digest,
                 } => Some(ObjectChangeEntry::Created {
                     sender,
+                    owner,
                     object_type,
                     object_id,
+                    version,
+                    digest,
                 }),
                 ObjectChange::Mutated {
                     sender,
+                    owner,
                     object_type,
                     object_id,
+                    version,
+                    digest,
                     ..
                 } => Some(ObjectChangeEntry::Mutated {
                     sender,
+                    owner,
                     object_type,
                     object_id,
+                    version,
+                    digest,
                 }),
                 ObjectChange::Deleted {
                     sender,
