@@ -1729,7 +1729,6 @@ mod tests {
         co
     }
 
-    /// Helper: an `ADDRESS`-kind proto Owner for the given address.
     fn make_address_owner(address: SuiAddress) -> ProtoOwner {
         let mut owner = ProtoOwner::default();
         owner.kind = Some(OwnerKind::Address.into());
