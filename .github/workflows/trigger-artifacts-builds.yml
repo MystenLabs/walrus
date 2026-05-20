@@ -28,7 +28,7 @@ jobs:
             {
               "walrus_commit": "${{ github.sha }}",
               "cache_family": "${{ github.ref_name }}",
-              "build_arm64": "true"
+              "build_arm64": "${{ github.ref_name == 'devnet' || github.ref_name == 'testnet' || github.ref_name == 'mainnet' }}"
             }
 
       # Branch-tag aliases + macos/windows tarballs. Release branches only.
