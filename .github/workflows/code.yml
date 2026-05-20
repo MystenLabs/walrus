@@ -271,6 +271,43 @@ jobs:
           path: ${{ env.SUI_BIN }}
           key: ${{ steps.cache-sui-restore.outputs.cache-primary-key }}
 
+  # Validates the mainnet-contracts/ directory. Gated on `isMainnetContracts`
+  # because the directory is static most of the time.
+  test-move-mainnet:
+    name: Test Move code (mainnet-contracts)
+    needs: diff
+    if: ${{ needs.diff.outputs.isMainnetContracts == 'true' }}
+    runs-on: ubuntu-ghcloud
+    env:
+      SUI_BIN: "/home/runner/.cargo/bin/sui"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+
+      - name: Get Sui tag
+        shell: bash
+        run: |
+          export SUI_TAG=$(grep '^sui-config' ./Cargo.toml | grep 'github.com/MystenLabs/sui' \
+            | sed -nE 's/.*tag = "(testnet-v[0-9]+\.[0-9]+\.[0-9]+)".*/\1/p')
+          echo "SUI_TAG=${SUI_TAG}" >> $GITHUB_ENV
+
+      - name: Restore cached sui binary
+        id: cache-sui-restore
+        uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # pin@v5.0.3
+        with:
+          path: ${{ env.SUI_BIN }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ env.SUI_TAG }}
+
+      - name: Install correct Rust toolchain
+        run: rustup update && rustup toolchain install
+        if: steps.cache-sui-restore.outputs.cache-hit != 'true'
+
+      - name: Install sui
+        if: steps.cache-sui-restore.outputs.cache-hit != 'true'
+        run: cargo install --locked --git https://github.com/MystenLabs/sui.git --tag $SUI_TAG --debug --features tracing
+          sui
+      - name: Run Move tests against mainnet-contracts
+        run: bash ./scripts/move_tests.sh -d mainnet-contracts
+
   test-contracts-warning:
     name: Check if the PR touches the testnet-contracts directory
     runs-on: ubuntu-latest
@@ -392,6 +429,7 @@ jobs:
       - simtests-build
       - simtests
       - test-move
+      - test-move-mainnet
     runs-on: ubuntu-latest
     steps:
       - name: Decide whether all needed jobs succeeded
