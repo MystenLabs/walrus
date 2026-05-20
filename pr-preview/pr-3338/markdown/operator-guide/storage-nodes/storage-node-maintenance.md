@@ -64,15 +64,14 @@ $ sudo systemctl start walrus-publisher.service   # if applicable
 > **Info**
 >
 > You are generally expected to upgrade within 24 hours of a new release. In emergency situations, immediate action is appreciated. Subscribe to the [Walrus release calendar](https://calendar.google.com/calendar/u/0/embed?src=c_97763fcda7894da7ddcd68595a797397b9b4294b69603a52e30d4fa0c3fee2bb@group.calendar.google.com) to stay informed about upcoming releases.
-## Repair the database
+## Database corruption
 
-If the node database becomes corrupted (for example, after an unclean shutdown), you can attempt a repair:
+If the node database becomes corrupted (for example, after an unclean shutdown), do not attempt to repair it yourself. Reach out to the Walrus Core team on Discord for guidance before taking any recovery action.
 
-```sh
-$ /opt/walrus/bin/walrus-node db-tool repair-db --db-path /opt/walrus/db
-```
-
-If the repair is unsuccessful, restore from a backup. See the [Backup and Restore Guide](/docs/operator-guide/storage-nodes/backup-restore-guide).
+> **Warning**
+>
+> Previous versions of `walrus-node` exposed a `db-tool repair-db` command. That command has been removed because it can silently leave the database in an inconsistent state. Do not run it from older binaries.
+If recovery is not possible, restore from a backup. See the [Backup and Restore Guide](/docs/operator-guide/storage-nodes/backup-restore-guide).
 
 ## Update onchain parameters
 
