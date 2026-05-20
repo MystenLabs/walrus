@@ -59,7 +59,7 @@ jobs:
         run: ./yamlfmt -lint
 
       - name: Lint all markdown files
-        uses: DavidAnson/markdownlint-cli2-action@07035fd053f7be764496c0f8d8f9f41f98305101 # pin@v22.0.0
+        uses: DavidAnson/markdownlint-cli2-action@ded1f9488f68a970bc66ea5619e13e9b52e601cd # pin@v23.2.0
         with:
           config: .markdownlint-cli2.yaml
           # Note: Keep globs in sync with .markdownlint-cli2.yaml.
@@ -83,7 +83,7 @@ jobs:
     name: Check spelling
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - uses: crate-ci/typos@631208b7aac2daa8b707f55e7331f9112b0e062d # pin@v1.44.0
+      - uses: crate-ci/typos@5374cbf686e897b15713110e233094e2874de7ef # pin@v1.46.1
 
   shellcheck:
     name: ShellCheck
