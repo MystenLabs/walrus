@@ -44,12 +44,32 @@ jobs:
     timeout-minutes: 120
     strategy:
       matrix:
-        os:
-          - ubuntu-ghcloud # ubuntu-x86_64
-          - ubuntu-arm64 # ubuntu-arm64
-          - windows-ghcloud # windows-x86_64
-          - macos-latest-large # macos-x86_64
-          - macos-latest-xlarge # macos-arm64
+        include:
+          - os: ubuntu-ghcloud
+            os_type: ubuntu-x86_64
+            runner_arch: x86_64
+            linux_prebuilt_path: walrus
+            extention: ""
+          - os: ubuntu-arm64
+            os_type: ubuntu-aarch64
+            runner_arch: aarch64
+            linux_prebuilt_path: walrus-arm64
+            extention: ""
+          - os: windows-ghcloud
+            os_type: windows-x86_64
+            runner_arch: x86_64
+            linux_prebuilt_path: ""
+            extention: ".exe"
+          - os: macos-latest-large
+            os_type: macos-x86_64
+            runner_arch: x86_64
+            linux_prebuilt_path: ""
+            extention: ""
+          - os: macos-latest-xlarge
+            os_type: macos-arm64
+            runner_arch: arm64
+            linux_prebuilt_path: ""
+            extention: ""
       fail-fast: false
     runs-on: ${{ matrix.os }}
     env:
@@ -57,6 +77,9 @@ jobs:
       SCCACHE_GCS_KEY_PREFIX: ${{ matrix.os }}
       SCCACHE_GCS_RW_MODE: READ_ONLY
       RUSTC_WRAPPER: sccache
+      extention: ${{ matrix.extention }}
+      linux_prebuilt_path: ${{ matrix.linux_prebuilt_path }}
+      os_type: ${{ matrix.os_type }}
     steps:
       - name: Clean up and validate tag name
         shell: bash
@@ -83,23 +106,24 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
-      - name: Set os/arch variables (Windows)
-        if: ${{ startsWith(matrix.os, 'windows') }}
+      - name: Validate runner architecture
         shell: bash
         run: |
-          export arch=$(uname -m)
-          export os_type="windows-${arch}"
-          echo "os_type=${os_type}" >> $GITHUB_ENV
-          echo "extention=$(echo ".exe")" >> $GITHUB_ENV
+          actual_arch=$(uname -m)
+          expected_arch="${{ matrix.runner_arch }}"
+          case "${expected_arch}" in
+            aarch64|arm64) allowed_arches="aarch64 arm64" ;;
+            x86_64)        allowed_arches="x86_64" ;;
+            *)
+              echo "::error::Unsupported expected runner architecture: ${expected_arch}"
+              exit 1
+              ;;
+          esac
 
-      - name: Set os/arch variables
-        if: ${{ !startsWith(matrix.os, 'windows') }}
-        shell: bash
-        run: |
-          export arch=$(uname -m)
-          export system_os=$(echo ${{ matrix.os }} | cut -d- -f1)
-          export os_type="${system_os}-${arch}"
-          echo "os_type=${system_os}-${arch}" >> $GITHUB_ENV
+          if [[ " ${allowed_arches} " != *" ${actual_arch} "* ]]; then
+            echo "::error::Runner ${{ matrix.os }} reported architecture ${actual_arch}, expected one of: ${allowed_arches}"
+            exit 1
+          fi
 
       - name: Check if tar balls have been uploaded already
         continue-on-error: true
@@ -142,10 +166,8 @@ jobs:
           mkdir -p ${{ env.TMP_BUILD_DIR }} ./tmp
           [ ! -f ${{ env.BINARY_LIST_FILE }} ] && echo "${{ env.BINARY_LIST_FILE }} cannot be found" && exit 1
 
-          case "${arch}" in
-            aarch64|arm64) gcs_prefix="gs://mysten-walrus-binaries/walrus-arm64/${walrus_sha}" ;;
-            *)             gcs_prefix="gs://mysten-walrus-binaries/walrus/${walrus_sha}" ;;
-          esac
+          [ -z "${linux_prebuilt_path}" ] && echo "::error::linux_prebuilt_path is not configured for ${{ matrix.os }}" && exit 1
+          gcs_prefix="gs://mysten-walrus-binaries/${linux_prebuilt_path}/${walrus_sha}"
 
           missing=()
           for binary in $(jq -r '.release_binaries[]' ${{ env.BINARY_LIST_FILE }}); do
