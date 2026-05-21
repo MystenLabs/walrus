@@ -13,6 +13,7 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use move_core_types::language_storage::StructTag;
 use move_package_alt::{
+    PackageLoader,
     RootPackage,
     schema::{OriginalID, Publication, PublishAddresses, PublishedID},
 };
@@ -99,25 +100,68 @@ pub(crate) async fn publish_package_with_default_build_config(
 }
 
 /// Compiles a package and returns the compiled package, and build config.
-/// `env` is the environment to use for the package management system, and should be derived
-/// from the wallet that performs the publish/upgrade.
+///
+/// Loads the root package via persistent mode when the wallet's active environment maps to one of
+/// the manifest's environments (the typical mainnet/testnet path). Falls back to ephemeral mode —
+/// equivalent to `sui move test-publish` — when no matching environment exists, which is the
+/// localnet/test-cluster case where each cluster generates a fresh chain id. Ephemeral mode tracks
+/// package addresses in a shared `Pub.<alias>.toml` next to the package, so dependency packages
+/// published in the same flow can resolve each other's addresses.
 pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
     wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
-    let env = wallet
-        .find_package_environment(&package_path, &build_config)
-        .await?;
-
     let build_config_clone = build_config.clone();
     let package_path_clone = package_path.clone();
 
-    let root_pkg: RootPackage<SuiFlavor> = build_config_clone
-        .package_loader(&package_path_clone, &env, wallet.sui_flavor())
-        .load()
-        .await?;
+    let root_pkg: RootPackage<SuiFlavor> = match wallet
+        .find_package_environment(&package_path, &build_config)
+        .await
+    {
+        Ok(env) => {
+            build_config_clone
+                .package_loader(&package_path_clone, &env, wallet.sui_flavor())
+                .load()
+                .await?
+        }
+        Err(env_err) => {
+            let chain_id = chain_id.clone().ok_or_else(|| {
+                anyhow!(
+                    "no environment for package at {:?} matches the wallet, and no chain id \
+                    was supplied for ephemeral publish: {env_err}",
+                    package_path,
+                )
+            })?;
+            let alias = wallet.get_active_env().alias.clone();
+            // Place the ephemeral pubfile next to the package directory so sibling packages
+            // (e.g. wal and walrus) published in the same flow share address overrides.
+            let pubfile_dir = package_path_clone
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| package_path_clone.clone());
+            let pubfile_path = pubfile_dir.join(format!("Pub.{alias}.toml"));
+            // If the caller didn't pass an explicit build environment, fall back to the wallet's
+            // active env alias — required by the package system when creating a fresh pubfile.
+            let build_env = build_config_clone
+                .environment
+                .clone()
+                .or_else(|| Some(alias.clone()));
+            PackageLoader::new_ephemeral(
+                &package_path_clone,
+                build_env,
+                chain_id,
+                pubfile_path,
+                wallet.sui_flavor(),
+            )
+            .modes(build_config_clone.mode_set())
+            .allow_dirty(build_config_clone.allow_dirty)
+            .output_path(build_config_clone.install_dir.clone())
+            .load()
+            .await?
+        }
+    };
 
     tokio::task::spawn_blocking(|| {
         sui_macros::nondeterministic!(compile_package_inner_blocking(
@@ -256,11 +300,6 @@ pub(crate) async fn publish_package(
     )?;
 
     let chain_id = retry_client.get_chain_identifier().await?;
-
-    // Register the localnet chain id in the package's Move.toml so the sui package system can
-    // resolve dependencies for the current test cluster (each test cluster generates a fresh
-    // chain id).
-    system_setup::add_localnet_env_to_contract_toml(package_path.clone(), chain_id.clone())?;
 
     if cfg!(msim) {
         // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
