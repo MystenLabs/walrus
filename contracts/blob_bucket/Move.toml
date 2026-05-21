@@ -1,13 +1,9 @@
 [package]
-name = "BlobBucket"
+name = "blob_bucket"
 license = "Apache-2.0"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
-edition = "2024.beta"
+edition = "2024"
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.73.1" }
-WAL = { local = "../wal" }
-Walrus = { local = "../walrus" }
-
-[addresses]
-blob_bucket = "0x0"
+wal = { local = "../wal" }
+walrus = { local = "../walrus" }
