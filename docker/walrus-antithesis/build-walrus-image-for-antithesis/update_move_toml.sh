@@ -13,7 +13,7 @@ contracts=(
 )
 
 for contract in "${contracts[@]}"; do
-    toml_file="/contracts/${contract}/Move.test.toml"
+    toml_file="/contracts/${contract}/Move.toml"
     # Replace git-based Sui dependencies with local dependencies
     # Pattern: <package> = { git = <url>, subdir = <dir>, rev = <rev> }
     # Replacement: <package> = { local = "/opt/sui/<dir>" }

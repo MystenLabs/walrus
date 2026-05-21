@@ -257,10 +257,6 @@ pub(crate) async fn publish_package(
 
     let chain_id = retry_client.get_chain_identifier().await?;
 
-    // TODO(WAL-1126): this is a temporary workaround and should be removed once sui publish works
-    // with ephemeral publishing.
-    system_setup::add_localnet_env_to_contract_toml(package_path.clone(), chain_id.clone())?;
-
     if cfg!(msim) {
         // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
         // support external dependencies, in simtest, we have to update all the implicit
@@ -422,31 +418,6 @@ pub(crate) async fn publish_coin_and_system_package(
     };
 
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
-        // Clear the deploy directory before copying to avoid stale files
-        if deploy_directory.exists() {
-            // TODO(WAL-1126): remove this once sui publish works with ephemeral publishing.
-            // If the contract directory already exists and has been used for publishing, all the
-            // published info will be stored in the contract directory, which will make all the
-            // contracts appear as published. The root cause is that sui publish does not support
-            // ephemeral publishing yet.
-            //
-            // To make this work, we should clear the published info from the contract directory.
-            // This should not be needed if we can use ephemeral publishing.
-            tracing::warn!(
-                "clearing deploy directory {:?} before copying to it",
-                deploy_directory
-            );
-            // Clear all contents inside the directory without removing the directory itself
-            for entry in std::fs::read_dir(&deploy_directory)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_dir() {
-                    std::fs::remove_dir_all(path)?;
-                } else {
-                    std::fs::remove_file(path)?;
-                }
-            }
-        }
         copy_recursively(&contract_dir, &deploy_directory).await?;
         deploy_directory
     } else {
