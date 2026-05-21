@@ -610,34 +610,3 @@ pub fn update_contract_sui_dependency_to_local_copy(package_path: PathBuf) -> Re
 
     Ok(())
 }
-
-/// Adds (or replaces) a `localnet` entry in the `[environments]` section of the package's
-/// `Move.toml`, mapping it to the provided `chain_id`.
-///
-/// The sui package system needs an `[environments]` entry whose chain id matches the wallet's
-/// current chain id to resolve dependencies for `localnet`. Test clusters generate a fresh
-/// chain id per run, so this entry must be written at runtime.
-pub fn add_localnet_env_to_contract_toml(package_path: PathBuf, chain_id: String) -> Result<()> {
-    let move_toml_path = package_path.join("Move.toml");
-    let content = std::fs::read_to_string(&move_toml_path)?;
-
-    // Strip any existing `[environments]` section (everything from the header up to but not
-    // including the next top-level `[` header, or end of file).
-    let env_section = regex::Regex::new(r"(?m)^\[environments\][^\[]*")?;
-    let stripped = env_section.replace(&content, "");
-
-    let mut updated = stripped.trim_end().to_owned();
-    updated.push_str(&format!(
-        "\n\n[environments]\nlocalnet = \"{}\"\n",
-        chain_id
-    ));
-
-    std::fs::write(&move_toml_path, updated)?;
-    tracing::info!(
-        "added localnet environment with chain_id {:?} to {:?}",
-        chain_id,
-        move_toml_path,
-    );
-
-    Ok(())
-}

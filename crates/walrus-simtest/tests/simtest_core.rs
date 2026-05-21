@@ -1118,40 +1118,25 @@ mod tests {
         let upgrade_dir = TempDir::new()?;
         copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
 
-        let chain_id = client
-            .inner
-            .sui_client()
-            .retriable_sui_client()
-            .get_chain_identifier()
-            .await?;
+        // Carry over the ephemeral pubfile that the original publish flow wrote next to the
+        // deploy directory's package directories, so the upgrade compile can resolve the
+        // already-published wal address. The Sui test cluster's wallet alias is "localnet" (see
+        // `test-cluster/src/lib.rs`), so the pubfile name is fixed.
+        let pubfile_name = "Pub.localnet.toml";
+        let src_pubfile = deploy_dir.path().join(pubfile_name);
+        if src_pubfile.exists() {
+            std::fs::copy(&src_pubfile, upgrade_dir.path().join(pubfile_name))?;
+        }
 
-        // Copy Move.lock and Published.toml files of walrus contract and dependencies to new
-        // directory. This links the already published packages with the package that is about to
-        // be upgraded.
+        // Copy Move.lock files of walrus contract and dependencies to new directory. This links
+        // the already published packages with the package that is about to be upgraded.
         for contract in ["wal", "walrus"] {
             std::fs::copy(
                 deploy_dir.path().join(contract).join("Move.lock"),
                 upgrade_dir.path().join(contract).join("Move.lock"),
             )?;
 
-            // Only copy the Published.toml file for the wal contract, since this is the dependency
-            // of the walrus contract and it needs to be already published when upgrading the
-            // walrus contract.
-            if contract == "wal" {
-                std::fs::copy(
-                    deploy_dir.path().join(contract).join("Published.toml"),
-                    upgrade_dir.path().join(contract).join("Published.toml"),
-                )?;
-            }
-
             let package_path = upgrade_dir.path().join(contract);
-
-            // Register the localnet chain id in the upgraded package's Move.toml so the sui
-            // package system can resolve dependencies for the current test cluster.
-            system_setup::add_localnet_env_to_contract_toml(
-                package_path.clone(),
-                chain_id.clone(),
-            )?;
 
             // TODO(WAL-1125): remove once the new sui package management system can pull external
             // dependencies.
