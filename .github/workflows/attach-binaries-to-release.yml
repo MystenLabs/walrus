@@ -89,6 +89,7 @@ jobs:
         run: |
           export arch=$(uname -m)
           export os_type="windows-${arch}"
+          echo "arch=${arch}" >> $GITHUB_ENV
           echo "os_type=${os_type}" >> $GITHUB_ENV
           echo "extention=$(echo ".exe")" >> $GITHUB_ENV
 
@@ -99,6 +100,9 @@ jobs:
           export arch=$(uname -m)
           export system_os=$(echo ${{ matrix.os }} | cut -d- -f1)
           export os_type="${system_os}-${arch}"
+          # arch must be persisted: the Linux GCS-prefix step below reads it to
+          # choose walrus-arm64/ vs walrus/. os_type alone is not enough.
+          echo "arch=${arch}" >> $GITHUB_ENV
           echo "os_type=${system_os}-${arch}" >> $GITHUB_ENV
 
       - name: Check if tar balls have been uploaded already
@@ -142,9 +146,13 @@ jobs:
           mkdir -p ${{ env.TMP_BUILD_DIR }} ./tmp
           [ ! -f ${{ env.BINARY_LIST_FILE }} ] && echo "${{ env.BINARY_LIST_FILE }} cannot be found" && exit 1
 
+          # Fail closed on an unexpected/empty arch rather than defaulting to the
+          # amd64 prefix — a silent fallthrough here shipped x86_64 binaries inside
+          # the ubuntu-aarch64 archive (testnet-v1.49.1).
           case "${arch}" in
             aarch64|arm64) gcs_prefix="gs://mysten-walrus-binaries/walrus-arm64/${walrus_sha}" ;;
-            *)             gcs_prefix="gs://mysten-walrus-binaries/walrus/${walrus_sha}" ;;
+            x86_64|amd64)  gcs_prefix="gs://mysten-walrus-binaries/walrus/${walrus_sha}" ;;
+            *) echo "::error::Unexpected or empty arch '${arch}' — refusing to guess the GCS prefix"; exit 1 ;;
           esac
 
           missing=()
