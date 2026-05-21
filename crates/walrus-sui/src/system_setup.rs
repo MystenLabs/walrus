@@ -257,6 +257,11 @@ pub(crate) async fn publish_package(
 
     let chain_id = retry_client.get_chain_identifier().await?;
 
+    // Register the localnet chain id in the package's Move.toml so the sui package system can
+    // resolve dependencies for the current test cluster (each test cluster generates a fresh
+    // chain id).
+    system_setup::add_localnet_env_to_contract_toml(package_path.clone(), chain_id.clone())?;
+
     if cfg!(msim) {
         // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
         // support external dependencies, in simtest, we have to update all the implicit
