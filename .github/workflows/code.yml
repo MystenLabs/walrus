@@ -199,19 +199,19 @@ jobs:
           gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - run: ./scripts/simtest/install.sh
-      - name: Run tests (seed=1)
-        run: MSIM_TEST_SEED=1 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=2, grpc-client-enabled)
-        run: MSIM_TEST_SEED=2 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=3)
+      - name: Run tests (seed=1, legacy json-rpc)
+        run: MSIM_TEST_SEED=1 WALRUS_GRPC_MIGRATION_LEVEL=0 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=2)
+        run: MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=3, legacy json-rpc)
         if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=3 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=4, grpc-client-enabled)
+        run: MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=0 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=4)
         if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=4 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=5, grpc-client-enabled)
+        run: MSIM_TEST_SEED=4 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=5)
         if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=5 WALRUS_GRPC_MIGRATION_LEVEL=100 cargo simtest simtest --profile simtest
+        run: MSIM_TEST_SEED=5 cargo simtest simtest --profile simtest
 
   simtests-build:
     name: Build all simtests
