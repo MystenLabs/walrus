@@ -1118,6 +1118,13 @@ mod tests {
         let upgrade_dir = TempDir::new()?;
         copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
 
+        let chain_id = client
+            .inner
+            .sui_client()
+            .retriable_sui_client()
+            .get_chain_identifier()
+            .await?;
+
         // Copy Move.lock and Published.toml files of walrus contract and dependencies to new
         // directory. This links the already published packages with the package that is about to
         // be upgraded.
@@ -1138,6 +1145,13 @@ mod tests {
             }
 
             let package_path = upgrade_dir.path().join(contract);
+
+            // Register the localnet chain id in the upgraded package's Move.toml so the sui
+            // package system can resolve dependencies for the current test cluster.
+            system_setup::add_localnet_env_to_contract_toml(
+                package_path.clone(),
+                chain_id.clone(),
+            )?;
 
             // TODO(WAL-1125): remove once the new sui package management system can pull external
             // dependencies.
