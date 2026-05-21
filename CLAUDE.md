@@ -108,7 +108,7 @@ MSIM_TEST_SEED=1 cargo simtest simtest <test_name> --profile simtest
 ./scripts/run-all-simtests.sh
 ```
 
-Key env vars: `MSIM_TEST_SEED` (default: 1), `WALRUS_GRPC_MIGRATION_LEVEL` (0 or 100).
+Key env vars: `MSIM_TEST_SEED` (default: 1), `WALRUS_GRPC_MIGRATION_LEVEL` (default: 100; set to 0 for legacy JSON-RPC).
 
 ### Move Contracts
 
