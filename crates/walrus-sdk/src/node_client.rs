@@ -18,7 +18,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
 use bimap::BiMap;
 use futures::{
     Future,
@@ -2539,11 +2539,20 @@ impl<T> WalrusNodeClient<T> {
             if committees
                 .write_committee()
                 .is_above_validity(statuses[&status])
-                || verify_blob_status_event(blob_id, status, read_client)
-                    .await
-                    .is_ok()
             {
                 return Ok(status);
+            }
+            match verify_blob_status_event(blob_id, status, read_client).await {
+                Ok(VerifyOutcome::Verified) => return Ok(status),
+                Ok(VerifyOutcome::Skipped) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        %blob_id,
+                        ?status,
+                        ?error,
+                        "on-chain status verification failed",
+                    );
+                }
             }
         }
 
@@ -3223,23 +3232,39 @@ fn encode_blob(
     Ok(encoded_blob)
 }
 
+/// Outcome of [`verify_blob_status_event`].
+///
+/// `Err` is reserved for variants that *should* be verifiable but couldn't be (event mismatch,
+/// RPC failure, etc.), so callers can log `Err` unconditionally at WARN without having to know
+/// which variants are skippable.
+#[derive(Debug, PartialEq, Eq)]
+enum VerifyOutcome {
+    /// The status is acceptable to the caller — either because an on-chain event matched the
+    /// claimed status, or because the status has no event to verify against
+    /// ([`BlobStatus::Nonexistent`]) and is accepted as-is.
+    Verified,
+    /// No on-chain verification is possible for this variant ([`BlobStatus::Deletable`]). The
+    /// caller must fall back to the storage-node quorum gate.
+    Skipped,
+}
+
 /// Verifies the [`BlobStatus`] using the on-chain event.
 ///
-/// This only verifies the [`BlobStatus::Invalid`] and [`BlobStatus::Permanent`] variants and does
-/// not check the quoted counts for deletable blobs.
-#[tracing::instrument(skip(sui_read_client), err(level = Level::WARN))]
+/// Only [`BlobStatus::Invalid`] and [`BlobStatus::Permanent`] are verified against an on-chain
+/// event. [`BlobStatus::Deletable`] returns [`VerifyOutcome::Skipped`] because no on-chain event
+/// meaningfully verifies it; [`BlobStatus::Nonexistent`] returns [`VerifyOutcome::Verified`]
+/// because there is no event to verify against and the caller accepts it as-is.
+#[tracing::instrument(skip(sui_read_client))]
 async fn verify_blob_status_event(
     blob_id: &BlobId,
     status: BlobStatus,
     sui_read_client: &impl ReadClient,
-) -> Result<(), anyhow::Error> {
+) -> Result<VerifyOutcome, anyhow::Error> {
     let event = match status {
         BlobStatus::Invalid { event } => event,
         BlobStatus::Permanent { status_event, .. } => status_event,
-        BlobStatus::Deletable { .. } => {
-            bail!("deletable status cannot be verified with an on-chain event")
-        }
-        BlobStatus::Nonexistent => return Ok(()),
+        BlobStatus::Deletable { .. } => return Ok(VerifyOutcome::Skipped),
+        BlobStatus::Nonexistent => return Ok(VerifyOutcome::Verified),
     };
     tracing::debug!(?event, "verifying blob status with on-chain event");
 
@@ -3273,5 +3298,148 @@ async fn verify_blob_status_event(
         (_, _) => Err(anyhow!("blob event does not match status"))?,
     };
 
-    Ok(())
+    Ok(VerifyOutcome::Verified)
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use sui_types::event::EventID;
+    use walrus_storage_node_client::api::{BlobStatus, DeletableCounts};
+    use walrus_sui::{
+        client::{
+            CommitteesAndState,
+            FixedSystemParameters,
+            ReadClient,
+            SuiClientResult,
+            SuiReadClient,
+        },
+        types::{
+            BlobEvent,
+            Committee,
+            StorageNode,
+            move_structs::{BlobAttribute, BlobWithAttribute, EpochState, EventBlob},
+        },
+    };
+
+    use super::*;
+
+    // Stub `ReadClient` whose methods panic on call. Used to verify that
+    // `verify_blob_status_event` short-circuits before touching the chain.
+    struct PanicReadClient;
+
+    impl ReadClient for PanicReadClient {
+        async fn storage_price_per_unit_size(&self) -> SuiClientResult<u64> {
+            unimplemented!()
+        }
+        async fn write_price_per_unit_size(&self) -> SuiClientResult<u64> {
+            unimplemented!()
+        }
+        async fn storage_and_write_price_per_unit_size(&self) -> SuiClientResult<(u64, u64)> {
+            unimplemented!()
+        }
+        async fn n_shards(&self) -> SuiClientResult<NonZeroU16> {
+            unimplemented!()
+        }
+        async fn get_blob_event(&self, _event_id: EventID) -> SuiClientResult<BlobEvent> {
+            unimplemented!()
+        }
+        async fn current_committee(&self) -> SuiClientResult<Committee> {
+            unimplemented!()
+        }
+        async fn previous_committee(&self) -> SuiClientResult<Committee> {
+            unimplemented!()
+        }
+        async fn next_committee(&self) -> SuiClientResult<Option<Committee>> {
+            unimplemented!()
+        }
+        async fn get_storage_nodes_from_active_set(&self) -> Result<Vec<StorageNode>> {
+            unimplemented!()
+        }
+        async fn get_storage_nodes_from_committee(&self) -> SuiClientResult<Vec<StorageNode>> {
+            unimplemented!()
+        }
+        async fn get_storage_nodes_by_ids(
+            &self,
+            _node_ids: &[ObjectID],
+        ) -> Result<Vec<StorageNode>> {
+            unimplemented!()
+        }
+        async fn get_blob_attribute(
+            &self,
+            _blob_object_id: &ObjectID,
+        ) -> SuiClientResult<Option<BlobAttribute>> {
+            unimplemented!()
+        }
+        async fn get_blob_by_object_id(
+            &self,
+            _blob_id: &ObjectID,
+        ) -> SuiClientResult<BlobWithAttribute> {
+            unimplemented!()
+        }
+        async fn epoch_state(&self) -> SuiClientResult<EpochState> {
+            unimplemented!()
+        }
+        async fn current_epoch(&self) -> SuiClientResult<Epoch> {
+            unimplemented!()
+        }
+        async fn get_committees_and_state(&self) -> SuiClientResult<CommitteesAndState> {
+            unimplemented!()
+        }
+        fn fixed_system_parameters(&self) -> FixedSystemParameters {
+            unimplemented!()
+        }
+        async fn stake_assignment(&self) -> SuiClientResult<HashMap<ObjectID, u64>> {
+            unimplemented!()
+        }
+        async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
+            unimplemented!()
+        }
+        async fn refresh_package_id(&self) -> SuiClientResult<()> {
+            unimplemented!()
+        }
+        async fn refresh_credits_package_id(&self) -> SuiClientResult<()> {
+            unimplemented!()
+        }
+        async fn refresh_walrus_subsidies_package_id(&self) -> SuiClientResult<()> {
+            unimplemented!()
+        }
+        async fn system_object_version(&self) -> SuiClientResult<u64> {
+            unimplemented!()
+        }
+        async fn flush_cache(&self) {
+            unimplemented!()
+        }
+        fn read_client(&self) -> &SuiReadClient {
+            unimplemented!()
+        }
+    }
+
+    // Deletable must return `Skipped` (not `Verified`) so the caller falls back to the
+    // storage-node quorum gate instead of accepting a single node's claim. A regression where
+    // Deletable returns `Verified` would silently bypass the quorum check.
+    #[tokio::test]
+    async fn deletable_status_short_circuits_as_skipped() {
+        let blob_id = BlobId([0u8; 32]);
+        let status = BlobStatus::Deletable {
+            initial_certified_epoch: Some(7),
+            deletable_counts: DeletableCounts {
+                count_deletable_total: 3,
+                count_deletable_certified: 2,
+            },
+        };
+        let result = verify_blob_status_event(&blob_id, status, &PanicReadClient).await;
+        assert_eq!(result.expect("should not error"), VerifyOutcome::Skipped);
+    }
+
+    // Nonexistent has no on-chain event to verify against; the caller accepts it as-is, matching
+    // pre-refactor behavior where Nonexistent returned `Ok(())` and satisfied the alternative
+    // gate unconditionally.
+    #[tokio::test]
+    async fn nonexistent_status_short_circuits_as_verified() {
+        let blob_id = BlobId([0u8; 32]);
+        let result =
+            verify_blob_status_event(&blob_id, BlobStatus::Nonexistent, &PanicReadClient).await;
+        assert_eq!(result.expect("should not error"), VerifyOutcome::Verified);
+    }
 }
