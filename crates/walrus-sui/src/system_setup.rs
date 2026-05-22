@@ -99,14 +99,19 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
+/// The hardcoded environment that walrus compilation pins to, regardless of the wallet's active
+/// environment or the package's `[environments]` table. Matches the `testnet` entries pinned in
+/// each contract's `Move.lock`.
+const COMPILE_ENV_NAME: &str = "testnet";
+const COMPILE_ENV_CHAIN_ID: &str = "4c78adac";
+
 /// Compiles a package and returns the compiled package, and build config.
 ///
-/// Loads the root package via persistent mode when the wallet's active environment maps to one of
-/// the manifest's environments (the typical mainnet/testnet path). Falls back to ephemeral mode —
-/// equivalent to `sui move test-publish` — when no matching environment exists, which is the
-/// localnet/test-cluster case where each cluster generates a fresh chain id. Ephemeral mode tracks
-/// package addresses in a shared `Pub.<alias>.toml` next to the package, so dependency packages
-/// published in the same flow can resolve each other's addresses.
+/// Always loads the root package via [`PackageLoader::new_ephemeral`] against the hardcoded
+/// `testnet` environment (`name = "testnet"`, `chain-id = "4c78adac"`), bypassing any environment
+/// resolution from the wallet or the package manifest. Publication addresses for sibling packages
+/// published in the same flow are tracked in a shared `Pub.testnet.toml` next to the package
+/// directory.
 pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
@@ -116,52 +121,26 @@ pub async fn compile_package(
     let build_config_clone = build_config.clone();
     let package_path_clone = package_path.clone();
 
-    let root_pkg: RootPackage<SuiFlavor> = match wallet
-        .find_package_environment(&package_path, &build_config)
-        .await
-    {
-        Ok(env) => {
-            build_config_clone
-                .package_loader(&package_path_clone, &env, wallet.sui_flavor())
-                .load()
-                .await?
-        }
-        Err(env_err) => {
-            let chain_id = chain_id.clone().ok_or_else(|| {
-                anyhow!(
-                    "no environment for package at {:?} matches the wallet, and no chain id \
-                    was supplied for ephemeral publish: {env_err}",
-                    package_path,
-                )
-            })?;
-            let alias = wallet.get_active_env().alias.clone();
-            // Place the ephemeral pubfile next to the package directory so sibling packages
-            // (e.g. wal and walrus) published in the same flow share address overrides.
-            let pubfile_dir = package_path_clone
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| package_path_clone.clone());
-            let pubfile_path = pubfile_dir.join(format!("Pub.{alias}.toml"));
-            // If the caller didn't pass an explicit build environment, fall back to the wallet's
-            // active env alias — required by the package system when creating a fresh pubfile.
-            let build_env = build_config_clone
-                .environment
-                .clone()
-                .or_else(|| Some(alias.clone()));
-            PackageLoader::new_ephemeral(
-                &package_path_clone,
-                build_env,
-                chain_id,
-                pubfile_path,
-                wallet.sui_flavor(),
-            )
-            .modes(build_config_clone.mode_set())
-            .allow_dirty(build_config_clone.allow_dirty)
-            .output_path(build_config_clone.install_dir.clone())
-            .load()
-            .await?
-        }
-    };
+    // Place the ephemeral pubfile next to the package directory so sibling packages
+    // (e.g. wal and walrus) published in the same flow share address overrides.
+    let pubfile_dir = package_path_clone
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| package_path_clone.clone());
+    let pubfile_path = pubfile_dir.join(format!("Pub.{COMPILE_ENV_NAME}.toml"));
+
+    let root_pkg: RootPackage<SuiFlavor> = PackageLoader::new_ephemeral(
+        &package_path_clone,
+        Some(COMPILE_ENV_NAME.to_string()),
+        COMPILE_ENV_CHAIN_ID.to_string(),
+        pubfile_path,
+        wallet.sui_flavor(),
+    )
+    .modes(build_config_clone.mode_set())
+    .allow_dirty(build_config_clone.allow_dirty)
+    .output_path(build_config_clone.install_dir.clone())
+    .load()
+    .await?;
 
     tokio::task::spawn_blocking(|| {
         sui_macros::nondeterministic!(compile_package_inner_blocking(
