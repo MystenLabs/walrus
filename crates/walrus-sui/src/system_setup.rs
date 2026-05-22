@@ -139,6 +139,13 @@ pub async fn compile_package(
     .modes(build_config_clone.mode_set())
     .allow_dirty(build_config_clone.allow_dirty)
     .output_path(build_config_clone.install_dir.clone())
+    // TODO(WAL-1125): under simtest the package system can't fetch external git deps, but the
+    // existing `Move.lock` pins still point at git sources. The default loader fetches each
+    // lockfile pin before checking digests, which triggers a real `git clone` that hangs under
+    // the msim runtime. Forcing a repin makes the loader read the (already-rewritten) manifest
+    // with local paths instead. Remove together with
+    // `update_contract_sui_dependency_to_local_copy`.
+    .force_repin(cfg!(msim))
     .load()
     .await?;
 
