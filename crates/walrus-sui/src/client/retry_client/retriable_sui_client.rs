@@ -218,7 +218,7 @@ pub struct GasBudgetAndPrice {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Ord, PartialOrd)]
 pub struct GrpcMigrationLevel(u32);
 
-const GRPC_MIGRATION_LEVEL_LEGACY_U32: u32 = 0;
+const GRPC_MIGRATION_LEVEL_DEFAULT_U32: u32 = 100;
 const GRPC_MIGRATION_LEVEL_GET_OBJECT: GrpcMigrationLevel = GrpcMigrationLevel(1);
 const GRPC_MIGRATION_LEVEL_BATCH_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(2);
 const GRPC_MIGRATION_LEVEL_SELECT_COINS: GrpcMigrationLevel = GrpcMigrationLevel(3);
@@ -235,7 +235,7 @@ impl Default for GrpcMigrationLevel {
             std::env::var("WALRUS_GRPC_MIGRATION_LEVEL")
                 .ok()
                 .and_then(|v| v.parse().ok())
-                .unwrap_or(GRPC_MIGRATION_LEVEL_LEGACY_U32)
+                .unwrap_or(GRPC_MIGRATION_LEVEL_DEFAULT_U32)
         });
         Self(*VALUE)
     }
