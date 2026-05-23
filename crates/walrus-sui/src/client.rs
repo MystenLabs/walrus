@@ -802,10 +802,18 @@ impl SuiContractClient {
 
     /// Returns the digest of the package at `package_path` for the active network identified by
     /// the enclosed wallet.
+    ///
+    /// This is used to vote on upgrade proposals, so the digest must be computed against the
+    /// same byte layout the upgrade transaction will publish: root modules at `0x0`, even when
+    /// the package's `Published.toml` already records a previous publication. Mirrors what
+    /// `sui move test-upgrade` does in `crates/sui/src/client_commands.rs::upgrade_command`.
     pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
-        let (compiled_package, _build_config, _root_package) = self
-            .compile_package(package_path, Default::default())
-            .await?;
+        let build_config = MoveBuildConfig {
+            root_as_zero: true,
+            ..Default::default()
+        };
+        let (compiled_package, _build_config, _root_package) =
+            self.compile_package(package_path, build_config).await?;
 
         Ok(compiled_package.get_package_digest(false))
     }
@@ -1493,14 +1501,21 @@ impl SuiContractClientInner {
         package_path: PathBuf,
         upgrade_type: UpgradeType,
     ) -> SuiClientResult<ObjectID> {
-        // Compile package
+        // Compile package. Force the root modules to compile at `0x0` even when the package's
+        // `Published.toml` already records a previous publication: the upgrade transaction itself
+        // rewrites them to the new package id. Mirrors `sui move test-upgrade` in
+        // `crates/sui/src/client_commands.rs::upgrade_command`.
         let chain_id = self
             .retriable_sui_client()
             .get_chain_identifier()
             .await
             .ok();
+        let build_config = MoveBuildConfig {
+            root_as_zero: true,
+            ..Default::default()
+        };
         let (compiled_package, _build_config, _root_package) =
-            compile_package(package_path, Default::default(), chain_id, &self.wallet).await?;
+            compile_package(package_path, build_config, chain_id, &self.wallet).await?;
 
         let mut pt_builder = self.transaction_builder();
 

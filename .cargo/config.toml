@@ -1,0 +1,7 @@
+# Bump the per-thread stack size for test threads. Walrus's e2e test cluster setup chains a deep
+# stack of futures (initial publish + storage-node init + aggregator startup); in debug builds the
+# future state machines are large enough that the default 2 MiB libtest stack overflows during
+# `E2eTestSetupBuilder::build()`. Setting this here means `cargo test`/`cargo nextest`/`cargo
+# simtest` all pick it up without per-test wrappers.
+[env]
+RUST_MIN_STACK = "16777216"
