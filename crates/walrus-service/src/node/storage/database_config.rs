@@ -336,6 +336,8 @@ pub struct DatabaseConfig {
     //
     /// Node status database options.
     pub(super) node_status: Option<DatabaseTableOptions>,
+    /// Node recovery progress database options.
+    pub(super) node_recovery_progress: Option<DatabaseTableOptions>,
     /// Garbage collector database options.
     pub(super) garbage_collector: Option<DatabaseTableOptions>,
     /// Blob info database options.
@@ -426,6 +428,11 @@ impl DatabaseConfig {
     /// Returns the node status database option.
     pub fn node_status(&self) -> DatabaseTableOptions {
         Self::inherit_from_or_use_template(&self.node_status, self.standard())
+    }
+
+    /// Returns the node recovery progress database option.
+    pub fn node_recovery_progress(&self) -> DatabaseTableOptions {
+        Self::inherit_from_or_use_template(&self.node_recovery_progress, self.standard())
     }
 
     /// Returns the garbage collector database option.
@@ -543,6 +550,7 @@ impl Default for DatabaseConfig {
             blob_info_template: DatabaseTableOptions::blob_info_template(),
             metadata: DatabaseTableOptions::metadata(),
             node_status: None,
+            node_recovery_progress: None,
             garbage_collector: None,
             blob_info: None,
             per_object_blob_info: None,
@@ -734,6 +742,11 @@ impl DatabaseTableOptionsFactory {
     /// Returns the node status database option with shared cache.
     pub fn node_status(&self) -> Options {
         self.to_options(&self.config.node_status(), false)
+    }
+
+    /// Returns the node recovery progress database option with shared cache.
+    pub fn node_recovery_progress(&self) -> Options {
+        self.to_options(&self.config.node_recovery_progress(), false)
     }
 
     /// Returns the garbage collector database option with shared cache.

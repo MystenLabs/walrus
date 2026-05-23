@@ -216,6 +216,11 @@ mod tests {
                 max_concurrent_blob_syncs_during_recovery;
         }
 
+        // Persist the recovery checkpoint after every settled blob so the second recovery run
+        // (after the in-recovery crash below) has a non-empty checkpoint to resume from
+        // regardless of how few blobs the workload generated.
+        node_recovery_config.checkpoint_persist_interval = 1;
+
         let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
             .with_epoch_duration(Duration::from_secs(30))
             .with_test_nodes_config(
@@ -278,22 +283,42 @@ mod tests {
             .await
             .expect("stake with node pool should not fail");
 
-        // Probabilistically trigger a node crash during node recovery.
-        let crash_during_recovery = rand::thread_rng().gen_bool(0.1);
-        if crash_during_recovery {
-            let fail_triggered = Arc::new(AtomicBool::new(false));
+        // Trigger a second node crash during node recovery, forcing the recovery to restart.
+        // The restarted recovery should resume from the checkpoint persisted by the first
+        // recovery run rather than rescanning from blob_id 0 — verified by the
+        // `recovery_resume_count` observer below.
+        {
+            let recovery_crash_triggered = Arc::new(AtomicBool::new(false));
             let target_fail_node_id = walrus_cluster.nodes[0]
                 .node_id
                 .expect("node id should be set");
-            let fail_triggered_clone = fail_triggered.clone();
-
             sui_macros::register_fail_point("fail_point_node_recovery_start_sync", move || {
                 crash_target_node(
                     target_fail_node_id,
-                    fail_triggered_clone.clone(),
+                    recovery_crash_triggered.clone(),
                     Duration::from_secs(5),
                 );
             });
+        }
+
+        // Count every time the node's recovery task resumes from a persisted checkpoint.
+        // Must be > 0 by the end of the test since we deliberately crash node 0 during its
+        // first recovery run above.
+        let recovery_resume_count = Arc::new(AtomicUsize::new(0));
+        {
+            let target_fail_node_id = walrus_cluster.nodes[0]
+                .node_id
+                .expect("node id should be set");
+            let recovery_resume_count_clone = recovery_resume_count.clone();
+            sui_macros::register_fail_point(
+                "fail_point_node_recovery_resumed_from_checkpoint",
+                move || {
+                    if sui_simulator::current_simnode_id() != target_fail_node_id {
+                        return;
+                    }
+                    recovery_resume_count_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                },
+            );
         }
 
         tokio::time::sleep(Duration::from_secs(150)).await;
@@ -332,6 +357,16 @@ mod tests {
         }
 
         assert_eq!(node_health_info[0].node_status, "Active");
+
+        // The in-recovery crash above forced a second recovery run on the restarted node.
+        // That second run must have resumed from the persisted checkpoint at least once,
+        // proving recovery progress is preserved across restarts instead of rescanning from
+        // blob_id 0.
+        assert!(
+            recovery_resume_count.load(std::sync::atomic::Ordering::SeqCst) > 0,
+            "node recovery should have resumed from a persisted checkpoint at least once \
+            after the in-recovery crash, but the resume observer never fired"
+        );
 
         workload_handle.abort();
 
