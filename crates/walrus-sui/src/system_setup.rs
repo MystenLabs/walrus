@@ -13,9 +13,8 @@ use std::{
 use anyhow::{Context, Result, anyhow, bail};
 use move_core_types::language_storage::StructTag;
 use move_package_alt::{
-    PackageLoader,
     RootPackage,
-    schema::{OriginalID, Publication, PublishAddresses, PublishedID},
+    schema::{Environment, OriginalID, Publication, PublishAddresses, PublishedID},
 };
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use sui_move_build::{CompiledPackage, PackageDependencies};
@@ -99,55 +98,44 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
-/// The hardcoded environment that walrus compilation pins to, regardless of the wallet's active
-/// environment or the package's `[environments]` table. Matches the `testnet` entries pinned in
-/// each contract's `Move.lock`.
+/// The env name we always compile against. Matches `SuiFlavor`'s default environments (so every
+/// dependency package recognizes it without needing a custom `[environments]` entry) and matches
+/// the `[pinned.testnet]` block in each contract's `Move.lock`.
 const COMPILE_ENV_NAME: &str = "testnet";
-const COMPILE_ENV_CHAIN_ID: &str = "4c78adac";
 
 /// Compiles a package and returns the compiled package, and build config.
 ///
-/// Always loads the root package via [`PackageLoader::new_ephemeral`] against the hardcoded
-/// `testnet` environment (`name = "testnet"`, `chain-id = "4c78adac"`), bypassing any environment
-/// resolution from the wallet or the package manifest. Publication addresses for sibling packages
-/// published in the same flow are tracked in a shared `Pub.testnet.toml` next to the package
-/// directory.
+/// Loads the root package in persistent mode against `Environment("testnet", <wallet_chain_id>)`.
+/// We hardcode `testnet` as the env name (rather than asking `find_environment` to derive one
+/// from the wallet) because our `Move.toml`s don't declare a `localnet`/`mainnet` entry — the
+/// only env names that every dep package recognizes are `SuiFlavor`'s defaults `testnet` and
+/// `mainnet`. The wallet's actual `chain_id` is bound to that env name so the resulting publish
+/// transaction still reaches the correct chain. Package addresses propagate between sibling
+/// packages via each one's per-directory `Published.toml`.
 pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
     wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
+    let env = Environment::new(
+        COMPILE_ENV_NAME.to_string(),
+        chain_id.clone().unwrap_or_default(),
+    );
+
     let build_config_clone = build_config.clone();
     let package_path_clone = package_path.clone();
-
-    // Place the ephemeral pubfile next to the package directory so sibling packages
-    // (e.g. wal and walrus) published in the same flow share address overrides.
-    let pubfile_dir = package_path_clone
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| package_path_clone.clone());
-    let pubfile_path = pubfile_dir.join(format!("Pub.{COMPILE_ENV_NAME}.toml"));
-
-    let root_pkg: RootPackage<SuiFlavor> = PackageLoader::new_ephemeral(
-        &package_path_clone,
-        Some(COMPILE_ENV_NAME.to_string()),
-        COMPILE_ENV_CHAIN_ID.to_string(),
-        pubfile_path,
-        wallet.sui_flavor(),
-    )
-    .modes(build_config_clone.mode_set())
-    .allow_dirty(build_config_clone.allow_dirty)
-    .output_path(build_config_clone.install_dir.clone())
-    // TODO(WAL-1125): under simtest the package system can't fetch external git deps, but the
-    // existing `Move.lock` pins still point at git sources. The default loader fetches each
-    // lockfile pin before checking digests, which triggers a real `git clone` that hangs under
-    // the msim runtime. Forcing a repin makes the loader read the (already-rewritten) manifest
-    // with local paths instead. Remove together with
-    // `update_contract_sui_dependency_to_local_copy`.
-    .force_repin(cfg!(msim))
-    .load()
-    .await?;
+    let root_pkg: RootPackage<SuiFlavor> = build_config_clone
+        .package_loader(&package_path_clone, &env, wallet.sui_flavor())
+        // TODO(WAL-1125): under simtest the package system can't fetch external git deps, but
+        // `Move.lock`'s `[pinned.testnet]` still points its `std`/`sui` entries at git sources.
+        // The default loader fetches each lockfile pin before checking digests, which triggers a
+        // real `git clone` that hangs under msim. Forcing a repin makes the loader read the
+        // (already-rewritten) manifest with local paths instead. Drop once simtest can pull
+        // external git deps, together with `update_contract_sui_dependency_to_local_copy`.
+        .force_repin(cfg!(msim))
+        .load()
+        .await?;
 
     tokio::task::spawn_blocking(|| {
         sui_macros::nondeterministic!(compile_package_inner_blocking(
@@ -286,6 +274,16 @@ pub(crate) async fn publish_package(
     )?;
 
     let chain_id = retry_client.get_chain_identifier().await?;
+
+    // We're about to publish this package *fresh* on the test cluster. The source
+    // `testnet-contracts/<pkg>/Published.toml` (carried over by `copy_recursively`) records the
+    // real testnet publication, which under env name `"testnet"` would make the compile think
+    // the package is already published and trip the `published_root_module().is_none()`
+    // assertion. Drop it so the fresh publish writes a clean entry.
+    let published_toml = package_path.join("Published.toml");
+    if published_toml.exists() {
+        std::fs::remove_file(&published_toml)?;
+    }
 
     if cfg!(msim) {
         // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can

@@ -1118,26 +1118,17 @@ mod tests {
         let upgrade_dir = TempDir::new()?;
         copy_recursively(development_contract_dir()?, upgrade_dir.path()).await?;
 
-        // Carry over the ephemeral pubfile that the original publish flow wrote next to the
-        // deploy directory's package directories, so the upgrade compile can resolve the
-        // already-published wal address. The Sui test cluster's wallet alias is "localnet" (see
-        // `test-cluster/src/lib.rs`), so the pubfile name is fixed.
-        let pubfile_name = "Pub.localnet.toml";
-        let src_pubfile = deploy_dir.path().join(pubfile_name);
-        if src_pubfile.exists() {
-            std::fs::copy(&src_pubfile, upgrade_dir.path().join(pubfile_name))?;
-        }
-
-        // Copy Move.lock files of walrus contract and dependencies to new directory. This links
-        // the already published packages with the package that is about to be upgraded.
+        // Overwrite each contract's `Published.toml` with the one written by the test cluster's
+        // initial publish. The development contracts ship a `Published.toml` recording the real
+        // mainnet/testnet publication, but the package being upgraded here lives on the test
+        // cluster — the upgrade compile and transaction need that cluster's `published_at`.
         for contract in ["wal", "walrus"] {
             std::fs::copy(
-                deploy_dir.path().join(contract).join("Move.lock"),
-                upgrade_dir.path().join(contract).join("Move.lock"),
+                deploy_dir.path().join(contract).join("Published.toml"),
+                upgrade_dir.path().join(contract).join("Published.toml"),
             )?;
 
             let package_path = upgrade_dir.path().join(contract);
-
             // TODO(WAL-1125): remove once the new sui package management system can pull external
             // dependencies.
             system_setup::update_contract_sui_dependency_to_local_copy(package_path)?;
