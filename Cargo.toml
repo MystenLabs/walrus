@@ -43,8 +43,8 @@ bytes = { version = "1.11.1", default-features = false, features = ["serde"] }
 bytesize = "2.3"
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
 chrono = "=0.4.44"
-clap = { version = "4.6.0", features = ["deprecated", "derive"] }
-clap_complete = "4.6.0"
+clap = { version = "4.6.1", features = ["deprecated", "derive"] }
+clap_complete = "4.6.5"
 collectable = "0.0.2"
 colored = "3.1.1"
 const-str = "0.6.4"
@@ -69,13 +69,13 @@ http-body-util = "0.1.1"
 http-range-header = "0.4.2"
 humantime = "2.3.0"
 hyper = "1"
-indexmap = "2.13.0"
+indexmap = "2.14.0"
 indicatif = "0.18.4"
 indoc = "2.0.7"
 integer-encoding = "4.1.0"
 itertools = "0.14.0"
 jsonrpsee = "0.24.9"
-jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
+jsonwebtoken = { version = "10.4.0", features = ["rust_crypto"] }
 libc = "0.2"
 md5 = "0.8.0"
 mime = "0.3.17"
@@ -94,7 +94,7 @@ opentelemetry-proto = { version = "=0.31", default-features = false, features = 
 opentelemetry-semantic-conventions = "=0.31"
 opentelemetry_sdk = "=0.31"
 p256 = { version = "0.13.2", default-features = false }
-pin-project = "1.1.11"
+pin-project = "1.1.13"
 prettytable = "0.10.0"
 proc-macro2 = "1.0.106"
 prometheus = "0.14.0"
@@ -102,21 +102,21 @@ prost = { version = "0.14", default-features = false }
 quote = "1.0"
 rand = "0.8.5"
 rand_distr = "0.4"
-rayon = "1.11.0"
-rcgen = "0.14.7"
+rayon = "1.12.0"
+rcgen = "0.14.8"
 reed-solomon-simd = "3.1.0"
 regex = "1"
 reqwest = { version = "0.12.12", default-features = false, features = ["http2", "json", "rustls-tls"] }
 rocksdb = "0.22.0"
 rstest = "0.26.1"
-rustls = { version = "0.23.37", default-features = false, features = ["logging", "ring", "tls12"] }
+rustls = { version = "0.23.40", default-features = false, features = ["logging", "ring", "tls12"] }
 rustls-native-certs = "0.8.3"
 scoped-futures = "0.1.4"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_test = "1.0.177"
 serde_urlencoded = { version = "0.7.1" }
-serde_with = { version = "3.18", features = ["base64"] }
+serde_with = { version = "3.20", features = ["base64"] }
 serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
@@ -150,9 +150,9 @@ tokio = { version = "=1.52.1", features = ["macros", "rt-multi-thread", "signal"
 tokio-metrics = { version = "0.4.9", default-features = false }
 tokio-stream = "0.1.17"
 tokio-util = "0.7.16"
-tonic = { version = "0.14.5", default-features = false }
+tonic = { version = "0.14.6", default-features = false }
 tower = "0.5"
-tower-http = { version = "0.6.8", features = ["cors", "timeout", "trace"] }
+tower-http = { version = "0.6.10", features = ["cors", "timeout", "trace"] }
 tracing = "0.1.44"
 tracing-opentelemetry = { version = "=0.32.1", default-features = false }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["env-filter", "fmt"] }
@@ -163,7 +163,7 @@ url = "2.5.4"
 urlencoding = "2.1"
 utoipa = { version = "5" }
 utoipa-redoc = { version = "6.0", features = ["axum"] }
-uuid = { version = "1.22.0", features = ["fast-rng", "macro-diagnostics", "v7"] }
+uuid = { version = "1.23.1", features = ["fast-rng", "macro-diagnostics", "v7"] }
 walrus-core = { path = "crates/walrus-core" }
 walrus-proc-macros = { path = "crates/walrus-proc-macros" }
 walrus-sdk = { path = "crates/walrus-sdk" }
