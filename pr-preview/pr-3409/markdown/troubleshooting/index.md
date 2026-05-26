@@ -27,10 +27,8 @@ You can enable debug logging for Walrus by setting the environment variable `RUS
 ```
 $ RUST_LOG=walrus=debug walrus store file.txt --epochs 5
 ```
-## Reading Blobs Right After Upload
-
-If a freshly uploaded blob returns `404 Not Found` from an aggregator, you are likely hitting the short propagation window after certification. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload) for the retry pattern and CDN cache-busting note.
+If a freshly uploaded blob returns `404 Not Found` from a CDN-fronted aggregator, you are likely hitting a cached `404` response from before the blob propagated. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload) for when to retry and when not to.
 
 - [Error Handling](/docs/troubleshooting/error-handling): Best practices for handling Walrus errors.
 - [Troubleshooting Common Errors](/docs/troubleshooting/network-errors): Common errors in the Walrus CLI and network, with causes and solutions.
-- [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload): Why blobs may return 404 immediately after certification, and how to handle the propagation window.
+- [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload): Why blobs may return 404 immediately after certification when using a cached aggregator, and how to handle the propagation window.

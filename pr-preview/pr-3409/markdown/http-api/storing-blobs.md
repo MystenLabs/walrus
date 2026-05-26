@@ -10,7 +10,7 @@ $ curl -X PUT "$PUBLISHER/v1/blobs" --upload-file "some/file"
 ```
 > **Reading a blob right after upload?**
 >
-> Right after a blob is certified, some aggregators may return `404 Not Found` for a few seconds while the blob propagates. Retry with backoff before treating it as an error. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload).
+> When you read through a CDN-fronted aggregator immediately after certification, the CDN may briefly cache a `404` from before the blob propagated. If your app knows the blob was just certified, retry with backoff. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload).
 ## Configuring storage options
 
 Control how the new blob is created through a combination of query parameters as documented in the [OpenAPI specification](#http-api-usage).

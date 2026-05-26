@@ -109,13 +109,13 @@ Sui smart contract as the on-chain index.
     storing regular blobs can also be used when storing quilts.
 - [Reading Blobs](https://docs.wal.app/docs/http-api/reading-blobs.md):
     You can read blobs using HTTP GET requests with their blob ID or object ID. > Reading a blob
-    right after upload? > > Right after a blob is certified, some aggregators may return 404 Not
-    Found for a few seconds while the blob propagates. Retry with backoff before treating it as an
-    error.
+    right after upload? > > When you read through a CDN-fronted aggregator immediately after
+    certification, the CDN may briefly cache a 404 from before the blob propagated.
 - [Storing Blobs](https://docs.wal.app/docs/http-api/storing-blobs.md):
     You can store data using HTTP PUT requests. The following examples use curl to store blobs
-    through a publisher: > Reading a blob right after upload? > > Right after a blob is certified,
-    some aggregators may return 404 Not Found for a few seconds while the blob propagates.
+    through a publisher: > Reading a blob right after upload? > > When you read through a
+    CDN-fronted aggregator immediately after certification, the CDN may briefly cache a 404 from
+    before the blob propagated.
 
 ## TypeScript SDK
 
@@ -339,9 +339,8 @@ Sui smart contract as the on-chain index.
     error message, its cause, and how to troubleshoot it. Errors in this section occur when the
     Walrus CLI cannot load or parse its configuration.
 - [Reading Blobs After Upload](https://docs.wal.app/docs/troubleshooting/reading-blobs-after-upload.md):
-    When a blob is certified on Walrus, it does not immediately appear at every aggregator gateway.
-    There is a short propagation window during which some aggregators may return 404 Not Found for
-    a blob that has been successfully certified. This is expected behavior, not a bug.
+    Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly
+    from storage nodes returns it immediately.
 
 ## Data Security
 
