@@ -160,8 +160,8 @@ fn compile_package_inner_blocking(
         ",
             package_dependencies
                 .unpublished
-                .into_iter()
-                .map(|n| n.to_string())
+                .values()
+                .map(|dep| dep.name.to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
         );
@@ -286,6 +286,7 @@ pub(crate) async fn publish_package(
                 .dependency_ids
                 .published
                 .into_values()
+                .map(|dep| dep.published_at)
                 .collect(),
         );
         pt_builder.transfer_arg(sender, upgrade_cap);

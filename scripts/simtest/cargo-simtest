@@ -60,9 +60,9 @@ if [[ -n "$LOCAL_MSIM_PATH" ]]; then
 else
   cargo_patch_args=(
     --config 'patch.crates-io.tokio.git = "https://github.com/MystenLabs/mysten-sim.git"'
-    --config 'patch.crates-io.tokio.rev = "53016c1a9038154b1e47b96f0a314efa7e7d809b"'
+    --config 'patch.crates-io.tokio.rev = "2c2ec3ffbc1e559c575dc7de1ff2498d1f6700f6"'
     --config 'patch.crates-io.futures-timer.git = "https://github.com/MystenLabs/mysten-sim.git"'
-    --config 'patch.crates-io.futures-timer.rev = "53016c1a9038154b1e47b96f0a314efa7e7d809b"'
+    --config 'patch.crates-io.futures-timer.rev = "2c2ec3ffbc1e559c575dc7de1ff2498d1f6700f6"'
   )
 fi
 
@@ -109,7 +109,7 @@ fi
 TMPDIR="$(mktemp -d)"
 export TMPDIR
 
-SUI_VERSION="testnet-v1.72.1"
+SUI_VERSION="testnet-v1.73.0"
 
 # TODO(WAL-1125): remove the cloning after sui package management system can work with simtest
 #                 pulling dependency from external repository.
