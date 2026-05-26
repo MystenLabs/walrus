@@ -1,6 +1,14 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+/**
+  * Fetch a blob immediately after upload from a CDN-fronted aggregator.
+ *
+  * Walrus is strongly consistent, but CDNs in front of public aggregators may
+  * briefly cache a 404 from before the blob was visible. Use this helper only
+  * when your app knows the blob has just been certified. For general reads,
+  * treat 404 as terminal instead of retrying.
+ */
 async function fetchBlobWithRetry(
   blobId: string,
   aggregatorUrl: string,
