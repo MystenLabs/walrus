@@ -1127,6 +1127,7 @@ impl WalrusPtbBuilder {
                 .dependency_ids
                 .published
                 .into_values()
+                .map(|dep| dep.published_at)
                 .collect(),
             modules,
         );
