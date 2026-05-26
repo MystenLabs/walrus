@@ -110,13 +110,12 @@ Sui smart contract as the on-chain index.
 - [Reading Blobs](https://docs.wal.app/docs/http-api/reading-blobs.md):
     You can read blobs using HTTP GET requests with their blob ID or object ID. > Reading a blob
     right after upload? > > Right after a blob is certified, some aggregators may return 404 Not
-    Found for a few seconds while the blob propagates. Retry with backoff. See Reading blobs right
-    after upload.
+    Found for a few seconds while the blob propagates. Retry with backoff before treating it as an
+    error.
 - [Storing Blobs](https://docs.wal.app/docs/http-api/storing-blobs.md):
     You can store data using HTTP PUT requests. The following examples use curl to store blobs
-    through a publisher: > Reading a blob immediately after upload? > > Right after a blob is
-    certified, some aggregators may return 404 Not Found for a few seconds while the blob
-    propagates.
+    through a publisher: > Reading a blob right after upload? > > Right after a blob is certified,
+    some aggregators may return 404 Not Found for a few seconds while the blob propagates.
 
 ## TypeScript SDK
 
