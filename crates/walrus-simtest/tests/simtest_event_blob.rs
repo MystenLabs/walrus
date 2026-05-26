@@ -163,20 +163,38 @@ mod tests {
             .join("db");
         let db_table_opts_factory =
             DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false);
-        let db = Arc::new(rocksdb::DB::open_cf_with_opts_for_read_only(
-            &RocksdbOptions::default(),
-            db_path,
-            [
-                ("pending_blob_store", db_table_opts_factory.pending()),
-                ("attested_blob_store", db_table_opts_factory.attested()),
-                ("certified_blob_store", db_table_opts_factory.certified()),
-                (
-                    "failed_to_attest_blob_store",
-                    db_table_opts_factory.failed_to_attest(),
-                ),
-            ],
-            false,
-        )?);
+
+        // Opening the DB read-only while the writer is actively compacting can transiently
+        // observe a manifest referencing an SST that has just been deleted. Retry a few
+        // times to ride out the race before giving up.
+        let mut attempts = 0;
+        let db = loop {
+            match rocksdb::DB::open_cf_with_opts_for_read_only(
+                &RocksdbOptions::default(),
+                &db_path,
+                [
+                    ("pending_blob_store", db_table_opts_factory.pending()),
+                    ("attested_blob_store", db_table_opts_factory.attested()),
+                    ("certified_blob_store", db_table_opts_factory.certified()),
+                    (
+                        "failed_to_attest_blob_store",
+                        db_table_opts_factory.failed_to_attest(),
+                    ),
+                ],
+                false,
+            ) {
+                Ok(db) => break Arc::new(db),
+                Err(err) => {
+                    let msg = err.to_string();
+                    let retryable = msg.contains("Corruption") && msg.contains("No such file");
+                    if !retryable || attempts >= 20 {
+                        return Err(err.into());
+                    }
+                    attempts += 1;
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+            }
+        };
         let cf = db
             .cf_handle("certified_blob_store")
             .expect("Certified blob store column family should exist");
