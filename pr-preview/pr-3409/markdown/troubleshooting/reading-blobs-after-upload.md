@@ -18,6 +18,9 @@ Aggregators read blobs from storage nodes but do not all see a newly certified b
 Treat post-upload `404` responses as transient. Non-404 errors (such as `500`) indicate a different class of problem and should not be retried blindly. The example below surfaces them immediately.
 
 ```ts title="examples/typescript/retry_blob_with_backoff.ts"
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
 async function fetchBlobWithRetry(
   blobId: string,
   aggregatorUrl: string,
