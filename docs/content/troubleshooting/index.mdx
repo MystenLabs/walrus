@@ -32,6 +32,9 @@ You can enable debug logging for Walrus by setting the environment variable `RUS
 ```
 $ RUST_LOG=walrus=debug walrus store file.txt --epochs 5
 ```
+## Reading blobs right after upload
+
+If a freshly uploaded blob returns `404 Not Found` from an aggregator, you are likely hitting the short propagation window after certification. See [Reading blobs right after upload](/docs/troubleshooting/reading-blobs-after-upload) for the retry pattern and CDN cache-busting note.
 
 import DocCardList from '@theme/DocCardList';
 

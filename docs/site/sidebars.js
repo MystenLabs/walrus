@@ -91,6 +91,7 @@ const sidebars = {
       items: [
         'troubleshooting/network-errors',
         'troubleshooting/error-handling',
+        'troubleshooting/reading-blobs-after-upload',
       ],
     },
     "typescript-sdk/sdks",
