@@ -266,11 +266,10 @@ mod tests {
 
     async fn wait_for_pool_expiry(ctx: &TestCtx, end_epoch: Epoch, epoch_dur: Duration) -> Epoch {
         let target = end_epoch + 2;
-        tokio::time::sleep(epoch_dur * target).await;
         simtest_utils::wait_for_nodes_to_reach_epoch(
             &ctx.walrus_cluster.nodes,
             target,
-            epoch_dur * 4,
+            epoch_dur * (target + 4),
         )
         .await;
         target
@@ -482,10 +481,7 @@ mod tests {
         // Advance past expiration.
         wait_for_pool_expiry(&ctx, end_epoch, epoch_dur).await;
 
-        assert!(
-            ctx.client.inner.read_blob::<Primary>(&id).await.is_err(),
-            "blob should be unreadable after pool expiration"
-        );
+        wait_until_blob_unreadable(&ctx.client, &id).await;
 
         ctx.finish().await;
     }
