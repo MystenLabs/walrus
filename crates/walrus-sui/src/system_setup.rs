@@ -100,7 +100,7 @@ pub(crate) async fn publish_package_with_default_build_config(
 
 /// Maps the wallet's active env alias to the env name used to load the package.
 ///
-/// We don't pass the wallet's alias directly to [`PackageLoader`] because our `Move.toml`s only
+/// We don't pass the wallet's alias directly to `PackageLoader` because our `Move.toml`s only
 /// declare the two env names that come from `SuiFlavor`'s defaults — `mainnet` and `testnet` —
 /// and an unknown name (notably the test cluster's `localnet`) would fail dep-package validation.
 /// `mainnet` passes through (so production mainnet upgrades read each dep's
@@ -117,7 +117,7 @@ fn compile_env_name_for_alias(alias: &str) -> &'static str {
 /// Compiles a package and returns the compiled package, and build config.
 ///
 /// Loads the root package in persistent mode. The env name is chosen from the wallet's active
-/// alias via [`compile_env_name_for_alias`] so that production mainnet upgrades read
+/// alias via `compile_env_name_for_alias` so that production mainnet upgrades read
 /// `[published.mainnet]` from each dep's `Published.toml` while everything else (including
 /// `testnet-contracts/` and test-cluster fresh publishes) goes through `[published.testnet]`.
 /// The wallet's actual `chain_id` is bound to that env name so the resulting publish transaction
