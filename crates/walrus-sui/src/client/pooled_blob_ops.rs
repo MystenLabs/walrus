@@ -156,6 +156,44 @@ impl SuiContractClient {
             blob_count,
         })
     }
+
+    /// Lists the blob IDs currently stored in the given storage pool by paginating through
+    /// the underlying `ObjectTable<u256, PooledBlob>` dynamic fields.
+    ///
+    /// Used by integration tests; not intended as a hot path.
+    pub async fn list_pooled_blob_ids(
+        &self,
+        storage_pool_object_id: ObjectID,
+    ) -> SuiClientResult<Vec<BlobId>> {
+        let inner = self
+            .read_client()
+            .get_storage_pool_inner(storage_pool_object_id)
+            .await?;
+        let blobs_table_id = inner.blobs;
+
+        let mut blob_ids = Vec::new();
+        let mut cursor = None;
+        loop {
+            let page = self
+                .retriable_sui_client()
+                .get_dynamic_fields(blobs_table_id, cursor, None)
+                .await?;
+            for field in &page.fields {
+                // `ObjectTable<u256, PooledBlob>` key is a `u256` — BCS encodes it as 32 LE bytes,
+                // matching `BlobId`'s wire layout.
+                let blob_id = BlobId::try_from(field.bcs_name.as_slice()).map_err(|e| {
+                    SuiClientError::Internal(anyhow!("invalid BlobId in pooled blob table: {e}"))
+                })?;
+                blob_ids.push(blob_id);
+            }
+            if page.has_next_page {
+                cursor = page.next_cursor.clone();
+            } else {
+                break;
+            }
+        }
+        Ok(blob_ids)
+    }
 }
 
 impl SuiContractClientInner {
