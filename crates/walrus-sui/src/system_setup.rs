@@ -98,30 +98,39 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
-/// The env name we always compile against. Matches `SuiFlavor`'s default environments (so every
-/// dependency package recognizes it without needing a custom `[environments]` entry) and matches
-/// the `[pinned.testnet]` block in each contract's `Move.lock`.
-const COMPILE_ENV_NAME: &str = "testnet";
+/// Maps the wallet's active env alias to the env name used to load the package.
+///
+/// We don't pass the wallet's alias directly to [`PackageLoader`] because our `Move.toml`s only
+/// declare the two env names that come from `SuiFlavor`'s defaults — `mainnet` and `testnet` —
+/// and an unknown name (notably the test cluster's `localnet`) would fail dep-package validation.
+/// `mainnet` passes through (so production mainnet upgrades read each dep's
+/// `[published.mainnet]` entry). Everything else — `testnet`, `localnet`, custom aliases — maps
+/// to `testnet`, which is the env name our `testnet-contracts/` `Published.toml` files key on
+/// and the env name we write for fresh publishes during tests.
+fn compile_env_name_for_alias(alias: &str) -> &'static str {
+    match alias {
+        "mainnet" => "mainnet",
+        _ => "testnet",
+    }
+}
 
 /// Compiles a package and returns the compiled package, and build config.
 ///
-/// Loads the root package in persistent mode against `Environment("testnet", <wallet_chain_id>)`.
-/// We hardcode `testnet` as the env name (rather than asking `find_environment` to derive one
-/// from the wallet) because our `Move.toml`s don't declare a `localnet`/`mainnet` entry — the
-/// only env names that every dep package recognizes are `SuiFlavor`'s defaults `testnet` and
-/// `mainnet`. The wallet's actual `chain_id` is bound to that env name so the resulting publish
-/// transaction still reaches the correct chain. Package addresses propagate between sibling
-/// packages via each one's per-directory `Published.toml`.
+/// Loads the root package in persistent mode. The env name is chosen from the wallet's active
+/// alias via [`compile_env_name_for_alias`] so that production mainnet upgrades read
+/// `[published.mainnet]` from each dep's `Published.toml` while everything else (including
+/// `testnet-contracts/` and test-cluster fresh publishes) goes through `[published.testnet]`.
+/// The wallet's actual `chain_id` is bound to that env name so the resulting publish transaction
+/// still reaches the correct chain. Package addresses propagate between sibling packages via
+/// each one's per-directory `Published.toml`.
 pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
     wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
-    let env = Environment::new(
-        COMPILE_ENV_NAME.to_string(),
-        chain_id.clone().unwrap_or_default(),
-    );
+    let env_name = compile_env_name_for_alias(&wallet.get_active_env().alias);
+    let env = Environment::new(env_name.to_string(), chain_id.clone().unwrap_or_default());
 
     let build_config_clone = build_config.clone();
     let package_path_clone = package_path.clone();
@@ -710,4 +719,43 @@ pub async fn create_system_and_staking_objects(
         staking_object_id,
         upgrade_manager_object_id,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compile_env_name_for_alias;
+
+    #[test]
+    fn mainnet_alias_passes_through() {
+        // Mainnet upgrades must read `[published.mainnet]` from each dep's `Published.toml`
+        // (notably `mainnet-contracts/wal/Published.toml` only has that block); reading a
+        // `[published.testnet]` entry — or none — would either silently link against the wrong
+        // dep address or fail the unpublished-dependency assertion.
+        assert_eq!(compile_env_name_for_alias("mainnet"), "mainnet");
+    }
+
+    #[test]
+    fn testnet_alias_uses_testnet_env() {
+        assert_eq!(compile_env_name_for_alias("testnet"), "testnet");
+    }
+
+    #[test]
+    fn localnet_alias_falls_back_to_testnet() {
+        // The Sui test cluster's wallet alias is `localnet`, but our contract source trees only
+        // record publications under `mainnet` / `testnet` env names, and fresh test-cluster
+        // publishes write `[published.testnet]` entries to match the lockfile's `[pinned.testnet]`
+        // block. Mapping `localnet` to `testnet` lets the test cluster publish + read addresses
+        // through the same env key.
+        assert_eq!(compile_env_name_for_alias("localnet"), "testnet");
+    }
+
+    #[test]
+    fn unknown_alias_falls_back_to_testnet() {
+        // Any custom wallet alias a user might set (e.g. a self-hosted devnet) lands on the
+        // testnet env name so publish writes a `[published.testnet]` entry and subsequent
+        // compiles can read it back. The actual chain id is still bound separately.
+        assert_eq!(compile_env_name_for_alias("custom"), "testnet");
+        assert_eq!(compile_env_name_for_alias("devnet"), "testnet");
+        assert_eq!(compile_env_name_for_alias(""), "testnet");
+    }
 }

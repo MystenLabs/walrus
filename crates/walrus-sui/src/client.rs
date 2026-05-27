@@ -796,10 +796,11 @@ impl SuiContractClient {
     /// Returns the digest of the package at `package_path` for the active network identified by
     /// the enclosed wallet.
     ///
-    /// This is used to vote on upgrade proposals, so the digest must be computed against the
-    /// same byte layout the upgrade transaction will publish: root modules at `0x0`, even when
-    /// the package's `Published.toml` already records a previous publication. Mirrors what
-    /// `sui move test-upgrade` does in `crates/sui/src/client_commands.rs::upgrade_command`.
+    /// This is used to vote on upgrade proposals, so the digest must match the bytecode the
+    /// upgrade transaction will publish: root modules at `0x0` (the upgrade transaction itself
+    /// substitutes them with the new package id), even when the package's `Published.toml`
+    /// already records a previous publication. `sui_package_management`'s `upgrade_command`
+    /// sets the same `root_as_zero = true` flag on the build config for the same reason.
     pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
         let build_config = MoveBuildConfig {
             root_as_zero: true,
@@ -1494,10 +1495,10 @@ impl SuiContractClientInner {
         package_path: PathBuf,
         upgrade_type: UpgradeType,
     ) -> SuiClientResult<ObjectID> {
-        // Compile package. Force the root modules to compile at `0x0` even when the package's
-        // `Published.toml` already records a previous publication: the upgrade transaction itself
-        // rewrites them to the new package id. Mirrors `sui move test-upgrade` in
-        // `crates/sui/src/client_commands.rs::upgrade_command`.
+        // Compile the package with root modules at `0x0` (rather than the package's previously
+        // published address from `Published.toml`): Sui's upgrade transaction substitutes those
+        // 0x0 placeholders with the new package id when it runs. `sui_package_management`'s
+        // `upgrade_command` sets the same flag for the same reason.
         let chain_id = self
             .retriable_sui_client()
             .get_chain_identifier()
