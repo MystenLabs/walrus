@@ -3,7 +3,7 @@
 
 use core::fmt::{self, Display};
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::HashMap,
     fmt::Debug,
     ops::Bound::{self, Excluded, Included},
     path::Path,
@@ -205,6 +205,24 @@ impl StorageShardLock {
     /// Returns the shards that are currently present in the storage.
     pub fn existing_shards(&self) -> &[ShardIndex] {
         &self.existing_shards
+    }
+
+    /// Returns the subset of `new_shards` that are not already present in the locked map.
+    pub(crate) fn missing_shards(&self, new_shards: &[ShardIndex]) -> Vec<ShardIndex> {
+        new_shards
+            .iter()
+            .copied()
+            .filter(|i| !self.shards_guard.contains_key(i))
+            .collect()
+    }
+
+    /// Inserts shard storages into the locked map, skipping any indices already present.
+    pub(crate) fn insert_shards(&mut self, shard_storages: Vec<(ShardIndex, Arc<ShardStorage>)>) {
+        for (shard_index, shard_storage) in shard_storages {
+            self.shards_guard
+                .entry(shard_index)
+                .or_insert(shard_storage);
+        }
     }
 }
 
@@ -469,19 +487,22 @@ impl Storage {
 
     /// Creates the storage for the specified shards, if it does not exist yet.
     #[cfg(any(test, feature = "test-utils"))]
-    pub(crate) async fn create_storage_for_shards(
+    pub(crate) async fn create_storage_for_shards_for_testing(
         &self,
         new_shards: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        let shard_map_lock = self.lock_shards().await;
-        self.create_storage_for_shards_locked(shard_map_lock, new_shards)
+        let mut locked_map = self.lock_shards().await;
+        let missing = locked_map.missing_shards(new_shards);
+        locked_map.insert_shards(self.create_storage_for_shards(&missing)?);
+        Ok(())
     }
 
-    pub(crate) fn create_storage_for_shards_locked(
+    /// Creates shard storages for the given indices without touching the shards map. Safe to
+    /// call from `spawn_blocking` while the caller retains the shard-map write guard.
+    pub(crate) fn create_storage_for_shards(
         &self,
-        mut locked_map: StorageShardLock,
         new_shards: &[ShardIndex],
-    ) -> Result<(), TypedStoreError> {
+    ) -> Result<Vec<(ShardIndex, Arc<ShardStorage>)>, TypedStoreError> {
         let start = Instant::now();
         let labels = Labels {
             collection_name: "shards",
@@ -491,34 +512,29 @@ impl Storage {
         };
         tracing::info!(count = new_shards.len(), "creating storage for shards");
 
+        let mut shard_storages = Vec::with_capacity(new_shards.len());
         for &shard_index in new_shards {
-            match locked_map.shards_guard.entry(shard_index) {
-                Entry::Vacant(entry) => {
-                    let shard_storage = ShardStorage::create_or_reopen(
-                        shard_index,
-                        &self.database,
-                        &self.db_table_opts_factory,
-                        Some(ShardStatus::None),
-                        &self.metrics_registry,
-                    )
-                    .inspect_err(|error| {
-                        self.metrics
-                            .observe_operation_duration(labels.with_error(error), start.elapsed());
-                    })?;
-
-                    tracing::info!(
-                        walrus.shard_index = %shard_index,
-                        "successfully created storage for shard"
-                    );
-                    entry.insert(Arc::new(shard_storage));
-                }
-                Entry::Occupied(_) => (),
-            }
+            let shard_storage = ShardStorage::create_or_reopen(
+                shard_index,
+                &self.database,
+                &self.db_table_opts_factory,
+                Some(ShardStatus::None),
+                &self.metrics_registry,
+            )
+            .inspect_err(|error| {
+                self.metrics
+                    .observe_operation_duration(labels.with_error(error), start.elapsed());
+            })?;
+            tracing::info!(
+                walrus.shard_index = %shard_index,
+                "successfully created storage for shard"
+            );
+            shard_storages.push((shard_index, Arc::new(shard_storage)));
         }
 
         self.metrics
             .observe_operation_duration(labels.with_response(Ok(&())), start.elapsed());
-        Ok(())
+        Ok(shard_storages)
     }
 
     #[tracing::instrument(skip_all)]
@@ -1452,7 +1468,7 @@ pub(crate) mod tests {
             // TODO: call create storage once with the list of storages.
             storage
                 .as_mut()
-                .create_storage_for_shards(&[*shard])
+                .create_storage_for_shards_for_testing(&[*shard])
                 .await?;
             let shard_storage = storage
                 .as_ref()
@@ -2061,7 +2077,10 @@ pub(crate) mod tests {
 
         // Initialize storage with two shards
         let shards = [ShardIndex(3), ShardIndex(5)];
-        storage.as_mut().create_storage_for_shards(&shards).await?;
+        storage
+            .as_mut()
+            .create_storage_for_shards_for_testing(&shards)
+            .await?;
 
         // Populate shards with slivers
         for shard in shards {

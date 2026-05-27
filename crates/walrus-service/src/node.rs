@@ -1894,6 +1894,14 @@ impl StorageNode {
             c.sync_node_params().await?;
         }
 
+        // Run GC phase 1 (blob info cleanup) before the rest of the epoch-change work.
+        // Phase 1 only iterates global blob-info CFs against `event.epoch`; it does not depend
+        // on the upcoming committee or shard transitions. Running it first means a phase-1
+        // error stops processing before any committee/shard state changes, and shard removal
+        // (spawned by `execute_epoch_change` as part of the finisher task) cannot contend with
+        // phase 1's disk traffic on the same RocksDB instance.
+        self.start_garbage_collection_task(event.epoch).await?;
+
         // Capture the event index before the handle is moved into `execute_epoch_change` so
         // we can later detect whether this event is being reprocessed.
         let event_index = event_handle.index();
@@ -1903,7 +1911,9 @@ impl StorageNode {
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
-        // to bring the node state to the next epoch.
+        // to bring the node state to the next epoch. `execute_epoch_change` ends by spawning
+        // the finisher task (shard removal + `epoch_sync_done` + `mark_as_complete`), so the
+        // finisher is guaranteed to fire only after phase 1 succeeded.
         self.execute_epoch_change(event_handle, event, shard_map_lock)
             .await?;
 
@@ -1917,8 +1927,6 @@ impl StorageNode {
         // for the epoch that just ended.
         self.epoch_change_driver
             .schedule_post_epoch_change_subsidies();
-
-        self.start_garbage_collection_task(event.epoch).await?;
 
         // Schedule the storage node consistency check after garbage collection has settled the
         // aggregate blob info table. The iterator's `is_certified` filter relies on counters
@@ -3509,21 +3517,22 @@ impl StorageNodeInner {
         }
     }
 
-    /// Note: if the parent future is dropped, the `spawn_blocking` task runs to completion
-    /// and holds the `StorageShardLock` until shard creation finishes.
+    /// Keeps the shard-map write guard on the async task while offloading RocksDB shard creation
+    /// to `spawn_blocking`. Moving the guard into the blocking thread can strand waiters in
+    /// simulation when it is dropped there.
     async fn create_storage_for_shards_in_background(
         self: &Arc<Self>,
         new_shards: Vec<ShardIndex>,
-        shard_map_lock: StorageShardLock,
+        mut shard_map_lock: StorageShardLock,
     ) -> Result<(), anyhow::Error> {
-        let this = self.clone();
-        tokio::task::spawn_blocking(move || {
-            this.storage
-                .create_storage_for_shards_locked(shard_map_lock, &new_shards)
-        })
-        .in_current_span()
-        .map(unwrap_or_resume_unwind)
-        .await?;
+        let missing = shard_map_lock.missing_shards(&new_shards);
+        let storage = self.storage.clone();
+        let shard_storages =
+            tokio::task::spawn_blocking(move || storage.create_storage_for_shards(&missing))
+                .in_current_span()
+                .map(unwrap_or_resume_unwind)
+                .await?;
+        shard_map_lock.insert_shards(shard_storages);
         Ok(())
     }
 
@@ -7603,7 +7612,7 @@ mod tests {
         let shard_indices: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
         node_inner
             .storage
-            .create_storage_for_shards(&shard_indices)
+            .create_storage_for_shards_for_testing(&shard_indices)
             .await?;
         let mut shard_storage = vec![];
         for shard_index in shard_indices {
@@ -7902,7 +7911,7 @@ mod tests {
         };
         node_inner
             .storage
-            .create_storage_for_shards(&[ShardIndex(0)])
+            .create_storage_for_shards_for_testing(&[ShardIndex(0)])
             .await?;
         let shard_storage_dst = node_inner
             .storage
@@ -7981,7 +7990,7 @@ mod tests {
         };
         node_inner
             .storage
-            .create_storage_for_shards(&[ShardIndex(0)])
+            .create_storage_for_shards_for_testing(&[ShardIndex(0)])
             .await?;
         let shard_storage_dst = node_inner
             .storage
@@ -8460,7 +8469,7 @@ mod tests {
             };
             node_inner
                 .storage
-                .create_storage_for_shards(&[ShardIndex(0)])
+                .create_storage_for_shards_for_testing(&[ShardIndex(0)])
                 .await?;
             let shard_storage_dst = node_inner
                 .storage
@@ -8545,7 +8554,7 @@ mod tests {
             };
             node_inner
                 .storage
-                .create_storage_for_shards(&[ShardIndex(0)])
+                .create_storage_for_shards_for_testing(&[ShardIndex(0)])
                 .await?;
             let shard_storage_dst = node_inner
                 .storage
@@ -8954,7 +8963,7 @@ mod tests {
             };
             node_inner
                 .storage
-                .create_storage_for_shards(&[ShardIndex(0)])
+                .create_storage_for_shards_for_testing(&[ShardIndex(0)])
                 .await?;
             let shard_storage_dst = node_inner
                 .storage
@@ -9023,7 +9032,7 @@ mod tests {
             };
             node_inner
                 .storage
-                .create_storage_for_shards(&[ShardIndex(0)])
+                .create_storage_for_shards_for_testing(&[ShardIndex(0)])
                 .await?;
             node_inner.storage.clear_metadata_in_test()?;
             node_inner.set_node_status(NodeStatus::RecoverMetadata)?;

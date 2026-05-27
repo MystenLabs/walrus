@@ -3383,7 +3383,7 @@ pub async fn empty_storage_with_shards(shards: &[ShardIndex]) -> WithTempDir<Sto
     .expect("storage creation must succeed");
 
     storage
-        .create_storage_for_shards(shards)
+        .create_storage_for_shards_for_testing(shards)
         .await
         .expect("should be able to create storage for shards");
 
