@@ -17,7 +17,8 @@ mod tests {
         EncodingType,
         Epoch,
         EpochCount,
-        encoding::{EncodingFactory as _, Primary, Secondary},
+        Sliver,
+        encoding::{EncodingAxis, EncodingFactory as _, Primary, Secondary, SliverData},
         messages::ConfirmationCertificate,
     };
     use walrus_proc_macros::walrus_simtest;
@@ -184,23 +185,32 @@ mod tests {
         blob_id: &BlobId,
         expected: &[u8],
     ) {
-        let mut result = client.as_ref().read_blob::<Primary>(blob_id).await;
+        let primary = read_blob_with_retry::<Primary>(client, blob_id).await;
+        assert_eq!(primary, expected);
+        let secondary = read_blob_with_retry::<Secondary>(client, blob_id).await;
+        assert_eq!(secondary, expected);
+    }
+
+    /// Read a blob with up to 10 1s-spaced retries to absorb transient
+    /// post-upload propagation delays.
+    async fn read_blob_with_retry<U>(
+        client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
+        blob_id: &BlobId,
+    ) -> Vec<u8>
+    where
+        U: EncodingAxis,
+        SliverData<U>: TryFrom<Sliver>,
+    {
+        let mut result = client.as_ref().read_blob::<U>(blob_id).await;
         for attempt in 1..=10 {
             if result.is_ok() {
                 break;
             }
-            tracing::info!(attempt, "primary read retrying");
+            tracing::info!(attempt, axis = U::NAME, "read retrying");
             tokio::time::sleep(Duration::from_secs(1)).await;
-            result = client.as_ref().read_blob::<Primary>(blob_id).await;
+            result = client.as_ref().read_blob::<U>(blob_id).await;
         }
-        assert_eq!(result.expect("primary read"), expected);
-
-        let secondary = client
-            .as_ref()
-            .read_blob::<Secondary>(blob_id)
-            .await
-            .expect("secondary read");
-        assert_eq!(secondary, expected);
+        result.expect("read should succeed")
     }
 
     /// Store a blob and immediately read it back.
@@ -236,10 +246,19 @@ mod tests {
         blob_id: &BlobId,
     ) {
         for attempt in 1..=10 {
-            if client.as_ref().read_blob::<Primary>(blob_id).await.is_err() {
-                return;
+            match client.as_ref().read_blob::<Primary>(blob_id).await {
+                Ok(_) => {
+                    tracing::info!(attempt, "blob still readable, retrying unreadable check");
+                }
+                Err(err) if err.is_blob_not_available_to_read_error() => return,
+                Err(err) => {
+                    tracing::info!(
+                        attempt,
+                        ?err,
+                        "transient read error, retrying unreadable check",
+                    );
+                }
             }
-            tracing::info!(attempt, "blob still readable, retrying unreadable check");
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
         panic!("blob should be unreadable");
@@ -461,14 +480,7 @@ mod tests {
         let (id, _) = store_and_verify(&ctx.client, bucket, d, true).await;
 
         // Advance past expiration.
-        let target = end_epoch + 2;
-        tokio::time::sleep(epoch_dur * target).await;
-        simtest_utils::wait_for_nodes_to_reach_epoch(
-            &ctx.walrus_cluster.nodes,
-            target,
-            epoch_dur * 4,
-        )
-        .await;
+        wait_for_pool_expiry(&ctx, end_epoch, epoch_dur).await;
 
         assert!(
             ctx.client.inner.read_blob::<Primary>(&id).await.is_err(),
@@ -499,14 +511,7 @@ mod tests {
         read_and_verify(&ctx.client, &id_s, &data).await;
 
         // Expire the short pool.
-        let target = short_end + 2;
-        tokio::time::sleep(epoch_dur * target).await;
-        simtest_utils::wait_for_nodes_to_reach_epoch(
-            &ctx.walrus_cluster.nodes,
-            target,
-            epoch_dur * 4,
-        )
-        .await;
+        wait_for_pool_expiry(&ctx, short_end, epoch_dur).await;
 
         // Blob still readable thanks to the long pool.
         read_and_verify(&ctx.client, &id_s, &data).await;
