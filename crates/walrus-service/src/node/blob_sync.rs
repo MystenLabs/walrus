@@ -17,7 +17,7 @@ use futures::{
 use mysten_metrics::{GaugeGuard, InflightGuardFutureExt as _};
 use rayon::prelude::*;
 use tokio::{
-    sync::{Notify, Semaphore, watch},
+    sync::{Semaphore, watch},
     task::{JoinHandle, JoinSet},
     time::Instant,
 };
@@ -59,6 +59,29 @@ use crate::{
 struct Permits {
     blob: Arc<Semaphore>,
     sliver_pairs: Arc<Semaphore>,
+}
+
+/// The current status of a blob sync, watched via [`watch::Receiver`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SyncStatus {
+    /// Sync is in progress.
+    Pending,
+    /// Sync has finished with the given outcome.
+    Done(SyncOutcome),
+}
+
+/// The terminal outcome of a blob sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SyncOutcome {
+    /// `BlobSynchronizer::run` returned, meaning the blob is stored at all currently-owned
+    /// shards, was already stored at sync start, or an inconsistency proof was filed.
+    Success,
+    /// The cancellation token fired before the sync completed (per-blob cancellation on
+    /// expiry, or mass cancellation from `enter_recovery_mode`).
+    Cancelled,
+    /// The sync was skipped because the node was in `RecoveryCatchUp` when the sync task
+    /// reached the dispatch point.
+    Skipped,
 }
 
 #[derive(Debug, Clone)]
@@ -296,7 +319,6 @@ impl BlobSyncHandler {
     }
 
     /// Starts a blob sync for the given `blob_id` and `certified_epoch`.
-    /// The `certified_epoch` is only used to find the proper committee to read the slivers, and
     ///
     /// The `certified_epoch` is only used to find the proper committee to read the metadata and
     /// recovery symbols during epoch change, and may differ from the current epoch.
@@ -305,20 +327,22 @@ impl BlobSyncHandler {
     /// [`StorageNodeInner::current_event_epoch`] instead. See
     /// [`BlobSynchronizer::recover_blob_slivers`] for more details.
     ///
-    /// Returns a `Notify` that is notified when the sync task is finished.
+    /// Returns a [`watch::Receiver`] that transitions from `Pending` to `Done(outcome)` when
+    /// the sync task finishes. Multiple callers for the same `blob_id` each get an independent
+    /// receiver subscribed to the same channel.
     #[tracing::instrument(skip_all, fields(otel.kind = "PRODUCER"))]
     pub async fn start_sync(
         &self,
         blob_id: BlobId,
         certified_epoch: Epoch,
         event_handle: Option<EventHandle>,
-    ) -> Result<Arc<Notify>, TypedStoreError> {
+    ) -> Result<watch::Receiver<SyncStatus>, TypedStoreError> {
         let mut in_progress = self
             .blob_syncs_in_progress
             .lock()
             .expect("should be able to acquire lock");
 
-        let finish_notify = match in_progress.entry(blob_id) {
+        let receiver = match in_progress.entry(blob_id) {
             Entry::Vacant(entry) => {
                 let spawned_trace = tracing::info_span!(
                     parent: &Span::current(),
@@ -338,7 +362,7 @@ impl BlobSyncHandler {
                     "error.type" = field::Empty,
                 );
                 spawned_trace.follows_from(Span::current());
-                let finish_notify = Arc::new(Notify::new());
+                let (status_sender, receiver) = watch::channel(SyncStatus::Pending);
 
                 let cancel_token = CancellationToken::new();
                 let synchronizer = BlobSynchronizer::new(
@@ -348,26 +372,26 @@ impl BlobSyncHandler {
                     cancel_token.clone(),
                 );
 
-                let notify_clone = finish_notify.clone();
+                let sender_for_task = status_sender.clone();
                 let blob_sync_handler_clone = self.clone();
                 let permits_clone = self.permits.clone();
 
                 let monitor = self.task_monitors.get_or_insert(&"blob_recovery");
                 let sync_handle = tokio::spawn(TaskMonitor::instrument(&monitor, async move {
-                    let result = blob_sync_handler_clone
+                    let (event_handle_out, outcome) = blob_sync_handler_clone
                         .sync_blob_for_all_shards(synchronizer, permits_clone, event_handle)
                         .instrument(spawned_trace)
                         .await;
-                    notify_clone.notify_one();
-                    result
+                    let _ = sender_for_task.send_replace(SyncStatus::Done(outcome));
+                    event_handle_out
                 }));
 
                 entry.insert(InProgressSyncHandle {
                     cancel_token,
                     blob_sync_handle: Some(sync_handle),
-                    finish_notify: finish_notify.clone(),
+                    status_sender,
                 });
-                finish_notify
+                receiver
             }
             Entry::Occupied(existing_sync) => {
                 // A blob sync with a lower sequence number is already in progress. We can safely
@@ -375,10 +399,10 @@ impl BlobSyncHandler {
                 // finished or cancelled due to an invalid blob event.
                 event_handle.mark_as_complete();
 
-                existing_sync.get().finish_notify.clone()
+                existing_sync.get().status_sender.subscribe()
             }
         };
-        Ok(finish_notify)
+        Ok(receiver)
     }
 
     #[tracing::instrument(skip_all)]
@@ -387,7 +411,7 @@ impl BlobSyncHandler {
         synchronizer: BlobSynchronizer,
         permits: Permits,
         mut event_handle: Option<EventHandle>,
-    ) -> Option<EventHandle> {
+    ) -> (Option<EventHandle>, SyncOutcome) {
         let start = Instant::now();
         let blob_id = synchronizer.blob_id;
         let mut active_start: Option<Instant> = None;
@@ -404,7 +428,7 @@ impl BlobSyncHandler {
         // Note that if the node status is not in recovery catch up, it is safe to start the sync
         // without further status checking since node entering recovery catch up will cancel all
         // the blob syncs, including this one.
-        let (label, _guard) = match synchronizer
+        let (label, outcome, _guard) = match synchronizer
             .node
             .storage
             .node_status()
@@ -416,7 +440,7 @@ impl BlobSyncHandler {
                 );
                 event_handle.mark_as_complete();
                 event_handle = None;
-                (metrics::STATUS_SKIPPED, None)
+                (metrics::STATUS_SKIPPED, SyncOutcome::Skipped, None)
             }
             _ => {
                 tokio::select! {
@@ -424,7 +448,7 @@ impl BlobSyncHandler {
 
                     _ = cancel_token.cancelled() => {
                         tracing::debug!("cancelled blob sync");
-                        (metrics::STATUS_CANCELLED, None)
+                        (metrics::STATUS_CANCELLED, SyncOutcome::Cancelled, None)
                     },
 
                     (guard, start) = async {
@@ -453,7 +477,7 @@ impl BlobSyncHandler {
                         event_handle.mark_as_complete();
                         event_handle = None;
                         active_start = Some(start);
-                        (metrics::STATUS_SUCCESS, Some(guard))
+                        (metrics::STATUS_SUCCESS, SyncOutcome::Success, Some(guard))
                     }
                 }
             }
@@ -472,7 +496,7 @@ impl BlobSyncHandler {
             .observe(active_start.elapsed().as_secs_f64());
         }
 
-        event_handle
+        (event_handle, outcome)
     }
 
     /// Returns the list of blob ids that are currently being synced.
@@ -492,15 +516,17 @@ type SyncJoinHandle = JoinHandle<Option<EventHandle>>;
 struct InProgressSyncHandle {
     cancel_token: CancellationToken,
     blob_sync_handle: Option<SyncJoinHandle>,
-    finish_notify: Arc<Notify>,
+    status_sender: watch::Sender<SyncStatus>,
 }
 
 impl InProgressSyncHandle {
     // Important: Awaiting the returned `SyncJoinHandle` requires a lock on the
     // `blob_syncs_in_progress`.
+    //
+    // Does not transition the status to `Done(Cancelled)` directly — the spawned sync task
+    // will observe the cancellation token and publish `Done(Cancelled)` itself.
     fn cancel(&mut self) -> Option<SyncJoinHandle> {
         self.cancel_token.cancel();
-        self.finish_notify.notify_one();
         self.blob_sync_handle.take()
     }
 }
