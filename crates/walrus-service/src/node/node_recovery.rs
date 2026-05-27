@@ -9,7 +9,11 @@ use tokio::sync::Mutex;
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
-use super::{StorageNodeInner, blob_sync::BlobSyncHandler, config::NodeRecoveryConfig};
+use super::{
+    StorageNodeInner,
+    blob_sync::{BlobSyncHandler, SyncStatus},
+    config::NodeRecoveryConfig,
+};
 use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
 
 #[derive(Debug, Clone)]
@@ -201,11 +205,15 @@ impl NodeRecoveryHandler {
                         .await;
                     sui_macros::fail_point!("fail_point_node_recovery_start_sync");
                     match start_sync_result {
-                        Ok(notify) => {
+                        Ok(mut receiver) => {
                             let node_clone = node.clone();
                             // Create a future that releases the permit when the sync completes
                             let notify_with_permit = async move {
-                                notify.notified().await;
+                                // We don't care about the outcome here — this loop re-scans
+                                // and re-evaluates whether the blob still needs recovery.
+                                let _ = receiver
+                                    .wait_for(|status| matches!(status, SyncStatus::Done(_)))
+                                    .await;
                                 node_clone.metrics.node_recovery_ongoing_blob_syncs.dec();
                             };
                             ongoing_syncs.push(notify_with_permit);
