@@ -4,11 +4,23 @@ description: "Guide to configuring both Mainnet and Testnet portals."
 keywords: ["walrus sites", "portal", "mainnet", "mainnet portal", "testnet", "testnet portal", "configuration", "portal configuration", "portal config", "portal-config.yaml", "SuiNS"]
 ---
 
-Walrus Site Portals are used to access and browse a Walrus Site. The portal you run **must** match the network on which your site is deployed. Each network has its own onchain package, default RPC endpoint, and Walrus aggregator. 
+Walrus Site Portals are used to access and browse a Walrus Site. The portal you run **must** match the network on which your site is deployed. Each network has its own onchain package, default RPC endpoint, and Walrus aggregator.
 
-The public portal `https://wal.app` is provided by the Walrus Foundation and only serves sites deployed on Mainnet that also have a SuiNS domain name configured. Walrus Foundation does not maintain a portal that serves Testnet Walrus Sites. 
+The public portal `https://wal.app` is provided by the Walrus Foundation and only serves sites deployed on Mainnet that also have a SuiNS domain name configured. Walrus Foundation does not maintain a portal that serves Testnet Walrus Sites.
 
 To access sites that are deployed on Mainnet without a SuiNS domain name, or sites deployed to Testnet, you must run your own portal through self-hosting or within a local environment.
+
+:::caution
+
+**Gotcha:** The public `wal.app` portal only serves Mainnet sites linked with SuiNS names. It does not serve Testnet sites or Mainnet sites by Base36 object ID.
+
+:::
+
+:::info
+
+**Gotcha:** Testnet sites need a Testnet portal. Run a local portal for development, or self-host a Testnet portal for public sharing.
+
+:::
 
 ## Public portals
 
@@ -32,19 +44,13 @@ Mainnet is the production network. Sites deployed on Mainnet are publicly access
 | Epoch duration | How long each storage epoch lasts. Determines the minimum storage billing period. | 14 days |
 | Public portal | The Walrus Foundation-operated portal. Serves Mainnet sites with SuiNS names only. | Yes, [wal.app](https://wal.app) |
 
-:::info
-
-[wal.app](https://wal.app) only serves Mainnet sites linked with SuiNS names.
-
-:::
-
 ## Testnet
 
 Testnet is the development and staging network. Sites deployed on Testnet are only accessible through a Testnet portal. The Walrus Foundation does not operate a public Testnet portal. To access sites deployed on Testnet you can self-host a portal or [run one locally](/docs/sites/portals/deploy-locally).
 
  Property | Description | Value |
 |---|---|---|
-| Site package | The onchain address of the Walrus Sites Move package. May change after package upgrades. | `0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799` |
+| Site package | The onchain address of the Walrus Sites Move package. Can change after package upgrades. | `0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799` |
 | Default RPC | The Sui full node RPC endpoint used to read onchain site data. | `https://fullnode.testnet.sui.io:443` |
 | Default aggregator | The Walrus aggregator endpoint used to fetch site blob data. | `https://aggregator.walrus-testnet.walrus.space` |
 | Default landing page (Base36) | The Base36-encoded object ID of the site served at the portal root domain. | `1p3repujoigwcqrk0w4itsxm7hs7xjl4hwgt3t0szn6evad83q` |

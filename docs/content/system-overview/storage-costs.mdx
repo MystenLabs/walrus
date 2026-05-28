@@ -48,6 +48,12 @@ You need a storage resource with adequate capacity and epoch duration to store a
 
 The cost of a storage resource is based on the blob's **encoded size**: the erasure-coded size of the blob (roughly 5x the original) plus fixed per-blob metadata of up to ~64 MB. For blobs smaller than 10 MB, this fixed metadata cost dominates. See [Reducing costs for small blobs](#reducing-costs-for-small-blobs-with-quilt) for optimization strategies.
 
+:::tip
+
+**Gotcha:** Small blobs still pay fixed metadata overhead. If you store many small files, use [Walrus Quilt](/docs/system-overview/quilt) to batch them and amortize the overhead.
+
+:::
+
 #### Storage fund
 
 The storage fund holds WAL for storing blobs across 1 or more epochs. When you purchase storage space from the system object, payments are allocated across the relevant epochs. At the end of each epoch, funds are distributed to storage nodes based on performance, which is determined through light audits that nodes conduct on each other.
