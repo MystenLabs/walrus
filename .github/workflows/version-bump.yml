@@ -116,8 +116,7 @@ jobs:
       - name: Deliver via PR
         if: inputs.delivery == 'pr'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AUTOMERGE_TOKEN: ${{ steps.automerge_token.outputs.token }}
+          GH_TOKEN: ${{ steps.automerge_token.outputs.token }}
           GITHUB_ACTOR: ${{ github.actor }}
           NEW_VERSION: ${{ steps.bump.outputs.new_version }}
           REF_NAME: ${{ github.ref_name }}
@@ -129,7 +128,11 @@ jobs:
           git add Cargo.toml Cargo.lock
           BODY="chore: bump walrus version to v${NEW_VERSION}"
           git commit -m "$BODY"
-          git push -u origin "$BRANCH"
+          # Push using the app token URL so the push is attributed to the GitHub App,
+          # not github-actions[bot]. Pushes with GITHUB_TOKEN don't trigger CI workflows.
+          git push -u \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "$BRANCH"
 
           gh pr create \
             --base "$REF_NAME" \
@@ -138,9 +141,7 @@ jobs:
             --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
             --body "Walrus v${NEW_VERSION} Version Bump"
 
-          # Use dedicated token for auto-merge so the resulting push triggers downstream workflows
-          MERGE_TOKEN="${AUTOMERGE_TOKEN:-$GH_TOKEN}"
-          GH_TOKEN="$MERGE_TOKEN" gh pr merge --auto --squash --delete-branch "$BRANCH"
+          gh pr merge --auto --squash --delete-branch "$BRANCH"
 
       - name: Deliver direct push
         if: inputs.delivery == 'direct'
