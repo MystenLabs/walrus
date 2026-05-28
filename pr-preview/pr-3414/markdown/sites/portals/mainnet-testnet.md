@@ -8,10 +8,7 @@ To access sites that are deployed on Mainnet without a SuiNS domain name, or sit
 
 > **Caution**
 >
-> The public `wal.app` portal only serves Mainnet sites linked with SuiNS names. It does not serve Testnet sites or Mainnet sites by Base36 object ID.
-> **Info**
->
-> Testnet sites need a Testnet portal. Run a local portal for development, or self-host a Testnet portal for public sharing.
+> The public `wal.app` portal only serves Mainnet sites linked with SuiNS names. It does not serve Testnet sites or Mainnet sites by Base36 object ID. Testnet sites need a Testnet portal. Run a local portal for development, or self-host a Testnet portal for public sharing.
 ## Public portals
 
 A list of public portals is maintained in the [main `walrus` repository](https://github.com/MystenLabs/walrus). Portals can self-identify by opening a PR that adds an entry to `docs/site/static/portals.json`.
