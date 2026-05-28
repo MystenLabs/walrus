@@ -121,7 +121,7 @@ The [`site-builder deploy` command](/docs/sites/getting-started/using-the-site-b
 
 > **Caution**
 >
-> **Gotcha:** Preserve `ws-resources.json` after the first deployment. If the file is missing in a later deployment, `site-builder` creates a new site object instead of updating the existing site.
+> Preserve `ws-resources.json` after the first deployment. If the file is missing in a later deployment, `site-builder` creates a new site object instead of updating the existing site.
 ## Ignoring files from being uploaded
 
 You can use the optional `ignore` field to exclude certain files or folders from being published. This is useful when you want to keep development files, secrets, or temporary assets out of the final build.

@@ -4,7 +4,7 @@ Walrus provides decentralized storage for application and user data. All data st
 
 > **Caution**
 >
-> **Gotcha:** Blob IDs are not secrets. Anyone with a blob ID can fetch the blob, so encrypt private data before uploading it to Walrus.
+> Blob IDs are not secrets. Anyone with a blob ID can fetch the blob, so encrypt private data before uploading it to Walrus.
 ## Data availability
 
 The encoding mechanisms applied by Walrus guarantee that blobs can be written and remain available as long as 2/3 of the shards are operated by storage nodes that act honestly. After data is written, reads are possible even if as few as 1/3 of the nodes are available.

@@ -43,7 +43,7 @@ The cost of a storage resource is based on the blob's **encoded size**: the eras
 
 > **Tip**
 >
-> **Gotcha:** Small blobs still pay fixed metadata overhead. If you store many small files, use [Walrus Quilt](/docs/system-overview/quilt) to batch them and amortize the overhead.
+> Small blobs still pay fixed metadata overhead. If you store many small files, use [Walrus Quilt](/docs/system-overview/quilt) to batch them and amortize the overhead.
 #### Storage fund
 
 The storage fund holds WAL for storing blobs across 1 or more epochs. When you purchase storage space from the system object, payments are allocated across the relevant epochs. At the end of each epoch, funds are distributed to storage nodes based on performance, which is determined through light audits that nodes conduct on each other.

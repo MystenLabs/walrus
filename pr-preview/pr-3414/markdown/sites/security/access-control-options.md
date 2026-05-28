@@ -17,7 +17,7 @@ For content that should only be readable by specific users, [Seal](https://seal.
 
 > **Info**
 >
-> **Gotcha:** Seal key servers check onchain access policies before returning decryption shares. Your app needs network access to those key servers and to the relevant Sui network when decrypting content.
+> Seal key servers check onchain access policies before returning decryption shares. Your app needs network access to those key servers and to the relevant Sui network when decrypting content.
 ### What Seal does not cover
  
 Seal protects content confidentiality at the application layer. It does not enforce access control at the Walrus storage layer. Anyone who retrieves a blob directly from a Walrus aggregator receives ciphertext, but the blob ID itself is not secret. Seal is also not designed for highly sensitive regulated data such as personal health information or government-classified material. Refer to the [Seal documentation](https://seal-docs.wal.app) for the full security model and its assumptions.
