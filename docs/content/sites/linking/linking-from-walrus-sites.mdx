@@ -50,7 +50,7 @@ External assets such as images, fonts, and scripts must use absolute URLs.
 |---|---|---|
 | Relative (within site) | `/assets/logo.png` | Blob inside site object |
 | Absolute external | `https://cdn.example.com/logo.png` | External host |
-| Protocol-relative | `//cdn.example.com/logo.png` | Avoid — behavior depends on portal scheme |
+| Protocol-relative | `//cdn.example.com/logo.png` | Avoid because behavior depends on portal scheme |
  
 Avoid protocol-relative URLs (`//example.com`). Their behavior depends on the scheme of the portal serving the site, which can produce unexpected results.
  

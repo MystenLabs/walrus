@@ -4,13 +4,13 @@ description: "Guide to using ws-resources.json to configure a Walrus Site, inclu
 keywords: ["walrus sites", "headers", "content-type", "ws-resources", "configuration", "site-builder", "routing", "metadata", "client-side routing", "spa"]
 ---
 
-In its base configuration, a Walrus Site serves static assets through a portal. However, many modern web applications require more advanced features, such as custom headers, client-side routing, and human-readable information.
+In its base configuration, a Walrus Site serves static assets through a portal. Many modern web applications require more advanced features, such as custom headers, client-side routing, and human-readable information.
 
 The `site-builder` can read a `ws-resources.json` configuration file, in which you can directly specify these advanced features.
 
 ## The `ws-resources.json` file
 
-This file is optionally placed in the root of the site directory, and it is neither uploaded to Walrus nor served to site visitors. 
+This file is optionally placed in the root of the site directory, and it is neither uploaded to Walrus nor served to site visitors.
 
 If you do not want to use this default location, you can specify the path to the configuration file with the `--ws-resources` flag when running the [`deploy`, `publish` or `update` commands](/docs/sites/getting-started/using-the-site-builder).
 
@@ -148,7 +148,7 @@ Wildcards are only supported in the **last position** of the path, for example, 
 
 ## Serving raw markdown {#markdown}
 
-You may wish to serve raw markdown files for better LLM ingestion. Generating these depends on your framework. Static site generators like Docusaurus and VitePress can output `.md` files through build scripts or plugins. Custom pipelines typically use a pre-build script to copy source files into a `/markdown` directory. 
+You might want to serve raw markdown files for better LLM ingestion. Generating these depends on your framework. Static site generators like Docusaurus and VitePress can output `.md` files through build scripts or plugins. Custom pipelines typically use a pre-build script to copy source files into a `/markdown` directory.
 
 Raw markdown files must exist in your build output before deploying using `site-builder`. To serve a file as raw markdown, two entries are required in `ws-resources.json`.
 

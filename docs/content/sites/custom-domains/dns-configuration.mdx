@@ -53,7 +53,7 @@ The Walrus Sites repo provides 2 first-party deployment options for the portal s
  
 If you are running the portal directly on a Linux server, it listens on port 3000 with no built-in TLS. To serve HTTPS traffic you need a reverse proxy in front of it. A reverse proxy like [Nginx](https://nginx.org/en/docs/) or [Caddy](https://caddyserver.com/docs/) sits in front of your portal, handles TLS termination, and forwards requests to the portal process on its local port.
  
-The following is a general-purpose [Nginx](https://nginx.org/en/docs/) configuration that proxies HTTPS traffic to a portal running on port 3000. This is not an officially supported Walrus Sites configuration — adapt it to your environment:
+The following is a general-purpose [Nginx](https://nginx.org/en/docs/) configuration that proxies HTTPS traffic to a portal running on port 3000. This is not an officially supported Walrus Sites configuration, so adapt it to your environment:
  
 ```nginx title='nginx.conf'
 server {
