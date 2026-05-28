@@ -48,7 +48,7 @@ Once the blob is reliably reachable, you can drop the cache-buster.
 
 If a single aggregator is slow to surface the blob, falling back to another usually resolves it. If one aggregator returns 404 but another returns the blob, the blob is on the network.
 
-## Pre-warm the read path before demos
+#### Pre-warm the read path before demos
 
 Before showing a freshly uploaded blob to an audience, retrieve it once from the aggregator you plan to use. This forces the aggregator and any CDN in front of it to populate its cache before you need it.
 
