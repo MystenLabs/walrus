@@ -71,7 +71,7 @@ fetch(`${aggregatorUrl}/v1/blobs/${blobId}?cb=${Date.now()}`);
 
 Once the blob is reliably reachable, you can drop the cache-buster.
 
-## Use multiple aggregators
+#### Use multiple aggregators
 
 If a single aggregator is slow to surface the blob, falling back to another usually resolves it. If one aggregator returns 404 but another returns the blob, the blob is on the network.
 
