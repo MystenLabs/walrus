@@ -33,7 +33,7 @@ The helper below is meant for the post-upload path: your app just received a suc
 /**
   * Fetch a blob immediately after upload from a CDN-fronted aggregator.
  *
-  * Walrus is strongly consistent, but CDNs in front of public aggregators may
+  * Walrus is strongly consistent, but CDNs in front of public aggregators might
   * briefly cache a 404 from before the blob was visible. Use this helper only
   * when your app knows the blob has just been certified. For general reads,
   * treat 404 as terminal instead of retrying.
@@ -61,7 +61,7 @@ async function fetchBlobWithRetry(
 
 Tune `maxAttempts` and `baseDelayMs` to your latency budget. A few seconds of total retry time is usually sufficient. Do not use this pattern for general reads. For those, treat `404` as terminal.
 
-## Cache-bust the CDN if needed
+#### Cache-bust the CDN if needed
 
 Some CDNs may not respect cache control headers and can cache the `404` response. If retries keep hitting the cached `404`, append a cache-busting query parameter:
 
@@ -75,14 +75,6 @@ Once the blob is reliably reachable, you can drop the cache-buster.
 
 If a single aggregator is slow to surface the blob, falling back to another usually resolves it. If one aggregator returns 404 but another returns the blob, the blob is on the network.
 
-## Pre-warm the read path before demos
+#### Pre-warm the read path before demos
 
 Before showing a freshly uploaded blob to an audience, retrieve it once from the aggregator you plan to use. This forces the aggregator and any CDN in front of it to populate its cache before you need it.
-
-## Expected behavior, not a bug
-
-The behavior described above is consistent with how Walrus aggregators and CDNs propagate newly certified blobs. Keep in mind:
-
-- Walrus itself is strongly consistent.
-- The window applies only to cached aggregator paths.
-- It is not specific to small or large blobs.

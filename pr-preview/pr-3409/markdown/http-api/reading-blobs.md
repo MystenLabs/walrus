@@ -4,7 +4,7 @@ You can read blobs using HTTP GET requests with their blob ID or object ID.
 
 > **Reading a blob right after upload?**
 >
-> When you read through a CDN-fronted aggregator immediately after certification, the CDN may briefly cache a `404` from before the blob propagated. If your app knows the blob was just certified, retry with backoff. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload).
+> When you read through a CDN-fronted aggregator immediately after certification, the CDN might briefly cache a `404` from before the blob propagated. If your app knows the blob was just certified, retry with backoff. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload).
 ## Reading by blob ID
 
 The following `curl` command reads a blob and writes it to an output file:
