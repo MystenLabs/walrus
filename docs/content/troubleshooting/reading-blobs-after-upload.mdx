@@ -52,10 +52,3 @@ If a single aggregator is slow to surface the blob, falling back to another usua
 
 Before showing a freshly uploaded blob to an audience, retrieve it once from the aggregator you plan to use. This forces the aggregator and any CDN in front of it to populate its cache before you need it.
 
-## Expected behavior, not a bug
-
-The behavior described above is consistent with how Walrus aggregators and CDNs propagate newly certified blobs. Keep in mind:
-
-- Walrus itself is strongly consistent.
-- The window applies only to cached aggregator paths.
-- It is not specific to small or large blobs.
