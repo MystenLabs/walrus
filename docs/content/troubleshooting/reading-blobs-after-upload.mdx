@@ -34,7 +34,7 @@ The helper below is meant for the post-upload path: your app just received a suc
 
 Tune `maxAttempts` and `baseDelayMs` to your latency budget. A few seconds of total retry time is usually sufficient. Do not use this pattern for general reads. For those, treat `404` as terminal.
 
-## Cache-bust the CDN if needed
+#### Cache-bust the CDN if needed
 
 Some CDNs may not respect cache control headers and can cache the `404` response. If retries keep hitting the cached `404`, append a cache-busting query parameter:
 
