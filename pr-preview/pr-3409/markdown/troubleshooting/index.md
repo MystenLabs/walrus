@@ -31,4 +31,4 @@ If a freshly uploaded blob returns `404 Not Found` from a CDN-fronted aggregator
 
 - [Error Handling](/docs/troubleshooting/error-handling): Best practices for handling Walrus errors.
 - [Troubleshooting Common Errors](/docs/troubleshooting/network-errors): Common errors in the Walrus CLI and network, with causes and solutions.
-- [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload): Why blobs may return 404 immediately after certification when using a cached aggregator, and how to handle the propagation window.
+- [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload): Why blobs might return 404 immediately after certification when using a cached aggregator, and how to handle the propagation window.

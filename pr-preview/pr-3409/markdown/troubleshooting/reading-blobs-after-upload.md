@@ -1,42 +1,42 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly from storage nodes returns it immediately. However, public aggregators are commonly fronted by a content delivery network (CDN), and CDNs may cache a `404 Not Found` response from a brief moment when the aggregator had not yet seen the blob. This is what causes the apparent "blob is missing right after upload" symptom.
+Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly from storage nodes returns it immediately. Public aggregators often sit behind a content delivery network (CDN), which might cache a `404 Not Found` response from before the aggregator sees the blob.
 
-If your app reads blobs through a cached aggregator immediately after upload, plan for this window.
+If your app reads blobs through a cached aggregator immediately after upload, plan for this short window.
 
 ## When this applies
 
-This propagation window only affects you in specific conditions:
+This propagation window only affects you when both conditions are true:
 
-- You are reading through a public aggregator with a CDN in front. Examples include the Mainnet and Testnet public aggregators.
+- You read through a public aggregator with a CDN in front, such as the Mainnet or Testnet public aggregators.
 - You read a blob within seconds of its certification.
 
-It does not apply when:
+The window does not apply in these cases:
 
-- You are reading from a self-hosted aggregator with no CDN in front. Reads are strongly consistent.
-- The blob does not exist at all. A `404` in that case is correct and should not be retried.
+- You read from a self-hosted aggregator with no CDN in front. Reads are strongly consistent.
+- The blob does not exist. A `404` in that case is correct and should not be retried.
 
 ## Retry only when you know the blob should exist
 
-Because Walrus is strongly consistent, a `404` from an uncached aggregator means the blob genuinely is not on the network. If you blindly retry every `404`, you inflate read latency for the common case of "this blob does not exist."
+Because Walrus is strongly consistent, a `404` from an uncached aggregator means the blob is not on the network. Retrying every `404` adds latency for missing blobs.
 
-Retry with backoff only when your app knows the blob has just been certified. Treat other `404` responses as terminal.
+Retry with backoff only when your app knows the blob has just been certified. Treat other `404` responses as final.
 
 ## Example: retry after a known upload
 
-The helper below is meant for the post-upload path: your app just received a successful certification, then immediately wants to fetch the blob through a cached aggregator. It surfaces non-404 errors immediately and only retries `404`.
+The following helper is for the post-upload path: your app receives a successful certification, then immediately fetches the blob through a cached aggregator. It surfaces non-404 errors immediately and only retries `404`.
 
 ```ts title="examples/typescript/retry_blob_with_backoff.ts"
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
 /**
-  * Fetch a blob immediately after upload from a CDN-fronted aggregator.
+ * Fetch a blob immediately after upload from a CDN-fronted aggregator.
  *
-  * Walrus is strongly consistent, but CDNs in front of public aggregators might
-  * briefly cache a 404 from before the blob was visible. Use this helper only
-  * when your app knows the blob has just been certified. For general reads,
-  * treat 404 as terminal instead of retrying.
+ * Walrus is strongly consistent, but CDNs in front of public aggregators might
+ * briefly cache a 404 from before the blob was visible. Use this helper only
+ * when your app knows the blob has just been certified. For general reads,
+ * treat 404 as final instead of retrying.
  */
 async function fetchBlobWithRetry(
   blobId: string,
@@ -59,22 +59,22 @@ async function fetchBlobWithRetry(
 }
 ```
 
-Tune `maxAttempts` and `baseDelayMs` to your latency budget. A few seconds of total retry time is usually sufficient. Do not use this pattern for general reads. For those, treat `404` as terminal.
+Tune `maxAttempts` and `baseDelayMs` to your latency budget. A few seconds of total retry time is usually sufficient. Do not use this pattern for general reads. For those reads, treat `404` as final.
 
-#### Cache-bust the CDN if needed
+#### Bypass the CDN cache if needed
 
-Some CDNs may not respect cache control headers and can cache the `404` response. If retries keep hitting the cached `404`, append a cache-busting query parameter:
+Some CDNs might ignore cache control headers and cache the `404` response. If retries keep returning the cached `404`, append a unique query parameter:
 
 ```ts
 fetch(`${aggregatorUrl}/v1/blobs/${blobId}?cb=${Date.now()}`);
 ```
 
-Once the blob is reliably reachable, you can drop the cache-buster.
+Once the blob is reliably reachable, you can remove the query parameter.
 
 #### Use multiple aggregators
 
-If a single aggregator is slow to surface the blob, falling back to another usually resolves it. If one aggregator returns 404 but another returns the blob, the blob is on the network.
+If a single aggregator is slow to surface the blob, try another aggregator. If one aggregator returns `404` but another returns the blob, the blob is on the network.
 
 #### Pre-warm the read path before demos
 
-Before showing a freshly uploaded blob to an audience, retrieve it once from the aggregator you plan to use. This forces the aggregator and any CDN in front of it to populate its cache before you need it.
+Before showing a freshly uploaded blob to an audience, retrieve it once from the aggregator you plan to use. This populates the aggregator and CDN caches before you need them.
