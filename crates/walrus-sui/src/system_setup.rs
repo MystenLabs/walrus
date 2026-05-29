@@ -284,16 +284,6 @@ pub(crate) async fn publish_package(
 
     let chain_id = retry_client.get_chain_identifier().await?;
 
-    // We're about to publish this package *fresh* on the test cluster. The source
-    // `testnet-contracts/<pkg>/Published.toml` (carried over by `copy_recursively`) records the
-    // real testnet publication, which under env name `"testnet"` would make the compile think
-    // the package is already published and trip the `published_root_module().is_none()`
-    // assertion. Drop it so the fresh publish writes a clean entry.
-    let published_toml = package_path.join("Published.toml");
-    if published_toml.exists() {
-        std::fs::remove_file(&published_toml)?;
-    }
-
     if cfg!(msim) {
         // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
         // support external dependencies, in simtest, we have to update all the implicit
@@ -456,6 +446,23 @@ pub(crate) async fn publish_coin_and_system_package(
 
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
         copy_recursively(&contract_dir, &deploy_directory).await?;
+
+        // We're about to publish each of these packages *fresh* on the test cluster. The source
+        // `testnet-contracts/<pkg>/Published.toml` files (carried over by `copy_recursively`)
+        // record the real testnet publication, which under env name `"testnet"` would make the
+        // compile think the package is already published and trip the
+        // `published_root_module().is_none()` assertion. Drop each one so the fresh publishes
+        // write clean entries.
+        for entry in std::fs::read_dir(&deploy_directory)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                let published_toml = entry.path().join("Published.toml");
+                if published_toml.exists() {
+                    std::fs::remove_file(&published_toml)?;
+                }
+            }
+        }
+
         deploy_directory
     } else {
         contract_dir
