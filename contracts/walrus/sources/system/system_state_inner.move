@@ -696,7 +696,7 @@ public(package) fun used_capacity_size_at_future_epoch(
 
 macro fun storage_units_from_size($size: u64): u64 {
     let size = $size;
-    size.divide_and_round_up(BYTES_PER_UNIT_SIZE)
+    size.div_ceil(BYTES_PER_UNIT_SIZE)
 }
 
 // === Protocol Version ===
