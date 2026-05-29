@@ -19,6 +19,8 @@ use typed_store::TypedStoreError;
 use walrus_core::{BlobId, Epoch};
 use walrus_utils::metrics::monitored_scope;
 
+#[cfg(msim)]
+use super::storage::ShardStorage;
 use super::{
     NodeStatus,
     StorageNodeInner,
@@ -112,6 +114,13 @@ pub(super) async fn schedule_background_consistency_check(
     let blob_sync_handler = blob_sync_handler.clone();
     let (tx, rx) = oneshot::channel();
 
+    // Snapshot the active shard storages once, here in async context, so that the existence check
+    // does not need to take the shard-map read lock from inside the `spawn_blocking` closure.
+    // Acquiring that lock there (through `futures::executor::block_on`) deadlocks the
+    // single-threaded simulator against a pending shard-removal writer.
+    #[cfg(msim)]
+    let active_shard_storages = node.active_shard_storages_snapshot().await;
+
     // Create a background thread which takes the ownership of the iterator and process it.
     tokio::task::spawn_blocking(move || {
         let _scope =
@@ -141,6 +150,8 @@ pub(super) async fn schedule_background_consistency_check(
             epoch,
             node_status,
             &blobs_not_yet_fully_synced,
+            #[cfg(msim)]
+            &active_shard_storages,
         );
 
         compose_certified_object_blob_list_digest(
@@ -215,6 +226,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
     node_status: NodeStatus,
     blobs_not_yet_fully_synced: &HashSet<BlobId>,
     scan_counter: &IntCounterVec,
+    #[cfg(msim)] active_shard_storages: &[Arc<ShardStorage>],
 ) -> Result<BlobConsistencyCheckResult, TypedStoreError> {
     // Create a new tokio runtime for the async task to check blob existence.
     #[cfg(not(msim))]
@@ -292,15 +304,21 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                         );
                     }
 
-                    // Unfortunately, msim does not support tokio::Runtime::block_on, so we need to
-                    // use less ideal method to execute the async function that checks blob
-                    // data existence. Note that simtest is mostly for correctness verification, so
-                    // the performance is not a concern.
+                    // msim runs the whole consistency check inside a `spawn_blocking` closure that,
+                    // unlike production, executes on the single simulator task runner rather than a
+                    // real blocking thread. Driving an async existence check here with
+                    // `futures::executor::block_on` would park that runner while the future waits
+                    // for the shard-map read lock, deadlocking against a pending shard-removal
+                    // writer that needs the same runner to proceed. Instead we check the
+                    // pre-captured `active_shard_storages` snapshot synchronously, so no lock is
+                    // acquired and the runner is never parked. Note that simtest is mostly for
+                    // correctness verification, so performance is not a concern.
                     #[cfg(msim)]
                     {
                         handle_existence_check_result(
-                            futures::executor::block_on(
-                                node.is_stored_at_all_active_shards(&blob_info.0),
+                            node.is_stored_at_active_shards_snapshot(
+                                &blob_info.0,
+                                active_shard_storages,
                             ),
                             &mut total_fully_stored,
                             &mut existence_check_error,
@@ -358,6 +376,7 @@ fn certified_blob_consistency_check(
     epoch: Epoch,
     node_status: NodeStatus,
     blobs_not_yet_fully_synced: &HashSet<BlobId>,
+    #[cfg(msim)] active_shard_storages: &[Arc<ShardStorage>],
 ) {
     let _scope = monitored_scope::monitored_scope(
         "EpochChange::background_certified_blob_info_consistency_check",
@@ -371,6 +390,8 @@ fn certified_blob_consistency_check(
         node_status,
         blobs_not_yet_fully_synced,
         &node.metrics.blob_info_consistency_check_certified_scanned,
+        #[cfg(msim)]
+        active_shard_storages,
     ) {
         Ok(BlobConsistencyCheckResult {
             blob_list_digest,
