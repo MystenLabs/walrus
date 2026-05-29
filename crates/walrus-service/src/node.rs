@@ -7796,6 +7796,7 @@ mod tests {
     async fn setup_cluster_for_shard_sync_tests(
         assignment: Option<&[&[u16]]>,
         shard_sync_config: Option<ShardSyncConfig>,
+        keep_destination_shards: bool,
     ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorageSet>)> {
         let assignment = assignment.unwrap_or(&[&[0], &[1, 2, 3]]);
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
@@ -7837,11 +7838,17 @@ mod tests {
                 .await?;
         }
 
-        // node 1 is the destination that gains `assignment[0]` by direct transfer from node 0;
-        // reflect that in the committee so the source accepts its sync requests.
+        // node 1 is the destination that gains `assignment[0]`; reflect that in the committee so
+        // the source accepts its sync requests. Recovery-exercising tests pass
+        // `keep_destination_shards` so node 1 retains the shards it reconstructs from.
         let synced_shards: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
-        reassign_shards_to_destination_in_current_committee(&cluster, &synced_shards, 1, false)
-            .await?;
+        reassign_shards_to_destination_in_current_committee(
+            &cluster,
+            &synced_shards,
+            1,
+            keep_destination_shards,
+        )
+        .await?;
 
         Ok((
             cluster,
@@ -7980,7 +7987,8 @@ mod tests {
             ..Default::default()
         };
         let (cluster, blob_details, storage_dst, shard_storage_set) =
-            setup_cluster_for_shard_sync_tests(Some(assignment), Some(shard_sync_config)).await?;
+            setup_cluster_for_shard_sync_tests(Some(assignment), Some(shard_sync_config), false)
+                .await?;
 
         let expected_shard_count = assignment[0].len();
 
@@ -8306,7 +8314,7 @@ mod tests {
             sliver_type: SliverType,
         ) -> TestResult {
             let (cluster, blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, None).await?;
+                setup_cluster_for_shard_sync_tests(None, None, true).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
@@ -8387,7 +8395,7 @@ mod tests {
             sliver_type: SliverType,
         ) -> TestResult {
             let (cluster, blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, None).await?;
+                setup_cluster_for_shard_sync_tests(None, None, true).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
@@ -8501,7 +8509,7 @@ mod tests {
                 ..Default::default()
             };
             let (cluster, blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, Some(shard_sync_config)).await?;
+                setup_cluster_for_shard_sync_tests(None, Some(shard_sync_config), true).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
@@ -8568,7 +8576,7 @@ mod tests {
         }
         async fn sync_shard_src_abnormal_return(fail_point: &'static str) -> TestResult {
             let (cluster, _blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, None).await?;
+                setup_cluster_for_shard_sync_tests(None, None, true).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
@@ -8693,6 +8701,15 @@ mod tests {
             shard_storage_dst
                 .update_status_in_test(ShardStatus::None)
                 .await?;
+
+            // node 1 gains shard 0; reflect that in the committee so node 0 accepts its requests.
+            reassign_shards_to_destination_in_current_committee(
+                &cluster,
+                &[ShardIndex(0)],
+                1,
+                true,
+            )
+            .await?;
 
             // Starts the shard syncing process in the new shard, which should only use happy path
             // shard sync to sync non-expired certified blobs.
@@ -8846,7 +8863,7 @@ mod tests {
             fail_before_start_fetching: bool,
         ) -> TestResult {
             let (cluster, blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, None).await?;
+                setup_cluster_for_shard_sync_tests(None, None, false).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
