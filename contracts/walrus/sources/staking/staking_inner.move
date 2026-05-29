@@ -668,7 +668,7 @@ fun max_shards_per_node(n_nodes: u64, n_shards: u64): u64 {
     if (n_nodes >= (MIN_NODES_FOR_SHARDS_LIMIT as u64)) {
         n_shards / (SHARDS_LIMIT_DENOMINATOR as u64)
     } else {
-        (n_shards * (MIN_NODES_FOR_SHARDS_LIMIT as u64)).divide_and_round_up(
+        (n_shards * (MIN_NODES_FOR_SHARDS_LIMIT as u64)).div_ceil(
             n_nodes * (SHARDS_LIMIT_DENOMINATOR as u64),
         )
     }

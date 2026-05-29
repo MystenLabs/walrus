@@ -425,7 +425,7 @@ public(package) fun set_new_package_id(staking: &mut Staking, new_package_id: ID
 /// Sets the epoch in which the staking and system objects can be migrated after an upgrade.
 entry fun set_migration_epoch(staking: &mut Staking) {
     assert!(staking.version < VERSION, EInvalidMigration);
-    if (df::exists_(&staking.id, MIGRATION_EPOCH_KEY)) {
+    if (df::exists(&staking.id, MIGRATION_EPOCH_KEY)) {
         return
     };
     let migration_epoch = staking.inner_without_version_check().epoch() + 1;
