@@ -81,6 +81,17 @@ mod shard;
 
 pub(crate) use shard::{PrimarySliverData, SecondarySliverData, ShardStatus, ShardStorage};
 
+/// Hard server-side upper bound on the `sliver_count` a single sync-shard request may ask for.
+///
+/// `sliver_count` is attacker-controlled (part of the signed request but otherwise unbounded), so
+/// requests above this limit are rejected before any allocation to prevent a capacity-overflow
+/// panic or an out-of-memory abort. The default requester batch size is
+/// [`ShardSyncConfig::sliver_count_per_sync_request`] (1000); this leaves ample headroom for
+/// operators that tune it upward.
+///
+/// [`ShardSyncConfig::sliver_count_per_sync_request`]: super::config::ShardSyncConfig
+pub(crate) const MAX_SLIVER_COUNT_PER_SYNC_REQUEST: usize = 100_000;
+
 /// The status of the node.
 ///
 /// ```text
@@ -1226,11 +1237,21 @@ impl Storage {
             }
         }
 
+        // Reject oversized requests before allocating: `Vec::with_capacity(sliver_count)` below
+        // would otherwise panic on overflow (`u64::MAX`) or abort the process via
+        // `handle_alloc_error` (a large non-overflowing value).
+        let sliver_count = request.sliver_count();
+        if sliver_count > MAX_SLIVER_COUNT_PER_SYNC_REQUEST {
+            return Err(SyncShardServiceError::RequestedSliverCountExceedsLimit {
+                requested: sliver_count,
+                limit: MAX_SLIVER_COUNT_PER_SYNC_REQUEST,
+            });
+        }
+
         let Some(shard) = self.shard_storage(request.shard_index()).await else {
             return Err(ShardNotAssigned(request.shard_index(), current_epoch).into());
         };
 
-        let sliver_count = request.sliver_count();
         let starting_blob_id = request.starting_blob_id();
         let sliver_type = request.sliver_type();
         let blob_info = self.blob_info.clone();

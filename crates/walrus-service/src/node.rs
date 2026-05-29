@@ -4825,6 +4825,27 @@ impl ServiceState for StorageNodeInner {
             .into());
         }
 
+        // Verify that the requester is the node gaining this shard: `request.shard_index()` must be
+        // assigned to its public key in the committee for `request.epoch()`. The epoch check above
+        // ties the request to the current epoch, so that committee is the current one (during an
+        // epoch change the gaining committee is `current`, the losing committee `previous`).
+        // Without this, any committee member could drive a bulk sliver transfer for a shard it does
+        // not own.
+        if !self
+            .committee_service
+            .active_committees()
+            .current_committee()
+            .shards_for_node_public_key(&public_key)
+            .contains(&request.shard_index())
+        {
+            tracing::warn!(
+                walrus.shard_index = %request.shard_index(),
+                walrus.node = %public_key,
+                "rejecting sync shard request: requester does not own the shard"
+            );
+            return Err(SyncShardServiceError::Unauthorized);
+        }
+
         self.storage
             .handle_sync_shard_request(request, self.current_committee_epoch())
             .await
@@ -4911,6 +4932,7 @@ fn map_flush_error_to_confirmation(error: PendingCacheError) -> ComputeStorageCo
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::HashSet,
         sync::{Arc, OnceLock},
         time::Duration,
     };
@@ -4919,6 +4941,7 @@ mod tests {
     use config::ShardSyncConfig;
     use contract_service::MockSystemContractService;
     use storage::{
+        MAX_SLIVER_COUNT_PER_SYNC_REQUEST,
         ShardStatus,
         tests::{BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX, WhichSlivers, populated_storage},
     };
@@ -4948,10 +4971,12 @@ mod tests {
             BlobCertified,
             BlobDeleted,
             BlobRegistered,
+            Committee,
             InvalidBlobId,
             PooledBlobCertified,
             PooledBlobDeleted,
             PooledBlobRegistered,
+            StorageNode,
             StorageNodeCap,
             StoragePoolEvent,
             move_structs::EpochState,
@@ -6091,6 +6116,100 @@ mod tests {
             cluster.wait_for_nodes_to_reach_epoch(epoch).await;
         }
 
+        Ok(())
+    }
+
+    /// Reassigns `shards` to `cluster.nodes[destination_idx]` in the current committee so that the
+    /// destination is the node gaining them, as a real epoch change would arrange.
+    ///
+    /// Shard-sync tests fake a migration by creating storage on the destination directly, without a
+    /// committee that reflects the gain. `sync_shard` now rejects requesters that do not own the
+    /// shard, so the destination must own it in the current committee. The previous committee (used
+    /// to look up the sync source) and the epoch are left unchanged, keeping source selection and
+    /// recovery as in production.
+    ///
+    /// `keep_destination_shards` controls how the sync source is handled. For a direct transfer the
+    /// source holds the data and must stay reachable (for example for metadata recovery), so the
+    /// destination hands it its own previous shards (a swap). For recovery the source holds no data
+    /// and the destination must keep its existing shards to reconstruct from, so the source is
+    /// dropped once empty (`Committee` forbids empty members).
+    async fn reassign_shards_to_destination_in_current_committee(
+        cluster: &TestCluster,
+        shards: &[ShardIndex],
+        destination_idx: usize,
+        keep_destination_shards: bool,
+    ) -> TestResult {
+        let handle = cluster
+            .lookup_service_handle
+            .as_ref()
+            .expect("shard-sync test clusters use a stub lookup service");
+        let destination_key = cluster.nodes[destination_idx].public_key().clone();
+        let shard_set: HashSet<ShardIndex> = shards.iter().copied().collect();
+
+        let updated = {
+            let committees = handle
+                .committees
+                .lock()
+                .expect("lookup mutex is not poisoned");
+            let current = committees.current_committee();
+            let mut members: Vec<StorageNode> = current.members().to_vec();
+            let destination_pos = members
+                .iter()
+                .position(|member| member.public_key == destination_key)
+                .expect("destination is a committee member");
+            let destination_original = members[destination_pos].shard_ids.clone();
+
+            // The destination owns the synced shards, plus its existing shards when recovering.
+            let mut destination_shards = if keep_destination_shards {
+                destination_original.clone()
+            } else {
+                Vec::new()
+            };
+            for shard in shards {
+                if !destination_shards.contains(shard) {
+                    destination_shards.push(*shard);
+                }
+            }
+            members[destination_pos].shard_ids = destination_shards;
+
+            for (index, member) in members.iter_mut().enumerate() {
+                if index != destination_pos
+                    && member
+                        .shard_ids
+                        .iter()
+                        .any(|shard| shard_set.contains(shard))
+                {
+                    member.shard_ids.retain(|shard| !shard_set.contains(shard));
+                    if !keep_destination_shards {
+                        // Hand the source the destination's old shards so it stays non-empty.
+                        member
+                            .shard_ids
+                            .extend(destination_original.iter().copied());
+                    }
+                }
+            }
+            members.retain(|member| !member.shard_ids.is_empty());
+            let new_current = Committee::new(members, current.epoch, current.n_shards())
+                .expect("reassigned committee covers every shard exactly once");
+            ActiveCommittees::new_with_next(
+                Arc::new(new_current),
+                committees.previous_committee().cloned(),
+                committees.next_committee().cloned(),
+                committees.is_change_in_progress(),
+            )
+        };
+        *handle
+            .committees
+            .lock()
+            .expect("lookup mutex is not poisoned") = updated;
+
+        for node in &cluster.nodes {
+            node.storage_node
+                .inner
+                .committee_service
+                .begin_committee_change_to_latest_committee()
+                .await?;
+        }
         Ok(())
     }
 
@@ -7453,6 +7572,91 @@ mod tests {
         Ok(())
     }
 
+    // A committee member requesting a shard it is not assigned in the current committee is rejected
+    // before any sliver transfer.
+    #[tokio::test]
+    async fn sync_shard_node_api_rejects_unowned_shard() -> TestResult {
+        // node 0 holds shards 0 and 1; node 1 holds shards 2 and 3.
+        let (cluster, _, _) =
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+                .await?;
+
+        // node 1, a committee member, requests shard 0, which it does not own. The request is
+        // signed by and verified against node 1's key, so it passes signature verification but must
+        // fail the shard-ownership check.
+        let request = SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, 10, 2);
+        let signed_request = cluster.nodes[1]
+            .as_ref()
+            .inner
+            .protocol_key_pair
+            .sign_message(&SyncShardMsg::new(2, request));
+
+        let result = cluster.nodes[0]
+            .storage_node
+            .sync_shard(
+                cluster.nodes[1]
+                    .as_ref()
+                    .inner
+                    .protocol_key_pair
+                    .0
+                    .public()
+                    .clone(),
+                signed_request,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(SyncShardServiceError::Unauthorized)),
+            "expected Unauthorized, got {result:?}"
+        );
+
+        Ok(())
+    }
+
+    // An oversized `sliver_count` is rejected before allocation, preventing a capacity-overflow
+    // panic (`u64::MAX`) or an allocation abort.
+    #[tokio::test]
+    async fn sync_shard_node_api_rejects_oversized_sliver_count() -> TestResult {
+        let (cluster, _, _) =
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+                .await?;
+
+        // node 0 owns shard 0, so the request passes authorization and reaches the sliver-count
+        // bound. Without the bound, `Vec::with_capacity(u64::MAX as usize)` would panic.
+        let request =
+            SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, u64::MAX, 2);
+        let signed_request = cluster.nodes[0]
+            .as_ref()
+            .inner
+            .protocol_key_pair
+            .sign_message(&SyncShardMsg::new(2, request));
+
+        let result = cluster.nodes[0]
+            .storage_node
+            .sync_shard(
+                cluster.nodes[0]
+                    .as_ref()
+                    .inner
+                    .protocol_key_pair
+                    .0
+                    .public()
+                    .clone(),
+                signed_request,
+            )
+            .await;
+
+        assert!(
+            matches!(
+                result,
+                Err(SyncShardServiceError::RequestedSliverCountExceedsLimit { limit, .. })
+                    if limit == MAX_SLIVER_COUNT_PER_SYNC_REQUEST
+            ),
+            "expected RequestedSliverCountExceedsLimit, got {result:?}"
+        );
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn can_read_locked_shard() -> TestResult {
         let (cluster, events, blob) =
@@ -7633,6 +7837,12 @@ mod tests {
                 .update_status_in_test(ShardStatus::None)
                 .await?;
         }
+
+        // node 1 is the destination that gains `assignment[0]` by direct transfer from node 0;
+        // reflect that in the committee so the source accepts its sync requests.
+        let synced_shards: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
+        reassign_shards_to_destination_in_current_committee(&cluster, &synced_shards, 1, false)
+            .await?;
 
         Ok((
             cluster,
@@ -7855,6 +8065,11 @@ mod tests {
                 blob_index_to_end_epoch,
                 blob_index_to_deletable,
             )
+            .await?;
+
+        // node 1 is the destination that recovers shard 0; reflect that in the committee so the
+        // source accepts its sync requests. It keeps its own shards to reconstruct from.
+        reassign_shards_to_destination_in_current_committee(&cluster, &[ShardIndex(0)], 1, true)
             .await?;
 
         Ok((cluster, blob_details, event_senders))
