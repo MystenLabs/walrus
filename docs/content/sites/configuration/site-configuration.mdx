@@ -126,6 +126,12 @@ The optional `object_id` field in the `ws-resources.json` file stores the Sui ob
 
 The [`site-builder deploy` command](/docs/sites/getting-started/using-the-site-builder) primarily uses this field to identify an existing site for updates. If a valid `object_id` is present, `deploy` targets that site for modifications. If this field is missing and no `--object-id` CLI flag is used, `deploy` publishes a new site. If successful, then the command automatically populates this `object_id` field in your `ws-resources.json`.
 
+:::caution
+
+Preserve `ws-resources.json` after the first deployment. If the file is missing in a later deployment, `site-builder` creates a new site object instead of updating the existing site.
+
+:::
+
 ## Ignoring files from being uploaded
 
 You can use the optional `ignore` field to exclude certain files or folders from being published. This is useful when you want to keep development files, secrets, or temporary assets out of the final build.
