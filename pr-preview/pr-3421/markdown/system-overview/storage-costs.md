@@ -4,7 +4,9 @@ When choosing a platform to store and verify data, you should consider reliabili
 
 ## Estimate storage costs
 
-Use the [Walrus Cost Calculator](https://costcalculator.wal.app/) to estimate storage costs before you upload. The calculator is the recommended place to model storage size, duration, encoding overhead, WAL storage costs, and SUI transaction costs together.
+Use the embedded Walrus Cost Calculator to estimate storage costs before you upload. The calculator models storage size, duration, encoding overhead, WAL storage costs, and SUI transaction costs together.
+
+If the calculator does not load, open the [Walrus Cost Calculator](https://costcalculator.wal.app/) in a new tab.
 
 For command-line estimates, run `walrus info` to view current storage prices and upload fees. You can also run `walrus store --dry-run ...` to see the encoded size used in WAL cost calculations without submitting transactions.
 
