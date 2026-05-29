@@ -4825,12 +4825,11 @@ impl ServiceState for StorageNodeInner {
             .into());
         }
 
-        // Verify that the requester is the node gaining this shard: `request.shard_index()` must be
-        // assigned to its public key in the committee for `request.epoch()`. The epoch check above
-        // ties the request to the current epoch, so that committee is the current one (during an
-        // epoch change the gaining committee is `current`, the losing committee `previous`).
-        // Without this, any committee member could drive a bulk sliver transfer for a shard it does
-        // not own.
+        // Require the requester to be assigned `request.shard_index()` in the committee for
+        // `request.epoch()`. The epoch check above ties the request to the current epoch, so that
+        // committee is the current one (during an epoch change the gaining committee is `current`,
+        // the losing committee `previous`). This narrows authorization from any committee member to
+        // the node actually gaining the shard.
         if !self
             .committee_service
             .active_committees()
@@ -7613,8 +7612,8 @@ mod tests {
         Ok(())
     }
 
-    // An oversized `sliver_count` is rejected before allocation, preventing a capacity-overflow
-    // panic (`u64::MAX`) or an allocation abort.
+    // A `sliver_count` above the server-side limit is rejected before the response vector is
+    // allocated.
     #[tokio::test]
     async fn sync_shard_node_api_rejects_oversized_sliver_count() -> TestResult {
         let (cluster, _, _) =
@@ -7622,7 +7621,7 @@ mod tests {
                 .await?;
 
         // node 0 owns shard 0, so the request passes authorization and reaches the sliver-count
-        // bound. Without the bound, `Vec::with_capacity(u64::MAX as usize)` would panic.
+        // bound; `u64::MAX` is far above the limit and is rejected.
         let request =
             SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, u64::MAX, 2);
         let signed_request = cluster.nodes[0]

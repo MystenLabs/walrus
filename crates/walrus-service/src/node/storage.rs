@@ -83,9 +83,9 @@ pub(crate) use shard::{PrimarySliverData, SecondarySliverData, ShardStatus, Shar
 
 /// Hard server-side upper bound on the `sliver_count` a single sync-shard request may ask for.
 ///
-/// `sliver_count` is attacker-controlled (part of the signed request but otherwise unbounded), so
-/// requests above this limit are rejected before any allocation to prevent a capacity-overflow
-/// panic or an out-of-memory abort. The default requester batch size is
+/// `sliver_count` is taken from the request and is otherwise only bounded on the requester side, so
+/// requests above this limit are rejected before the response vector is allocated, keeping the
+/// allocation bounded. The default requester batch size is
 /// [`ShardSyncConfig::sliver_count_per_sync_request`] (1000); this leaves ample headroom for
 /// operators that tune it upward.
 ///
@@ -1237,9 +1237,8 @@ impl Storage {
             }
         }
 
-        // Reject oversized requests before allocating: `Vec::with_capacity(sliver_count)` below
-        // would otherwise panic on overflow (`u64::MAX`) or abort the process via
-        // `handle_alloc_error` (a large non-overflowing value).
+        // Bound `sliver_count` before it sizes the `Vec::with_capacity` allocation below; it comes
+        // from the request and is otherwise only limited on the requester side.
         let sliver_count = request.sliver_count();
         if sliver_count > MAX_SLIVER_COUNT_PER_SYNC_REQUEST {
             return Err(SyncShardServiceError::RequestedSliverCountExceedsLimit {
