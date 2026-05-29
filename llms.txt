@@ -108,12 +108,14 @@ Sui smart contract as the on-chain index.
     Publishers and aggregators both support quilt operations. All query parameters available for
     storing regular blobs can also be used when storing quilts.
 - [Reading Blobs](https://docs.wal.app/docs/http-api/reading-blobs.md):
-    You can read blobs using HTTP GET requests with their blob ID or object ID.
+    You can read blobs using HTTP GET requests with their blob ID or object ID. > Reading a blob
+    right after upload? > > When you read through a CDN-fronted aggregator immediately after
+    certification, the CDN might briefly cache a 404 from before the blob propagated.
 - [Storing Blobs](https://docs.wal.app/docs/http-api/storing-blobs.md):
     You can store data using HTTP PUT requests. The following examples use curl to store blobs
-    through a publisher: Control how the new blob is created through a combination of query
-    parameters as documented in the OpenAPI specification. Specify the lifetime of the blob through
-    the epochs parameter.
+    through a publisher: > Reading a blob right after upload? > > When you read through a
+    CDN-fronted aggregator immediately after certification, the CDN might briefly cache a 404 from
+    before the blob propagated.
 
 ## TypeScript SDK
 
@@ -336,6 +338,11 @@ Sui smart contract as the on-chain index.
     This page covers common errors you might encounter when using Walrus. Each entry includes the
     error message, its cause, and how to troubleshoot it. Errors in this section occur when the
     Walrus CLI cannot load or parse its configuration.
+- [Reading Blobs After Upload](https://docs.wal.app/docs/troubleshooting/reading-blobs-after-upload.md):
+    Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly
+    from storage nodes returns it immediately. Public aggregators often sit behind a content
+    delivery network (CDN), which might cache a 404 Not Found response from before the aggregator
+    sees the blob.
 
 ## Data Security
 
