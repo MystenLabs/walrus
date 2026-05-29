@@ -1881,17 +1881,24 @@ impl StorageNode {
         assert!(event.epoch != GENESIS_EPOCH);
 
         // Fire a warning if the foreground portion of the handler is still running after the
-        // threshold. The task is aborted when `_warn_guard` is dropped on any return path, so the
-        // warning only reaches the log when we actually exceed the budget.
+        // threshold, and keep warning every threshold interval for as long as it runs. The task is
+        // aborted when `_warn_guard` is dropped on any return path, so warnings only reach the log
+        // while we are actually exceeding the budget.
         let warn_handle = tokio::spawn({
             let epoch = event.epoch;
             async move {
-                tokio::time::sleep(EPOCH_CHANGE_START_SLOW_THRESHOLD).await;
-                tracing::warn!(
-                    walrus.epoch = epoch,
-                    threshold_secs = EPOCH_CHANGE_START_SLOW_THRESHOLD.as_secs_f64(),
-                    "processing epoch change start is taking longer than expected",
-                );
+                let mut interval = tokio::time::interval(EPOCH_CHANGE_START_SLOW_THRESHOLD);
+                // The first tick completes immediately; skip it so the first warning is delayed by
+                // a full threshold interval.
+                interval.tick().await;
+                loop {
+                    interval.tick().await;
+                    tracing::warn!(
+                        walrus.epoch = epoch,
+                        threshold_secs = EPOCH_CHANGE_START_SLOW_THRESHOLD.as_secs_f64(),
+                        "processing epoch change start is taking longer than expected",
+                    );
+                }
             }
         });
         let _warn_guard = AbortOnDrop(warn_handle);
