@@ -280,6 +280,23 @@ fn num_digest_buckets() -> u64 {
 
 const CHECKPOINT_EVENT_POSITION_SCALE: u64 = 100;
 
+/// Threshold above which we emit a warning that the foreground portion of an
+/// `EpochChangeStart` event took unexpectedly long to process. The shard-sync work
+/// kicked off by the event continues in the background, so this only measures the
+/// in-line bookkeeping (committee change, garbage collection scheduling, and the
+/// initial shard moves) that blocks the event processor.
+const EPOCH_CHANGE_START_SLOW_THRESHOLD: Duration = Duration::from_secs(300);
+
+/// Aborts the wrapped task when dropped, used to cancel a deadline-warning task once the
+/// guarded scope finishes within its budget.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 /// Indicates how the node should treat uploads.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum UploadIntent {
@@ -1862,6 +1879,27 @@ impl StorageNode {
     ) -> anyhow::Result<()> {
         // There shouldn't be an epoch change event for the genesis epoch.
         assert!(event.epoch != GENESIS_EPOCH);
+
+        // Fire a warning if the foreground portion of the handler is still running after the
+        // threshold, and keep warning every threshold interval for as long as it runs. The task is
+        // aborted when `_warn_guard` is dropped on any return path, so warnings only reach the log
+        // while we are actually exceeding the budget.
+        let warn_handle = tokio::spawn({
+            let epoch = event.epoch;
+            let start = Instant::now();
+            async move {
+                loop {
+                    tokio::time::sleep(EPOCH_CHANGE_START_SLOW_THRESHOLD).await;
+                    tracing::warn!(
+                        walrus.epoch = epoch,
+                        threshold_secs = EPOCH_CHANGE_START_SLOW_THRESHOLD.as_secs_f64(),
+                        elapsed_secs = start.elapsed().as_secs_f64(),
+                        "processing epoch change start is taking longer than expected",
+                    );
+                }
+            }
+        });
+        let _warn_guard = AbortOnDrop(warn_handle);
 
         // Irrespective of whether we are in this epoch, we can cancel any scheduled calls to change
         // to or end voting for the epoch identified by the event, as we're already in that epoch.
