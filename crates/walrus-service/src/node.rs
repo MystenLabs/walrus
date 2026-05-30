@@ -1886,16 +1886,14 @@ impl StorageNode {
         // while we are actually exceeding the budget.
         let warn_handle = tokio::spawn({
             let epoch = event.epoch;
+            let start = Instant::now();
             async move {
-                let mut interval = tokio::time::interval(EPOCH_CHANGE_START_SLOW_THRESHOLD);
-                // The first tick completes immediately; skip it so the first warning is delayed by
-                // a full threshold interval.
-                interval.tick().await;
                 loop {
-                    interval.tick().await;
+                    tokio::time::sleep(EPOCH_CHANGE_START_SLOW_THRESHOLD).await;
                     tracing::warn!(
                         walrus.epoch = epoch,
                         threshold_secs = EPOCH_CHANGE_START_SLOW_THRESHOLD.as_secs_f64(),
+                        elapsed_secs = start.elapsed().as_secs_f64(),
                         "processing epoch change start is taking longer than expected",
                     );
                 }
