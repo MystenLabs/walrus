@@ -108,7 +108,9 @@ jobs:
   test:
     name: Test Rust code (gRPC level ${{ matrix.grpc_migration_level }})
     needs: diff
-    if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
+    # TEMP (revert before merge): skip to save CI time while stressing simtests.
+    # if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
+    if: false
     runs-on: ubuntu-ghcloud
     strategy:
       matrix:
@@ -182,13 +184,19 @@ jobs:
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
+    # TEMP (revert before merge): stress simtest_test_repeated_node_crash across 500 seeds
+    # (50 matrix jobs x MSIM_TEST_NUM=10) to reproduce the intermittent CI failure. Each job
+    # runs 10 seeds (~110s each), staying under the simtest profile's 1800s terminate-after so
+    # a TIMEOUT remains a real hang signal. The deadlock-demo / ci-hang-demo error logs identify
+    # which node wedges when a seed fails. Bases 101..150 avoid reusing earlier seeds.
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        base: [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149, 150]
     env:
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
-      # Default: all 5 seeds. PRs with the `ci:less-simtest-seeds` label run only
-      # 2 seeds (1 without gRPC, 1 with gRPC).
-      SIMTEST_REDUCED: ${{ github.event_name != 'push' && contains(github.event.pull_request.labels.*.name, 'ci:less-simtest-seeds')
-        }}
     steps:
       - uses: taiki-e/install-action@a2352fc6ce487f030a3aa709482d57823eadfb37 # pin@v2.75.16
         with:
@@ -199,19 +207,8 @@ jobs:
           gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - run: ./scripts/simtest/install.sh
-      - name: Run tests (seed=1, legacy json-rpc)
-        run: MSIM_TEST_SEED=1 WALRUS_GRPC_MIGRATION_LEVEL=0 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=2)
-        run: MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=3, legacy json-rpc)
-        if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=0 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=4)
-        if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=4 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=5)
-        if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=5 cargo simtest simtest --profile simtest
+      - name: repeated_node_crash (base ${{ matrix.base }} x10)
+        run: MSIM_TEST_SEED=${{ matrix.base }} MSIM_TEST_NUM=10 cargo simtest simtest_test_repeated_node_crash --profile simtest --no-capture
 
   simtests-build:
     name: Build all simtests
