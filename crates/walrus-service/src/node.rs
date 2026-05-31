@@ -1017,6 +1017,37 @@ impl StorageNode {
             );
         }
 
+        // CI-HANG-DEMO (throwaway, error-level so it surfaces in CI): the PR #3400 CI failure on
+        // simtest_test_repeated_node_crash hangs ~30min with the sim clock still advancing, so the
+        // msim watchdog never fires and nothing identifies the stuck node. This heartbeat samples
+        // each node's liveness so a future hang shows which node froze and where. It deliberately
+        // avoids the shard-map lock so it cannot itself wedge.
+        #[cfg(msim)]
+        {
+            let inner = self.inner.clone();
+            let blob_sync_handler = self.blob_sync_handler.clone();
+            let heartbeat_token = cancel_token.clone();
+            tokio::spawn(async move {
+                loop {
+                    tokio::select! {
+                        _ = heartbeat_token.cancelled() => break,
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+                    }
+                    let status = inner.storage.node_status();
+                    let processed = inner.storage.get_sequentially_processed_event_count();
+                    let epoch = inner.current_committee_epoch();
+                    let blob_syncs = blob_sync_handler.blob_sync_in_progress().len();
+                    tracing::error!(
+                        ?status,
+                        committee_epoch = epoch,
+                        ?processed,
+                        in_progress_blob_syncs = blob_syncs,
+                        "ci-hang-demo heartbeat"
+                    );
+                }
+            });
+        }
+
         select! {
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
