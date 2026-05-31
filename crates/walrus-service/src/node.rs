@@ -3096,7 +3096,19 @@ impl StorageNodeInner {
         &self,
         blob_id: &BlobId,
     ) -> anyhow::Result<bool> {
+        // DEADLOCK-DEMO (throwaway): this is the consistency check's existence-check path, and its
+        // only caller, driven by `futures::executor::block_on` on the simulator thread. When a
+        // shard-removal writer is pending, this read cannot proceed: in a wedged run you see the
+        // "waiting" line below with no matching "acquired" line.
+        tracing::error!(
+            %blob_id,
+            "deadlock-demo consistency-check: waiting for shard-map read lock"
+        );
         let shard_storages = self.storage.existing_shard_storages().await;
+        tracing::error!(
+            %blob_id,
+            "deadlock-demo consistency-check: acquired shard-map read lock"
+        );
         let mut shards = Vec::new();
 
         for shard_storage in shard_storages.iter() {

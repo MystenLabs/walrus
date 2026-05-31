@@ -542,7 +542,17 @@ impl Storage {
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
+        // DEADLOCK-DEMO (throwaway): shard removal is the shard-map writer. When wedged against the
+        // consistency-check reader, you see the "waiting" line below with no matching "acquired".
+        tracing::error!(
+            shards = ?removed,
+            "deadlock-demo shard-removal: waiting for shard-map write lock"
+        );
         let mut shard_map_lock = self.lock_shards().await;
+        tracing::error!(
+            shards = ?removed,
+            "deadlock-demo shard-removal: acquired shard-map write lock"
+        );
         for shard_index in removed {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
             if let Some(shard_storage) = shard_map_lock.shards_guard.remove(shard_index) {
