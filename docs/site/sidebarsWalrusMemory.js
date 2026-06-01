@@ -8,7 +8,7 @@ const sidebars = {
   walrusMemorySidebar: [
     {
       type: "category",
-      label: "Getting Started",
+      label: "Get Started",
       collapsed: false,
       link: {
         type: "doc",
@@ -22,7 +22,7 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "Concepts & Architecture",
+      label: "Fundamentals",
       collapsed: true,
       items: [
         "fundamentals/concepts/memory-space",
@@ -35,7 +35,7 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "TypeScript SDK",
+      label: "SDK",
       collapsed: true,
       items: [
         "sdk/overview",
@@ -65,7 +65,22 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "Integrations",
+      label: "Relayer",
+      collapsed: true,
+      items: [
+        "relayer/overview",
+        "relayer/public-relayer",
+        "relayer/self-hosting",
+        "relayer/nautilus-tee",
+        "relayer/observability",
+        "relayer/versioning-and-compatibility",
+        "relayer/api-reference",
+        "relayer/benchmark-ci-setup",
+      ],
+    },
+    {
+      type: "category",
+      label: "MCP",
       collapsed: true,
       items: [
         "mcp/overview",
@@ -73,33 +88,38 @@ const sidebars = {
         "mcp/how-it-works",
         "mcp/reference",
         "mcp/changelog",
+      ],
+    },
+    {
+      type: "category",
+      label: "Contract",
+      collapsed: true,
+      items: [
+        "contract/overview",
+        "contract/delegate-key-management",
+        "contract/ownership-and-permissions",
+      ],
+    },
+    {
+      type: "category",
+      label: "Indexer",
+      collapsed: true,
+      items: [
+        "indexer/purpose",
+        "indexer/onchain-events",
+        "indexer/database-sync",
+      ],
+    },
+    {
+      type: "category",
+      label: "NemoClaw/OpenClaw Plugin",
+      collapsed: true,
+      items: [
         "openclaw/overview",
         "openclaw/quick-start",
         "openclaw/how-it-works",
         "openclaw/reference",
         "openclaw/changelog",
-      ],
-    },
-    {
-      type: "category",
-      label: "Infrastructure",
-      collapsed: true,
-      items: [
-        { type: "doc", id: "relayer/overview", label: "Relayer Overview" },
-        { type: "doc", id: "relayer/public-relayer", label: "Relayer: Managed Service" },
-        { type: "doc", id: "relayer/self-hosting", label: "Relayer: Self-Hosting" },
-        { type: "doc", id: "relayer/nautilus-tee", label: "Relayer: TEE Deployment" },
-        { type: "doc", id: "relayer/observability", label: "Relayer: Observability" },
-        { type: "doc", id: "relayer/versioning-and-compatibility", label: "Relayer: Versioning" },
-        { type: "doc", id: "relayer/api-reference", label: "Relayer: API Reference" },
-        { type: "doc", id: "relayer/benchmark-ci-setup", label: "Relayer: Benchmark CI" },
-        "contract/overview",
-        "contract/delegate-key-management",
-        "contract/ownership-and-permissions",
-        "indexer/purpose",
-        "indexer/onchain-events",
-        "indexer/database-sync",
-        "security/health-check-unsigned",
       ],
     },
     {
