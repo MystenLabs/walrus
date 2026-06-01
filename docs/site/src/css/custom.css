@@ -318,6 +318,80 @@ color: #613dff !important;
 color: #98EFDD !important;
 }
 
+/* ── Navbar dropdown support ─────────────────────────────────────────
+   Tailwind v4 Preflight resets Docusaurus default dropdown styles.
+   Re-establish them explicitly. */
+.navbar__item.dropdown {
+  position: relative;
+}
+
+.navbar__item.dropdown .navbar__link {
+  cursor: pointer;
+}
+
+.navbar__item.dropdown .navbar__link::after {
+  content: "";
+  border: 0.2em solid currentColor;
+  border-left: 0;
+  border-top: 0;
+  display: inline-block;
+  height: 0.45em;
+  width: 0.45em;
+  transform: rotate(45deg);
+  margin-left: 0.35em;
+  vertical-align: 0.1em;
+}
+
+.dropdown__menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 10rem;
+  padding: 0.5rem 0;
+  margin: 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 0.5rem;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+}
+
+[data-theme="dark"] .dropdown__menu {
+  background: #1e1e1e;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.dropdown--hoverable:hover > .dropdown__menu,
+.dropdown--show > .dropdown__menu {
+  display: block;
+}
+
+.dropdown__link {
+  display: block;
+  padding: 0.4rem 1rem;
+  color: #000;
+  text-decoration: none;
+  font-size: 0.88rem;
+  white-space: nowrap;
+}
+
+[data-theme="dark"] .dropdown__link {
+  color: #faf8f5;
+}
+
+.dropdown__link:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: #613dff;
+  text-decoration: none;
+}
+
+[data-theme="dark"] .dropdown__link:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #98EFDD;
+}
+
 .theme-doc-sidebar-menu.menu__list {
 padding-bottom: 2rem;
 }
