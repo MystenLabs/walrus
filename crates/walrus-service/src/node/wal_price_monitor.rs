@@ -404,7 +404,7 @@ impl WalPriceMonitor {
 
                 // Collect successful price fetches
                 let mut prices = Vec::new();
-                for (fetcher, result) in fetchers.iter().zip(results.into_iter()) {
+                for (fetcher, result) in fetchers.iter().zip(results) {
                     match result {
                         Ok(price) => {
                             tracing::debug!(

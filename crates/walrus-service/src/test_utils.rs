@@ -2860,7 +2860,7 @@ pub mod test_cluster {
             let sui_rpc_urls: Vec<String> = {
                 let cluster = sui_cluster.lock().await;
                 once(cluster.rpc_url().to_string())
-                    .chain(cluster.additional_rpc_urls().into_iter())
+                    .chain(cluster.additional_rpc_urls())
                     .collect()
             };
 

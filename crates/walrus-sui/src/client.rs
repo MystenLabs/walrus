@@ -126,8 +126,9 @@ pub enum SuiClientError {
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
     /// Error resulting from a Sui-SDK call.
+    // Wrapped in a `Box` to avoid the large memory overhead of this error variant.
     #[error(transparent)]
-    SuiSdkError(#[from] sui_sdk::error::Error),
+    SuiSdkError(#[from] Box<sui_sdk::error::Error>),
     /// Other errors resulting from Sui crates.
     // Wrapped in a `Box` to avoid the large memory overhead of this error variant.
     #[error(transparent)]
@@ -222,6 +223,12 @@ pub enum SuiClientError {
 impl From<sui_types::error::SuiError> for SuiClientError {
     fn from(error: sui_types::error::SuiError) -> Self {
         Self::SuiError(Box::new(error))
+    }
+}
+
+impl From<sui_sdk::error::Error> for SuiClientError {
+    fn from(error: sui_sdk::error::Error) -> Self {
+        Self::SuiSdkError(Box::new(error))
     }
 }
 

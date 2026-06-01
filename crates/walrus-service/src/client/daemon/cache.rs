@@ -417,9 +417,7 @@ mod tests {
         expected_responses: Vec<CacheResponse>,
     ) {
         let responses = run_cache(requests).await;
-        for (response, expected_response) in
-            responses.into_iter().zip(expected_responses.into_iter())
-        {
+        for (response, expected_response) in responses.into_iter().zip(expected_responses) {
             assert_eq!(response.expect("response is ok"), expected_response);
         }
     }

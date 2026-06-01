@@ -6170,7 +6170,7 @@ mod tests {
         let all_other_node_events = Sender::new(48);
         let event_providers = vec![node_0_events.clone(); 1]
             .into_iter()
-            .chain(vec![all_other_node_events.clone(); assignment.len() - 1].into_iter())
+            .chain(vec![all_other_node_events.clone(); assignment.len() - 1])
             .collect::<Vec<_>>();
 
         let cluster = {

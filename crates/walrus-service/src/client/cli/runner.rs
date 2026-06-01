@@ -1914,10 +1914,7 @@ impl ClientCommandRunner {
                 .zip(iter::repeat(amounts[0]))
                 .collect::<Vec<_>>()
         } else {
-            node_ids
-                .into_iter()
-                .zip(amounts.into_iter())
-                .collect::<Vec<_>>()
+            node_ids.into_iter().zip(amounts).collect::<Vec<_>>()
         };
         let client = get_contract_client(self.config?, self.wallet?, self.gas_budget).await?;
         let staked_wal = client.stake_with_node_pools(&node_ids_with_amounts).await?;
