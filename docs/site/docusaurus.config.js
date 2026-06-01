@@ -339,9 +339,7 @@ const config = {
                 label: "Example Code",
               },
               {
-                type: "doc",
-                docsPluginId: "walrus-memory",
-                docId: "getting-started/what-is-memwal",
+                href: "/walrus-memory/getting-started/what-is-memwal",
                 label: "Walrus Memory",
               },
             ],
