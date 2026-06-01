@@ -334,17 +334,6 @@ const config = {
             label: "Service Providers",
             position: "right",
           },
-          {
-            type: "docSidebar",
-            sidebarId: "examplesSidebar",
-            label: "Example Code",
-            position: "right",
-          },
-          {
-            label: "Walrus Memory",
-            href: "https://docs.wal.app/walrus-memory/getting-started/what-is-memwal",
-            position: "right",
-          },
           { to: "/blog", label: "Blog", position: "right" },
           {
             href: "https://github.com/MystenLabs/walrus",

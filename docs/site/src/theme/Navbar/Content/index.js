@@ -29,6 +29,87 @@ function useMobileSidebarSafe() {
   }
 }
 
+function AppsDropdown({ items }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    function handleClickOutside(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const menuStyle = {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    minWidth: "11rem",
+    padding: "0.4rem 0",
+    margin: 0,
+    listStyle: "none",
+    background: "var(--ifm-background-surface-color, #fff)",
+    border: "1px solid rgba(0,0,0,0.08)",
+    borderRadius: "0.5rem",
+    boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
+    zIndex: 200,
+    opacity: open ? 1 : 0,
+    visibility: open ? "visible" : "hidden",
+    pointerEvents: open ? "auto" : "none",
+    transform: open ? "translateY(0)" : "translateY(4px)",
+    transition: "opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease",
+  };
+
+  return (
+    <div
+      ref={ref}
+      style={{ position: "relative" }}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <span
+        role="button"
+        tabIndex={0}
+        className="navbar__item navbar__link"
+        onClick={() => setOpen(!open)}
+        onKeyDown={(e) => { if (e.key === "Enter") setOpen(!open); }}
+        style={{ cursor: "pointer" }}
+      >
+        Apps ▾
+      </span>
+      <ul style={menuStyle}>
+        {items.map((item, i) => (
+          <li key={i} style={{ margin: 0, padding: 0, listStyle: "none" }}>
+            <a
+              href={item.href || item.to}
+              style={{
+                display: "block",
+                padding: "0.45rem 1rem",
+                color: "var(--ifm-font-color-base, #000)",
+                textDecoration: "none",
+                fontSize: "0.88rem",
+                fontWeight: 500,
+                whiteSpace: "nowrap",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(0,0,0,0.04)";
+                e.currentTarget.style.color = "#613dff";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "var(--ifm-font-color-base, #000)";
+              }}
+            >
+              {item.label}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function NavbarItems({ items }) {
   return (
     <div className="flex items-center justify-start gap-2 min-w-0 shrink overflow-hidden">
@@ -191,7 +272,24 @@ export default function NavbarContent() {
       }
       right={
         <div className="flex items-center gap-1 min-[1100px]:gap-2 min-[1300px]:gap-3 min-[1430px]:gap-4 shrink-0">
-          <NavbarItems items={rightItems} />
+          {(() => {
+            // Insert Apps dropdown between Walrus Sites and Service Providers
+            const insertAfter = rightItems.findIndex(
+              (item) => item.sidebarId === "sitesSidebar" || item.label === "Walrus Sites"
+            );
+            const before = rightItems.slice(0, insertAfter + 1);
+            const after = rightItems.slice(insertAfter + 1);
+            return (
+              <>
+                <NavbarItems items={before} />
+                <AppsDropdown items={[
+                  { label: "Example Code", href: "/examples" },
+                  { label: "Walrus Memory", href: "/walrus-memory/getting-started/what-is-memwal" },
+                ]} />
+                <NavbarItems items={after} />
+              </>
+            );
+          })()}
           <ThemeToggle />
           <KapaButton />
           {!searchBarItem && (
