@@ -38,6 +38,12 @@ const config = {
     },
   },
 
+  markdown: {
+    mermaid: true,
+  },
+
+  themes: ["@docusaurus/theme-mermaid"],
+
   url: "https://docs.wal.app",
   baseUrl: process.env.DOCUSAURUS_BASE_URL || "/",
 
