@@ -426,7 +426,14 @@ function applyStyleRulesToLine(line) {
     if (i % 2 === 1) return part;
     return applyProseRules(part);
   });
-  return transformed.join("");
+  let result = transformed.join("");
+
+  // Fix em dash → comma artifacts in table cells (| , | → |  |)
+  result = result.replace(/\|\s*,\s*\|/g, "| |");
+  // Also fix em dashes that survived in table cells (| — | should be blank)
+  result = result.replace(/\|\s*—\s*\|/g, "| |");
+
+  return result;
 }
 
 function applyProseRules(text) {
@@ -453,6 +460,8 @@ function applyProseRules(text) {
   result = result.replace(/\bon-chain\b/gi, "onchain");
   result = result.replace(/\boff-chain\b/gi, "offchain");
   result = result.replace(/\bkey-pair\b/gi, "key pair");
+  // SEAL → Seal (product name, not acronym)
+  result = result.replace(/\bSEAL\b/g, "Seal");
 
   // Remove exclamation marks at end of sentences
   result = result.replace(/([a-zA-Z])!(\s|$)/g, "$1.$2");
@@ -557,7 +566,7 @@ const PRESERVE_CAPS = new Set([
   "AI", "NFT", "NFTs", "DeFi", "ID", "IDs", "Ed25519", "TEE", "TLS",
   "REST", "Docker", "GitHub", "Vercel", "OpenClaw", "NemoClaw", "SuiNS",
   "Walrus Memory", "PostgreSQL", "Axum", "Node.js", "WAL", "STRIDE",
-  "SEAL",
+  "Seal",
 ]);
 
 function sentenceCasePart(text, isFirst) {
