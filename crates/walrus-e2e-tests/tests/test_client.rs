@@ -99,7 +99,7 @@ use walrus_sui::{
     test_utils::{self, fund_addresses, wallet_for_testing},
     types::{
         Blob,
-        move_errors::{MoveExecutionError, RawMoveError},
+        move_errors::MoveExecutionError,
         move_structs::{BlobAttribute, BlobWithAttribute, Credits, SharedBlob},
     },
 };
@@ -2584,14 +2584,10 @@ async fn test_blob_attribute_fields_operations() -> TestResult {
         .await;
     assert!(matches!(
         result.unwrap_err().downcast::<SuiClientError>().unwrap().as_ref(),
-        SuiClientError::TransactionExecutionError(
-            MoveExecutionError::OtherMoveModule(RawMoveError {
-                function,
-                module,
-                error_code,
-                ..
-            })
-        ) if function.as_str() == "get_idx" && module.as_str() == "vec_map" && *error_code == 1
+        SuiClientError::TransactionExecutionError(MoveExecutionError::OtherMoveModule(raw))
+            if raw.function.as_str() == "get_idx"
+                && raw.module.as_str() == "vec_map"
+                && raw.error_code == 1
     ));
 
     Ok(())

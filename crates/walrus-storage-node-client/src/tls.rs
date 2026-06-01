@@ -252,7 +252,7 @@ impl ServerCertVerifier for TlsCertificateVerifier {
         );
 
         match result {
-            Ok(verified) if !self.has_pinned_public_key_or_unset(end_entity) => {
+            Ok(_verified) if !self.has_pinned_public_key_or_unset(end_entity) => {
                 Err(rustls::Error::General(
                     "the server's certificate does not match the pinned public key".to_owned(),
                 ))

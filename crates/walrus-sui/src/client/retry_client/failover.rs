@@ -56,9 +56,7 @@ pub trait MakeRetriableError {
 
 impl MakeRetriableError for SuiClientError {
     fn make_retriable_error() -> Self {
-        SuiClientError::SuiSdkError(sui_sdk::error::Error::RpcError(
-            jsonrpsee::core::ClientError::RequestTimeout,
-        ))
+        sui_sdk::error::Error::RpcError(jsonrpsee::core::ClientError::RequestTimeout).into()
     }
 }
 

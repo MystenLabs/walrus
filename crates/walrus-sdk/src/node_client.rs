@@ -855,7 +855,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     for sliver in recovered_slivers.iter() {
                         sliver_selector.remove_sliver(&sliver.index);
                     }
-                    all_slivers.extend(recovered_slivers.into_iter());
+                    all_slivers.extend(recovered_slivers);
                 }
                 Ok(Err(error)) => {
                     tracing::debug!(?error, "error recovering slivers");

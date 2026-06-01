@@ -48,7 +48,7 @@ registration, certification, and economics.
 ### Prerequisites
 
 System packages: `libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake`
-Rust toolchain: 1.93 (specified in `rust-toolchain.toml`)
+Rust toolchain: 1.96 (specified in `rust-toolchain.toml`)
 
 ### Building
 

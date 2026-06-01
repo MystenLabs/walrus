@@ -683,12 +683,12 @@ impl SuiReadClient {
             )
             .await
             .map_err(|err| match err {
-                SuiClientError::SuiSdkError(sui_sdk::error::Error::InsufficientFund {
-                    address: _,
-                    amount,
-                }) => match coin_type {
-                    CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
-                    CoinType::Sui => SuiClientError::NoCompatibleGasCoins(Some(amount)),
+                SuiClientError::SuiSdkError(boxed) => match *boxed {
+                    sui_sdk::error::Error::InsufficientFund { amount, .. } => match coin_type {
+                        CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
+                        CoinType::Sui => SuiClientError::NoCompatibleGasCoins(Some(amount)),
+                    },
+                    other => SuiClientError::SuiSdkError(Box::new(other)),
                 },
                 err => err,
             })

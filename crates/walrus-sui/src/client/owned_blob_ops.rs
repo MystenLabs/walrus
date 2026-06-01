@@ -912,10 +912,7 @@ impl SuiContractClientInner {
 
         let mut pt_builder = self.transaction_builder();
 
-        for (blob_params, object_arg) in certify_and_extend_parameters
-            .iter()
-            .zip(object_args.into_iter())
-        {
+        for (blob_params, object_arg) in certify_and_extend_parameters.iter().zip(object_args) {
             let blob = blob_params.blob;
 
             if let Some(certificate) = blob_params.certificate.as_ref() {
@@ -970,7 +967,7 @@ impl SuiContractClientInner {
 
         let results = certify_and_extend_parameters
             .iter()
-            .zip(post_store_action_results.into_iter())
+            .zip(post_store_action_results)
             .map(|(blob_params, r)| CertifyAndExtendBlobResult {
                 blob_object_id: blob_params.blob.id,
                 post_store_action_result: r,

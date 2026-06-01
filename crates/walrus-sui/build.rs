@@ -175,8 +175,10 @@ pub enum MoveExecutionError {
     }
     code.push_str(
         r#"    /// Error in other move modules.
+    // Boxed to keep this variant from dominating the size of `MoveExecutionError`; the typed
+    // variants already box `RawMoveError`.
     #[error("Unknown move error occurred: {0}")]
-    OtherMoveModule(RawMoveError),
+    OtherMoveModule(Box<RawMoveError>),
     /// A non-parsable move error.
     #[error("unparsable move error occurred: {0}")]
     NotParsable(String),
@@ -204,10 +206,12 @@ fn generate_move_error_from_impl(module_error_defs: &[ModuleErrorDefs]) -> Strin
     }
 
     // Add the fallback case.
-    code.push_str("            _ => Ok(Self::OtherMoveModule(error)),\n");
+    code.push_str("            _ => Ok(Self::OtherMoveModule(Box::new(error))),\n");
 
     code.push_str("        }\n");
-    code.push_str("        .unwrap_or_else(|e: ConversionError| Self::OtherMoveModule(e.0))\n");
+    code.push_str(
+        "        .unwrap_or_else(|e: ConversionError| Self::OtherMoveModule(Box::new(e.0)))\n",
+    );
     code.push_str("    }\n");
     code.push_str("}\n\n");
 
