@@ -4815,12 +4815,21 @@ impl ServiceState for StorageNodeInner {
 
         tracing::debug!(?request, "sync shard request received");
 
+        // Snapshot the current committee once so the epoch and shard-ownership checks below observe
+        // a single consistent state; a committee advance between two separate reads could otherwise
+        // produce a spurious rejection.
+        let current_committee = self
+            .committee_service
+            .active_committees()
+            .current_committee()
+            .clone();
+
         // If the epoch of the requester should not be older than the current epoch of the node.
         // In a normal scenario, a storage node will never fetch shards from a future epoch.
-        if request.epoch() != self.current_committee_epoch() {
+        if request.epoch() != current_committee.epoch {
             return Err(InvalidEpochError {
                 request_epoch: request.epoch(),
-                server_epoch: self.current_committee_epoch(),
+                server_epoch: current_committee.epoch,
             }
             .into());
         }
@@ -4830,10 +4839,7 @@ impl ServiceState for StorageNodeInner {
         // committee is the current one (during an epoch change the gaining committee is `current`,
         // the losing committee `previous`). This narrows authorization from any committee member to
         // the node actually gaining the shard.
-        if !self
-            .committee_service
-            .active_committees()
-            .current_committee()
+        if !current_committee
             .shards_for_node_public_key(&public_key)
             .contains(&request.shard_index())
         {
@@ -4846,7 +4852,7 @@ impl ServiceState for StorageNodeInner {
         }
 
         self.storage
-            .handle_sync_shard_request(request, self.current_committee_epoch())
+            .handle_sync_shard_request(request, current_committee.epoch)
             .await
     }
 }
