@@ -23,7 +23,7 @@ const REPO = "MystenLabs/MemWal";
 const BRANCH = "dev";
 const FRESHNESS_MINUTES = 10;
 
-const force = process.argv.includes("--force");
+const force = process.argv.includes("--force") || process.env.FORCE_FETCH === "1";
 
 function isFresh(dir) {
   if (force) return false;
