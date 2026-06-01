@@ -55,9 +55,11 @@ The configuration parameters for the Walrus Testnet are included in the configur
 
 You can find the current Testnet package IDs in the `Move.lock` files in the subdirectories of the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts).
 
-## Testnet WAL faucet
+## Exchange Testnet SUI for WAL {#testnet-wal-faucet}
 
 The Walrus Testnet uses Testnet WAL tokens for buying storage and staking. Testnet WAL tokens have no value and can be exchanged at a 1:1 rate for Testnet SUI tokens, which also have no value.
+
+Use the official WAL exchange flow on this page for Testnet WAL. Third-party faucets can distribute WAL from a package the Walrus client does not accept.
 
 #### Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
 
@@ -107,6 +109,7 @@ If successful, the console responds:
 ```
 
 By default, 0.5 SUI are exchanged for 0.5 WAL. To exchange a different amount of SUI, use the `--amount` option. The value is in MIST/FROST. To use a specific SUI/WAL exchange object, use the `--exchange-id` option. Run `walrus get-wal --help` for more information about these options.
+
 
 ## Run a local Walrus network
 
