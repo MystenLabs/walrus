@@ -320,76 +320,63 @@ color: #98EFDD !important;
 
 /* ── Navbar dropdown support ─────────────────────────────────────────
    Tailwind v4 Preflight resets Docusaurus default dropdown styles.
-   Re-establish them explicitly. */
-.navbar__item.dropdown {
-  position: relative;
+   Re-establish them with high specificity to override Tailwind. */
+nav.navbar .navbar__item.dropdown {
+  position: relative !important;
 }
 
-.navbar__item.dropdown .navbar__link {
-  cursor: pointer;
+nav.navbar .navbar__item.dropdown > .navbar__link {
+  cursor: pointer !important;
 }
 
-.navbar__item.dropdown .navbar__link::after {
-  content: "";
-  border: 0.2em solid currentColor;
-  border-left: 0;
-  border-top: 0;
-  display: inline-block;
-  height: 0.45em;
-  width: 0.45em;
-  transform: rotate(45deg);
-  margin-left: 0.35em;
-  vertical-align: 0.1em;
+nav.navbar ul.dropdown__menu {
+  display: none !important;
+  position: absolute !important;
+  top: 100% !important;
+  left: 0 !important;
+  min-width: 10rem !important;
+  padding: 0.5rem 0 !important;
+  margin: 0 !important;
+  list-style: none !important;
+  background: #fff !important;
+  border: 1px solid rgba(0, 0, 0, 0.1) !important;
+  border-radius: 0.5rem !important;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1) !important;
+  z-index: 100 !important;
 }
 
-.dropdown__menu {
-  display: none;
-  position: absolute;
-  top: 100%;
-  left: 0;
-  min-width: 10rem;
-  padding: 0.5rem 0;
-  margin: 0;
-  list-style: none;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  border-radius: 0.5rem;
-  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
-  z-index: 100;
+[data-theme="dark"] nav.navbar ul.dropdown__menu {
+  background: #1e1e1e !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
 }
 
-[data-theme="dark"] .dropdown__menu {
-  background: #1e1e1e;
-  border-color: rgba(255, 255, 255, 0.1);
+nav.navbar .dropdown--hoverable:hover > ul.dropdown__menu,
+nav.navbar .dropdown--show > ul.dropdown__menu {
+  display: block !important;
 }
 
-.dropdown--hoverable:hover > .dropdown__menu,
-.dropdown--show > .dropdown__menu {
-  display: block;
+nav.navbar ul.dropdown__menu .dropdown__link {
+  display: block !important;
+  padding: 0.4rem 1rem !important;
+  color: #000 !important;
+  text-decoration: none !important;
+  font-size: 0.88rem !important;
+  white-space: nowrap !important;
 }
 
-.dropdown__link {
-  display: block;
-  padding: 0.4rem 1rem;
-  color: #000;
-  text-decoration: none;
-  font-size: 0.88rem;
-  white-space: nowrap;
+[data-theme="dark"] nav.navbar ul.dropdown__menu .dropdown__link {
+  color: #faf8f5 !important;
 }
 
-[data-theme="dark"] .dropdown__link {
-  color: #faf8f5;
+nav.navbar ul.dropdown__menu .dropdown__link:hover {
+  background: rgba(0, 0, 0, 0.04) !important;
+  color: #613dff !important;
+  text-decoration: none !important;
 }
 
-.dropdown__link:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: #613dff;
-  text-decoration: none;
-}
-
-[data-theme="dark"] .dropdown__link:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #98EFDD;
+[data-theme="dark"] nav.navbar ul.dropdown__menu .dropdown__link:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: #98EFDD !important;
 }
 
 .theme-doc-sidebar-menu.menu__list {
@@ -1444,7 +1431,8 @@ Responsive — Tight desktop (997px–1150px)
 @media (min-width: 997px) and (max-width: 1150px) {
 .navbar__inner { flex-wrap: nowrap !important; }
 
-.navbar__item.navbar__link {
+.navbar__item.navbar__link,
+.navbar__item.dropdown > .navbar__link {
 font-size: 0.7rem !important;
 padding-left: 0.3rem !important;
 padding-right: 0.3rem !important;
@@ -1485,7 +1473,8 @@ Responsive — Mid desktop (1151px–1430px)
 @media (min-width: 1151px) and (max-width: 1430px) {
 .navbar__inner { flex-wrap: nowrap !important; }
 
-.navbar__item.navbar__link {
+.navbar__item.navbar__link,
+.navbar__item.dropdown > .navbar__link {
 font-size: 0.72rem !important;
 padding-left: 0.3rem !important;
 padding-right: 0.3rem !important;
