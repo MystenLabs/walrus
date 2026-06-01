@@ -74,7 +74,7 @@ await removeDelegateKey({
 
 An account owner can deactivate (freeze) their account. When deactivated:
 
-- SEAL decryption access is denied for all keys (owner and delegates)
+- Seal decryption access is denied for all keys (owner and delegates)
 - Delegate keys cannot be added or removed
 - The owner can reactivate the account at any time
 

@@ -17,7 +17,7 @@
 
 ### Changed
 
-- Prefer Sui gRPC for SEAL sessions, with JSON-RPC fallback.
+- Prefer Sui gRPC for Seal sessions, with JSON-RPC fallback.
 - Updated docs/examples for `MEMWAL_PRIVATE_KEY` and hosted relayer defaults.
 
 ### Fixed
@@ -27,11 +27,11 @@
 ### Added
 
 - Added `getRememberStatus(jobId)` so clients can poll and display the full async remember state machine.
-- Added `SealServerConfig` and `sealServerConfigs` for manual-mode SEAL committee aggregator configuration.
+- Added `SealServerConfig` and `sealServerConfigs` for manual-mode Seal committee aggregator configuration.
 
 ### Changed
 
-- Manual mode now normalizes full SEAL server configs, validates optional API key pairs, and caps the default threshold to configured server weight.
+- Manual mode now normalizes full Seal server configs, validates optional API key pairs, and caps the default threshold to configured server weight.
 - Manual mode keeps Testnet defaults on the legacy independent key servers for compatibility with hosted Testnet relayer data.
 
 ### Changed
@@ -55,8 +55,8 @@
 
 ### Initial release
 
-- `MemWal` default client, relayer-handled embedding, SEAL encryption, Walrus upload, vector search
-- `MemWalManual` manual client, client-side embedding and SEAL operations
+- `MemWal` default client, relayer-handled embedding, Seal encryption, Walrus upload, vector search
+- `MemWalManual` manual client, client-side embedding and Seal operations
 - `withMemWal` Vercel AI SDK middleware, automatic memory recall and save
 - Account management utilities, `createAccount`, `addDelegateKey`, `removeDelegateKey`, `generateDelegateKey`
 - Ed25519 delegate key authentication

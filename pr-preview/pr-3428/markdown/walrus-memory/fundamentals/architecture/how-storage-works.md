@@ -30,7 +30,7 @@ sequenceDiagram
 
   ### Encryption
 
-    The plaintext content is encrypted using SEAL (Sui's encryption framework). The encrypted payload can only be decrypted by the owner or their authorized delegates.
+    The plaintext content is encrypted using Seal (Sui's encryption framework). The encrypted payload can only be decrypted by the owner or their authorized delegates.
 
   ### Blob upload
 
@@ -64,7 +64,7 @@ sequenceDiagram
 1. Your query is converted into a vector embedding
 2. The database is searched for the closest matching vectors using pgvector's cosine distance operator (`<=>`), scoped to your memory space (`owner + namespace`)
 3. Matching encrypted blobs are downloaded from Walrus concurrently
-4. Each blob is decrypted through SEAL using the delegate key
+4. Each blob is decrypted through Seal using the delegate key
 5. Plaintext results are returned to your app, sorted by distance (most relevant first)
 
 > **Note**

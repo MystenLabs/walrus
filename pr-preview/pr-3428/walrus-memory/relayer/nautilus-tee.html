@@ -27,7 +27,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.0de813de.css">
-<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.a3b8d660.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.19209113.js" defer="defer"></script>
 <script src="/walrus/pr-preview/pr-3428/assets/js/main.0fb6c0b9.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -42,9 +42,9 @@
 SDK flow without giving the host operator direct access to plaintext memory
 payloads. The goal is a tamper-resistant, hardware-attested deployment: incoming
 memories might still be plaintext at the relayer API boundary, but the relayer
-processes them inside a TEE and sends SEAL-encrypted ciphertext out to Walrus.</p>
+processes them inside a TEE and sends Seal-encrypted ciphertext out to Walrus.</p>
 <p>This pattern keeps the existing relayer behavior: clients send plaintext to the
-relayer, the relayer embeds and SEAL-encrypts it, encrypted blobs go to Walrus,
+relayer, the relayer embeds and Seal-encrypts it, encrypted blobs go to Walrus,
 and PostgreSQL stores searchable vector metadata. The difference is that the
 plaintext boundary moves from a normal host process into the enclave.</p>
 <div class="theme-admonition theme-admonition-note admonition_HW0P alert alert--secondary"><div class="admonitionHeading_UjXT"><span class="admonitionIcon_o5F7"><svg viewBox="0 0 14 16"><path fill-rule="evenodd" d="M6.3 5.69a.942.942 0 0 1-.28-.7c0-.28.09-.52.28-.7.19-.18.42-.28.7-.28.28 0 .52.09.7.28.18.19.28.42.28.7 0 .28-.09.52-.28.7a1 1 0 0 1-.7.3c-.28 0-.52-.11-.7-.3zM8 7.99c-.02-.25-.11-.48-.31-.69-.2-.19-.42-.3-.69-.31H6c-.27.02-.48.13-.69.31-.2.2-.3.44-.31.69h1v3c.02.27.11.5.31.69.2.2.42.31.69.31h1c.27 0 .48-.11.69-.31.2-.19.3-.42.31-.69H8V7.98v.01zM7 2.3c-3.14 0-5.7 2.54-5.7 5.68 0 3.14 2.56 5.7 5.7 5.7s5.7-2.55 5.7-5.7c0-3.15-2.56-5.69-5.7-5.69v.01zM7 .98c3.86 0 7 3.14 7 7s-3.14 7-7 7-7-3.12-7-7 3.14-7 7-7z"></path></svg></span>note</div><div class="admonitionContent_o_Rk"><p>This is a deployment pattern, not a separate relayer implementation. Validate the
@@ -63,15 +63,15 @@ or registered enclave identity.</p></div></div>
 <ol>
 <li class="">Client sends plaintext to the TEE relayer.</li>
 <li class="">The relayer validates delegate-key auth and generates embeddings inside the enclave.</li>
-<li class="">The sidecar SEAL-encrypts the plaintext inside the enclave.</li>
-<li class="">The sidecar uploads only SEAL ciphertext to Walrus.</li>
+<li class="">The sidecar Seal-encrypts the plaintext inside the enclave.</li>
+<li class="">The sidecar uploads only Seal ciphertext to Walrus.</li>
 <li class="">PostgreSQL stores <code>owner</code>, <code>namespace</code>, <code>blob_id</code>, blob size, and pgvector embeddings.</li>
 </ol>
 <p>Recall path:</p>
 <ol>
 <li class="">Client sends a plaintext query to the TEE relayer.</li>
 <li class="">The relayer embeds the query and searches pgvector by <code>owner + namespace</code>.</li>
-<li class="">The sidecar downloads matching ciphertext blobs from Walrus and SEAL-decrypts inside the enclave.</li>
+<li class="">The sidecar downloads matching ciphertext blobs from Walrus and Seal-decrypts inside the enclave.</li>
 <li class="">The relayer returns plaintext matches to the authenticated client.</li>
 </ol>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="reference-template">Reference template<a href="#reference-template" class="hash-link" aria-label="Direct link to Reference template" title="Direct link to Reference template" translate="no">​</a></h2>
@@ -96,9 +96,9 @@ They do not prove the process is running inside a TEE and do not produce a
 Nautilus attestation or onchain verification result.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="required-runtime-variables">Required runtime variables<a href="#required-runtime-variables" class="hash-link" aria-label="Direct link to Required runtime variables" title="Direct link to Required runtime variables" translate="no">​</a></h2>
 <p>These map directly to the existing self-hosted relayer config.</p>
-<table><thead><tr><th>Variable</th><th>Secret</th><th>Notes</th></tr></thead><tbody><tr><td><code>DATABASE_URL</code></td><td>yes</td><td>PostgreSQL connection string. <code>pgvector</code> must exist before boot</td></tr><tr><td><code>REDIS_URL</code></td><td>yes</td><td>Required for rate limits and Redis-backed caches</td></tr><tr><td><code>MEMWAL_PACKAGE_ID</code></td><td>no</td><td>Walrus Memory package used for SEAL policy and blob metadata</td></tr><tr><td><code>MEMWAL_REGISTRY_ID</code></td><td>no</td><td>Account registry object ID</td></tr><tr><td><code>SUI_NETWORK</code></td><td>no</td><td><code>mainnet</code> or <code>testnet</code></td></tr><tr><td><code>SUI_RPC_URL</code></td><td>no</td><td>Sui fullnode endpoint reachable from the enclave</td></tr><tr><td><code>SERVER_SUI_PRIVATE_KEY</code></td><td>yes</td><td>Primary server key for SEAL decrypt authorization</td></tr><tr><td><code>SERVER_SUI_PRIVATE_KEYS</code></td><td>yes</td><td>Optional upload key pool; takes priority for Walrus uploads</td></tr><tr><td><code>SEAL_SERVER_CONFIGS</code> or <code>SEAL_KEY_SERVERS</code></td><td>maybe</td><td>Optional SEAL override. Defaults use the Mysten Testnet committee aggregator where available; use <code>SEAL_SERVER_CONFIGS</code> for custom committees</td></tr><tr><td><code>OPENAI_API_KEY</code></td><td>yes</td><td>Embedding and LLM provider key</td></tr><tr><td><code>OPENAI_API_BASE</code></td><td>no</td><td>OpenAI-compatible base URL</td></tr><tr><td><code>WALRUS_PUBLISHER_URL</code></td><td>no</td><td>Walrus upload endpoint</td></tr><tr><td><code>WALRUS_AGGREGATOR_URL</code></td><td>no</td><td>Walrus download endpoint</td></tr><tr><td><code>WALRUS_UPLOAD_RELAY_URL</code></td><td>no</td><td>Upload relay override if required by the sidecar</td></tr><tr><td><code>PORT</code></td><td>no</td><td>Relayer HTTP port; default <code>8000</code></td></tr><tr><td><code>SIDECAR_URL</code></td><td>no</td><td>Keep inside the enclave, usually <code>http://127.0.0.1:9000</code></td></tr><tr><td><code>SIDECAR_AUTH_TOKEN</code></td><td>yes</td><td>Shared secret for Rust-to-sidecar calls; sidecar refuses to start without it</td></tr><tr><td><code>LOG_FORMAT</code></td><td>no</td><td>Set <code>json</code> for production logs</td></tr><tr><td><code>ALLOWED_ORIGINS</code></td><td>no</td><td>Browser CORS allowlist</td></tr></tbody></table>
+<table><thead><tr><th>Variable</th><th>Secret</th><th>Notes</th></tr></thead><tbody><tr><td><code>DATABASE_URL</code></td><td>yes</td><td>PostgreSQL connection string. <code>pgvector</code> must exist before boot</td></tr><tr><td><code>REDIS_URL</code></td><td>yes</td><td>Required for rate limits and Redis-backed caches</td></tr><tr><td><code>MEMWAL_PACKAGE_ID</code></td><td>no</td><td>Walrus Memory package used for Seal policy and blob metadata</td></tr><tr><td><code>MEMWAL_REGISTRY_ID</code></td><td>no</td><td>Account registry object ID</td></tr><tr><td><code>SUI_NETWORK</code></td><td>no</td><td><code>mainnet</code> or <code>testnet</code></td></tr><tr><td><code>SUI_RPC_URL</code></td><td>no</td><td>Sui fullnode endpoint reachable from the enclave</td></tr><tr><td><code>SERVER_SUI_PRIVATE_KEY</code></td><td>yes</td><td>Primary server key for Seal decrypt authorization</td></tr><tr><td><code>SERVER_SUI_PRIVATE_KEYS</code></td><td>yes</td><td>Optional upload key pool; takes priority for Walrus uploads</td></tr><tr><td><code>SEAL_SERVER_CONFIGS</code> or <code>SEAL_KEY_SERVERS</code></td><td>maybe</td><td>Optional Seal override. Defaults use the Mysten Testnet committee aggregator where available; use <code>SEAL_SERVER_CONFIGS</code> for custom committees</td></tr><tr><td><code>OPENAI_API_KEY</code></td><td>yes</td><td>Embedding and LLM provider key</td></tr><tr><td><code>OPENAI_API_BASE</code></td><td>no</td><td>OpenAI-compatible base URL</td></tr><tr><td><code>WALRUS_PUBLISHER_URL</code></td><td>no</td><td>Walrus upload endpoint</td></tr><tr><td><code>WALRUS_AGGREGATOR_URL</code></td><td>no</td><td>Walrus download endpoint</td></tr><tr><td><code>WALRUS_UPLOAD_RELAY_URL</code></td><td>no</td><td>Upload relay override if required by the sidecar</td></tr><tr><td><code>PORT</code></td><td>no</td><td>Relayer HTTP port; default <code>8000</code></td></tr><tr><td><code>SIDECAR_URL</code></td><td>no</td><td>Keep inside the enclave, usually <code>http://127.0.0.1:9000</code></td></tr><tr><td><code>SIDECAR_AUTH_TOKEN</code></td><td>yes</td><td>Shared secret for Rust-to-sidecar calls; sidecar refuses to start without it</td></tr><tr><td><code>LOG_FORMAT</code></td><td>no</td><td>Set <code>json</code> for production logs</td></tr><tr><td><code>ALLOWED_ORIGINS</code></td><td>no</td><td>Browser CORS allowlist</td></tr></tbody></table>
 <p>Keep <code>BENCHMARK_MODE</code> unset or <code>false</code> in TEE deployments. Benchmark mode stores
-plaintext in PostgreSQL and bypasses SEAL/Walrus storage.</p>
+plaintext in PostgreSQL and bypasses Seal/Walrus storage.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="external-endpoints">External endpoints<a href="#external-endpoints" class="hash-link" aria-label="Direct link to External endpoints" title="Direct link to External endpoints" translate="no">​</a></h2>
 <p>The enclave must be allowed to reach:</p>
 <ul>
@@ -108,12 +108,12 @@ plaintext in PostgreSQL and bypasses SEAL/Walrus storage.</p>
 <li class="">Walrus publisher</li>
 <li class="">Walrus aggregator</li>
 <li class="">Walrus upload relay, if configured</li>
-<li class="">SEAL key servers or committee aggregators. On Testnet, the built-in default is Mysten&#x27;s initial committee aggregator. Mainnet uses the legacy independent key server default until an official committee aggregator is available.</li>
+<li class="">Seal key servers or committee aggregators. On Testnet, the built-in default is Mysten&#x27;s initial committee aggregator. Mainnet uses the legacy independent key server default until an official committee aggregator is available.</li>
 <li class="">OpenAI-compatible embedding and LLM provider</li>
 </ul>
 <p>If your Nautilus deployment requires an explicit outbound allowlist, mirror the
 values from <code>runtime.env.example</code>. Prefer private networking for PostgreSQL and
-Redis. Public AI, Sui, Walrus, and SEAL endpoints should still be egress-limited
+Redis. Public AI, Sui, Walrus, and Seal endpoints should still be egress-limited
 to exact hosts.</p>
 <p>For Nitro-style deployments that require explicit host-side VSOCK bridges,
 <code>host-forwarder.sh</code> can expose the relayer on the host and forward configured
@@ -134,7 +134,7 @@ needs to perform the platform-specific steps for the Nautilus version in use:</p
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="secrets-handling">Secrets handling<a href="#secrets-handling" class="hash-link" aria-label="Direct link to Secrets handling" title="Direct link to Secrets handling" translate="no">​</a></h2>
 <ul>
 <li class="">Inject secrets at runtime through Nautilus/CI secrets, not through Docker build args.</li>
-<li class="">Keep <code>SERVER_SUI_PRIVATE_KEY</code>, <code>SERVER_SUI_PRIVATE_KEYS</code>, <code>SIDECAR_AUTH_TOKEN</code>, <code>DATABASE_URL</code>, <code>REDIS_URL</code>, <code>OPENAI_API_KEY</code>, <code>ENOKI_API_KEY</code>, and SEAL API keys out of git.</li>
+<li class="">Keep <code>SERVER_SUI_PRIVATE_KEY</code>, <code>SERVER_SUI_PRIVATE_KEYS</code>, <code>SIDECAR_AUTH_TOKEN</code>, <code>DATABASE_URL</code>, <code>REDIS_URL</code>, <code>OPENAI_API_KEY</code>, <code>ENOKI_API_KEY</code>, and Seal API keys out of git.</li>
 <li class="">Restrict host access to the runtime env file and any Nautilus secret store.</li>
 <li class="">Disable debug consoles and broad shell access on production enclave hosts.</li>
 <li class="">Rotate the server wallet keys if the host-side secret delivery path is exposed.</li>
@@ -152,7 +152,7 @@ measurement output. The local Docker smoke test does not cover this step.</p>
 <ul>
 <li class="">Rust relayer startup: sidecar readiness, PostgreSQL connection, Redis connection, Walrus endpoints, and <code>WalrusSealEngine</code>.</li>
 <li class="">TypeScript sidecar startup and <code>/health</code>.</li>
-<li class="">SEAL encrypt/decrypt errors.</li>
+<li class="">Seal encrypt/decrypt errors.</li>
 <li class="">Walrus upload/download errors.</li>
 <li class="">Sui RPC or account-resolution errors.</li>
 <li class="">Rate-limit fallback logs, which indicate Redis trouble.</li>
@@ -161,7 +161,7 @@ measurement output. The local Docker smoke test does not cover this step.</p>
 should not contain memory text, recall queries, prompts, delegate keys, or
 database URLs.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="failure-modes">Failure modes<a href="#failure-modes" class="hash-link" aria-label="Direct link to Failure modes" title="Direct link to Failure modes" translate="no">​</a></h2>
-<table><thead><tr><th>Symptom</th><th>Likely Cause</th><th>Check</th></tr></thead><tbody><tr><td><code>/health</code> fails</td><td>Relayer process, sidecar boot, or ingress issue</td><td>Enclave process logs and sidecar readiness logs</td></tr><tr><td><code>remember</code> stays running</td><td>Walrus upload, wallet signing, or job queue failure</td><td><code>remember_jobs</code>, Apalis job rows, sidecar Walrus logs</td></tr><tr><td><code>recall</code> returns empty after smoke write</td><td>Wrong namespace/account, pgvector issue, or upload job incomplete</td><td>Poll remember job, verify <code>owner + namespace</code>, check PostgreSQL migrations</td></tr><tr><td>SEAL decrypt fails</td><td>Wrong server wallet, delegate auth, SEAL config, key server outage, or committee aggregator outage</td><td><code>SEAL_SERVER_CONFIGS</code>, <code>SERVER_SUI_PRIVATE_KEY</code>, key server or aggregator reachability</td></tr><tr><td>Embedding calls fail</td><td>AI endpoint blocked or invalid API key</td><td><code>OPENAI_API_BASE</code>, <code>OPENAI_API_KEY</code>, outbound allowlist</td></tr><tr><td>TLS/cert errors to DB or Redis</td><td>Host rewrite/proxy broke hostname validation</td><td>Preserve original hostnames when proxying TLS endpoints</td></tr><tr><td>Plaintext appears in logs</td><td>Logging hygiene regression or debug middleware</td><td>Disable debug logs and scrub host/enclave log sinks</td></tr></tbody></table>
+<table><thead><tr><th>Symptom</th><th>Likely Cause</th><th>Check</th></tr></thead><tbody><tr><td><code>/health</code> fails</td><td>Relayer process, sidecar boot, or ingress issue</td><td>Enclave process logs and sidecar readiness logs</td></tr><tr><td><code>remember</code> stays running</td><td>Walrus upload, wallet signing, or job queue failure</td><td><code>remember_jobs</code>, Apalis job rows, sidecar Walrus logs</td></tr><tr><td><code>recall</code> returns empty after smoke write</td><td>Wrong namespace/account, pgvector issue, or upload job incomplete</td><td>Poll remember job, verify <code>owner + namespace</code>, check PostgreSQL migrations</td></tr><tr><td>Seal decrypt fails</td><td>Wrong server wallet, delegate auth, Seal config, key server outage, or committee aggregator outage</td><td><code>SEAL_SERVER_CONFIGS</code>, <code>SERVER_SUI_PRIVATE_KEY</code>, key server or aggregator reachability</td></tr><tr><td>Embedding calls fail</td><td>AI endpoint blocked or invalid API key</td><td><code>OPENAI_API_BASE</code>, <code>OPENAI_API_KEY</code>, outbound allowlist</td></tr><tr><td>TLS/cert errors to DB or Redis</td><td>Host rewrite/proxy broke hostname validation</td><td>Preserve original hostnames when proxying TLS endpoints</td></tr><tr><td>Plaintext appears in logs</td><td>Logging hygiene regression or debug middleware</td><td>Disable debug logs and scrub host/enclave log sinks</td></tr></tbody></table>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="security-considerations">Security considerations<a href="#security-considerations" class="hash-link" aria-label="Direct link to Security considerations" title="Direct link to Security considerations" translate="no">​</a></h2>
 <p>TEE deployment reduces trust in the relayer host, but it does not make the
 default SDK path end-to-end encrypted. Nautilus adds value only when the
@@ -169,7 +169,7 @@ attested enclave identity is verified by clients, gateway policy, or onchain
 logic before the endpoint is trusted.</p>
 <ul>
 <li class="">Plaintext exists inside the enclave while handling <code>remember</code>, <code>recall</code>, <code>analyze</code>, <code>ask</code>, and <code>restore</code>.</li>
-<li class="">SEAL encryption begins inside the sidecar before Walrus upload. Walrus should only receive encrypted bytes.</li>
+<li class="">Seal encryption begins inside the sidecar before Walrus upload. Walrus should only receive encrypted bytes.</li>
 <li class="">Treat the enclave as tamper-resistant, not magically tamper-proof. Attestation and measurement pinning are what let clients distinguish the intended TEE image from a normal host process.</li>
 <li class="">PostgreSQL stores vectors and metadata, not production plaintext. Do not enable <code>BENCHMARK_MODE</code>.</li>
 <li class="">External embedding and LLM providers might see plaintext unless you run those services inside the enclave or switch to a provider/trust model you accept.</li>

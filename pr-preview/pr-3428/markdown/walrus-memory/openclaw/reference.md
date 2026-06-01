@@ -195,9 +195,9 @@ Full list of config options for `openclaw.json`:
 
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
-| `privateKey` | string |, | Yes | Ed25519 private key (hex). Supports `${ENV_VAR}`. |
-| `accountId` | string |, | Yes | MemWalAccount object ID on Sui (`0x...`) |
-| `serverUrl` | string |, | Yes | Walrus Memory server URL |
+| `privateKey` | string | | Yes | Ed25519 private key (hex). Supports `${ENV_VAR}`. |
+| `accountId` | string | | Yes | MemWalAccount object ID on Sui (`0x...`) |
+| `serverUrl` | string | | Yes | Walrus Memory server URL |
 | `defaultNamespace` | string | `"default"` | No | Memory scope for the main agent |
 | `autoRecall` | boolean | `true` | No | Inject relevant memories before each turn |
 | `autoCapture` | boolean | `true` | No | Extract and store facts after each turn |

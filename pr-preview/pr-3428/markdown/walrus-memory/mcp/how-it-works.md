@@ -109,7 +109,7 @@ These tools go through the relayer:
 Those requests hit the same relayer-backed Walrus Memory stack used by direct SDK clients:
 
 - embeddings
-- SEAL encryption and decryption
+- Seal encryption and decryption
 - Walrus storage
 - relayer-side indexing and retrieval
 

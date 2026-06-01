@@ -4,7 +4,7 @@ The Python SDK exposes one relayer-backed client in two forms, plus middleware:
 
 | Entry point | Import | When to use |
 | --- | --- | --- |
-| `MemWal` | `from memwal import MemWal` | **Recommended default**, async-native; relayer handles embeddings, SEAL, and storage |
+| `MemWal` | `from memwal import MemWal` | **Recommended default**, async-native; relayer handles embeddings, Seal, and storage |
 | `MemWalSync` | `from memwal import MemWalSync` | Same API surface, synchronous, scripts, notebooks, non-async apps |
 | `with_memwal_langchain` / `with_memwal_openai` | `from memwal import ...` | Automatic recall + save as middleware around an existing LLM client |
 

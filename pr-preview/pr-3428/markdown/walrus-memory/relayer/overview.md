@@ -6,7 +6,7 @@ The relayer is the backend that turns SDK calls into memory operations. Using a 
 
 - **Authenticates requests** by verifying Ed25519 signatures against onchain delegate keys, then resolving the owner and account context
 - **Generates embeddings** for text using an OpenAI-compatible API (default model: `text-embedding-3-small`, 1536 dimensions)
-- **Encrypts and decrypts** data through the SEAL sidecar, bound to the owner's address and the Walrus Memory package ID
+- **Encrypts and decrypts** data through the Seal sidecar, bound to the owner's address and the Walrus Memory package ID
 - **Uploads and downloads** encrypted blobs to Walrus, with the server wallet covering storage costs
 - **Stores and searches vectors** in PostgreSQL (pgvector), scoped by memory space (`owner + namespace`)
 - **Orchestrates higher-level flows** like `analyze` (LLM-based fact extraction using `gpt-4o-mini`) and `ask` (memory-augmented Q&A)
@@ -15,7 +15,7 @@ The relayer is the backend that turns SDK calls into memory operations. Using a 
 
 ## Architecture
 
-The relayer is a Rust service (Axum) that manages a TypeScript sidecar process for SEAL and Walrus operations that require the `@mysten/seal` and `@mysten/walrus` SDKs.
+The relayer is a Rust service (Axum) that manages a TypeScript sidecar process for Seal and Walrus operations that require the `@mysten/seal` and `@mysten/walrus` SDKs.
 
 ```mermaid
 flowchart LR
@@ -82,7 +82,7 @@ For self-hosted deployments, *all* of these limits and quotas can be fully confi
 
 ## Single-instance design
 
-Each relayer deployment is tied to a single Walrus Memory package ID (`MEMWAL_PACKAGE_ID`). The package ID is used for SEAL encryption key derivation and Walrus blob metadata. Queries in the vector database are scoped by `owner + namespace`, while the package ID provides cross-deployment isolation at the encryption layer.
+Each relayer deployment is tied to a single Walrus Memory package ID (`MEMWAL_PACKAGE_ID`). The package ID is used for Seal encryption key derivation and Walrus blob metadata. Queries in the vector database are scoped by `owner + namespace`, while the package ID provides cross-deployment isolation at the encryption layer.
 
 > **Note**
 >

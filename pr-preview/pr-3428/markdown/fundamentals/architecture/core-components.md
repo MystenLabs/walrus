@@ -57,7 +57,7 @@ This means Web2 developers can integrate Walrus Memory without touching wallets,
 - Encrypts and decrypts memory payloads
 - Uploads and downloads blobs to/from Walrus
 - Stores and searches vector metadata in the indexed database
-- Scopes all operations to `owner + namespace` (with SEAL encryption bound to the app's package ID)
+- Scopes all operations to `owner + namespace` (with Seal encryption bound to the app's package ID)
 - Can sponsor transaction and storage fees for user requests
 
 > **Note**
@@ -110,6 +110,6 @@ PostgreSQL with the [pgvector](https://github.com/pgvector/pgvector) extension s
 **Responsibilities:**
 - Stores vector embeddings for semantic search during recall
 - Caches account and delegate data synced by the indexer
-- Scopes all queries to `owner + namespace` (package ID provides cross-deployment isolation through SEAL)
+- Scopes all queries to `owner + namespace` (package ID provides cross-deployment isolation through Seal)
 
 This is an operational component, it makes recall fast and keeps onchain lookups efficient, but the encrypted source of truth always lives on Walrus. If the database is lost, the [restore flow](/walrus-memory/sdk/usage/memwal) can rebuild it from Walrus.

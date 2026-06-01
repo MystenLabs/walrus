@@ -6,7 +6,7 @@ The owner is the Sui wallet address that created the `MemWalAccount`. The owner 
 
 - Add and remove delegate keys
 - Deactivate (freeze) and reactivate the account
-- Decrypt any memory encrypted under their address through SEAL
+- Decrypt any memory encrypted under their address through Seal
 
 Each Sui address can only create **one** MemWalAccount (enforced by the `AccountRegistry`).
 
@@ -17,7 +17,7 @@ A delegate key authenticates API calls through the relayer. Delegates can:
 - Store memories (`remember`, `analyze`)
 - Recall memories (`recall`)
 - Restore namespaces (`restore`)
-- Decrypt SEAL-encrypted content (through `seal_approve`)
+- Decrypt Seal-encrypted content (through `seal_approve`)
 
 Delegates **cannot**:
 
@@ -25,14 +25,14 @@ Delegates **cannot**:
 - Deactivate or reactivate the account
 - Transfer ownership
 
-## SEAL Access control
+## Seal Access control
 
-The contract's `seal_approve` function is the SEAL policy that controls who can decrypt memories. Access is granted if the caller is:
+The contract's `seal_approve` function is the Seal policy that controls who can decrypt memories. Access is granted if the caller is:
 
 1. **The data owner**, the key ID ends with the BCS-encoded owner address and the caller is the account owner
 2. **A registered delegate**, the caller's Sui address is in the account's `delegate_keys` list
 
-The account must also be **active** (not frozen). If the account is deactivated, all SEAL access is denied.
+The account must also be **active** (not frozen). If the account is deactivated, all Seal access is denied.
 
 ## Permission boundary
 

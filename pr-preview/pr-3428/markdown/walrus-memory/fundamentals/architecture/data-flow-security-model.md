@@ -38,7 +38,7 @@ You have options depending on your trust requirements:
 - **Use the managed relayer**, convenient for getting started and prototyping. You trust Walrus Foundation to operate it responsibly.
 - **Self-host your own relayer**, you control the infrastructure, so the trust boundary is entirely yours. No third party sees your data.
 - **Run the relayer in a TEE**, move plaintext processing into an attested enclave. This reduces trust in the host operator, but clients or gateway policy must verify the enclave identity before treating it as a TEE-backed deployment.
-- **Manual client flow**, use `MemWalManual` to handle encryption and embedding entirely on the client side. The relayer only sees encrypted payloads and vectors, never plaintext. This is recommended for Web3-native users who want full control over their data and are comfortable managing keys, signing, and SEAL operations directly.
+- **Manual client flow**, use `MemWalManual` to handle encryption and embedding entirely on the client side. The relayer only sees encrypted payloads and vectors, never plaintext. This is recommended for Web3-native users who want full control over their data and are comfortable managing keys, signing, and Seal operations directly.
 
 ## What lives where
 

@@ -4,8 +4,8 @@ The Walrus Memory SDK gives your agents portable memory that works across apps, 
 
 | Entry point | Import | When to use |
 | --- | --- | --- |
-| `MemWal` | `@mysten-incubation/memwal` | **Recommended default** for most integrations, relayer handles embeddings, SEAL, and storage |
-| `MemWalManual` | `@mysten-incubation/memwal/manual` | You need client-managed embeddings and local SEAL operations |
+| `MemWal` | `@mysten-incubation/memwal` | **Recommended default** for most integrations, relayer handles embeddings, Seal, and storage |
+| `MemWalManual` | `@mysten-incubation/memwal/manual` | You need client-managed embeddings and local Seal operations |
 | `withMemWal` | `@mysten-incubation/memwal/ai` | You already use the Vercel AI SDK and want memory as middleware |
 
 ## Installation

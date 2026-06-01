@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-The recommended default client. The relayer handles embeddings, SEAL encryption, Walrus upload, and vector indexing. The SDK only signs requests and sends text.
+The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload, and vector indexing. The SDK only signs requests and sends text.
 
 ## How it works
 

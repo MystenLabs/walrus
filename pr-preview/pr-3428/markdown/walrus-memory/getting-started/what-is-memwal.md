@@ -70,7 +70,7 @@ Query your memories and get an AI-generated answer with the relevant context att
 
 **End-to-End Encryption**
 
-All content is encrypted through SEAL before it reaches Walrus. Only the owner and authorized delegates can decrypt it.
+All content is encrypted through Seal before it reaches Walrus. Only the owner and authorized delegates can decrypt it.
 
   
 

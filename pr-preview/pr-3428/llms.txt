@@ -549,15 +549,15 @@ Sui smart contract as the on-chain index.
 - [1. Fire and forget the wait — poll later if you need the blobid](https://docs.wal.app/docs/python-sdk/usage.md):
     The Python SDK exposes one relayer-backed client in two forms, plus middleware: | Entry point |
     Import | When to use | | --- | --- | --- | | MemWal | from memwal import MemWal | Recommended
-    default, async-native; relayer handles embeddings, SEAL, and storage | | MemWalSync | from
+    default, async-native; relayer handles embeddings, Seal, and storage | | MemWalSync | from
     memwal import MemWalSync | Same API surface, synchronous, scripts, notebooks, non-async apps |
     | withmemwallangchain / withmemwalopenai | from memwal import ...
 - [Memwal Manual](https://docs.wal.app/docs/python-sdk/usage/memwal-manual.md):
     > Note > > Unlike the TypeScript SDK there is no separate MemWalManual class in Python. The
-    Python SDK is relayer-backed: the relayer always handles embedding, SEAL encryption, and Walrus
+    Python SDK is relayer-backed: the relayer always handles embedding, Seal encryption, and Walrus
     storage.
 - [Memwal](https://docs.wal.app/docs/python-sdk/usage/memwal.md):
-    The recommended default client. The relayer handles embeddings, SEAL encryption, Walrus upload,
+    The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing. The SDK only signs requests and sends text.
 - [With Memwal](https://docs.wal.app/docs/python-sdk/usage/with-memwal.md):
     withmemwallangchain and withmemwalopenai wrap an existing LLM client with automatic memory
@@ -592,7 +592,7 @@ Sui smart contract as the on-chain index.
 - [Observability](https://docs.wal.app/docs/relayer/observability.md):
     Production relayers should emit structured logs, scrape Prometheus metrics, and send alerts for
     the external systems Walrus Memory depends on: PostgreSQL, Redis, Sui RPC, OpenAI-compatible
-    embedding/LLM APIs, SEAL, Walrus, and the TypeScript sidecar. Every relayer request gets an
+    embedding/LLM APIs, Seal, Walrus, and the TypeScript sidecar. Every relayer request gets an
     x-request-id.
 - [Overview](https://docs.wal.app/docs/relayer/overview.md):
     The relayer is the backend that turns SDK calls into memory operations. Using a delegate key
@@ -624,8 +624,8 @@ Sui smart contract as the on-chain index.
     middleware.
 - [API Reference](https://docs.wal.app/docs/sdk/api-reference.md):
     See also: Configuration Relayer API Config: | Property | Type | Required | Default | Notes | |
-    --- | --- | --- | --- | --- | | key | string | Yes |, | Ed25519 delegate private key in hex | |
-    accountId | string | Yes |, | MemWalAccount object ID on Sui | | serverUrl | string | No |
+    --- | --- | --- | --- | --- | | key | string | Yes | | Ed25519 delegate private key in hex | |
+    accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No |
     https://relayer.memwal.ai | Relayer URL | | namespace | string | No | "default" | Default
     namespace for memory isolation | For the full config surface, see Configuration.
 - [Changelog](https://docs.wal.app/docs/sdk/changelog.md):
@@ -650,12 +650,12 @@ Sui smart contract as the on-chain index.
     because they keep the signal high.
 - [Usage](https://docs.wal.app/docs/sdk/usage.md)
 - [Memwal Manual](https://docs.wal.app/docs/sdk/usage/memwal-manual.md):
-    Use when the client must handle embedding calls and local SEAL operations. The relayer still
+    Use when the client must handle embedding calls and local Seal operations. The relayer still
     handles upload relay, vector registration, search, and restore. This is the recommended path
     for Web3-native users who want to minimize trust in the relayer, it never sees your plaintext
     data.
 - [Memwal](https://docs.wal.app/docs/sdk/usage/memwal.md):
-    The recommended default client. The relayer handles embeddings, SEAL encryption, Walrus upload,
+    The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing.
 - [With Memwal](https://docs.wal.app/docs/sdk/usage/with-memwal.md):
     Drop-in memory middleware for Vercel AI SDK apps.
@@ -787,15 +787,15 @@ Sui smart contract as the on-chain index.
 - [1. Fire and forget the wait — poll later if you need the blobid](https://docs.wal.app/docs/walrus-memory/python-sdk/usage.md):
     The Python SDK exposes one relayer-backed client in two forms, plus middleware: | Entry point |
     Import | When to use | | --- | --- | --- | | MemWal | from memwal import MemWal | Recommended
-    default, async-native; relayer handles embeddings, SEAL, and storage | | MemWalSync | from
+    default, async-native; relayer handles embeddings, Seal, and storage | | MemWalSync | from
     memwal import MemWalSync | Same API surface, synchronous, scripts, notebooks, non-async apps |
     | withmemwallangchain / withmemwalopenai | from memwal import ...
 - [Memwal Manual](https://docs.wal.app/docs/walrus-memory/python-sdk/usage/memwal-manual.md):
     > Note > > Unlike the TypeScript SDK there is no separate MemWalManual class in Python. The
-    Python SDK is relayer-backed: the relayer always handles embedding, SEAL encryption, and Walrus
+    Python SDK is relayer-backed: the relayer always handles embedding, Seal encryption, and Walrus
     storage.
 - [Memwal](https://docs.wal.app/docs/walrus-memory/python-sdk/usage/memwal.md):
-    The recommended default client. The relayer handles embeddings, SEAL encryption, Walrus upload,
+    The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing. The SDK only signs requests and sends text.
 - [With Memwal](https://docs.wal.app/docs/walrus-memory/python-sdk/usage/with-memwal.md):
     withmemwallangchain and withmemwalopenai wrap an existing LLM client with automatic memory
@@ -824,7 +824,7 @@ Sui smart contract as the on-chain index.
 - [Observability](https://docs.wal.app/docs/walrus-memory/relayer/observability.md):
     Production relayers should emit structured logs, scrape Prometheus metrics, and send alerts for
     the external systems Walrus Memory depends on: PostgreSQL, Redis, Sui RPC, OpenAI-compatible
-    embedding/LLM APIs, SEAL, Walrus, and the TypeScript sidecar. Every relayer request gets an
+    embedding/LLM APIs, Seal, Walrus, and the TypeScript sidecar. Every relayer request gets an
     x-request-id.
 - [Overview](https://docs.wal.app/docs/walrus-memory/relayer/overview.md):
     The relayer is the backend that turns SDK calls into memory operations. Using a delegate key
@@ -853,8 +853,8 @@ Sui smart contract as the on-chain index.
     middleware.
 - [API Reference](https://docs.wal.app/docs/walrus-memory/sdk/api-reference.md):
     See also: Configuration Relayer API Config: | Property | Type | Required | Default | Notes | |
-    --- | --- | --- | --- | --- | | key | string | Yes |, | Ed25519 delegate private key in hex | |
-    accountId | string | Yes |, | MemWalAccount object ID on Sui | | serverUrl | string | No |
+    --- | --- | --- | --- | --- | | key | string | Yes | | Ed25519 delegate private key in hex | |
+    accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No |
     https://relayer.memwal.ai | Relayer URL | | namespace | string | No | "default" | Default
     namespace for memory isolation | For the full config surface, see Configuration.
 - [Changelog](https://docs.wal.app/docs/walrus-memory/sdk/changelog.md):
@@ -879,12 +879,12 @@ Sui smart contract as the on-chain index.
     because they keep the signal high.
 - [Usage](https://docs.wal.app/docs/walrus-memory/sdk/usage.md)
 - [Memwal Manual](https://docs.wal.app/docs/walrus-memory/sdk/usage/memwal-manual.md):
-    Use when the client must handle embedding calls and local SEAL operations. The relayer still
+    Use when the client must handle embedding calls and local Seal operations. The relayer still
     handles upload relay, vector registration, search, and restore. This is the recommended path
     for Web3-native users who want to minimize trust in the relayer, it never sees your plaintext
     data.
 - [Memwal](https://docs.wal.app/docs/walrus-memory/sdk/usage/memwal.md):
-    The recommended default client. The relayer handles embeddings, SEAL encryption, Walrus upload,
+    The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing.
 - [With Memwal](https://docs.wal.app/docs/walrus-memory/sdk/usage/with-memwal.md):
     Drop-in memory middleware for Vercel AI SDK apps.

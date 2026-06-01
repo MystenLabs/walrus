@@ -2,7 +2,7 @@
 
 > **Note**
 >
-> Unlike the TypeScript SDK there is **no separate `MemWalManual` class** in Python. The Python SDK is relayer-backed: the relayer always handles embedding, SEAL encryption, and Walrus storage. The "manual" methods are lower-level entry points on the same `MemWal` / `MemWalSync` client for callers that already have a vector or a pre-uploaded blob.
+> Unlike the TypeScript SDK there is **no separate `MemWalManual` class** in Python. The Python SDK is relayer-backed: the relayer always handles embedding, Seal encryption, and Walrus storage. The "manual" methods are lower-level entry points on the same `MemWal` / `MemWalSync` client for callers that already have a vector or a pre-uploaded blob.
 Use these when you want to control indexing or do your own vector math. For the standard flow, prefer [`remember` / `recall`](/walrus-memory/python-sdk/usage/memwal).
 
 ## `embed`

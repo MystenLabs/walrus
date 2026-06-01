@@ -21,11 +21,11 @@ MemWal.create(
 
 | Argument | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `key` | `str` | Yes |, | Ed25519 delegate private key in hex |
-| `account_id` | `str` | Yes |, | MemWalAccount object ID on Sui |
+| `key` | `str` | Yes | | Ed25519 delegate private key in hex |
+| `account_id` | `str` | Yes | | MemWalAccount object ID on Sui |
 | `server_url` | `str` | No | `http://localhost:8000` | Explicit relayer URL, wins over `env` |
 | `namespace` | `str` | No | `"default"` | Default namespace for memory isolation |
-| `env` | `str` | No |, | Preset: `prod` / `dev` / `staging` / `local`. Unknown → `ValueError` |
+| `env` | `str` | No | | Preset: `prod` / `dev` / `staging` / `local`. Unknown → `ValueError` |
 
 You might also build a `MemWalConfig` and call `MemWal(config)` directly; `env` resolution happens in `MemWalConfig.__post_init__`.
 
@@ -35,7 +35,7 @@ All methods are coroutines on `MemWal`; `MemWalSync` exposes the same names with
 
 ### `remember(text, namespace=None) -> RememberAcceptedResult`
 
-Submit one memory. Returns after the relayer accepts a background job; embedding, SEAL encryption, Walrus upload, and indexing continue asynchronously. `remember_async` is an alias.
+Submit one memory. Returns after the relayer accepts a background job; embedding, Seal encryption, Walrus upload, and indexing continue asynchronously. `remember_async` is an alias.
 
 ```python
 RememberAcceptedResult(job_id: str, status: str)
@@ -203,7 +203,7 @@ from memwal import (
 
 | Exception | `.status` | Meaning |
 | --- | --- | --- |
-| `MemWalError` |, | Base class for all SDK errors |
+| `MemWalError` | | Base class for all SDK errors |
 | `MemWalRememberJobNotFound` | `404` | Job unknown or not owned by the caller |
 | `MemWalRememberJobFailed` | `500` | Job reached terminal `failed` (`.error`) |
 | `MemWalRememberJobTimeout` | `504` | Polling exceeded `.timeout_ms` |

@@ -20,7 +20,7 @@ Facts are extracted from conversations and stored as encrypted memories after ea
 
 **Fully Under Your Control**
 
-SEAL-encrypted, stored on Walrus, programmable permissions and explicit ownership over your data
+Seal-encrypted, stored on Walrus, programmable permissions and explicit ownership over your data
 
   
 

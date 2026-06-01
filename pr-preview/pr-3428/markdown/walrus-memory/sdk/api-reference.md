@@ -15,8 +15,8 @@ Config:
 
 | Property | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `key` | `string` | Yes |, | Ed25519 delegate private key in hex |
-| `accountId` | `string` | Yes |, | MemWalAccount object ID on Sui |
+| `key` | `string` | Yes | | Ed25519 delegate private key in hex |
+| `accountId` | `string` | Yes | | MemWalAccount object ID on Sui |
 | `serverUrl` | `string` | No | `https://relayer.memwal.ai` | Relayer URL |
 | `namespace` | `string` | No | `"default"` | Default namespace for memory isolation |
 
@@ -24,7 +24,7 @@ For the full config surface, see [Configuration](/walrus-memory/reference/config
 
 ### `remember(text, namespace?): Promise<RememberAcceptedResult>`
 
-Submit one memory through the relayer. The method returns after the relayer creates a background job; embedding, SEAL encryption, Walrus upload, and vector indexing continue asynchronously.
+Submit one memory through the relayer. The method returns after the relayer creates a background job; embedding, Seal encryption, Walrus upload, and vector indexing continue asynchronously.
 
 **Returns:**
 
@@ -171,11 +171,11 @@ See [MemWalManual usage](/walrus-memory/sdk/usage/memwal-manual) for the full se
 
 ### `rememberManual(text, namespace?): Promise<RememberManualResult>`
 
-Embed locally, SEAL encrypt locally, send encrypted payload + vector to relayer for Walrus upload and vector registration.
+Embed locally, Seal encrypt locally, send encrypted payload + vector to relayer for Walrus upload and vector registration.
 
 ### `recallManual(query, limit?, namespace?): Promise<RecallManualResult>`
 
-Embed locally, search through relayer, download from Walrus, SEAL decrypt locally. Returns decrypted text results.
+Embed locally, search through relayer, download from Walrus, Seal decrypt locally. Returns decrypted text results.
 
 ### `restore(namespace, limit?): Promise<RestoreResult>`
 
@@ -188,7 +188,7 @@ Whether this client uses a connected wallet signer (vs. raw keypair).
 ### Config notes
 
 - `suiNetwork` defaults to `mainnet`
-- `sealServerConfigs` lets the client configure independent or committee SEAL servers; committee entries require `aggregatorUrl`
+- `sealServerConfigs` lets the client configure independent or committee Seal servers; committee entries require `aggregatorUrl`
 - `sealKeyServers` remains supported as a legacy independent key server object ID override
 - All `@mysten/*` peer dependencies are loaded dynamically, only needed if you use `MemWalManual`
 

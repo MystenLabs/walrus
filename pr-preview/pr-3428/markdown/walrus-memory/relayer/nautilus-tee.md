@@ -4,10 +4,10 @@ Run the Walrus Memory relayer with a TEE deployment pattern when you want the de
 SDK flow without giving the host operator direct access to plaintext memory
 payloads. The goal is a tamper-resistant, hardware-attested deployment: incoming
 memories might still be plaintext at the relayer API boundary, but the relayer
-processes them inside a TEE and sends SEAL-encrypted ciphertext out to Walrus.
+processes them inside a TEE and sends Seal-encrypted ciphertext out to Walrus.
 
 This pattern keeps the existing relayer behavior: clients send plaintext to the
-relayer, the relayer embeds and SEAL-encrypts it, encrypted blobs go to Walrus,
+relayer, the relayer embeds and Seal-encrypts it, encrypted blobs go to Walrus,
 and PostgreSQL stores searchable vector metadata. The difference is that the
 plaintext boundary moves from a normal host process into the enclave.
 
@@ -66,15 +66,15 @@ Write path:
 
 1. Client sends plaintext to the TEE relayer.
 2. The relayer validates delegate-key auth and generates embeddings inside the enclave.
-3. The sidecar SEAL-encrypts the plaintext inside the enclave.
-4. The sidecar uploads only SEAL ciphertext to Walrus.
+3. The sidecar Seal-encrypts the plaintext inside the enclave.
+4. The sidecar uploads only Seal ciphertext to Walrus.
 5. PostgreSQL stores `owner`, `namespace`, `blob_id`, blob size, and pgvector embeddings.
 
 Recall path:
 
 1. Client sends a plaintext query to the TEE relayer.
 2. The relayer embeds the query and searches pgvector by `owner + namespace`.
-3. The sidecar downloads matching ciphertext blobs from Walrus and SEAL-decrypts inside the enclave.
+3. The sidecar downloads matching ciphertext blobs from Walrus and Seal-decrypts inside the enclave.
 4. The relayer returns plaintext matches to the authenticated client.
 
 ## Reference template
@@ -133,13 +133,13 @@ These map directly to the existing self-hosted relayer config.
 | --- | --- | --- |
 | `DATABASE_URL` | yes | PostgreSQL connection string. `pgvector` must exist before boot |
 | `REDIS_URL` | yes | Required for rate limits and Redis-backed caches |
-| `MEMWAL_PACKAGE_ID` | no | Walrus Memory package used for SEAL policy and blob metadata |
+| `MEMWAL_PACKAGE_ID` | no | Walrus Memory package used for Seal policy and blob metadata |
 | `MEMWAL_REGISTRY_ID` | no | Account registry object ID |
 | `SUI_NETWORK` | no | `mainnet` or `testnet` |
 | `SUI_RPC_URL` | no | Sui fullnode endpoint reachable from the enclave |
-| `SERVER_SUI_PRIVATE_KEY` | yes | Primary server key for SEAL decrypt authorization |
+| `SERVER_SUI_PRIVATE_KEY` | yes | Primary server key for Seal decrypt authorization |
 | `SERVER_SUI_PRIVATE_KEYS` | yes | Optional upload key pool; takes priority for Walrus uploads |
-| `SEAL_SERVER_CONFIGS` or `SEAL_KEY_SERVERS` | maybe | Optional SEAL override. Defaults use the Mysten Testnet committee aggregator where available; use `SEAL_SERVER_CONFIGS` for custom committees |
+| `SEAL_SERVER_CONFIGS` or `SEAL_KEY_SERVERS` | maybe | Optional Seal override. Defaults use the Mysten Testnet committee aggregator where available; use `SEAL_SERVER_CONFIGS` for custom committees |
 | `OPENAI_API_KEY` | yes | Embedding and LLM provider key |
 | `OPENAI_API_BASE` | no | OpenAI-compatible base URL |
 | `WALRUS_PUBLISHER_URL` | no | Walrus upload endpoint |
@@ -152,7 +152,7 @@ These map directly to the existing self-hosted relayer config.
 | `ALLOWED_ORIGINS` | no | Browser CORS allowlist |
 
 Keep `BENCHMARK_MODE` unset or `false` in TEE deployments. Benchmark mode stores
-plaintext in PostgreSQL and bypasses SEAL/Walrus storage.
+plaintext in PostgreSQL and bypasses Seal/Walrus storage.
 
 ## External endpoints
 
@@ -164,12 +164,12 @@ The enclave must be allowed to reach:
 - Walrus publisher
 - Walrus aggregator
 - Walrus upload relay, if configured
-- SEAL key servers or committee aggregators. On Testnet, the built-in default is Mysten's initial committee aggregator. Mainnet uses the legacy independent key server default until an official committee aggregator is available.
+- Seal key servers or committee aggregators. On Testnet, the built-in default is Mysten's initial committee aggregator. Mainnet uses the legacy independent key server default until an official committee aggregator is available.
 - OpenAI-compatible embedding and LLM provider
 
 If your Nautilus deployment requires an explicit outbound allowlist, mirror the
 values from `runtime.env.example`. Prefer private networking for PostgreSQL and
-Redis. Public AI, Sui, Walrus, and SEAL endpoints should still be egress-limited
+Redis. Public AI, Sui, Walrus, and Seal endpoints should still be egress-limited
 to exact hosts.
 
 For Nitro-style deployments that require explicit host-side VSOCK bridges,
@@ -193,7 +193,7 @@ needs to perform the platform-specific steps for the Nautilus version in use:
 ## Secrets handling
 
 - Inject secrets at runtime through Nautilus/CI secrets, not through Docker build args.
-- Keep `SERVER_SUI_PRIVATE_KEY`, `SERVER_SUI_PRIVATE_KEYS`, `SIDECAR_AUTH_TOKEN`, `DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, `ENOKI_API_KEY`, and SEAL API keys out of git.
+- Keep `SERVER_SUI_PRIVATE_KEY`, `SERVER_SUI_PRIVATE_KEYS`, `SIDECAR_AUTH_TOKEN`, `DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, `ENOKI_API_KEY`, and Seal API keys out of git.
 - Restrict host access to the runtime env file and any Nautilus secret store.
 - Disable debug consoles and broad shell access on production enclave hosts.
 - Rotate the server wallet keys if the host-side secret delivery path is exposed.
@@ -250,7 +250,7 @@ Inspect logs for:
 
 - Rust relayer startup: sidecar readiness, PostgreSQL connection, Redis connection, Walrus endpoints, and `WalrusSealEngine`.
 - TypeScript sidecar startup and `/health`.
-- SEAL encrypt/decrypt errors.
+- Seal encrypt/decrypt errors.
 - Walrus upload/download errors.
 - Sui RPC or account-resolution errors.
 - Rate-limit fallback logs, which indicate Redis trouble.
@@ -266,7 +266,7 @@ database URLs.
 | `/health` fails | Relayer process, sidecar boot, or ingress issue | Enclave process logs and sidecar readiness logs |
 | `remember` stays running | Walrus upload, wallet signing, or job queue failure | `remember_jobs`, Apalis job rows, sidecar Walrus logs |
 | `recall` returns empty after smoke write | Wrong namespace/account, pgvector issue, or upload job incomplete | Poll remember job, verify `owner + namespace`, check PostgreSQL migrations |
-| SEAL decrypt fails | Wrong server wallet, delegate auth, SEAL config, key server outage, or committee aggregator outage | `SEAL_SERVER_CONFIGS`, `SERVER_SUI_PRIVATE_KEY`, key server or aggregator reachability |
+| Seal decrypt fails | Wrong server wallet, delegate auth, Seal config, key server outage, or committee aggregator outage | `SEAL_SERVER_CONFIGS`, `SERVER_SUI_PRIVATE_KEY`, key server or aggregator reachability |
 | Embedding calls fail | AI endpoint blocked or invalid API key | `OPENAI_API_BASE`, `OPENAI_API_KEY`, outbound allowlist |
 | TLS/cert errors to DB or Redis | Host rewrite/proxy broke hostname validation | Preserve original hostnames when proxying TLS endpoints |
 | Plaintext appears in logs | Logging hygiene regression or debug middleware | Disable debug logs and scrub host/enclave log sinks |
@@ -279,7 +279,7 @@ attested enclave identity is verified by clients, gateway policy, or onchain
 logic before the endpoint is trusted.
 
 - Plaintext exists inside the enclave while handling `remember`, `recall`, `analyze`, `ask`, and `restore`.
-- SEAL encryption begins inside the sidecar before Walrus upload. Walrus should only receive encrypted bytes.
+- Seal encryption begins inside the sidecar before Walrus upload. Walrus should only receive encrypted bytes.
 - Treat the enclave as tamper-resistant, not magically tamper-proof. Attestation and measurement pinning are what let clients distinguish the intended TEE image from a normal host process.
 - PostgreSQL stores vectors and metadata, not production plaintext. Do not enable `BENCHMARK_MODE`.
 - External embedding and LLM providers might see plaintext unless you run those services inside the enclave or switch to a provider/trust model you accept.

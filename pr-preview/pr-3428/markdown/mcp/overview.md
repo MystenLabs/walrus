@@ -26,7 +26,7 @@ Streamable HTTP for remote MCP clients, or stdio package (`npx`) for local-comma
 
 **Fully Under Your Control**
 
-SEAL-encrypted, stored on Walrus, tied to your delegate key, programmable permissions and explicit ownership
+Seal-encrypted, stored on Walrus, tied to your delegate key, programmable permissions and explicit ownership
 
   
 

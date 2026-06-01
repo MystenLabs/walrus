@@ -16,7 +16,7 @@ deployment.
   - Runs `cargo check`.
   - Typechecks `bench-recall-latency.ts`.
   - Runs a `--help` smoke check for the recall benchmark CLI.
-  - Does not need secrets and does not call Sui, Walrus, SEAL, or OpenAI.
+  - Does not need secrets and does not call Sui, Walrus, Seal, or OpenAI.
 
 - `.github/workflows/benchmark-live.yml`
   - Runs automatically on pushes to `dev` and `staging`.

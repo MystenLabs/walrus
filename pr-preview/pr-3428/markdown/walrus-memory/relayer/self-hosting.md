@@ -17,7 +17,7 @@ There are two primary personas who typically self-host the relayer:
 The most common reasons to self-host include:
 
 - **Control the trust boundary**, keeping plaintext, encryption, and embedding under your own control rather than trusting a third-party.
-- **Run your own Walrus Memory instance**, deploying your own contract with a separate package ID, SEAL encryption keys, and hard data isolation.
+- **Run your own Walrus Memory instance**, deploying your own contract with a separate package ID, Seal encryption keys, and hard data isolation.
 - **Choose your own embedding provider**, using your own OpenAI-compatible API and credentials.
 - **Guarantee availability**, the managed relayer is a beta service with no SLA.
 
@@ -41,7 +41,7 @@ A self-hosted Walrus Memory backend has:
 | Component | Location | Description |
 |-----------|----------|-------------|
 | **Rust relayer** | `services/server` | Axum HTTP server, auth, routing, embedding, vector search |
-| **TypeScript sidecar** | `services/server/scripts` | SEAL encrypt/decrypt, Walrus upload, blob query (uses `@mysten/seal` and `@mysten/walrus`) |
+| **TypeScript sidecar** | `services/server/scripts` | Seal encrypt/decrypt, Walrus upload, blob query (uses `@mysten/seal` and `@mysten/walrus`) |
 | **PostgreSQL + pgvector** | External | Vector storage, auth cache, indexer state |
 | **Indexer** (recommended) | `services/indexer` | Polls Sui events, syncs account data into PostgreSQL |
 
@@ -150,7 +150,7 @@ Although that committee is 3-of-5 internally, Seal exposes it to the SDK as one 
 
 > **Warning**
 >
-> Changing SEAL key server defaults only affects new encryption. If a deployment already has memories encrypted with the Testnet independent key servers, keep those servers as the default or pin them with `SEAL_KEY_SERVERS` until the data has been migrated or re-encrypted. Otherwise, recall and restore for older blobs might fail to decrypt.
+> Changing Seal key server defaults only affects new encryption. If a deployment already has memories encrypted with the Testnet independent key servers, keep those servers as the default or pin them with `SEAL_KEY_SERVERS` until the data has been migrated or re-encrypted. Otherwise, recall and restore for older blobs might fail to decrypt.
 Using official key server of SDK is recommended. 
 
 > **Note**

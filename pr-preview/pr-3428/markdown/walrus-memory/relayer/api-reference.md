@@ -26,7 +26,7 @@ All `/api/*` routes require signed headers. The SDK handles this automatically.
 | Header | Description |
 |--------|-------------|
 | `x-account-id` | MemWalAccount object ID hint. Official SDKs always send it and include it in the canonical signature |
-| `x-seal-session` | Base64 exported SEAL SessionKey for relayer-managed decrypt flows. Used by the TypeScript and Python SDKs |
+| `x-seal-session` | Base64 exported Seal SessionKey for relayer-managed decrypt flows. Used by the TypeScript and Python SDKs |
 | `x-delegate-key` | Legacy delegate private key credential for relayer-managed decrypt flows. Deprecated; use `x-seal-session` where supported |
 
 ### Signature format
@@ -81,7 +81,7 @@ Stable relayer/API compatibility metadata. No authentication required.
 
 ### `POST /sponsor`
 
-Proxy to the SEAL/Walrus sidecar's `/sponsor` endpoint for sponsored transactions. No authentication required.
+Proxy to the Seal/Walrus sidecar's `/sponsor` endpoint for sponsored transactions. No authentication required.
 
 ### `POST /sponsor/execute`
 
@@ -89,7 +89,7 @@ Proxy to the sidecar's `/sponsor/execute` endpoint. No authentication required.
 
 ### `POST /api/remember`
 
-Submit text as an encrypted memory job. The relayer returns after creating a background job; embedding, SEAL encryption, Walrus upload, and vector indexing continue asynchronously.
+Submit text as an encrypted memory job. The relayer returns after creating a background job; embedding, Seal encryption, Walrus upload, and vector indexing continue asynchronously.
 
 **Request:**
 
@@ -208,7 +208,7 @@ Search for memories matching a natural language query. Returns decrypted plainte
 
 ### `POST /api/remember/manual`
 
-Register a client-encrypted payload. The client sends SEAL-encrypted data (base64) and a precomputed embedding vector. The relayer uploads the encrypted bytes to Walrus and stores the vector mapping.
+Register a client-encrypted payload. The client sends Seal-encrypted data (base64) and a precomputed embedding vector. The relayer uploads the encrypted bytes to Walrus and stores the vector mapping.
 
 **Request:**
 

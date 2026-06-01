@@ -15,5 +15,5 @@ The `AccountRegistry` shared object in Walrus Memory is designed as a *permanent
 3. **Data Immutability Context:**
    In Web3, identity is persistent. The "deletion" of an account in Walrus Memory is treated as a *deactivation* (freezing) rather than true erasure, which aligns with blockchain state patterns. The account remains frozen, preserving the historical linkage.
 
-4. **SEAL Access Integrity:**
-   If an address could recreate its account, old data encrypted under the same SEAL Key ID (`bcs(address)`) could become unpredictably accessible or orphaned depending on the new configuration. A permanent registry guarantees that the encryption identity mathematically maps to a single, stable onchain policy object forever.
+4. **Seal Access Integrity:**
+   If an address could recreate its account, old data encrypted under the same Seal Key ID (`bcs(address)`) could become unpredictably accessible or orphaned depending on the new configuration. A permanent registry guarantees that the encryption identity mathematically maps to a single, stable onchain policy object forever.

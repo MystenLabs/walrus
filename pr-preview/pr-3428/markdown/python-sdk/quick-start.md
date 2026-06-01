@@ -4,7 +4,7 @@ The Walrus Memory Python SDK (`memwal` on PyPI) gives your agents portable memor
 
 | Entry point | Import | When to use |
 | --- | --- | --- |
-| `MemWal` | `from memwal import MemWal` | **Recommended default**, async-native, relayer handles embeddings, SEAL, and storage |
+| `MemWal` | `from memwal import MemWal` | **Recommended default**, async-native, relayer handles embeddings, Seal, and storage |
 | `MemWalSync` | `from memwal import MemWalSync` | Scripts, notebooks, and non-async apps, same API, runs through `asyncio.run()` |
 | `with_memwal_langchain` / `with_memwal_openai` | `from memwal import ...` | You already use LangChain or the OpenAI SDK and want memory as middleware |
 
@@ -45,11 +45,11 @@ Before wiring the SDK into your app:
 
 | Argument | Type | Required | Default | Description |
 | --- | --- | --- | --- | --- |
-| `key` | `str` | Yes |, | Ed25519 delegate private key in hex |
-| `account_id` | `str` | Yes |, | MemWalAccount object ID on Sui |
+| `key` | `str` | Yes | | Ed25519 delegate private key in hex |
+| `account_id` | `str` | Yes | | MemWalAccount object ID on Sui |
 | `server_url` | `str` | No | `http://localhost:8000` | Explicit relayer URL, wins over `env` |
 | `namespace` | `str` | No | `"default"` | Default namespace for memory isolation |
-| `env` | `str` | No |, | Relayer preset: `prod` / `dev` / `staging` / `local` |
+| `env` | `str` | No | | Relayer preset: `prod` / `dev` / `staging` / `local` |
 
 ### Environment presets
 

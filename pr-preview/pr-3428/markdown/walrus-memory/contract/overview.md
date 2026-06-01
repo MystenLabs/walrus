@@ -28,7 +28,7 @@ For relayer setup and environment variable usage, see [Self-Hosting](/walrus-mem
 
 - **Ownership**, who owns a Walrus Memory account
 - **Delegate keys**, which Ed25519 keys are authorized to act through the relayer
-- **SEAL access control**, who can decrypt encrypted memories through `seal_approve`
+- **Seal access control**, who can decrypt encrypted memories through `seal_approve`
 - **Account lifecycle**, activation and deactivation (freeze/unfreeze)
 
 The contract does not store memory content, it only manages identity, permissions, and access control.
@@ -74,7 +74,7 @@ A struct stored inside `MemWalAccount.delegate_keys`:
 | 4 | `ENotOwner` | Caller is not the account owner |
 | 5 | `EInvalidPublicKeyLength` | Public key is not exactly 32 bytes |
 | 6 | `EAccountDeactivated` | Account is frozen, operation denied |
-| 100 | `ENoAccess` | SEAL access denied, caller is neither owner nor delegate |
+| 100 | `ENoAccess` | Seal access denied, caller is neither owner nor delegate |
 
 ## Entry functions
 
@@ -83,9 +83,9 @@ A struct stored inside `MemWalAccount.delegate_keys`:
 | `create_account(registry, clock)` | Create a new MemWalAccount (one per address) |
 | `add_delegate_key(account, public_key, sui_address, label, clock)` | Add a delegate key (owner only) |
 | `remove_delegate_key(account, public_key)` | Remove a delegate key (owner only) |
-| `deactivate_account(account)` | Freeze the account, SEAL access denied, keys locked (owner only) |
+| `deactivate_account(account)` | Freeze the account, Seal access denied, keys locked (owner only) |
 | `reactivate_account(account)` | Unfreeze the account (owner only) |
-| `seal_approve(id, account)` | SEAL policy, authorizes owner or delegate key holder to decrypt |
+| `seal_approve(id, account)` | Seal policy, authorizes owner or delegate key holder to decrypt |
 
 ## View functions
 

@@ -27,7 +27,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.0de813de.css">
-<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.a3b8d660.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.19209113.js" defer="defer"></script>
 <script src="/walrus/pr-preview/pr-3428/assets/js/main.0fb6c0b9.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -43,7 +43,7 @@
 <ul>
 <li class=""><strong>Authenticates requests</strong> by verifying Ed25519 signatures against onchain delegate keys, then resolving the owner and account context</li>
 <li class=""><strong>Generates embeddings</strong> for text using an OpenAI-compatible API (default model: <code>text-embedding-3-small</code>, 1536 dimensions)</li>
-<li class=""><strong>Encrypts and decrypts</strong> data through the SEAL sidecar, bound to the owner&#x27;s address and the Walrus Memory package ID</li>
+<li class=""><strong>Encrypts and decrypts</strong> data through the Seal sidecar, bound to the owner&#x27;s address and the Walrus Memory package ID</li>
 <li class=""><strong>Uploads and downloads</strong> encrypted blobs to Walrus, with the server wallet covering storage costs</li>
 <li class=""><strong>Stores and searches vectors</strong> in PostgreSQL (pgvector), scoped by memory space (<code>owner + namespace</code>)</li>
 <li class=""><strong>Orchestrates higher-level flows</strong> like <code>analyze</code> (LLM-based fact extraction using <code>gpt-4o-mini</code>) and <code>ask</code> (memory-augmented Q&amp;A)</li>
@@ -51,7 +51,7 @@
 <li class=""><strong>Cleans up expired blobs</strong> reactively, when Walrus returns 404 during recall, the relayer deletes the stale vector entries from the database</li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="architecture">Architecture<a href="#architecture" class="hash-link" aria-label="Direct link to Architecture" title="Direct link to Architecture" translate="no">​</a></h2>
-<p>The relayer is a Rust service (Axum) that manages a TypeScript sidecar process for SEAL and Walrus operations that require the <code>@mysten/seal</code> and <code>@mysten/walrus</code> SDKs.</p>
+<p>The relayer is a Rust service (Axum) that manages a TypeScript sidecar process for Seal and Walrus operations that require the <code>@mysten/seal</code> and <code>@mysten/walrus</code> SDKs.</p>
 <!-- -->
 <p>The sidecar is started automatically when the Rust server boots and communicates over HTTP on <code>localhost:9000</code> (configurable through <code>SIDECAR_URL</code>). If the sidecar fails to start, the relayer exits immediately.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="key-pool">Key pool<a href="#key-pool" class="hash-link" aria-label="Direct link to Key pool" title="Direct link to Key pool" translate="no">​</a></h2>
@@ -80,7 +80,7 @@
 </ol>
 <p>For self-hosted deployments, <em>all</em> of these limits and quotas can be fully configured through environment variables. See <a class="" href="/walrus/pr-preview/pr-3428/walrus-memory/relayer/self-hosting">Self-Hosting</a> for configuration details.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="single-instance-design">Single-instance design<a href="#single-instance-design" class="hash-link" aria-label="Direct link to Single-instance design" title="Direct link to Single-instance design" translate="no">​</a></h2>
-<p>Each relayer deployment is tied to a single Walrus Memory package ID (<code>MEMWAL_PACKAGE_ID</code>). The package ID is used for SEAL encryption key derivation and Walrus blob metadata. Queries in the vector database are scoped by <code>owner + namespace</code>, while the package ID provides cross-deployment isolation at the encryption layer.</p>
+<p>Each relayer deployment is tied to a single Walrus Memory package ID (<code>MEMWAL_PACKAGE_ID</code>). The package ID is used for Seal encryption key derivation and Walrus blob metadata. Queries in the vector database are scoped by <code>owner + namespace</code>, while the package ID provides cross-deployment isolation at the encryption layer.</p>
 <div class="theme-admonition theme-admonition-note admonition_HW0P alert alert--secondary"><div class="admonitionHeading_UjXT"><span class="admonitionIcon_o5F7"><svg viewBox="0 0 14 16"><path fill-rule="evenodd" d="M6.3 5.69a.942.942 0 0 1-.28-.7c0-.28.09-.52.28-.7.19-.18.42-.28.7-.28.28 0 .52.09.7.28.18.19.28.42.28.7 0 .28-.09.52-.28.7a1 1 0 0 1-.7.3c-.28 0-.52-.11-.7-.3zM8 7.99c-.02-.25-.11-.48-.31-.69-.2-.19-.42-.3-.69-.31H6c-.27.02-.48.13-.69.31-.2.2-.3.44-.31.69h1v3c.02.27.11.5.31.69.2.2.42.31.69.31h1c.27 0 .48-.11.69-.31.2-.19.3-.42.31-.69H8V7.98v.01zM7 2.3c-3.14 0-5.7 2.54-5.7 5.68 0 3.14 2.56 5.7 5.7 5.7s5.7-2.55 5.7-5.7c0-3.15-2.56-5.69-5.7-5.69v.01zM7 .98c3.86 0 7 3.14 7 7s-3.14 7-7 7-7-3.12-7-7 3.14-7 7-7z"></path></svg></span>note</div><div class="admonitionContent_o_Rk"><p>The current relayer only supports a single active package ID at a time. If you deploy a separate Walrus Memory contract, you need to run a separate relayer instance with its own database.</p></div></div>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="trust-boundary">Trust boundary<a href="#trust-boundary" class="hash-link" aria-label="Direct link to Trust boundary" title="Direct link to Trust boundary" translate="no">​</a></h2>
 <p>In the default SDK path, the relayer sees plaintext data because it handles encryption and embedding on your behalf. This is a deliberate trade-off for developer experience, it means Web2 developers don&#x27;t need to manage cryptographic operations.</p>

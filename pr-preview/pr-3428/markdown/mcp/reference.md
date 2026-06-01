@@ -81,9 +81,9 @@ The stdio package accepts CLI flags and environment variables. **CLI takes prece
 | `--web-url <url>` | `MEMWAL_WEB_URL` | Override the dashboard URL used during login. |
 | `--label <text>` | `MEMWAL_CLIENT_LABEL` | Friendly delegate-key label shown in the Walrus Memory dashboard. |
 | `--namespace <name>` (alias `--ns`) | `MEMWAL_NAMESPACE` | Default memory namespace injected into memory tool calls that omit one. See [Default namespace](#default-namespace). |
-| `--login` (or `login` subcommand) |, | Force a re-login even when credentials exist. |
-| `--logout` |, | Wipe `~/.memwal/credentials.json` and exit. |
-| `--help`, `-h` |, | Print usage and exit. |
+| `--login` (or `login` subcommand) | | Force a re-login even when credentials exist. |
+| `--logout` | | Wipe `~/.memwal/credentials.json` and exit. |
+| `--help`, `-h` | | Print usage and exit. |
 
 Set `MEMWAL_MCP_DEBUG=1` to enable verbose stderr logging.
 
@@ -237,7 +237,7 @@ The hosted relayer (and any self-hosted relayer) exposes the same MCP routes:
 | `POST /api/mcp` | Streamable HTTP JSON-RPC messages |
 | `DELETE /api/mcp` | Close a Streamable HTTP session |
 
-The Rust relayer auto-starts a TypeScript sidecar and forwards MCP traffic to it over loopback. The sidecar resolves MCP bearer credentials into normal Walrus Memory SDK sessions, so MCP tool calls go through the **same SEAL, Walrus, and pgvector paths** as direct SDK calls.
+The Rust relayer auto-starts a TypeScript sidecar and forwards MCP traffic to it over loopback. The sidecar resolves MCP bearer credentials into normal Walrus Memory SDK sessions, so MCP tool calls go through the **same Seal, Walrus, and pgvector paths** as direct SDK calls.
 
 ### 401 behavior
 
@@ -262,7 +262,7 @@ Self-hosted relayers expose the same public MCP routes as the hosted relayer. Th
 | `MCP_MAX_SESSIONS_PER_IP` | `16` | Cap on concurrent sessions from one source IP |
 | `MCP_MAX_NEW_SESSIONS_PER_IP_PER_MIN` | `30` | Rate cap on new sessions per source IP per minute |
 
-See [Environment Variables](/walrus-memory/reference/environment-variables) for the full list including SEAL, Walrus, embeddings, and database settings.
+See [Environment Variables](/walrus-memory/reference/environment-variables) for the full list including Seal, Walrus, embeddings, and database settings.
 
 ## Logout semantics
 
@@ -289,7 +289,7 @@ The URL is valid for **5 minutes**. Call the tool again to mint a fresh one. Mak
 
 ### Recall returns "no matching memories found" right after a remember
 
-`memwal_remember` enqueues an async upload to Walrus. Embedding generation, SEAL encryption, blob upload, and DB indexing typically take 5–15 seconds. Wait, then retry the recall.
+`memwal_remember` enqueues an async upload to Walrus. Embedding generation, Seal encryption, blob upload, and DB indexing typically take 5–15 seconds. Wait, then retry the recall.
 
 ### 401 unauthorized from the relayer
 

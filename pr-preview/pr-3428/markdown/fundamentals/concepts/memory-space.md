@@ -38,7 +38,7 @@ const memwal = MemWal.create({
 
 ## App ID
 
-The **app ID** is the Walrus Memory package ID deployed on Sui (`MEMWAL_PACKAGE_ID`). Each relayer deployment is tied to a single package ID, which is used for SEAL encryption key derivation and Walrus blob metadata.
+The **app ID** is the Walrus Memory package ID deployed on Sui (`MEMWAL_PACKAGE_ID`). Each relayer deployment is tied to a single package ID, which is used for Seal encryption key derivation and Walrus blob metadata.
 
 Two separate Walrus Memory deployments can each have a user with a `personal` namespace, and their memories will never mix, because the app ID (package ID) is different. This means the vector database scopes queries by `owner + namespace`, while the encryption and blob discovery layer provides an additional isolation boundary through the package ID.
 

@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Production relayers should emit structured logs, scrape Prometheus metrics, and send alerts for the external systems Walrus Memory depends on: PostgreSQL, Redis, Sui RPC, OpenAI-compatible embedding/LLM APIs, SEAL, Walrus, and the TypeScript sidecar.
+Production relayers should emit structured logs, scrape Prometheus metrics, and send alerts for the external systems Walrus Memory depends on: PostgreSQL, Redis, Sui RPC, OpenAI-compatible embedding/LLM APIs, Seal, Walrus, and the TypeScript sidecar.
 
 ## Request correlation
 
@@ -60,7 +60,7 @@ Core relayer metrics:
 | `memwal_errors_total` | `kind`, `route` | Application error counts |
 | `memwal_rate_limit_denials_total` | `bucket`, `route` | Rate-limit denials |
 | `memwal_rate_limit_fallbacks_total` | `scope` | Redis fallback usage |
-| `memwal_external_request_duration_seconds` | `service`, `operation`, `status` | OpenAI, Sui RPC, SEAL sidecar, Walrus latency |
+| `memwal_external_request_duration_seconds` | `service`, `operation`, `status` | OpenAI, Sui RPC, Seal sidecar, Walrus latency |
 | `memwal_sidecar_failures_total` | `operation`, `reason` | Sidecar transport and HTTP failures |
 | `memwal_db_query_duration_seconds` | `operation`, `status` | PostgreSQL and pgvector query latency |
 | `memwal_db_pool_connections` | `state` | PostgreSQL pool `open` and `idle` gauges |
@@ -95,7 +95,7 @@ Create panels for:
 | High 5xx rate | 5xx responses exceed 1% for 5 minutes |
 | Route latency regression | p95 `/api/recall` or `/api/remember` latency exceeds the normal SLO for 10 minutes |
 | Redis degraded | `memwal_rate_limit_fallbacks_total` increases in production |
-| Sidecar unhealthy | `memwal_sidecar_failures_total` increases for SEAL or Walrus operations |
+| Sidecar unhealthy | `memwal_sidecar_failures_total` increases for Seal or Walrus operations |
 | OpenAI latency/errors | External `service="openai"` p95 latency or non-2xx status rate spikes |
 | Walrus download/upload failures | External `service="walrus"` or sidecar Walrus failures increase |
 | Sui RPC failures | `service="sui_rpc"` transport errors or non-2xx statuses increase |

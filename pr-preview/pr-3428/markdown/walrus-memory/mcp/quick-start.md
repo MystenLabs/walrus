@@ -206,4 +206,4 @@ This deletes the local credentials file. The onchain delegate key is **not** rev
     Run your own relayer and route MCP traffic through it
   
   
-    Full list of relayer + sidecar settings (SEAL, Walrus, sessions)
+    Full list of relayer + sidecar settings (Seal, Walrus, sessions)

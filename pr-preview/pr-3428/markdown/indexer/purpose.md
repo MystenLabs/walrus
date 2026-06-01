@@ -36,8 +36,8 @@ The indexer reads these environment variables:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DATABASE_URL` | Yes |, | PostgreSQL connection string |
-| `MEMWAL_PACKAGE_ID` | Yes |, | Walrus Memory contract package ID to filter events |
+| `DATABASE_URL` | Yes | | PostgreSQL connection string |
+| `MEMWAL_PACKAGE_ID` | Yes | | Walrus Memory contract package ID to filter events |
 | `SUI_RPC_URL` | No | Mainnet fullnode | Sui RPC endpoint |
 | `POLL_INTERVAL_SECS` | No | `5` | Seconds between event poll cycles |
 

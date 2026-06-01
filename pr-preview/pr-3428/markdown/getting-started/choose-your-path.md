@@ -32,7 +32,7 @@ Go to: [Managed Relayer](/walrus-memory/relayer/public-relayer)
 
 Use `@mysten-incubation/memwal/manual` when you want full client-side control over encryption and embeddings. Recommended for Web3-native users who want to minimize trust in the relayer - it never sees your plaintext data.
 
-- client handles embeddings and SEAL encryption locally
+- client handles embeddings and Seal encryption locally
 - relayer only sees encrypted payloads and vectors
 
 Go to: [SDK Usage](/walrus-memory/sdk/usage)
