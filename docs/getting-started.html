@@ -25,7 +25,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.7129dfca.css">
-<script src="/assets/js/runtime~main.13948bf5.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.7c6a2321.js" defer="defer"></script>
 <script src="/assets/js/main.84b5f04b.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -74,7 +74,7 @@
 <p>This creates your Sui<!-- --> <!-- -->client<!-- --> configuration file with a Testnet environment and generates your first address.</p>
 <p>To confirm the Walrus configuration also uses Testnet, run the following command:</p>
 <div><div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token select-none opacity-40 text-lg">$ </span><span class="token plain">walrus info</span><br></span></code></pre></div></div></div>
-<p>Make sure that the output of this command includes <code>Epoch duration: 1day</code> to indicate connection to Testnet.</p>
+<p>Make sure that the output of this command includes <code>Epoch duration: 1day</code> to indicate connection to Testnet. The same output also includes current storage pricing information. For interactive cost estimates, use the <a href="https://costcalculator.wal.app/" target="_blank" rel="noopener noreferrer" class="">Walrus Cost Calculator</a>.</p>
 <p>For detailed information about the <code>walrus</code> CLI, use <code>walrus --help</code>. Append <code>--help</code> to any <code>walrus</code> subcommand to get details about that specific command.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="step-3-understand-your-sui-account">Step 3: Understand your Sui account<a href="#step-3-understand-your-sui-account" class="hash-link" aria-label="Direct link to Step 3: Understand your Sui account" title="Direct link to Step 3: Understand your Sui account" translate="no">​</a></h2>
 <p>When you ran <code>sui client</code> during setup, the system automatically created a Sui account for you. Sui uses addresses and accounts. When you store<!-- --> <!-- -->blobs<!-- --> on Walrus, Walrus binds them to an object on Sui that an address owns.</p>
@@ -91,7 +91,7 @@
 <div><div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token select-none opacity-40 text-lg">$ </span><span class="token plain">sui client new-address ed25519</span><br></span></code></pre></div></div></div>
 <p>The argument <code>ed25519</code> specifies the key pair scheme to be of type ed25519.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="step-4-fund-sui-account-with-tokens">Step 4: Fund Sui account with tokens<a href="#step-4-fund-sui-account-with-tokens" class="hash-link" aria-label="Direct link to Step 4: Fund Sui account with tokens" title="Direct link to Step 4: Fund Sui account with tokens" translate="no">​</a></h2>
-<p>Before you can upload a file to Walrus and store it as a<!-- --> <!-- -->blob<!-- -->, you need SUI tokens to pay transaction fees and<!-- --> <!-- -->WAL<!-- --> tokens to pay for storage on the network. Walrus Testnet uses Testnet<!-- --> <!-- -->WAL<!-- --> tokens that have no value. You can exchange them at a 1:1 rate for Testnet SUI tokens.</p>
+<p>Before you can upload a file to Walrus and store it as a<!-- --> <!-- -->blob<!-- -->, you need SUI tokens to pay transaction fees and<!-- --> <!-- -->WAL<!-- --> tokens to pay for storage on the network. Walrus Testnet uses Testnet<!-- --> <!-- -->WAL<!-- --> tokens that have no value. You can exchange them at a 1:1 rate for Testnet SUI tokens. For more information about storage costs, see <a class="" href="/docs/system-overview/storage-costs">Storage Costs</a>.</p>
 <p>Navigate to the SUI Testnet faucet: <a href="https://faucet.sui.io/" target="_blank" rel="noopener noreferrer" class="">https://faucet.sui.io/</a></p>
 <p>Ensure you select Testnet.</p>
 <p>Then, insert your Sui address. To print your Sui address, use the following command:</p>

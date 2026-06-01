@@ -2,7 +2,13 @@
 
 When choosing a platform to store and verify data, you should consider reliability, uptime, availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated storage cost of **$0.023/GB/month**, allowing you to budget and scale with confidence.
 
-Use the [Walrus Cost Calculator](https://costcalculator.wal.app/) to estimate total storage costs interactively.
+## Estimate storage costs
+
+Use the embedded Walrus Cost Calculator to estimate storage costs before you upload. The calculator models storage size, duration, encoding overhead, WAL storage costs, and SUI transaction costs together.
+
+If the calculator does not load, open the [Walrus Cost Calculator](https://costcalculator.wal.app/) in a new tab.
+
+For command-line estimates, run `walrus info` to view current storage prices and upload fees. You can also run `walrus store --dry-run ...` to see the encoded size used in WAL cost calculations without submitting transactions.
 
 ## How pricing works
 
@@ -14,7 +20,7 @@ You also pay **SUI** for executing transactions on Sui Mainnet. Each operation t
 
 > **Tip**
 >
-> Walrus uses erasure coding with approximately 5x expansion. The storage cost shown by `walrus info` accounts for this. You do not need to calculate the expansion yourself.
+> Walrus uses erasure coding with approximately 5x expansion. The cost calculator and `walrus info` account for this. You do not need to calculate the expansion yourself.
 ## What you get for $0.023/GB/month
 
 At $0.023 per GB per month, Walrus is in line with centralized storage providers but includes additional capabilities and lower configuration requirements.
@@ -88,11 +94,11 @@ Burning a blob's corresponding object on Sui does not delete the blob data on Wa
 
 #### Estimating costs without submitting transactions
 
-These commands help estimate costs without submitting transactions:
+Use the [Walrus Cost Calculator](https://costcalculator.wal.app/) for interactive planning. These commands help estimate costs locally without submitting transactions:
 
-- `walrus info` — displays current costs for buying storage resources and uploads.
+- `walrus info` displays current costs for buying storage resources and uploads.
 
-- `walrus store --dry-run ...` — outputs the encoded size used in WAL cost calculations without submitting any transactions.
+- `walrus store --dry-run ...` outputs the encoded size used in WAL cost calculations without submitting any transactions.
 
 ## Storage resource lifecycle
 
