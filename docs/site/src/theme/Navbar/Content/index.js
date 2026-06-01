@@ -84,8 +84,8 @@ function AppsDropdown({ items }) {
       <ul style={menuStyle}>
         {items.map((item, i) => (
           <li key={i} style={{ margin: 0, padding: 0, listStyle: "none" }}>
-            <a
-              href={item.href || item.to}
+            <Link
+              to={item.href || item.to}
               style={{
                 display: "block",
                 padding: "0.45rem 1rem",
@@ -103,9 +103,10 @@ function AppsDropdown({ items }) {
                 e.currentTarget.style.background = "transparent";
                 e.currentTarget.style.color = "var(--ifm-font-color-base, #000)";
               }}
+              onClick={() => setOpen(false)}
             >
               {item.label}
-            </a>
+            </Link>
           </li>
         ))}
       </ul>
@@ -286,7 +287,6 @@ export default function NavbarContent() {
               <>
                 <NavbarItems items={before} />
                 <AppsDropdown items={[
-                  { label: "Example Code", href: "/examples" },
                   { label: "Walrus Memory", href: "/walrus-memory/getting-started/what-is-memwal" },
                 ]} />
                 <NavbarItems items={after} />

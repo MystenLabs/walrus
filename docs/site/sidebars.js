@@ -99,6 +99,22 @@ const sidebars = {
     'data-security',
     'tusky-migration-guide',
     'glossary',
+    {
+      type: "category",
+      label: "Examples",
+      link: {
+        type: "doc",
+        id: "examples/index",
+      },
+      collapsed: true,
+      items: [
+        'examples/checkpoint-data',
+        'examples/javascript',
+        'examples/move',
+        'examples/python',
+        'examples/walrus-relay',
+      ],
+    },
     ],
       sitesSidebar: [
     {
@@ -224,23 +240,6 @@ const sidebars = {
       "operator-guide/stake",
       "operator-guide/limitations",
     ],
-    examplesSidebar: [
-      {
-        type: "category",
-        label: "Examples",
-        link: {
-            type: "doc",
-            id: "examples/index",
-        },
-        items: [
-      'examples/checkpoint-data',
-      'examples/javascript',
-      'examples/move',
-      'examples/python',
-      'examples/walrus-relay'
-      ],
-    },
-  ],
 };
 
 export default sidebars;
