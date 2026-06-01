@@ -67,7 +67,7 @@ On Testnet, you can exchange SUI for WAL using the exchange objects in the clien
 /opt/walrus/bin/walrus --config /opt/walrus/config/publisher/client_config.yaml get-wal --amount 5000000000
 ```
 
-This exchanges SUI for 5 WAL. Adjust the amount based on the number of sub-wallets and expected usage.
+This exchanges SUI for 5 WAL. Adjust the amount based on the number of sub-wallets and expected usage. For the standard Testnet wallet flow, see [Exchange Testnet SUI for WAL](/docs/system-overview/available-networks#testnet-wal-faucet).
 
  
 

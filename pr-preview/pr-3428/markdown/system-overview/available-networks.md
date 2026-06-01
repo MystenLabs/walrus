@@ -76,9 +76,11 @@ communication_config:
 
 You can find the current Testnet package IDs in the `Move.lock` files in the subdirectories of the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts).
 
-## Testnet WAL faucet
+## Exchange Testnet SUI for WAL {#testnet-wal-faucet}
 
 The Walrus Testnet uses Testnet WAL tokens for buying storage and staking. Testnet WAL tokens have no value and can be exchanged at a 1:1 rate for Testnet SUI tokens, which also have no value.
+
+Use the official WAL exchange flow on this page for Testnet WAL. Third-party faucets can distribute WAL from a package the Walrus client does not accept.
 
 #### Prerequisites: Sui wallet and Testnet SUI {#prerequisites}
 
