@@ -182,9 +182,25 @@ function convertCodeGroups(content) {
         )
         .join("\n");
 
-      return `<Tabs groupId="code">\n${tabItems}\n</Tabs>`;
+      // Detect groupId from tab labels
+      const labels = blocks.map((b) => b.label.toLowerCase());
+      const groupId = detectTabGroupId(labels);
+
+      return `<Tabs groupId="${groupId}">\n${tabItems}\n</Tabs>`;
     },
   );
+}
+
+function detectTabGroupId(labels) {
+  const pkgManagers = ["npm", "pnpm", "yarn", "bun"];
+  const isPkgManager = labels.some((l) => pkgManagers.includes(l));
+  if (isPkgManager) return "pkg-manager";
+
+  const transports = ["http", "stdio"];
+  const isTransport = labels.some((l) => transports.includes(l));
+  if (isTransport) return "transport";
+
+  return "code";
 }
 
 function convertTabs(content) {
@@ -196,6 +212,22 @@ function convertTabs(content) {
     '<TabItem value="$1" label="$1">',
   );
   result = result.replace(/<\/Tab>/gi, "</TabItem>");
+
+  // Add groupId to <Tabs> that don't have one, based on their TabItem labels
+  result = result.replace(
+    /<Tabs>([\s\S]*?)<\/Tabs>/gi,
+    (match, inner) => {
+      if (match.includes("groupId")) return match;
+      const labels = [];
+      const labelRe = /label="([^"]+)"/gi;
+      let m;
+      while ((m = labelRe.exec(inner))) labels.push(m[1].toLowerCase());
+      if (labels.length === 0) return match;
+      const groupId = detectTabGroupId(labels);
+      return `<Tabs groupId="${groupId}">${inner}</Tabs>`;
+    },
+  );
+
   return result;
 }
 
