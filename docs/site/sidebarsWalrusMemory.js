@@ -25,12 +25,26 @@ const sidebars = {
       label: "Fundamentals",
       collapsed: true,
       items: [
-        "fundamentals/concepts/memory-space",
-        "fundamentals/concepts/ownership-and-access",
-        "fundamentals/architecture/core-components",
-        "fundamentals/architecture/how-storage-works",
-        "fundamentals/architecture/data-flow-security-model",
-        "architecture/permanent-registry-design",
+        {
+          type: "category",
+          label: "Concepts",
+          collapsed: true,
+          items: [
+            "fundamentals/concepts/memory-space",
+            "fundamentals/concepts/ownership-and-access",
+          ],
+        },
+        {
+          type: "category",
+          label: "Architecture",
+          collapsed: true,
+          items: [
+            "fundamentals/architecture/core-components",
+            "fundamentals/architecture/how-storage-works",
+            "fundamentals/architecture/data-flow-security-model",
+            "architecture/permanent-registry-design",
+          ],
+        },
       ],
     },
     {
@@ -40,9 +54,16 @@ const sidebars = {
       items: [
         "sdk/overview",
         "sdk/quick-start",
-        "sdk/usage/memwal",
-        "sdk/usage/memwal-manual",
-        "sdk/usage/with-memwal",
+        {
+          type: "category",
+          label: "Usage",
+          collapsed: true,
+          items: [
+            "sdk/usage/memwal",
+            "sdk/usage/memwal-manual",
+            "sdk/usage/with-memwal",
+          ],
+        },
         "sdk/advanced-usage",
         "sdk/ai-integration",
         "sdk/examples",
@@ -56,9 +77,16 @@ const sidebars = {
       collapsed: true,
       items: [
         "python-sdk/quick-start",
-        "python-sdk/usage/memwal",
-        "python-sdk/usage/memwal-manual",
-        "python-sdk/usage/with-memwal",
+        {
+          type: "category",
+          label: "Usage",
+          collapsed: true,
+          items: [
+            "python-sdk/usage/memwal",
+            "python-sdk/usage/memwal-manual",
+            "python-sdk/usage/with-memwal",
+          ],
+        },
         "python-sdk/api-reference",
         "python-sdk/changelog",
       ],
