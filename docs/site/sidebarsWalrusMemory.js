@@ -49,7 +49,7 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "SDK",
+      label: "TypeScript SDK",
       collapsed: true,
       items: [
         "sdk/overview",
@@ -64,7 +64,6 @@ const sidebars = {
             "sdk/usage/with-memwal",
           ],
         },
-        "sdk/advanced-usage",
         "sdk/ai-integration",
         "sdk/examples",
         "sdk/api-reference",

@@ -372,6 +372,10 @@ function enforceStyleGuide(content) {
           return pre + applyProseRules(desc) + post;
         });
       }
+      // Replace ampersands in frontmatter title
+      if (/^title:\s*"/.test(line)) {
+        line = line.replace(/ & /g, " and ");
+      }
       result.push(line);
       continue;
     }
