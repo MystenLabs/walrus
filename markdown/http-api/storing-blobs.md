@@ -1,5 +1,8 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+> **No public Mainnet publisher**
+>
+> Walrus has no public unauthenticated publisher on Mainnet. There are no plans to create one. On Mainnet, run your own authenticated publisher (or use the [Upload Relay](/docs/operator-guide/upload-relay) or [TypeScript SDK](/docs/typescript-sdk/sdks) directly). The public publisher endpoints below are for Testnet, where WAL has no monetary value.
 You can store data using HTTP PUT requests. The following examples use `curl` to store blobs through a publisher:
 
 ```sh

@@ -33,6 +33,15 @@ Seal integrates seamlessly with Walrus and is recommended for any use cases invo
 - Time-locked or token-gated data
 - Data shared between trusted parties or roles
 
+> **Seal transactions need an explicit sender**
+>
+> When building a programmable transaction block (PTB) for Seal policy checks, set the transaction sender before passing the PTB to Seal. The sender must match the address that is requesting decryption access.
+> 
+> ```ts
+tx.setSender(address);
+```
+> 
+> If the sender is missing or does not match, decryption can fail with `Transaction was not signed by the correct sender`.
 To get started, refer to [Seal SDK](https://www.npmjs.com/package/@mysten/seal).
 
 ## Nautilus: Secure and verifiable off-chain computation

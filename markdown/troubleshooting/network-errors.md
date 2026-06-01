@@ -449,3 +449,16 @@ Error: Failed to allocate encoding buffer
 **Cause:** The blob is too large for available memory. The encoding needs at least 4.5x the blob size if the blob is to be stored. If the blob is only encoded to compute the metadata or blob ID, it's only ~1.5x.
 
 **Solution:** Run the CLI on a machine with sufficient RAM. Split large blobs into smaller chunks in your application before uploading. If you are using a publisher, use one with more available memory.
+
+#### `insufficient balance` despite holding WAL
+
+**Error:**
+
+```text
+Error: insufficient balance
+Error: no WAL coins found for storage payment
+```
+
+**Cause:** Your WAL may be from a different package than the Walrus client expects. Some third-party Testnet faucets distribute WAL from a non-canonical package, and the client rejects it with an `insufficient balance` error even though a balance appears in your wallet.
+
+**Solution:** Acquire WAL through the official path documented in [Getting Started](/docs/getting-started), not third-party faucets. On Testnet, use the WAL exchange (`walrus get-wal`); on Mainnet, swap SUI for WAL through a supported exchange. WAL from an unsupported package cannot be used for storage payments.

@@ -112,10 +112,9 @@ Sui smart contract as the on-chain index.
     right after upload? > > When you read through a CDN-fronted aggregator immediately after
     certification, the CDN might briefly cache a 404 from before the blob propagated.
 - [Storing Blobs](https://docs.wal.app/docs/http-api/storing-blobs.md):
-    You can store data using HTTP PUT requests. The following examples use curl to store blobs
-    through a publisher: > Reading a blob right after upload? > > When you read through a
-    CDN-fronted aggregator immediately after certification, the CDN might briefly cache a 404 from
-    before the blob propagated.
+    > No public Mainnet publisher > > Walrus has no public unauthenticated publisher on Mainnet.
+    There are no plans to create one. On Mainnet, run your own authenticated publisher (or use the
+    Upload Relay or TypeScript SDK directly).
 
 ## TypeScript SDK
 
