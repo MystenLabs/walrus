@@ -335,8 +335,13 @@ const config = {
             items: [
               {
                 type: "docSidebar",
+                sidebarId: "examplesSidebar",
+                label: "Example Code",
+              },
+              {
+                type: "doc",
                 docsPluginId: "walrus-memory",
-                sidebarId: "walrusMemorySidebar",
+                docId: "getting-started/what-is-memwal",
                 label: "Walrus Memory",
               },
             ],
@@ -345,12 +350,6 @@ const config = {
             type: "docSidebar",
             sidebarId: "operatorSidebar",
             label: "Service Providers",
-            position: "right",
-          },
-          {
-            type: "docSidebar",
-            sidebarId: "examplesSidebar",
-            label: "Example Apps",
             position: "right",
           },
           { to: "/blog", label: "Blog", position: "right" },
