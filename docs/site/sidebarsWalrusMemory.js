@@ -61,10 +61,10 @@ const sidebars = {
           items: [
             "sdk/usage/memwal",
             "sdk/usage/memwal-manual",
-            "sdk/usage/with-memwal",
+            { type: "doc", id: "sdk/usage/with-memwal", label: "`withMemWal`" },
           ],
         },
-        "sdk/ai-integration",
+        { type: "doc", id: "sdk/ai-integration", label: "`@ai-sdk` Integration" },
         "sdk/examples",
         "sdk/api-reference",
         "sdk/changelog",
@@ -83,7 +83,7 @@ const sidebars = {
           items: [
             "python-sdk/usage/memwal",
             "python-sdk/usage/memwal-manual",
-            "python-sdk/usage/with-memwal",
+            { type: "doc", id: "python-sdk/usage/with-memwal", label: "`withMemWal`" },
           ],
         },
         "python-sdk/api-reference",
