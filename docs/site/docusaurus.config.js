@@ -334,13 +334,13 @@ const config = {
             position: "right",
             items: [
               {
-                type: "docSidebar",
-                sidebarId: "examplesSidebar",
+                type: "doc",
+                docId: "examples/index",
                 label: "Example Code",
               },
               {
-                href: "/walrus-memory/getting-started/what-is-memwal",
                 label: "Walrus Memory",
+                href: "https://docs.wal.app/walrus-memory/getting-started/what-is-memwal",
               },
             ],
           },
