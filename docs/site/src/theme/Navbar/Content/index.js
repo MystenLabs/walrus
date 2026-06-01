@@ -14,6 +14,7 @@ import NavbarSearch from "@theme/Navbar/Search";
 import SearchModal from "@site/src/components/Search/SearchModal";
 import Link from "@docusaurus/Link";
 import useBaseUrl from "@docusaurus/useBaseUrl";
+import { useLocation } from "@docusaurus/router";
 import { useThemeConfig as useThemeConfigFull } from "@docusaurus/theme-common";
 
 function useNavbarItems() {
@@ -32,6 +33,8 @@ function useMobileSidebarSafe() {
 function AppsDropdown({ items }) {
   const [open, setOpen] = React.useState(false);
   const ref = React.useRef(null);
+  const location = useLocation();
+  const isActive = items.some((item) => location.pathname.startsWith(item.href));
 
   React.useEffect(() => {
     function handleClickOutside(e) {
@@ -71,7 +74,7 @@ function AppsDropdown({ items }) {
       <span
         role="button"
         tabIndex={0}
-        className="navbar__item navbar__link"
+        className={`navbar__item navbar__link ${isActive ? "navbar__link--active" : ""}`}
         onClick={() => setOpen(!open)}
         onKeyDown={(e) => { if (e.key === "Enter") setOpen(!open); }}
         style={{ cursor: "pointer" }}
