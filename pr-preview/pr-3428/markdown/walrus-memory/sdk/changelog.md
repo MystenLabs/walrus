@@ -1,7 +1,5 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-## 0.0.6
-
 ### Added
 
 - Added `RecallParams` for object-style `recall(...)` calls.
@@ -10,8 +8,6 @@
 
 - Marked the positional `recall(...)` overload as deprecated in favor of `recall({ query, limit, namespace })`.
 - Documented `restore()` response fields, default limit, pagination behavior, and performance expectations.
-
-## 0.0.5
 
 ### Added
 
@@ -28,8 +24,6 @@
 
 - Made `401` relayer errors more actionable.
 
-## 0.0.4
-
 ### Added
 
 - Added `getRememberStatus(jobId)` so clients can poll and display the full async remember state machine.
@@ -39,8 +33,6 @@
 
 - Manual mode now normalizes full SEAL server configs, validates optional API key pairs, and caps the default threshold to configured server weight.
 - Manual mode keeps Testnet defaults on the legacy independent key servers for compatibility with hosted Testnet relayer data.
-
-## 0.0.3
 
 ### Changed
 
@@ -54,16 +46,12 @@
 - `recall()` and `restore()` remain wire-compatible with the existing relayer responses.
 - The SDK continues to use `x-seal-session` for relayer-mode decrypt credentials.
 
-## 0.0.2
-
 ### Security
 
 - Added per-request `x-nonce` signing to block replay within the timestamp window.
 - Added `x-account-id` to the canonical signed message so account hints cannot be rebound in transit.
 - Replaced relayer-mode `x-delegate-key` transport with ephemeral `x-seal-session`; manual-mode requests no longer send delegate private key material.
 - SDK versions that do not send `x-nonce` are no longer supported by the server and receive `426 Upgrade Required`.
-
-## 0.0.1
 
 ### Initial release
 

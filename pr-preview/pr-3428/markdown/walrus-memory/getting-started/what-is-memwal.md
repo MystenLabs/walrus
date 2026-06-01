@@ -38,8 +38,6 @@ AI agents today lose context between sessions, every conversation starts from sc
 - **Agent coordination**, shared memory spaces help agents coordinate across long-running and multi-step workflows
 - **Verifiable integrity**, memory integrity can be independently verified without centralized trust
 
-## Features
-
 ### Memory operations
 
   

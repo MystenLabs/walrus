@@ -2,7 +2,7 @@
 
 A managed relayer is a simpler experience for teams that want to get started without running infrastructure. If a managed relayer endpoint is available for your environment, it gives you the fastest path to integration.
 
-## Walrus foundation hosted endpoints
+## Walrus Foundation hosted endpoints
 
 | Network | Relayer URL |
 |---|---|

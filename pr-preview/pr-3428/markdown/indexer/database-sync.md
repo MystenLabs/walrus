@@ -6,8 +6,6 @@ The indexer syncs account data into PostgreSQL so the relayer can resolve owners
 
 Both the relayer and the indexer connect to the same PostgreSQL instance (with the `pgvector` extension enabled). Migrations run automatically on boot.
 
-## Tables
-
 ### `vector_entries`
 
 The primary search table, stores vector embeddings linked to encrypted Walrus blobs.

@@ -4,8 +4,6 @@ Track what's new, changed, and fixed in `memwal` (Python).
 
 For the latest version, see the [PyPI project page](https://pypi.org/project/memwal/).
 
-## 0.1.3
-
 ### Added
 
 - Added `RecallParams` for object-style `recall(...)` calls.
@@ -14,8 +12,6 @@ For the latest version, see the [PyPI project page](https://pypi.org/project/mem
 
 - Changed the default `restore()` limit from `50` to `10` to match the relayer and TypeScript SDK.
 - Documented `restore()` response fields, default limit, pagination behavior, and performance expectations.
-
-## 0.1.2
 
 ### Added
 
@@ -30,14 +26,10 @@ For the latest version, see the [PyPI project page](https://pypi.org/project/mem
 
 - Made `401` relayer errors more actionable.
 
-## 0.1.1
-
 ### Added
 
 - Added relayer `env` presets.
 - Added compatibility checks and `compatibility()` helpers.
-
-## 0.1.0
 
 ### Initial release
 

@@ -2,11 +2,7 @@
 
 The fastest way to get Walrus Memory running is through the TypeScript SDK.
 
-## Prerequisites
-
-- [Node.js](https://nodejs.org/) v18+ or [Bun](https://bun.sh/) v1+
-
-## Quick start
+- [x] [Node.js](https://nodejs.org/) v18+ or [Bun](https://bun.sh/) v1+
 
 ### Install the SDK
 

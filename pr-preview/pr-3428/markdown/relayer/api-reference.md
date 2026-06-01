@@ -41,8 +41,6 @@ For `GET` requests, `body_sha256` is the SHA-256 of an empty byte string. If a r
 
 The relayer verifies the Ed25519 signature, then resolves the owner by looking up the public key in onchain `MemWalAccount.delegate_keys`.
 
-## Public routes
-
 ### `GET /health`
 
 Service health check. No authentication required.
@@ -88,8 +86,6 @@ Proxy to the SEAL/Walrus sidecar's `/sponsor` endpoint for sponsored transaction
 ### `POST /sponsor/execute`
 
 Proxy to the sidecar's `/sponsor/execute` endpoint. No authentication required.
-
-## Protected routes
 
 ### `POST /api/remember`
 

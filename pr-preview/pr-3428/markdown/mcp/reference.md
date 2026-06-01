@@ -239,8 +239,6 @@ The hosted relayer (and any self-hosted relayer) exposes the same MCP routes:
 
 The Rust relayer auto-starts a TypeScript sidecar and forwards MCP traffic to it over loopback. The sidecar resolves MCP bearer credentials into normal Walrus Memory SDK sessions, so MCP tool calls go through the **same SEAL, Walrus, and pgvector paths** as direct SDK calls.
 
-## Runtime safety notes
-
 ### 401 behavior
 
 If the relayer returns `401 Unauthorized`, the package surfaces a clear error but does **not** auto-delete `~/.memwal/credentials.json`.
@@ -276,8 +274,6 @@ They do **not**:
 - remove the delegate from the Walrus Memory dashboard
 
 If the delegate itself should stop working, revoke it from the dashboard too.
-
-## Troubleshooting
 
 ### Tools aren't visible to the agent
 

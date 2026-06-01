@@ -525,7 +525,7 @@ Sui smart contract as the on-chain index.
     alongside OpenClaw's existing file-based memory, automatically recalling relevant context and
     capturing new facts in the background, with no user action needed.
 - [Quick Start](https://docs.wal.app/docs/openclaw/quick-start.md):
-    Get the plugin running and test the memory loop in a few minutes. OpenClaw installed and
+    Get the plugin running and test the memory loop in a few minutes. [x] OpenClaw installed and
     running You also need a delegate key, account ID, and relayer URL from Walrus Memory, the steps
     below guides you through getting these.
 - [Reference](https://docs.wal.app/docs/openclaw/reference.md):
@@ -766,7 +766,7 @@ Sui smart contract as the on-chain index.
     alongside OpenClaw's existing file-based memory, automatically recalling relevant context and
     capturing new facts in the background, with no user action needed.
 - [Quick Start](https://docs.wal.app/docs/walrus-memory/openclaw/quick-start.md):
-    Get the plugin running and test the memory loop in a few minutes. OpenClaw installed and
+    Get the plugin running and test the memory loop in a few minutes. [x] OpenClaw installed and
     running You also need a delegate key, account ID, and relayer URL from Walrus Memory, the steps
     below guides you through getting these.
 - [Reference](https://docs.wal.app/docs/walrus-memory/openclaw/reference.md):

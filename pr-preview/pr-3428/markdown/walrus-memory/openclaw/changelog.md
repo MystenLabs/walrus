@@ -1,12 +1,8 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-## 0.0.2
-
 ### Internal
 
 - Update `@mysten-incubation/memwal` dependency to `^0.0.2`
-
-## 0.0.1
 
 ### Initial release
 

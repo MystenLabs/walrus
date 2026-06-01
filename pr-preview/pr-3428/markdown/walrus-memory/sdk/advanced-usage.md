@@ -18,7 +18,7 @@ Use:
 Use `analyze()` when you want the relayer to extract facts from longer text and store them as
 memories.
 
-## AI middleware
+## AI Middleware
 
 Use `withMemWal` when you want:
 

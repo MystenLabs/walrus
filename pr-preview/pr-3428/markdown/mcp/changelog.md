@@ -1,12 +1,8 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-## 0.0.2
-
 ### Added
 
 - Added relayer compatibility metadata checks before opening the MCP bridge.
-
-## 0.0.1
 
 ### Initial release
 

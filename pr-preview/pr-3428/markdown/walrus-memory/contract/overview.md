@@ -33,8 +33,6 @@ For relayer setup and environment variable usage, see [Self-Hosting](/walrus-mem
 
 The contract does not store memory content, it only manages identity, permissions, and access control.
 
-## Key objects
-
 ### `AccountRegistry`
 
 A shared object created at module publish time. It tracks all MemWalAccount objects and prevents duplicate account creation (one account per Sui address).

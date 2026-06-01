@@ -65,7 +65,7 @@ This means Web2 developers can integrate Walrus Memory without touching wallets,
 > Because the relayer handles encryption and plaintext data, you are placing trust in the relayer operator. This is a deliberate trade-off for developer experience. If you need full control over that trust boundary, you can [self-host](/walrus-memory/relayer/self-hosting) your own relayer, or use the [manual client flow](/walrus-memory/sdk/usage) to handle encryption and embedding entirely on the client side (recommended for Web3-native users). See [Trust  and  Security Model](/walrus-memory/fundamentals/architecture/data-flow-security-model) for details.
 You can use the [managed relayer](/walrus-memory/relayer/public-relayer) to get started, [self-host](/walrus-memory/relayer/self-hosting) your own, or use the manual client flow for full client-side control.
 
-## Walrus memory smart contract
+## Walrus Memory smart contract
 
 The Sui smart contract is the source of truth for ownership and access control.
 

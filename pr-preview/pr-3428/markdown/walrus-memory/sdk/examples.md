@@ -37,8 +37,6 @@ What you should see:
 - `waitForRememberJob()` returns a `blob_id`
 - `recall()` returns plaintext results for the same namespace
 
-## Advanced: manual methods and analyze
-
 ### Manual registration
 
 Use `rememberManual()` when you already have an encrypted payload plus vector, and `recallManual()`
@@ -56,7 +54,7 @@ const analyzed = await memwal.analyze(
 console.log(analyzed.facts, analyzed.job_ids);
 ```
 
-### AI middleware
+### AI Middleware
 
 Use `withMemWal` when you want recall before generation and optional auto-save after generation.
 See [AI Integration](/walrus-memory/sdk/ai-integration) for the full setup.

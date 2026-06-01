@@ -2,13 +2,9 @@
 
 Get the plugin running and test the memory loop in a few minutes.
 
-## Prerequisites
-
-- [OpenClaw](https://openclaw.ai) `>=2026.3.11` installed and running
+- [x] [OpenClaw](https://openclaw.ai) `>=2026.3.11` installed and running
 
 You also need a **delegate key**, **account ID**, and **relayer URL** from Walrus Memory, the steps below guides you through getting these.
-
-## Installation
 
 ### Install the plugin
 
@@ -100,8 +96,6 @@ You can add these to the `config` block to tune behavior. The defaults work well
     :::tip
 If you see `health check failed`, check that your relayer URL is reachable and your `MEMWAL_PRIVATE_KEY` env var is set.
 :::
-
-## Verify
 
 ### Check connectivity
 

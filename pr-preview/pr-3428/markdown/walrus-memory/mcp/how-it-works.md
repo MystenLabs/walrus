@@ -113,8 +113,6 @@ Those requests hit the same relayer-backed Walrus Memory stack used by direct SD
 - Walrus storage
 - relayer-side indexing and retrieval
 
-## Stdio package vs streamable HTTP
-
 ### Stdio package
 
 Use the package when your MCP host expects a local command:

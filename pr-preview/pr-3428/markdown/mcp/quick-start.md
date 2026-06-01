@@ -2,11 +2,9 @@
 
 This page gets you from zero to a working Walrus Memory MCP server inside Cursor, Claude Desktop, Claude Code, or Codex.
 
-## Prerequisites
-
-- **Node.js 20** or newer (`node -v` to check)
-- A **Sui wallet** with the Walrus Memory app authorized, Sui Wallet, Suiet, Phantom, or any [Sui-compatible wallet](https://memwal.ai)
-- An **MCP-aware client**: Cursor, Claude Desktop, Claude Code, Codex, Antigravity, or another MCP host
+- [x] **Node.js 20** or newer (`node -v` to check)
+- [x] A **Sui wallet** with the Walrus Memory app authorized, Sui Wallet, Suiet, Phantom, or any [Sui-compatible wallet](https://memwal.ai)
+- [x] An **MCP-aware client**: Cursor, Claude Desktop, Claude Code, Codex, Antigravity, or another MCP host
 
 No npm install needed, `npx` fetches the `@mysten-incubation/memwal-mcp` package on demand.
 
@@ -23,8 +21,6 @@ For most teams, the best default is:
 
 - use the **stdio package** for local MCP clients
 - use **Streamable HTTP** only when the client clearly supports remote MCP headers cleanly
-
-## Installation
 
 ### Sign in with your Sui wallet
 
@@ -107,8 +103,6 @@ If you skip the manual terminal login and go straight to the MCP client, that is
 - Ask the agent to run `memwal_login`, approve the browser flow, then retry the original memory action.
 
 That behavior is intentional. It avoids the old UX where the MCP host only showed a vague “failed to start server” message.
-
-## Verify
 
 ### Check connectivity
 

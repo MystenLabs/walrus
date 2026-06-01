@@ -205,8 +205,6 @@ Full list of config options for `openclaw.json`:
 | `minRelevance` | number | `0.3` | No | Relevance threshold (0-1) for recall |
 | `captureMaxMessages` | number | `10` | No | Recent messages window for capture |
 
-## Troubleshooting
-
 ### Plugin not loading
 
 - Reinstall the plugin: `openclaw plugins install @mysten-incubation/oc-memwal`

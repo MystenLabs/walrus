@@ -22,8 +22,6 @@ Config:
 
 For the full config surface, see [Configuration](/walrus-memory/reference/configuration).
 
-## `MemWal` methods
-
 ### `remember(text, namespace?): Promise<RememberAcceptedResult>`
 
 Submit one memory through the relayer. The method returns after the relayer creates a background job; embedding, SEAL encryption, Walrus upload, and vector indexing continue asynchronously.

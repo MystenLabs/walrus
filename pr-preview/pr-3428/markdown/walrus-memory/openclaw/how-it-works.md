@@ -164,8 +164,6 @@ All recall and capture operations are scoped to the current namespace. One agent
 
 The plugin also supports **cryptographic isolation**, assigning different Ed25519 keys to different agents. With separate keys, agents literally cannot decrypt each other's memories. This is stronger than namespace isolation (which uses the same key with server-side filtering) and is unique to Walrus Memory.
 
-## Security model
-
 ### Prompt injection protection
 
 Stored memories are a prompt injection vector. The plugin protects at multiple layers:

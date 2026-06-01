@@ -5,7 +5,7 @@ Walrus Memory supports several integration modes depending on how much control y
 > **Tip**
 >
 > These paths aren't mutually exclusive. You can combine them - for example, use the **Default SDK** with the **AI Middleware**, or start with the **Managed Relayer** and move to **Self-Hosting** later. They all share the same backend and data layer.
-## 1. default SDK
+## 1. Default SDK
 
 Use `@mysten-incubation/memwal` when you want the fastest working integration.
 
@@ -14,7 +14,7 @@ Use `@mysten-incubation/memwal` when you want the fastest working integration.
 
 Go to: [SDK Overview](/walrus-memory/sdk/overview)
 
-## 2. managed relayer
+## 2. Managed relayer
 
 Use a hosted relayer, or deploy your own [self-hosted relayer](/walrus-memory/relayer/self-hosting) with access to a wallet funded with WAL and SUI.
 
@@ -28,7 +28,7 @@ Use a hosted relayer, or deploy your own [self-hosted relayer](/walrus-memory/re
 
 Go to: [Managed Relayer](/walrus-memory/relayer/public-relayer)
 
-## 3. manual client flow
+## 3. Manual client flow
 
 Use `@mysten-incubation/memwal/manual` when you want full client-side control over encryption and embeddings. Recommended for Web3-native users who want to minimize trust in the relayer - it never sees your plaintext data.
 
@@ -37,19 +37,19 @@ Use `@mysten-incubation/memwal/manual` when you want full client-side control ov
 
 Go to: [SDK Usage](/walrus-memory/sdk/usage)
 
-## 4. AI middleware
+## 4. AI Middleware
 
 Use `@mysten-incubation/memwal/ai` when you already use the AI SDK and want recall plus auto-save behavior.
 
 Go to: [AI Integration](/walrus-memory/sdk/usage/with-memwal)
 
-## 5. self-host the relayer
+## 5. Self-host the relayer
 
 Use this when you need full control over the trust boundary - your infrastructure, your credentials, no third party sees your data.
 
 Go to: [Self-Hosting](/walrus-memory/relayer/self-hosting)
 
-## 6. MCP clients
+## 6. MCP Clients
 
 Use Walrus Memory's MCP server when you want Cursor, Claude Desktop, Claude Code, Antigravity, or another MCP-aware agent to save and recall memory during tool use.
 

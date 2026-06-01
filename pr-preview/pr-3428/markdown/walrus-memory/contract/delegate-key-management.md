@@ -8,9 +8,7 @@ Delegate keys are lightweight Ed25519 keys used for SDK authentication. They are
 - Users should not hand over the owner wallet for day-to-day memory access
 - Different apps or devices can each have their own delegate key with a descriptive label
 
-## Lifecycle
-
-### 1. generate a delegate keypair
+### 1. Generate a delegate keypair
 
 Use the SDK's `generateDelegateKey()` helper to create a new Ed25519 keypair:
 
@@ -23,7 +21,7 @@ const delegate = await generateDelegateKey();
 // delegate.suiAddress — derived Sui address (0x...)
 ```
 
-### 2. register the public key onchain
+### 2. Register the public key onchain
 
 Only the account owner can add delegate keys:
 
@@ -39,7 +37,7 @@ await addDelegateKey({
 });
 ```
 
-### 3. use the private key in the SDK
+### 3. Use the private key in the SDK
 
 ```ts
 import { MemWal } from "@mysten-incubation/memwal";
@@ -50,7 +48,7 @@ const memwal = MemWal.create({
 });
 ```
 
-### 4. revoke the delegate key
+### 4. Revoke the delegate key
 
 Removing a delegate key prevents future relayer access from that key:
 

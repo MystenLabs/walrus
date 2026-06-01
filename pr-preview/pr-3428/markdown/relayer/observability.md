@@ -103,7 +103,7 @@ Create panels for:
 | Wallet lock canary | Sidecar `walletLockErrorsTotal` is greater than 0 |
 | Permanent wallet failures | Sidecar `walletPermanentFailuresTotal` increases |
 
-## APM integration
+## APM Integration
 
 Walrus Memory emits structured logs and Prometheus metrics in vendor-neutral formats. For Datadog, New Relic, Grafana Cloud, or OpenTelemetry Collector based setups:
 

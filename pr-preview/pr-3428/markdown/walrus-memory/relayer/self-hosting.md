@@ -71,8 +71,6 @@ Then check:
 $ curl http://localhost:8000/health
 ```
 
-## Environment variables
-
 ### Required
 
 - `DATABASE_URL`
@@ -114,7 +112,6 @@ By default, the relayer enforces rate limits and storage quotas through Redis to
 - `SERVER_SUI_PRIVATE_KEYS` is a comma-separated key pool for parallel Walrus uploads
 - if both are set, the key pool takes priority for uploads
 
-## Package contract IDs
 ### Staging (testnet)
 ```env
 SUI_NETWORK=testnet

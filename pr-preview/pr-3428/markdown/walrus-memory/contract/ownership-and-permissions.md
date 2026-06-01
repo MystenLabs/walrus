@@ -25,7 +25,7 @@ Delegates **cannot**:
 - Deactivate or reactivate the account
 - Transfer ownership
 
-## SEAL access control
+## SEAL Access control
 
 The contract's `seal_approve` function is the SEAL policy that controls who can decrypt memories. Access is granted if the caller is:
 

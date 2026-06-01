@@ -51,7 +51,7 @@ Secrets or another secret manager.
 | dev/staging | `0x7fce97b1f4a72fff7b9457617234ddc251416a76382c44be7bc7652c84d06a1b` | `c36f131232950d7cc9f97846e368106c7a4b30864f560c2e518e3e7ea8c823f7` |
 | production | `0x57eb9feddfd98f98a5719e2a194431b63d24950acd138c52366bf02370ac6287` | `1477a32677be9ba81f86b96583beda4b0eec2dc953080961cefd9cbece41c448` |
 
-## GitHub environment setup
+## GitHub Environment setup
 
 Create these GitHub Environments:
 
