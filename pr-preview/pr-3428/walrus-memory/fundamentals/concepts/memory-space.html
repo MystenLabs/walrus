@@ -18,6 +18,7 @@
 
 
 
+
 <link rel="service-doc" href="/llms.txt" type="text/plain" title="LLM-optimized documentation">
 <link rel="service-doc" href="/docs/http-api" title="Walrus HTTP API Reference">
 <link rel="api-catalog" href="/.well-known/api-catalog" type="application/linkset+json">
@@ -25,9 +26,9 @@
 <link rel="sitemap" href="/sitemap.xml" type="application/xml">
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
-<script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.848b2e5b.css">
-<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.7f184d18.js" defer="defer"></script>
-<script src="/walrus/pr-preview/pr-3428/assets/js/main.89e11d14.js" defer="defer"></script>
+<script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.0de813de.css">
+<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.aabafd53.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3428/assets/js/main.7b19a086.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -57,7 +58,7 @@
 <p>The <strong>app ID</strong> is the Walrus Memory package ID deployed on Sui (<code>MEMWAL_PACKAGE_ID</code>). Each relayer deployment is tied to a single package ID, which is used for SEAL encryption key derivation and Walrus blob metadata.</p>
 <p>Two separate Walrus Memory deployments can each have a user with a <code>personal</code> namespace, and their memories will never mix, because the app ID (package ID) is different. This means the vector database scopes queries by <code>owner + namespace</code>, while the encryption and blob discovery layer provides an additional isolation boundary through the package ID.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="how-it-works-in-practice">How it works in practice<a href="#how-it-works-in-practice" class="hash-link" aria-label="Direct link to How it works in practice" title="Direct link to How it works in practice" translate="no">​</a></h2>
-<div><div class="language-mermaid codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-mermaid !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">flowchart TD</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    User[User Wallet]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    User --&gt; S1[&quot;personal @ app-1&quot;]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    User --&gt; S2[&quot;work @ app-1&quot;]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    User --&gt; S3[&quot;personal @ app-2&quot;]</span><br></span></code></pre></div></div></div>
+<!-- -->
 <p>In this example, one user has three separate memory spaces:</p>
 <ul>
 <li class=""><strong>personal</strong> memories in <strong>app-1</strong></li>

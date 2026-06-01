@@ -18,6 +18,7 @@
 
 
 
+
 <link rel="service-doc" href="/llms.txt" type="text/plain" title="LLM-optimized documentation">
 <link rel="service-doc" href="/docs/http-api" title="Walrus HTTP API Reference">
 <link rel="api-catalog" href="/.well-known/api-catalog" type="application/linkset+json">
@@ -25,9 +26,9 @@
 <link rel="sitemap" href="/sitemap.xml" type="application/xml">
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
-<script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.848b2e5b.css">
-<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.7f184d18.js" defer="defer"></script>
-<script src="/walrus/pr-preview/pr-3428/assets/js/main.89e11d14.js" defer="defer"></script>
+<script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.0de813de.css">
+<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.aabafd53.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3428/assets/js/main.7b19a086.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -50,7 +51,7 @@
 <li class=""><strong>Shared access</strong>, users (human or AI agents) can grant other users access to their memories. An agent could share its knowledge base with another agent, or a user could give a service read access to specific data.</li>
 <li class=""><strong>Service delegation</strong>, users can delegate privileges to services that act on their behalf, such as paying for transaction fees or storage costs, without handing over ownership.</li>
 </ul>
-<div><div class="language-mermaid codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-mermaid !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">flowchart TD</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    Owner[Owner Wallet]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    D1[Delegate A&lt;br/&gt;AI Agent]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    D2[Delegate B&lt;br/&gt;Backend Service]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    D3[Delegate C&lt;br/&gt;Shared User]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    Memory[Owner&#x27;s Memories]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain" style="display:inline-block"></span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    Owner --&gt;|grants access| D1</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    Owner --&gt;|grants access| D2</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    Owner --&gt;|grants access| D3</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    D1 --&gt;|reads/writes| Memory</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    D2 --&gt;|pays fees| Memory</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    D3 --&gt;|reads| Memory</span><br></span></code></pre></div></div></div>
+<!-- -->
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="access-control-enforcement">Access control enforcement<a href="#access-control-enforcement" class="hash-link" aria-label="Direct link to Access control enforcement" title="Direct link to Access control enforcement" translate="no">​</a></h2>
 <p>The relationship between owners and delegates is enforced on chain by the Sui smart contract system, not by application logic or database permissions.</p>
 <ul>

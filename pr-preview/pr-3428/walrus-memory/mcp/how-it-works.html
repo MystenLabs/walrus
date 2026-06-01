@@ -18,6 +18,7 @@
 
 
 
+
 <link rel="service-doc" href="/llms.txt" type="text/plain" title="LLM-optimized documentation">
 <link rel="service-doc" href="/docs/http-api" title="Walrus HTTP API Reference">
 <link rel="api-catalog" href="/.well-known/api-catalog" type="application/linkset+json">
@@ -25,9 +26,9 @@
 <link rel="sitemap" href="/sitemap.xml" type="application/xml">
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
-<script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.848b2e5b.css">
-<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.7f184d18.js" defer="defer"></script>
-<script src="/walrus/pr-preview/pr-3428/assets/js/main.89e11d14.js" defer="defer"></script>
+<script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.0de813de.css">
+<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.aabafd53.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3428/assets/js/main.7b19a086.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -64,7 +65,7 @@
 <li class="">intercepts <code>memwal_login</code> and <code>memwal_logout</code> locally instead of forwarding them upstream</li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="first-run-flow">First-run flow<a href="#first-run-flow" class="hash-link" aria-label="Direct link to First-run flow" title="Direct link to First-run flow" translate="no">​</a></h2>
-<div><div class="language-mermaid codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-mermaid !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">flowchart TD</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  A[&quot;MCP host starts memwal-mcp&quot;] --&gt; B{&quot;credentials.json exists?&quot;}</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  B -- &quot;No&quot; --&gt; C[&quot;Start auth-required mode&quot;]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  C --&gt; D[&quot;Agent can call memwal_login&quot;]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  D --&gt; E[&quot;Browser opens MemWal connect flow&quot;]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  E --&gt; F[&quot;User approves wallet sign-in&quot;]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  F --&gt; G[&quot;credentials.json written locally&quot;]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  G --&gt; H[&quot;Retry original memory tool call&quot;]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  B -- &quot;Yes&quot; --&gt; I[&quot;Start bridged mode&quot;]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  H --&gt; I</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">  I --&gt; J[&quot;Authenticated traffic reaches relayer&quot;]</span><br></span></code></pre></div></div></div>
+<!-- -->
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="credential-file">Credential file<a href="#credential-file" class="hash-link" aria-label="Direct link to Credential file" title="Direct link to Credential file" translate="no">​</a></h2>
 <p>The package stores credentials here:</p>
 <div><div class="language-text codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-text !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">~/.memwal/credentials.json</span><br></span></code></pre></div></div></div>

@@ -18,6 +18,7 @@
 
 
 
+
 <link rel="service-doc" href="/llms.txt" type="text/plain" title="LLM-optimized documentation">
 <link rel="service-doc" href="/docs/http-api" title="Walrus HTTP API Reference">
 <link rel="api-catalog" href="/.well-known/api-catalog" type="application/linkset+json">
@@ -25,9 +26,9 @@
 <link rel="sitemap" href="/sitemap.xml" type="application/xml">
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
-<script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.848b2e5b.css">
-<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.7f184d18.js" defer="defer"></script>
-<script src="/walrus/pr-preview/pr-3428/assets/js/main.89e11d14.js" defer="defer"></script>
+<script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3428/assets/css/styles.0de813de.css">
+<script src="/walrus/pr-preview/pr-3428/assets/js/runtime~main.aabafd53.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3428/assets/js/main.7b19a086.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -60,7 +61,7 @@
 <li class=""><strong>Manual client flow</strong>, use <code>MemWalManual</code> to handle encryption and embedding entirely on the client side. The relayer only sees encrypted payloads and vectors, never plaintext. This is recommended for Web3-native users who want full control over their data and are comfortable managing keys, signing, and SEAL operations directly.</li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="what-lives-where">What lives where<a href="#what-lives-where" class="hash-link" aria-label="Direct link to What lives where" title="Direct link to What lives where" translate="no">​</a></h2>
-<div><div class="language-mermaid codeBlockContainer_gyLn theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-mermaid !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_p187"><span class="token-line" style="color:#393A34"><span class="token plain">flowchart LR</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    subgraph Onchain [Onchain — trustless]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">        Contract[Ownership &amp; delegates]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    end</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    subgraph Offchain [Offchain — operator trust]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">        Relayer[Encryption, embeddings, orchestration]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">        DB[Vector search &amp; caching]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    end</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    subgraph Decentralized [Decentralized — durable]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">        Walrus[Encrypted blobs]</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    end</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain" style="display:inline-block"></span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    Contract -. verifies .-&gt; Relayer</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    Relayer --&gt; DB</span><br></span><span class="token-line" style="color:#393A34"><span class="token plain">    Relayer --&gt; Walrus</span><br></span></code></pre></div></div></div>
+<!-- -->
 <ul>
 <li class=""><strong>Onchain (trustless)</strong>: ownership, delegate keys, access control, enforced by Sui smart contracts</li>
 <li class=""><strong>Offchain (operator trust)</strong>: encryption, embedding, search, handled by the relayer and indexed database</li>
