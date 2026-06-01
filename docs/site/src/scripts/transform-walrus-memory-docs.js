@@ -527,16 +527,94 @@ const PRESERVE_CAPS = new Set([
 function sentenceCasePart(text, isFirst) {
   if (!text) return text;
   const words = text.split(/(\s+)/);
+  let needsCap = isFirst; // Track if next real word should be capitalized
   return words.map((word, wi) => {
     if (/^\s+$/.test(word)) return word;
     if (PRESERVE_CAPS.has(word)) return word;
     if (/^[A-Z]{2,}$/.test(word)) return word;
     if (/[a-z][A-Z]/.test(word) || /^[A-Z][a-z]+[A-Z]/.test(word)) return word;
-    if (isFirst && wi === 0) {
+    // Numbered prefix like "1." — skip it and capitalize the next word
+    if (/^\d+\.$/.test(word)) {
+      needsCap = true;
+      return word;
+    }
+    if ((isFirst && wi === 0) || needsCap) {
+      needsCap = false;
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     }
     return word.toLowerCase();
   }).join("");
+}
+
+// --- Prerequisites tab conversion ---
+
+function convertPrerequisites(content) {
+  // Convert ## Prerequisites followed by a bullet list into the Walrus
+  // docs outlined-tabs prerequisites component.
+  return content.replace(
+    /^(#{2,4})\s+Prerequisites\s*\n\n((?:- .+\n?)+)/gm,
+    (_, hashes, listBlock) => {
+      // Convert plain bullets to checkbox items
+      const items = listBlock
+        .trim()
+        .split("\n")
+        .map((line) => line.replace(/^- /, "- [x] "))
+        .join("\n");
+
+      return [
+        `<div className="outlined-tabs">`,
+        ``,
+        `<Tabs>`,
+        `<TabItem value="prereq" label="Prerequisites">`,
+        ``,
+        items,
+        ``,
+        `</TabItem>`,
+        `</Tabs>`,
+        ``,
+        `</div>`,
+        ``,
+      ].join("\n");
+    },
+  );
+}
+
+// --- Fix stacked headings ---
+
+function fixStackedHeadings(content) {
+  // Stacked headings (## Foo\n\n### Bar with no body text between)
+  // violate the style guide. Remove the parent heading if it has
+  // no content before the next heading — the child heading is enough.
+  const lines = content.split("\n");
+  const result = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Check if this is a heading
+    if (/^#{2,6}\s+/.test(line)) {
+      // Look ahead: skip blank lines and check if next non-blank is also a heading
+      let j = i + 1;
+      while (j < lines.length && lines[j].trim() === "") j++;
+      if (j < lines.length && /^#{2,6}\s+/.test(lines[j])) {
+        // This heading is followed by another heading with no body — skip it
+        continue;
+      }
+    }
+    result.push(line);
+  }
+
+  return result.join("\n");
+}
+
+// --- Fix numbered heading case ---
+
+function fixNumberedHeadingCase(content) {
+  // Headings like "## 1. default SDK" → "## 1. Default SDK"
+  // Capitalize the first word after the number.
+  return content.replace(
+    /^(#{2,6}\s+\d+\.\s+)([a-z])/gm,
+    (_, prefix, firstChar) => prefix + firstChar.toUpperCase(),
+  );
 }
 
 // --- Main pipeline ---
@@ -552,6 +630,11 @@ function transformFile(content) {
   result = convertTabs(result);
   result = convertSteps(result);
   result = convertAccordions(result);
+
+  // Structural fixes
+  result = convertPrerequisites(result);
+  result = fixStackedHeadings(result);
+  result = fixNumberedHeadingCase(result);
 
   // Rewrite links
   result = rewriteInternalLinks(result);
