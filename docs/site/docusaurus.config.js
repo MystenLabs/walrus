@@ -329,25 +329,20 @@ const config = {
             position: "right",
           },
           {
-            type: "dropdown",
-            label: "Apps",
-            position: "right",
-            items: [
-              {
-                type: "doc",
-                docId: "examples/index",
-                label: "Example Code",
-              },
-              {
-                label: "Walrus Memory",
-                href: "https://docs.wal.app/walrus-memory/getting-started/what-is-memwal",
-              },
-            ],
-          },
-          {
             type: "docSidebar",
             sidebarId: "operatorSidebar",
             label: "Service Providers",
+            position: "right",
+          },
+          {
+            type: "docSidebar",
+            sidebarId: "examplesSidebar",
+            label: "Example Code",
+            position: "right",
+          },
+          {
+            label: "Walrus Memory",
+            href: "https://docs.wal.app/walrus-memory/getting-started/what-is-memwal",
             position: "right",
           },
           { to: "/blog", label: "Blog", position: "right" },

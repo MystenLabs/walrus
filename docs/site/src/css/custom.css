@@ -318,76 +318,6 @@ color: #613dff !important;
 color: #98EFDD !important;
 }
 
-/* ── Navbar dropdown support ─────────────────────────────────────────
-   Tailwind v4 Preflight resets Docusaurus default dropdown styles.
-   Re-establish them to match the Infima/Docusaurus visibility approach. */
-nav.navbar .navbar__item.dropdown {
-  position: relative !important;
-}
-
-nav.navbar ul.dropdown__menu {
-  position: absolute !important;
-  top: calc(100% - 2px) !important;
-  left: 0 !important;
-  min-width: 10rem !important;
-  padding: 0.5rem 0 !important;
-  margin: 0 !important;
-  list-style: none !important;
-  background: var(--ifm-dropdown-background-color, #fff) !important;
-  border: 1px solid rgba(0, 0, 0, 0.1) !important;
-  border-radius: 0.5rem !important;
-  box-shadow: var(--ifm-global-shadow-md, 0 5px 40px rgba(0, 0, 0, 0.12)) !important;
-  z-index: var(--ifm-z-index-dropdown, 100) !important;
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
-  transform: translateY(4px) !important;
-  transition: opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease !important;
-}
-
-[data-theme="dark"] nav.navbar ul.dropdown__menu {
-  background: var(--ifm-dropdown-background-color, #242526) !important;
-  border-color: rgba(255, 255, 255, 0.1) !important;
-}
-
-nav.navbar .dropdown--hoverable:hover > ul.dropdown__menu,
-nav.navbar .dropdown--show > ul.dropdown__menu {
-  opacity: 1 !important;
-  visibility: visible !important;
-  pointer-events: all !important;
-  transform: translateY(-1px) !important;
-}
-
-nav.navbar ul.dropdown__menu li {
-  list-style: none !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-nav.navbar ul.dropdown__menu .dropdown__link {
-  display: block !important;
-  padding: 0.4rem 1rem !important;
-  color: var(--ifm-dropdown-link-color, #000) !important;
-  text-decoration: none !important;
-  font-size: 0.88rem !important;
-  font-weight: var(--ifm-dropdown-font-weight, 500) !important;
-  white-space: nowrap !important;
-}
-
-[data-theme="dark"] nav.navbar ul.dropdown__menu .dropdown__link {
-  color: #faf8f5 !important;
-}
-
-nav.navbar ul.dropdown__menu .dropdown__link:hover {
-  background: var(--ifm-dropdown-hover-background-color, rgba(0, 0, 0, 0.04)) !important;
-  color: #613dff !important;
-  text-decoration: none !important;
-}
-
-[data-theme="dark"] nav.navbar ul.dropdown__menu .dropdown__link:hover {
-  background: rgba(255, 255, 255, 0.06) !important;
-  color: #98EFDD !important;
-}
 
 .theme-doc-sidebar-menu.menu__list {
 padding-bottom: 2rem;
@@ -1441,8 +1371,7 @@ Responsive — Tight desktop (997px–1150px)
 @media (min-width: 997px) and (max-width: 1150px) {
 .navbar__inner { flex-wrap: nowrap !important; }
 
-.navbar__item.navbar__link,
-.navbar__item.dropdown > .navbar__link {
+.navbar__item.navbar__link {
 font-size: 0.7rem !important;
 padding-left: 0.3rem !important;
 padding-right: 0.3rem !important;
@@ -1483,8 +1412,7 @@ Responsive — Mid desktop (1151px–1430px)
 @media (min-width: 1151px) and (max-width: 1430px) {
 .navbar__inner { flex-wrap: nowrap !important; }
 
-.navbar__item.navbar__link,
-.navbar__item.dropdown > .navbar__link {
+.navbar__item.navbar__link {
 font-size: 0.72rem !important;
 padding-left: 0.3rem !important;
 padding-right: 0.3rem !important;
