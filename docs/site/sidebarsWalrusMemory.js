@@ -60,14 +60,12 @@ const sidebars = {
           collapsed: true,
           items: [
             "sdk/usage/memwal",
-            "sdk/usage/memwal-manual",
+            { type: "doc", id: "sdk/usage/memwal-manual", label: "`MemWalManual`" },
             { type: "doc", id: "sdk/usage/with-memwal", label: "`withMemWal`" },
           ],
         },
         { type: "doc", id: "sdk/ai-integration", label: "`@ai-sdk` Integration" },
         "sdk/examples",
-        "sdk/api-reference",
-        "sdk/changelog",
       ],
     },
     {
@@ -82,12 +80,10 @@ const sidebars = {
           collapsed: true,
           items: [
             "python-sdk/usage/memwal",
-            "python-sdk/usage/memwal-manual",
+            { type: "doc", id: "python-sdk/usage/memwal-manual", label: "`MemWalManual`" },
             { type: "doc", id: "python-sdk/usage/with-memwal", label: "`withMemWal`" },
           ],
         },
-        "python-sdk/api-reference",
-        "python-sdk/changelog",
       ],
     },
     {
@@ -114,7 +110,6 @@ const sidebars = {
         "mcp/quick-start",
         "mcp/how-it-works",
         "mcp/reference",
-        "mcp/changelog",
       ],
     },
     {
@@ -146,7 +141,6 @@ const sidebars = {
         "openclaw/quick-start",
         "openclaw/how-it-works",
         "openclaw/reference",
-        "openclaw/changelog",
       ],
     },
     {
@@ -154,6 +148,8 @@ const sidebars = {
       label: "Reference",
       collapsed: true,
       items: [
+        { type: "doc", id: "sdk/api-reference", label: "TypeScript SDK API Reference" },
+        { type: "doc", id: "python-sdk/api-reference", label: "Python SDK API Reference" },
         "reference/configuration",
         "reference/environment-variables",
       ],
