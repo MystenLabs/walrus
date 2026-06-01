@@ -294,4 +294,39 @@ if (fs.existsSync(blogDir)) {
   }
 }
 
+// Copy Walrus Memory docs (external content, read directly from transformed source)
+const walrusMemoryDir = path.join(__dirname, '../../../walrus-memory-content');
+const walrusMemoryOutputDir = path.join(outputDir, 'walrus-memory');
+if (fs.existsSync(walrusMemoryDir)) {
+  console.log('\n📝 Exporting Walrus Memory docs...');
+  fs.mkdirSync(walrusMemoryOutputDir, { recursive: true });
+  copyMarkdownFiles(walrusMemoryDir, walrusMemoryDir);
+  // Move exported files from their default output location to the walrus-memory subdirectory
+  // copyMarkdownFiles writes to outputDir based on baseDir, so we need to re-export with correct paths
+  // Actually, let's do a direct recursive copy with cleaning
+  function copyWalrusMemoryFiles(dir, baseDir) {
+    const files = fs.readdirSync(dir);
+    files.forEach(file => {
+      const filePath = path.join(dir, file);
+      const stat = fs.statSync(filePath);
+      if (stat.isDirectory()) {
+        copyWalrusMemoryFiles(filePath, baseDir);
+      } else if (file.endsWith('.md') || file.endsWith('.mdx')) {
+        const content = fs.readFileSync(filePath, 'utf8');
+        if (shouldSkip(content)) return;
+        const cleanContent = stripFrontmatter(content, filePath, baseDir);
+        if (!cleanContent.trim()) return;
+        const relativePath = path.relative(baseDir, filePath);
+        const outPath = path.join(walrusMemoryOutputDir, relativePath.replace(/\.mdx?$/, '.md'));
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        fs.writeFileSync(outPath, cleanContent, 'utf8');
+        console.log(`  ✔ Walrus Memory: ${relativePath}`);
+      }
+    });
+  }
+  copyWalrusMemoryFiles(walrusMemoryDir, walrusMemoryDir);
+} else {
+  console.log('\n⏩ Walrus Memory docs not found, skipping export');
+}
+
 console.log('\n✅ Markdown files exported successfully');

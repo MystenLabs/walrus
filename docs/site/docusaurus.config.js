@@ -208,6 +208,18 @@ const config = {
     },
 
     path.resolve(__dirname, "./src/shared/plugins/descriptions"),
+
+    [
+      "@docusaurus/plugin-content-docs",
+      {
+        id: "walrus-memory",
+        path: "../walrus-memory-content",
+        routeBasePath: "walrus-memory",
+        sidebarPath: "./sidebarsWalrusMemory.js",
+        remarkPlugins: [remarkMath],
+        rehypePlugins: [rehypeKatex],
+      },
+    ],
   ],
 
   presets: [
@@ -315,6 +327,19 @@ const config = {
             sidebarId: "sitesSidebar",
             label: "Walrus Sites",
             position: "right",
+          },
+          {
+            type: "dropdown",
+            label: "Apps",
+            position: "right",
+            items: [
+              {
+                type: "docSidebar",
+                docsPluginId: "walrus-memory",
+                sidebarId: "walrusMemorySidebar",
+                label: "Walrus Memory",
+              },
+            ],
           },
           {
             type: "docSidebar",
