@@ -216,6 +216,7 @@ const sidebars = {
           items: [
               "operator-guide/publishers/operating-publisher",
               "operator-guide/publishers/auth-publisher",
+              "operator-guide/publishers/mainnet-production-guide",
           ],
       },
       "operator-guide/aggregators/operating-aggregator",

@@ -1,0 +1,84 @@
+---
+title: Mainnet Publisher Production Guide
+description: Production guidance for running private Mainnet publishers on Walrus.
+keywords: [walrus, publisher, Mainnet, production, authenticated publisher, upload relay]
+---
+
+Walrus does not provide a public unauthenticated publisher on Mainnet. There are no plans to create one because the publisher pays SUI and WAL for every blob it stores. On Mainnet, a publisher must be privately operated for a specific application, service, or organization.
+
+Use this guide to decide whether a Mainnet publisher is the right upload path and how to operate one safely.
+
+:::caution Do not run an open Mainnet publisher
+
+An unauthenticated Mainnet publisher lets anyone spend the publisher wallet's SUI and WAL. If you run a Mainnet publisher, restrict access with authentication, network controls, or both.
+
+:::
+
+## Choose the right upload path
+
+Use a publisher when your service needs an HTTP upload interface and you are prepared to operate the wallet, authentication, and cost controls behind it.
+
+| Upload path | Best for | Who pays |
+| --- | --- | --- |
+| Private authenticated publisher | Backend services and controlled clients that need an HTTP `PUT /v1/blobs` interface | Publisher operator |
+| Upload Relay | Browser or mobile clients that need a relay-managed upload path | Client or relay policy |
+| TypeScript SDK | Applications that can integrate Walrus directly and manage signing in code | Application wallet or signer |
+| Walrus CLI | Operators, scripts, and manual uploads | CLI wallet |
+
+For HTTP request examples, see [Storing Blobs](/docs/http-api/storing-blobs). For direct SDK usage, see [Software Development Kits (SDKs) and Other Tools](/docs/typescript-sdk/sdks). For relay-based uploads, see [Operate an Upload Relay](/docs/operator-guide/upload-relay).
+
+## Recommended Mainnet setup
+
+For production Mainnet usage, run a private publisher with authentication enabled:
+
+1. Follow [Operate a Publisher](/docs/operator-guide/publishers/operating-publisher) to install, configure, fund, and run the publisher.
+1. Follow [Use the Authenticated Publisher](/docs/operator-guide/publishers/auth-publisher) to restrict uploads to authorized clients.
+1. Put the publisher behind a reverse proxy or private network boundary.
+1. Monitor the publisher wallet's SUI and WAL balances.
+1. Rotate credentials and restrict who can issue upload tokens.
+
+Do not rely on community publishers for production uploads. Community endpoints can change, go offline, add restrictions, or expose different cost and reliability expectations.
+
+## Protect the publisher wallet
+
+A publisher performs onchain actions and pays storage costs. Treat its wallet as production infrastructure:
+
+- Use a dedicated publisher wallet, separate from storage node wallets and personal wallets.
+- Fund the wallet only with the SUI and WAL required for expected usage.
+- Monitor SUI and WAL balances and alert before they run low.
+- Restrict access to the host, configuration files, and sub-wallet directory.
+- Review sub-wallet behavior in [Operate a Publisher](/docs/operator-guide/publishers/operating-publisher#sub-wallets-concurrency).
+
+## Control access and cost exposure
+
+A private publisher should reject uploads from unauthorized clients before it spends tokens.
+
+Use the [authenticated publisher](/docs/operator-guide/publishers/auth-publisher) when clients need to upload through your publisher. The authenticated publisher validates upload tokens before accepting writes.
+
+For additional controls, consider:
+
+- Network allowlists for backend-only publishers.
+- Short-lived upload tokens.
+- Per-client size and rate limits.
+- Separate publishers or wallets for staging and production.
+- Logs and metrics for accepted, rejected, and failed uploads.
+
+## Configure CORS intentionally
+
+Only enable cross-origin resource sharing (CORS) for browser clients that must call the publisher directly. If uploads come through your backend, keep the publisher private and avoid exposing it to browsers.
+
+When browser access is required, restrict allowed origins to your application domains and test preflight requests before production launch.
+
+## Plan for failover
+
+If your application depends on a publisher, plan how uploads behave when it is unavailable:
+
+- Run health checks for the publisher endpoint.
+- Keep enough SUI and WAL in the publisher wallet for expected traffic.
+- Monitor failed writes and insufficient-balance errors.
+- Decide whether clients can fall back to another private publisher, an upload relay, or a direct SDK path.
+- Document the expected retry behavior for your application.
+
+## What this guide does not cover
+
+This guide does not define a sponsored or walletless upload product. If your application needs users to submit data without holding WAL or signing Walrus transactions, treat that as a separate application architecture. The publisher remains private infrastructure that your service operates and funds.
