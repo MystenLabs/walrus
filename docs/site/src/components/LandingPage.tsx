@@ -86,7 +86,7 @@ html, body { background: #0d0f12 !important; }
 /* ── Topbar ── */
 .landing-root .topbar {
   position: sticky; top: 0; z-index: 50;
-  background: rgba(28, 34, 40, 0.92);
+  background: rgba(200, 205, 210, 0.12);
   backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid var(--border);
 }
