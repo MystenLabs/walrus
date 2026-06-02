@@ -25,13 +25,27 @@ Sui and Walrus each have the following available [networks](/docs/system-overvie
 
 When you are getting started, you should use Testnet.
 
-##step Install tooling
+## Choose your upload path
 
-:::info
+Walrus supports several upload paths. Choose the best path for your use case based on where the upload runs, who manages signing, and who operates the payment and authentication boundary.
 
-You can use the Walrus HTTP API with a Testnet publisher endpoint to upload and retrieve blobs with no downloads, installation, wallet, or tokens required. [Learn more](/docs/http-api/storing-blobs).
+| **Upload path** | **Use case** | **Start here** |
+| --- | --- | --- |
+| Walrus CLI | Local development, scripts, and operator workflows | Continue with this guide, then see [Store blobs with the Walrus client](/docs/walrus-client/storing-blobs) |
+| HTTP API publisher | Quick Testnet uploads or services that already use HTTP | [Storing Blobs with the HTTP API](/docs/http-api/storing-blobs) |
+| TypeScript SDK | Applications that integrate Walrus directly in code | [Software Development Kits (SDKs) and Other Tools](/docs/typescript-sdk/sdks) |
+| Upload Relay | Browser or mobile clients that need a relay-managed upload path | [Operate an Upload Relay](/docs/operator-guide/upload-relay) |
+| Private authenticated publisher | Controlled Mainnet clients that need an HTTP upload interface | [Mainnet Publisher Production Guide](/docs/operator-guide/publishers/mainnet-production-guide) |
+
+:::caution Mainnet publisher availability
+
+Walrus does not provide a public unauthenticated publisher on Mainnet. For production Mainnet uploads, run a private authenticated publisher, use an upload relay, or integrate directly with the TypeScript SDK.
 
 :::
+
+The rest of this guide uses the Walrus CLI on Testnet because it shows the full setup flow: installing tools, configuring a wallet, getting Testnet tokens, storing a blob, and reading it back.
+
+##step Install tooling
 
 To install Walrus and Sui, use the Mysten Labs `suiup` tool.
 
