@@ -67,7 +67,7 @@ html, body { background: #0d0f12 !important; }
 /* \u{2500}\u{2500} Topbar \u{2500}\u{2500} */
 .landing-root .topbar {
   position: sticky; top: 0; z-index: 50;
-  background: rgba(200, 205, 210, 0.12);
+  background: rgba(255, 255, 255, 0.07);
   backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid var(--border);
 }
