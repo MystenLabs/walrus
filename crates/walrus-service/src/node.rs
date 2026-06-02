@@ -676,6 +676,8 @@ pub struct StorageNodeInner {
     consistency_check_config: StorageNodeConsistencyCheckConfig,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
     garbage_collection_config: GarbageCollectionConfig,
+    // Server-side cap on the `sliver_count` a sync-shard request may ask for; `None` disables it.
+    max_sliver_count_per_sync_request: Option<usize>,
     recovery_deferrals: RecoveryDeferrals,
     recovery_deferral_notify: Arc<Notify>,
     recovery_deferral_cleanup_token: CancellationToken,
@@ -876,6 +878,9 @@ impl StorageNode {
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
             garbage_collection_config: config.garbage_collection,
+            max_sliver_count_per_sync_request: config
+                .shard_sync_config
+                .max_sliver_count_per_sync_request,
             recovery_deferrals: std::sync::Arc::new(RwLock::new(Default::default())),
             recovery_deferral_notify: Arc::new(Notify::new()),
             recovery_deferral_cleanup_token: CancellationToken::new(),
@@ -4852,7 +4857,11 @@ impl ServiceState for StorageNodeInner {
         }
 
         self.storage
-            .handle_sync_shard_request(request, current_committee.epoch)
+            .handle_sync_shard_request(
+                request,
+                current_committee.epoch,
+                self.max_sliver_count_per_sync_request,
+            )
             .await
     }
 }
@@ -4943,10 +4952,9 @@ mod tests {
     };
 
     use chrono::Utc;
-    use config::ShardSyncConfig;
+    use config::{DEFAULT_MAX_SLIVER_COUNT_PER_SYNC_REQUEST, ShardSyncConfig};
     use contract_service::MockSystemContractService;
     use storage::{
-        MAX_SLIVER_COUNT_PER_SYNC_REQUEST,
         ShardStatus,
         tests::{BLOB_ID, OTHER_SHARD_INDEX, SHARD_INDEX, WhichSlivers, populated_storage},
     };
@@ -7654,7 +7662,7 @@ mod tests {
             matches!(
                 result,
                 Err(SyncShardServiceError::RequestedSliverCountExceedsLimit { limit, .. })
-                    if limit == MAX_SLIVER_COUNT_PER_SYNC_REQUEST
+                    if limit == DEFAULT_MAX_SLIVER_COUNT_PER_SYNC_REQUEST
             ),
             "expected RequestedSliverCountExceedsLimit, got {result:?}"
         );

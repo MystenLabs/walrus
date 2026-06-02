@@ -81,17 +81,6 @@ mod shard;
 
 pub(crate) use shard::{PrimarySliverData, SecondarySliverData, ShardStatus, ShardStorage};
 
-/// Hard server-side upper bound on the `sliver_count` a single sync-shard request may ask for.
-///
-/// `sliver_count` is taken from the request and is otherwise only bounded on the requester side, so
-/// requests above this limit are rejected before the response vector is allocated, keeping the
-/// allocation bounded. The default requester batch size is
-/// [`ShardSyncConfig::sliver_count_per_sync_request`] (1000); this leaves ample headroom for
-/// operators that tune it upward.
-///
-/// [`ShardSyncConfig::sliver_count_per_sync_request`]: super::config::ShardSyncConfig
-pub(crate) const MAX_SLIVER_COUNT_PER_SYNC_REQUEST: usize = 100_000;
-
 /// The status of the node.
 ///
 /// ```text
@@ -1224,6 +1213,7 @@ impl Storage {
         &self,
         request: &SyncShardRequest,
         current_epoch: Epoch,
+        max_sliver_count: Option<usize>,
     ) -> Result<SyncShardResponse, SyncShardServiceError> {
         #[cfg(msim)]
         {
@@ -1238,12 +1228,15 @@ impl Storage {
         }
 
         // Bound `sliver_count` before it sizes the `Vec::with_capacity` allocation below; it comes
-        // from the request and is otherwise only limited on the requester side.
+        // from the request and is otherwise only limited on the requester side. `None` disables the
+        // bound, which an operator can configure if it interferes with shard sync.
         let sliver_count = request.sliver_count();
-        if sliver_count > MAX_SLIVER_COUNT_PER_SYNC_REQUEST {
+        if let Some(limit) = max_sliver_count
+            && sliver_count > limit
+        {
             return Err(SyncShardServiceError::RequestedSliverCountExceedsLimit {
                 requested: sliver_count,
-                limit: MAX_SLIVER_COUNT_PER_SYNC_REQUEST,
+                limit,
             });
         }
 
@@ -2178,7 +2171,7 @@ pub(crate) mod tests {
         );
         let SyncShardResponse::V1(slivers) = storage
             .as_ref()
-            .handle_sync_shard_request(&request, 2)
+            .handle_sync_shard_request(&request, 2, None)
             .await?;
 
         // Verify response matches expected
@@ -2206,7 +2199,7 @@ pub(crate) mod tests {
             SyncShardRequest::new(ShardIndex(123), SliverType::Primary, BlobId([1; 32]), 1, 1);
         let response = storage
             .as_ref()
-            .handle_sync_shard_request(&request, 0)
+            .handle_sync_shard_request(&request, 0, None)
             .await
             .unwrap_err();
 
