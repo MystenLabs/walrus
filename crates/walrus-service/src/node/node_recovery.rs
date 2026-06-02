@@ -137,12 +137,23 @@ impl NodeRecoveryHandler {
                         continue;
                     }
 
-                    // The node will only enter recovery mode if it has caught up to the latest
-                    // epoch. So we only need to check the latest epoch for the shard assignment.
-                    if let Ok(stored_at_all_shards) =
-                        node.is_stored_at_all_shards_at_latest_epoch(&blob_id).await
+                    // Check storage against the shards owned at `certified_before_epoch`, the
+                    // epoch this recovery is for. The committee may already have advanced past
+                    // this epoch (for example, the node is `RecoveryInProgress(N)` while the
+                    // committee is at `N + 1`), in which case the latest committee assigns this
+                    // node shards whose local storage event processing has not created yet. Those
+                    // shards exist only from the next epoch's perspective and are populated when
+                    // the corresponding epoch-change event is processed. Checking the latest epoch
+                    // would treat such a not-yet-created shard as a missing blob, so recovery would
+                    // start syncs that can never make the check converge. Anchoring to
+                    // `certified_before_epoch` keeps the check aligned with the shards the
+                    // concurrent blob sync actually recovers (it uses `current_event_epoch`, which
+                    // equals `certified_before_epoch` for the life of this recovery task).
+                    match node
+                        .is_stored_at_all_shards_at_epoch(&blob_id, certified_before_epoch)
+                        .await
                     {
-                        if stored_at_all_shards {
+                        Ok(true) => {
                             tracing::debug!(
                                 walrus.blob_certified_before_epoch = certified_before_epoch,
                                 walrus.current_epoch = node.current_committee_epoch(),
@@ -150,11 +161,23 @@ impl NodeRecoveryHandler {
                             );
                             continue;
                         }
-                    } else {
-                        tracing::warn!(
-                            walrus.blob_id = %blob_id,
-                            "failed to check if blob is stored at all shards; start blob sync"
-                        );
+                        Ok(false) => {}
+                        Err(error) => {
+                            // The shard assignment for `certified_before_epoch` is no longer
+                            // available, which means the committee has advanced more than one
+                            // epoch past it. A newer epoch-change event will restart recovery for
+                            // the latest epoch, so stop this run rather than spin on a check that
+                            // cannot resolve. The node stays in `RecoveryInProgress` until then.
+                            tracing::warn!(
+                                walrus.blob_id = %blob_id,
+                                certified_before_epoch,
+                                current_committee_epoch = node.current_committee_epoch(),
+                                ?error,
+                                "cannot resolve shard assignment for the recovery epoch; stopping \
+                                recovery until event processing advances to restart it"
+                            );
+                            return;
+                        }
                     }
 
                     // There are more blobs to recover.
