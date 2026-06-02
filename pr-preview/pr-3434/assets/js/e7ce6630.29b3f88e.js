@@ -67,7 +67,7 @@ html, body { background: #0d0f12 !important; }
 /* \u{2500}\u{2500} Topbar \u{2500}\u{2500} */
 .landing-root .topbar {
   position: sticky; top: 0; z-index: 50;
-  background: rgba(13, 15, 18, 0.85);
+  background: rgba(28, 34, 40, 0.92);
   backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid var(--border);
 }
@@ -83,17 +83,17 @@ html, body { background: #0d0f12 !important; }
 .landing-root .topbar-logo svg {
   height: 28px; width: auto; margin-bottom: 3px; color: var(--white);
 }
-.landing-root .topbar-logo .sep { color: rgba(0,0,0,0.2); font-weight: 300; font-size: 2rem; }
-.landing-root .topbar-logo .docs-label { color: rgba(0,0,0,0.4); font-weight: 700; font-size: 2rem; }
+.landing-root .topbar-logo .sep { color: rgba(255,255,255,0.2); font-weight: 300; font-size: 2rem; }
+.landing-root .topbar-logo .docs-label { color: rgba(255,255,255,0.5); font-weight: 700; font-size: 2rem; }
 .landing-root .topbar-links { display: flex; gap: 6px; align-items: center; }
 .landing-root .topbar-links a {
   font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
-  color: rgba(0,0,0,0.5); transition: all 0.2s;
+  color: rgba(255,255,255,0.6); transition: all 0.2s;
 }
-.landing-root .topbar-links a:hover { color: var(--white); background: rgba(0,0,0,0.04); }
+.landing-root .topbar-links a:hover { color: var(--white); background: rgba(255,255,255,0.06); }
 .landing-root .topbar-links a.primary {
-  color: var(--white); background: var(--black);
-  border: 1px solid var(--border); font-weight: 500;
+  color: var(--white); background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15); font-weight: 500;
 }
 .landing-root .topbar-links a.primary:hover {
   background: var(--purple-dim); border-color: var(--purple);
@@ -157,7 +157,7 @@ html, body { background: #0d0f12 !important; }
 .landing-root .qs-card:hover {
   border-color: var(--purple); background: var(--surface-hover);
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.06);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
 }
 .landing-root .qs-card .qs-icon {
   width: 34px; height: 34px; border-radius: 9px;
@@ -334,7 +334,7 @@ html, body { background: #0d0f12 !important; }
   flex-wrap: wrap; gap: 16px;
 }
 .landing-root .footer-left {
-  font-size: 0.75rem; color: rgba(0,0,0,0.25);
+  font-size: 0.75rem; color: rgba(255,255,255,0.3);
 }
 .landing-root .footer-right {
   display: flex; gap: 20px;
