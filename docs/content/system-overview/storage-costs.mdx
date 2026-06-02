@@ -8,18 +8,6 @@ When choosing a platform to store and verify data, you should consider reliabili
 
 ## Estimate storage costs
 
-Use the embedded Walrus Cost Calculator to estimate storage costs before you upload. The calculator models storage size, duration, encoding overhead, WAL storage costs, and SUI transaction costs together.
-
-<iframe
-  src="https://costcalculator.wal.app/"
-  title="Walrus Cost Calculator"
-  width="100%"
-  height="720"
-  style={{ border: 0, borderRadius: '8px' }}
-/>
-
-If the calculator does not load, open the [Walrus Cost Calculator](https://costcalculator.wal.app/) in a new tab.
-
 For command-line estimates, run `walrus info` to view current storage prices and upload fees. You can also run `walrus store --dry-run ...` to see the encoded size used in WAL cost calculations without submitting transactions.
 
 ## How pricing works
@@ -34,7 +22,7 @@ You also pay **SUI** for executing transactions on Sui Mainnet. Each operation t
 
 :::tip
 
-Walrus uses erasure coding with approximately 5x expansion. The cost calculator and `walrus info` account for this. You do not need to calculate the expansion yourself.
+Walrus uses erasure coding with approximately 5x expansion. The `walrus info` command accounts for this. You do not need to calculate the expansion yourself.
 
 :::
 
