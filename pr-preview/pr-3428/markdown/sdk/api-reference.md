@@ -17,7 +17,7 @@ Config:
 | --- | --- | --- | --- | --- |
 | `key` | `string` | Yes | | Ed25519 delegate private key in hex |
 | `accountId` | `string` | Yes | | MemWalAccount object ID on Sui |
-| `serverUrl` | `string` | No | `https://relayer.memwal.ai` | Relayer URL |
+| `serverUrl` | `string` | No | `https://relayer.memory.walrus.xyz` | Relayer URL |
 | `namespace` | `string` | No | `"default"` | Default namespace for memory isolation |
 
 For the full config surface, see [Configuration](/walrus-memory/reference/configuration).

@@ -144,7 +144,7 @@ Use HTTP transport when the MCP host can connect directly to a remote MCP URL an
 The typical endpoint is:
 
 ```text
-https://relayer.memwal.ai/api/mcp
+https://relayer.memory.walrus.xyz/api/mcp
 ```
 
 with request headers:

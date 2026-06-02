@@ -22,14 +22,14 @@ You also need a **delegate key**, **account ID**, and **relayer URL** from Walru
     | **Account ID** | Your MemWalAccount object ID on Sui (`0x...`) |
     | **Relayer URL** | The Walrus Memory relayer endpoint that handles search, storage, and encryption |
 
-    The easiest way to get your delegate key and account ID is through the [Walrus Memory dashboard](https://memwal.ai). See the [main Quick Start](/walrus-memory/getting-started/quick-start) for detailed setup instructions.
+    The easiest way to get your delegate key and account ID is through the [Walrus Memory dashboard](https://memory.walrus.xyz). See the [main Quick Start](/walrus-memory/getting-started/quick-start) for detailed setup instructions.
 
     For the relayer URL, use a managed endpoint or deploy your own:
 
     | Environment | Relayer URL |
     |-------------|-------------|
-    | **Production** (Mainnet) | `https://relayer.memwal.ai` |
-    | **Development** (Testnet) | `https://relayer.dev.memwal.ai` |
+    | **Production** (Mainnet) | `https://relayer.memory.walrus.xyz` |
+    | **Development** (Testnet) | `https://relayer.dev.memory.walrus.xyz` |
 
     :::info
 These managed relayer endpoints are provided as a public good by Walrus Foundation.
@@ -58,7 +58,7 @@ These managed relayer endpoints are provided as a public good by Walrus Foundati
             "config": {
               "privateKey": "${MEMWAL_PRIVATE_KEY}",           // References the env var
               "accountId": "0x3247e3da...",                     // Your account ID from the dashboard
-              "serverUrl": "https://relayer.dev.memwal.ai"     // Or your self-hosted relayer
+              "serverUrl": "https://relayer.dev.memory.walrus.xyz"     // Or your self-hosted relayer
             }
           }
         }

@@ -3,7 +3,7 @@
 This page gets you from zero to a working Walrus Memory MCP server inside Cursor, Claude Desktop, Claude Code, or Codex.
 
 - [x] **Node.js 20** or newer (`node -v` to check)
-- [x] A **Sui wallet** with the Walrus Memory app authorized, Sui Wallet, Suiet, Phantom, or any [Sui-compatible wallet](https://memwal.ai)
+- [x] A **Sui wallet** with the Walrus Memory app authorized, Sui Wallet, Suiet, Phantom, or any [Sui-compatible wallet](https://memory.walrus.xyz)
 - [x] An **MCP-aware client**: Cursor, Claude Desktop, Claude Code, Codex, Antigravity, or another MCP host
 
 No npm install needed, `npx` fetches the `@mysten-incubation/memwal-mcp` package on demand.
@@ -24,7 +24,7 @@ For most teams, the best default is:
 
 ### Sign in with your Sui wallet
 
-    Run the login flow once from your terminal. Your browser opens to `https://memwal.ai/connect/mcp`, approve the connection in your Sui wallet.
+    Run the login flow once from your terminal. Your browser opens to `https://memory.walrus.xyz/connect/mcp`, approve the connection in your Sui wallet.
 
     ```bash
     npx -y @mysten-incubation/memwal-mcp login --prod
@@ -151,7 +151,7 @@ If your MCP client supports remote servers with custom headers, you can connect 
 
 Use:
 
-- URL: `https://relayer.memwal.ai/api/mcp`
+- URL: `https://relayer.memory.walrus.xyz/api/mcp`
 - Header: `Authorization: Bearer <delegatePrivateKey>`
 - Header: `x-memwal-account-id: <accountId>`
 
@@ -189,7 +189,7 @@ Ask the agent to call `memwal_logout`, or run from your terminal:
 $ npx -y @mysten-incubation/memwal-mcp --logout
 ```
 
-This deletes the local credentials file. The onchain delegate key is **not** revoked, visit the [Walrus Memory dashboard](https://memwal.ai) to remove it from your account if needed.
+This deletes the local credentials file. The onchain delegate key is **not** revoked, visit the [Walrus Memory dashboard](https://memory.walrus.xyz) to remove it from your account if needed.
 
 ## Next steps
 

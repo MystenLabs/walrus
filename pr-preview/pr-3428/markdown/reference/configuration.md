@@ -13,7 +13,7 @@ Used by:
 | --- | --- | --- |
 | `key` | yes | Delegate private key in hex |
 | `accountId` | yes | MemWalAccount object ID on Sui |
-| `serverUrl` | no | Relayer URL. Default: `https://relayer.memwal.ai` |
+| `serverUrl` | no | Relayer URL. Default: `https://relayer.memory.walrus.xyz` |
 | `namespace` | no | Default memory boundary. Default: `"default"` |
 
 ## `MemWalManualConfig`

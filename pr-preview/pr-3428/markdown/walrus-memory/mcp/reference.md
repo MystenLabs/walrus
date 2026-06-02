@@ -67,7 +67,7 @@ Remove the saved credentials from this machine (`~/.memwal/credentials.json`). T
 
 > **Warning**
 >
-> The onchain delegate key registration is **not** revoked by `memwal_logout`, only the local file is wiped. Visit the [Walrus Memory dashboard](https://memwal.ai) to remove the delegate key from your account.
+> The onchain delegate key registration is **not** revoked by `memwal_logout`, only the local file is wiped. Visit the [Walrus Memory dashboard](https://memory.walrus.xyz) to remove the delegate key from your account.
 > **Note**
 >
 > Both session tools (`memwal_login`, `memwal_logout`) are intercepted locally by the stdio package and never reach the relayer. They read and write files on the client machine only.
@@ -164,9 +164,9 @@ Shortcut flags that set both the relayer and the dashboard URL in one switch:
 
 | Flag | Relayer | Dashboard |
 | --- | --- | --- |
-| `--prod` | `https://relayer.memwal.ai` | `https://memwal.ai` |
-| `--dev` | `https://relayer.dev.memwal.ai` | `https://dev.memwal.ai` |
-| `--staging` | `https://relayer.staging.memwal.ai` | `https://staging.memwal.ai` |
+| `--prod` | `https://relayer.memory.walrus.xyz` | `https://memory.walrus.xyz` |
+| `--dev` | `https://relayer.dev.memory.walrus.xyz` | `https://dev.memory.walrus.xyz` |
+| `--staging` | `https://relayer.staging.memory.walrus.xyz` | `https://staging.memory.walrus.xyz` |
 | `--local` | `http://127.0.0.1:8000` | `http://localhost:5173` |
 
 Explicit `--relayer` and `--web-url` override the preset. You can also pass either flag without a preset to point at a custom URL.
@@ -178,7 +178,7 @@ Walrus Memory supports two MCP connection modes.
 | Mode | Best for | Configured through |
 | --- | --- | --- |
 | **stdio package** | Clients that run local MCP commands (most clients today) | `npx -y @mysten-incubation/memwal-mcp` in the client config |
-| **Streamable HTTP** | Clients that support remote HTTP MCP servers | `url: "https://relayer.memwal.ai/api/mcp"` + auth headers |
+| **Streamable HTTP** | Clients that support remote HTTP MCP servers | `url: "https://relayer.memory.walrus.xyz/api/mcp"` + auth headers |
 
 ### Streamable HTTP
 
@@ -188,7 +188,7 @@ Use HTTP transport when your client supports remote MCP servers natively. Authen
 {
   "mcpServers": {
     "memwal": {
-      "url": "https://relayer.memwal.ai/api/mcp",
+      "url": "https://relayer.memory.walrus.xyz/api/mcp",
       "headers": {
         "Authorization": "Bearer <YOUR_DELEGATE_PRIVATE_KEY>",
         "x-memwal-account-id": "<YOUR_ACCOUNT_ID>"
@@ -206,7 +206,7 @@ The bearer token is the `delegatePrivateKey` from `~/.memwal/credentials.json`. 
 For Claude Code, the equivalent registration command is:
 
 ```bash
-$ claude mcp add --transport http memwal https://relayer.memwal.ai/api/mcp
+$ claude mcp add --transport http memwal https://relayer.memory.walrus.xyz/api/mcp
 ```
 
 If your client cannot attach headers from the CLI, edit the generated MCP config file to add them manually.

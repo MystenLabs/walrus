@@ -56,7 +56,7 @@ from memwal import MemWal
 memwal = MemWal.create(
     key="<your-ed25519-private-key>",
     account_id="<your-memwal-account-id>",
-    server_url="https://relayer.memwal.ai",
+    server_url="https://relayer.memory.walrus.xyz",
     namespace="demo",
 )
 ```

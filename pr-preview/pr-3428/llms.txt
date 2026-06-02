@@ -178,6 +178,10 @@ Sui smart contract as the on-chain index.
     authenticated publisher as a building block for services that need to store data over HTTP on
     Walrus Mainnet, where an open publisher is undesirable because of the SUI and WAL cost of
     publishing to Walrus.
+- [Mainnet Production Guide](https://docs.wal.app/docs/operator-guide/publishers/mainnet-production-guide.md):
+    Walrus does not provide a public unauthenticated publisher on Mainnet. There are no plans to
+    create one because the publisher must pay SUI and WAL for every blob it stores. On Mainnet, a
+    publisher should be privately operated for a specific application, service, or organization.
 - [Operating Publisher](https://docs.wal.app/docs/operator-guide/publishers/operating-publisher.md):
     The publisher and daemon perform onchain actions and require a Sui wallet with sufficient SUI
     and WAL balances. To handle many parallel requests without object conflicts, they create
@@ -539,8 +543,9 @@ Sui smart contract as the on-chain index.
     synchronous wrapper.
 - [Changelog](https://docs.wal.app/docs/python-sdk/changelog.md):
     Track what's new, changed, and fixed in memwal (Python). For the latest version, see the PyPI
-    project page. Added RecallParams for object-style recall(...) calls. Changed the default
-    restore limit from 50 to 10 to match the relayer and TypeScript SDK.
+    project page.
+- [Colab](https://docs.wal.app/docs/python-sdk/colab.md):
+    Use the runnable Walrus Memory Python SDK Colab when you want a notebook-first walkthrough.
 - [Quick Start](https://docs.wal.app/docs/python-sdk/quick-start.md):
     The Walrus Memory Python SDK (memwal on PyPI) gives your agents portable memory that works
     across apps, sessions, and workflows. Store, recall, and analyze context, fully under your
@@ -625,9 +630,9 @@ Sui smart contract as the on-chain index.
 - [API Reference](https://docs.wal.app/docs/sdk/api-reference.md):
     See also: Configuration Relayer API Config: | Property | Type | Required | Default | Notes | |
     --- | --- | --- | --- | --- | | key | string | Yes | | Ed25519 delegate private key in hex | |
-    accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No |
-    https://relayer.memwal.ai | Relayer URL | | namespace | string | No | "default" | Default
-    namespace for memory isolation | For the full config surface, see Configuration.
+    accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No | |
+    Relayer URL | | namespace | string | No | "default" | Default namespace for memory isolation |
+    For the full config surface, see Configuration.
 - [Changelog](https://docs.wal.app/docs/sdk/changelog.md):
     Added RecallParams for object-style recall(...) calls. Marked the positional recall(...)
     overload as deprecated in favor of . Documented restore response fields, default limit,
@@ -777,8 +782,9 @@ Sui smart contract as the on-chain index.
     synchronous wrapper.
 - [Changelog](https://docs.wal.app/docs/walrus-memory/python-sdk/changelog.md):
     Track what's new, changed, and fixed in memwal (Python). For the latest version, see the PyPI
-    project page. Added RecallParams for object-style recall(...) calls. Changed the default
-    restore limit from 50 to 10 to match the relayer and TypeScript SDK.
+    project page.
+- [Colab](https://docs.wal.app/docs/walrus-memory/python-sdk/colab.md):
+    Use the runnable Walrus Memory Python SDK Colab when you want a notebook-first walkthrough.
 - [Quick Start](https://docs.wal.app/docs/walrus-memory/python-sdk/quick-start.md):
     The Walrus Memory Python SDK (memwal on PyPI) gives your agents portable memory that works
     across apps, sessions, and workflows. Store, recall, and analyze context, fully under your
@@ -854,9 +860,9 @@ Sui smart contract as the on-chain index.
 - [API Reference](https://docs.wal.app/docs/walrus-memory/sdk/api-reference.md):
     See also: Configuration Relayer API Config: | Property | Type | Required | Default | Notes | |
     --- | --- | --- | --- | --- | | key | string | Yes | | Ed25519 delegate private key in hex | |
-    accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No |
-    https://relayer.memwal.ai | Relayer URL | | namespace | string | No | "default" | Default
-    namespace for memory isolation | For the full config surface, see Configuration.
+    accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No | |
+    Relayer URL | | namespace | string | No | "default" | Default namespace for memory isolation |
+    For the full config surface, see Configuration.
 - [Changelog](https://docs.wal.app/docs/walrus-memory/sdk/changelog.md):
     Added RecallParams for object-style recall(...) calls. Marked the positional recall(...)
     overload as deprecated in favor of . Documented restore response fields, default limit,
