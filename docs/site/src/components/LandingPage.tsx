@@ -24,43 +24,43 @@ const LANDING_CSS = `
 #copy-page-button-container { display: none !important; }
 
 #__docusaurus_skipToContent_fallback {
-  background: #FFFFFF !important; padding: 0 !important; margin: 0 !important;
+  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important;
 }
 #__docusaurus_skipToContent_fallback > main,
 #__docusaurus_skipToContent_fallback > main.container,
 #__docusaurus_skipToContent_fallback > main.container--fluid {
-  background: #FFFFFF !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
+  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
 }
 #__docusaurus_skipToContent_fallback .margin-vert--lg { margin: 0 !important; }
 #__docusaurus_skipToContent_fallback .row {
-  background: #FFFFFF !important; padding: 0 !important; margin: 0 !important;
+  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important;
 }
 #__docusaurus_skipToContent_fallback .col {
-  background: #FFFFFF !important; padding: 0 !important;
+  background: #0d0f12 !important; padding: 0 !important;
   max-width: 100% !important; flex: none !important; width: 100% !important;
 }
 #__docusaurus_skipToContent_fallback article {
-  background: #FFFFFF !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
+  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
 }
-html, body { background: #FFFFFF !important; }
-[class*="mainWrapper"] { background: #FFFFFF !important; padding-top: 0 !important; }
-[class*="mdxPageWrapper"] { background: #FFFFFF !important; padding: 0 !important; margin: 0 !important; }
+html, body { background: #0d0f12 !important; }
+[class*="mainWrapper"] { background: #0d0f12 !important; padding-top: 0 !important; }
+[class*="mdxPageWrapper"] { background: #0d0f12 !important; padding: 0 !important; margin: 0 !important; }
 
 /* ── Landing root ── */
 .landing-root {
-  --white: #000000;
-  --black: #FFFFFF;
-  --purple: #613DFF;
-  --purple-dim: rgba(97,61,255,0.08);
-  --purple-hover: rgba(97,61,255,0.12);
+  --white: #faf8f5;
+  --black: #0d0f12;
+  --purple: #CAB1FF;
+  --purple-dim: rgba(202,177,255,0.1);
+  --purple-hover: rgba(202,177,255,0.16);
   --violet: #CAB1FF;
   --mint: #98EFDD;
   --yellow: #E8FF75;
-  --gray-muted: rgba(0,0,0,0.4);
-  --surface: #f4f5f7;
-  --surface-hover: #ecedf0;
-  --border: rgba(0,0,0,0.08);
-  --border-hover: rgba(0,0,0,0.16);
+  --gray-muted: rgba(255,255,255,0.45);
+  --surface: #1c2228;
+  --surface-hover: #252b31;
+  --border: rgba(255,255,255,0.08);
+  --border-hover: rgba(255,255,255,0.16);
   --mono: 'JetBrains Mono', monospace;
   --sans: 'DM Sans', -apple-system, sans-serif;
   --radius: 20px;
@@ -73,11 +73,11 @@ html, body { background: #FFFFFF !important; }
 }
 .landing-root *, .landing-root *::before, .landing-root *::after { box-sizing: border-box; }
 .landing-root a { color: var(--purple); text-decoration: none; }
-.landing-root a:hover { color: #4c2ecc; }
+.landing-root a:hover { color: #98EFDD; }
 .landing-root,
 .landing-root * {
-  --ifm-background-color: #FFFFFF !important;
-  --ifm-background-surface-color: #FFFFFF !important;
+  --ifm-background-color: #0d0f12 !important;
+  --ifm-background-surface-color: #0d0f12 !important;
 }
 
 .landing-wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
@@ -86,7 +86,7 @@ html, body { background: #FFFFFF !important; }
 /* ── Topbar ── */
 .landing-root .topbar {
   position: sticky; top: 0; z-index: 50;
-  background: rgba(255, 255, 255, 0.85);
+  background: #ffffff;
   backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid var(--border);
 }
@@ -100,19 +100,19 @@ html, body { background: #FFFFFF !important; }
   font-weight: 500; font-size: 0.95rem; letter-spacing: 0.02em; color: var(--white);
 }
 .landing-root .topbar-logo svg {
-  height: 28px; width: auto; margin-bottom: 3px; color: var(--white);
+  height: 28px; width: auto; margin-bottom: 3px; color: #000;
 }
 .landing-root .topbar-logo .sep { color: rgba(0,0,0,0.2); font-weight: 300; font-size: 2rem; }
-.landing-root .topbar-logo .docs-label { color: rgba(0,0,0,0.4); font-weight: 700; font-size: 2rem; }
+.landing-root .topbar-logo .docs-label { color: rgba(0,0,0,0.5); font-weight: 700; font-size: 2rem; }
 .landing-root .topbar-links { display: flex; gap: 6px; align-items: center; }
 .landing-root .topbar-links a {
   font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
-  color: rgba(0,0,0,0.5); transition: all 0.2s;
+  color: rgba(0,0,0,0.55); transition: all 0.2s;
 }
-.landing-root .topbar-links a:hover { color: var(--white); background: rgba(0,0,0,0.04); }
+.landing-root .topbar-links a:hover { color: #000; background: rgba(0,0,0,0.04); }
 .landing-root .topbar-links a.primary {
-  color: var(--white); background: var(--black);
-  border: 1px solid var(--border); font-weight: 500;
+  color: #000; background: rgba(0,0,0,0.05);
+  border: 1px solid rgba(0,0,0,0.12); font-weight: 500;
 }
 .landing-root .topbar-links a.primary:hover {
   background: var(--purple-dim); border-color: var(--purple);
@@ -176,7 +176,7 @@ html, body { background: #FFFFFF !important; }
 .landing-root .qs-card:hover {
   border-color: var(--purple); background: var(--surface-hover);
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.06);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
 }
 .landing-root .qs-card .qs-icon {
   width: 34px; height: 34px; border-radius: 9px;
@@ -353,7 +353,7 @@ html, body { background: #FFFFFF !important; }
   flex-wrap: wrap; gap: 16px;
 }
 .landing-root .footer-left {
-  font-size: 0.75rem; color: rgba(0,0,0,0.25);
+  font-size: 0.75rem; color: rgba(255,255,255,0.3);
 }
 .landing-root .footer-right {
   display: flex; gap: 20px;
@@ -391,8 +391,8 @@ export default function LandingPage() {
     const copyBtn = document.getElementById('copy-page-button-container');
     if (copyBtn) cleanups.push(hideEl(copyBtn));
 
-    cleanups.push(setStyle(document.documentElement, 'background', '#FFFFFF'));
-    cleanups.push(setStyle(document.body, 'background', '#FFFFFF'));
+    cleanups.push(setStyle(document.documentElement, 'background', '#0d0f12'));
+    cleanups.push(setStyle(document.body, 'background', '#0d0f12'));
 
     const root = document.querySelector(
       '.landing-root',
@@ -404,7 +404,7 @@ export default function LandingPage() {
         cleanups.push(setStyle(el, 'margin', '0'));
         cleanups.push(setStyle(el, 'maxWidth', '100%'));
         cleanups.push(setStyle(el, 'width', '100%'));
-        cleanups.push(setStyle(el, 'background', '#FFFFFF'));
+        cleanups.push(setStyle(el, 'background', '#0d0f12'));
         el = el.parentElement;
       }
     }
