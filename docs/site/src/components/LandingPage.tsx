@@ -86,7 +86,7 @@ html, body { background: #0d0f12 !important; }
 /* ── Topbar ── */
 .landing-root .topbar {
   position: sticky; top: 0; z-index: 50;
-  background: rgba(255, 255, 255, 0.07);
+  background: #ffffff;
   backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid var(--border);
 }
@@ -100,19 +100,19 @@ html, body { background: #0d0f12 !important; }
   font-weight: 500; font-size: 0.95rem; letter-spacing: 0.02em; color: var(--white);
 }
 .landing-root .topbar-logo svg {
-  height: 28px; width: auto; margin-bottom: 3px; color: var(--white);
+  height: 28px; width: auto; margin-bottom: 3px; color: #000;
 }
-.landing-root .topbar-logo .sep { color: rgba(255,255,255,0.2); font-weight: 300; font-size: 2rem; }
-.landing-root .topbar-logo .docs-label { color: rgba(255,255,255,0.5); font-weight: 700; font-size: 2rem; }
+.landing-root .topbar-logo .sep { color: rgba(0,0,0,0.2); font-weight: 300; font-size: 2rem; }
+.landing-root .topbar-logo .docs-label { color: rgba(0,0,0,0.5); font-weight: 700; font-size: 2rem; }
 .landing-root .topbar-links { display: flex; gap: 6px; align-items: center; }
 .landing-root .topbar-links a {
   font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
-  color: rgba(255,255,255,0.6); transition: all 0.2s;
+  color: rgba(0,0,0,0.55); transition: all 0.2s;
 }
-.landing-root .topbar-links a:hover { color: var(--white); background: rgba(255,255,255,0.06); }
+.landing-root .topbar-links a:hover { color: #000; background: rgba(0,0,0,0.04); }
 .landing-root .topbar-links a.primary {
-  color: var(--white); background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.15); font-weight: 500;
+  color: #000; background: rgba(0,0,0,0.05);
+  border: 1px solid rgba(0,0,0,0.12); font-weight: 500;
 }
 .landing-root .topbar-links a.primary:hover {
   background: var(--purple-dim); border-color: var(--purple);
