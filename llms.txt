@@ -165,6 +165,10 @@ Sui smart contract as the on-chain index.
     authenticated publisher as a building block for services that need to store data over HTTP on
     Walrus Mainnet, where an open publisher is undesirable because of the SUI and WAL cost of
     publishing to Walrus.
+- [Mainnet Production Guide](https://docs.wal.app/docs/operator-guide/publishers/mainnet-production-guide.md):
+    Walrus does not provide a public unauthenticated publisher on Mainnet. There are no plans to
+    create one because the publisher must pay SUI and WAL for every blob it stores. On Mainnet, a
+    publisher should be privately operated for a specific application, service, or organization.
 - [Operating Publisher](https://docs.wal.app/docs/operator-guide/publishers/operating-publisher.md):
     The publisher and daemon perform onchain actions and require a Sui wallet with sufficient SUI
     and WAL balances. To handle many parallel requests without object conflicts, they create
