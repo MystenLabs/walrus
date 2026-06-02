@@ -10,6 +10,7 @@ import ImportContent from "@site/src/shared/components/ImportContent";
 import Tabs from "@theme/Tabs";
 import TabItem from "@theme/TabItem";
 import {Card, Cards} from "../../shared/components/Cards";
+import AgentPrompt from "../../shared/components/AgentPrompt";
 
 export default function MDXContent({ children }) {
     const suiComponents = {
@@ -20,7 +21,8 @@ export default function MDXContent({ children }) {
         Tabs,
         TabItem,
         Cards,
-        Card
+        Card,
+        AgentPrompt
     };
     return <MDXProvider components={suiComponents}>{children}</MDXProvider>;
 }
