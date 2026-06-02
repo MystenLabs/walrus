@@ -688,6 +688,17 @@ function transformFile(content) {
   // Rename MemWal → Walrus Memory
   result = renameMemwal(result);
 
+  // Rewrite memwal.ai URLs and link text → memory.walrus.xyz
+  result = result.replace(/https:\/\/memwal\.ai/g, "https://memory.walrus.xyz");
+  result = result.replace(
+    /https:\/\/([a-z.]*?)\.?memwal\.ai/g,
+    (_, sub) => sub
+      ? `https://${sub}.memory.walrus.xyz`
+      : "https://memory.walrus.xyz",
+  );
+  // Also replace bare "memwal.ai" in link text and prose
+  result = result.replace(/\bmemwal\.ai\b/g, "memory.walrus.xyz");
+
   // Enforce Sui Documentation Style Guide
   result = enforceStyleGuide(result);
 
