@@ -137,12 +137,16 @@ impl NodeRecoveryHandler {
                         continue;
                     }
 
-                    // The node will only enter recovery mode if it has caught up to the latest
-                    // epoch. So we only need to check the latest epoch for the shard assignment.
-                    if let Ok(stored_at_all_shards) =
-                        node.is_stored_at_all_shards_at_latest_epoch(&blob_id).await
+                    // Recovery for `certified_before_epoch` must check and sync the shard
+                    // assignment for that same epoch. Using the latest committee epoch here can
+                    // observe shards whose local storage has not been created by event processing
+                    // yet, causing recovery to start syncs that cannot make the latest-epoch check
+                    // converge.
+                    match node
+                        .is_stored_at_all_shards_at_epoch(&blob_id, certified_before_epoch)
+                        .await
                     {
-                        if stored_at_all_shards {
+                        Ok(true) => {
                             tracing::debug!(
                                 walrus.blob_certified_before_epoch = certified_before_epoch,
                                 walrus.current_epoch = node.current_committee_epoch(),
@@ -150,11 +154,18 @@ impl NodeRecoveryHandler {
                             );
                             continue;
                         }
-                    } else {
-                        tracing::warn!(
-                            walrus.blob_id = %blob_id,
-                            "failed to check if blob is stored at all shards; start blob sync"
-                        );
+                        Ok(false) => {}
+                        Err(error) => {
+                            tracing::warn!(
+                                walrus.blob_id = %blob_id,
+                                certified_before_epoch,
+                                current_committee_epoch = node.current_committee_epoch(),
+                                ?error,
+                                "failed to check if blob is stored for recovery epoch; stop node \
+                                recovery until event processing advances"
+                            );
+                            return;
+                        }
                     }
 
                     // There are more blobs to recover.
@@ -195,12 +206,13 @@ impl NodeRecoveryHandler {
                     );
                     node.metrics.node_recovery_ongoing_blob_syncs.inc();
                     let start_sync_result = blob_sync_handler
-                        .start_sync(
+                        .start_sync_for_epoch(
                             blob_id,
                             blob_info.initial_certified_epoch().expect(
                                 "certified blob should have an initial certified epoch set",
                             ),
                             None,
+                            certified_before_epoch,
                         )
                         .await;
                     sui_macros::fail_point!("fail_point_node_recovery_start_sync");

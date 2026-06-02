@@ -337,72 +337,125 @@ impl BlobSyncHandler {
         certified_epoch: Epoch,
         event_handle: Option<EventHandle>,
     ) -> Result<watch::Receiver<SyncStatus>, TypedStoreError> {
-        let mut in_progress = self
-            .blob_syncs_in_progress
-            .lock()
-            .expect("should be able to acquire lock");
+        self.start_sync_inner(blob_id, certified_epoch, event_handle, None)
+            .await
+    }
 
-        let receiver = match in_progress.entry(blob_id) {
-            Entry::Vacant(entry) => {
-                let spawned_trace = tracing::info_span!(
-                    parent: &Span::current(),
-                    "blob_sync",
-                    "otel.kind" = "CONSUMER",
-                    "otel.status_code" = field::Empty,
-                    "otel.status_message" = field::Empty,
-                    "walrus.event.index" = event_handle.as_ref().map(|e| e.index()),
-                    "walrus.event.tx_digest" = ?event_handle.as_ref().map(
-                        |e| e.event_id().tx_digest
-                    ),
-                    "walrus.event.event_seq" = event_handle.as_ref().map(
-                        |e| e.event_id().event_seq
-                    ),
-                    "walrus.event.kind" = "certified",
-                    "walrus.blob_id" = %blob_id,
-                    "error.type" = field::Empty,
-                );
-                spawned_trace.follows_from(Span::current());
-                let (status_sender, receiver) = watch::channel(SyncStatus::Pending);
+    /// Starts a blob sync using an explicit shard-assignment epoch.
+    ///
+    /// This is used by node recovery, where the recovery loop must check and store slivers for the
+    /// same epoch. Event-driven syncs should use [`Self::start_sync`] so they continue to follow
+    /// the current event epoch.
+    pub async fn start_sync_for_epoch(
+        &self,
+        blob_id: BlobId,
+        certified_epoch: Epoch,
+        event_handle: Option<EventHandle>,
+        sync_epoch: Epoch,
+    ) -> Result<watch::Receiver<SyncStatus>, TypedStoreError> {
+        self.start_sync_inner(blob_id, certified_epoch, event_handle, Some(sync_epoch))
+            .await
+    }
 
-                let cancel_token = CancellationToken::new();
-                let synchronizer = BlobSynchronizer::new(
-                    blob_id,
-                    certified_epoch,
-                    self.node.clone(),
-                    cancel_token.clone(),
-                );
+    async fn start_sync_inner(
+        &self,
+        blob_id: BlobId,
+        certified_epoch: Epoch,
+        mut event_handle: Option<EventHandle>,
+        sync_epoch: Option<Epoch>,
+    ) -> Result<watch::Receiver<SyncStatus>, TypedStoreError> {
+        loop {
+            let mut wait_for_existing_sync = {
+                let mut in_progress = self
+                    .blob_syncs_in_progress
+                    .lock()
+                    .expect("should be able to acquire lock");
 
-                let sender_for_task = status_sender.clone();
-                let blob_sync_handler_clone = self.clone();
-                let permits_clone = self.permits.clone();
+                match in_progress.entry(blob_id) {
+                    Entry::Vacant(entry) => {
+                        let spawned_trace = tracing::info_span!(
+                            parent: &Span::current(),
+                            "blob_sync",
+                            "otel.kind" = "CONSUMER",
+                            "otel.status_code" = field::Empty,
+                            "otel.status_message" = field::Empty,
+                            "walrus.event.index" = event_handle.as_ref().map(|e| e.index()),
+                            "walrus.event.tx_digest" = ?event_handle.as_ref().map(
+                                |e| e.event_id().tx_digest
+                            ),
+                            "walrus.event.event_seq" = event_handle.as_ref().map(
+                                |e| e.event_id().event_seq
+                            ),
+                            "walrus.event.kind" = "certified",
+                            "walrus.blob_id" = %blob_id,
+                            "error.type" = field::Empty,
+                        );
+                        spawned_trace.follows_from(Span::current());
+                        let (status_sender, receiver) = watch::channel(SyncStatus::Pending);
 
-                let monitor = self.task_monitors.get_or_insert(&"blob_recovery");
-                let sync_handle = tokio::spawn(TaskMonitor::instrument(&monitor, async move {
-                    let (event_handle_out, outcome) = blob_sync_handler_clone
-                        .sync_blob_for_all_shards(synchronizer, permits_clone, event_handle)
-                        .instrument(spawned_trace)
-                        .await;
-                    let _ = sender_for_task.send_replace(SyncStatus::Done(outcome));
-                    event_handle_out
-                }));
+                        let cancel_token = CancellationToken::new();
+                        let synchronizer = BlobSynchronizer::new(
+                            blob_id,
+                            certified_epoch,
+                            sync_epoch,
+                            self.node.clone(),
+                            cancel_token.clone(),
+                        );
 
-                entry.insert(InProgressSyncHandle {
-                    cancel_token,
-                    blob_sync_handle: Some(sync_handle),
-                    status_sender,
-                });
-                receiver
-            }
-            Entry::Occupied(existing_sync) => {
-                // A blob sync with a lower sequence number is already in progress. We can safely
-                // try to increase the event cursor since it will only be advanced once that sync is
-                // finished or cancelled due to an invalid blob event.
-                event_handle.mark_as_complete();
+                        let sender_for_task = status_sender.clone();
+                        let blob_sync_handler_clone = self.clone();
+                        let permits_clone = self.permits.clone();
+                        let event_handle_for_task = event_handle.take();
 
-                existing_sync.get().status_sender.subscribe()
-            }
-        };
-        Ok(receiver)
+                        let monitor = self.task_monitors.get_or_insert(&"blob_recovery");
+                        let sync_handle =
+                            tokio::spawn(TaskMonitor::instrument(&monitor, async move {
+                                let (event_handle_out, outcome) = blob_sync_handler_clone
+                                    .sync_blob_for_all_shards(
+                                        synchronizer,
+                                        permits_clone,
+                                        event_handle_for_task,
+                                    )
+                                    .instrument(spawned_trace)
+                                    .await;
+                                let _ = sender_for_task.send_replace(SyncStatus::Done(outcome));
+                                event_handle_out
+                            }));
+
+                        entry.insert(InProgressSyncHandle {
+                            cancel_token,
+                            blob_sync_handle: Some(sync_handle),
+                            status_sender,
+                            sync_epoch,
+                        });
+                        return Ok(receiver);
+                    }
+                    Entry::Occupied(existing_sync)
+                        if existing_sync.get().sync_epoch == sync_epoch =>
+                    {
+                        // A compatible blob sync is already in progress. We can safely try to
+                        // increase the event cursor since it will only be advanced once that sync
+                        // is finished or cancelled due to an invalid blob event.
+                        event_handle.mark_as_complete();
+
+                        return Ok(existing_sync.get().status_sender.subscribe());
+                    }
+                    Entry::Occupied(existing_sync) => {
+                        tracing::debug!(
+                            walrus.blob_id = %blob_id,
+                            requested_sync_epoch = ?sync_epoch,
+                            existing_sync_epoch = ?existing_sync.get().sync_epoch,
+                            "waiting for incompatible in-progress blob sync to finish"
+                        );
+                        existing_sync.get().status_sender.subscribe()
+                    }
+                }
+            };
+
+            let _ = wait_for_existing_sync
+                .wait_for(|status| matches!(status, SyncStatus::Done(_)))
+                .await;
+        }
     }
 
     #[tracing::instrument(skip_all)]
@@ -517,6 +570,7 @@ struct InProgressSyncHandle {
     cancel_token: CancellationToken,
     blob_sync_handle: Option<SyncJoinHandle>,
     status_sender: watch::Sender<SyncStatus>,
+    sync_epoch: Option<Epoch>,
 }
 
 impl InProgressSyncHandle {
@@ -546,6 +600,7 @@ pub(super) struct BlobSynchronizer {
     blob_id: BlobId,
     node: Arc<StorageNodeInner>,
     certified_epoch: Epoch,
+    sync_epoch: Option<Epoch>,
     cancel_token: CancellationToken,
 }
 
@@ -553,6 +608,7 @@ impl BlobSynchronizer {
     pub fn new(
         blob_id: BlobId,
         certified_epoch: Epoch,
+        sync_epoch: Option<Epoch>,
         node: Arc<StorageNodeInner>,
         cancel_token: CancellationToken,
     ) -> Self {
@@ -560,6 +616,7 @@ impl BlobSynchronizer {
             blob_id,
             node,
             certified_epoch,
+            sync_epoch,
             cancel_token,
         }
     }
@@ -582,6 +639,17 @@ impl BlobSynchronizer {
 
     fn metrics(&self) -> &NodeMetricSet {
         &self.node.metrics
+    }
+
+    async fn target_sync_epoch(&self) -> Epoch {
+        match self.sync_epoch {
+            Some(sync_epoch) => sync_epoch,
+            None => self
+                .node
+                .current_event_epoch()
+                .await
+                .expect("current event epoch should be set"),
+        }
     }
 
     /// Returns whether this sync observed and waited out a live-upload recovery deferral.
@@ -608,14 +676,10 @@ impl BlobSynchronizer {
         let this = Arc::new(self);
         let histograms = &this.metrics().recover_blob_part_duration_seconds;
 
-        let current_epoch = this
-            .node
-            .current_event_epoch()
-            .await
-            .expect("current event epoch should be set");
+        let sync_epoch = this.target_sync_epoch().await;
         let storage_state_after_deferral = match this
             .node
-            .is_stored_at_all_shards_at_epoch(&this.blob_id, current_epoch)
+            .is_stored_at_all_shards_at_epoch(&this.blob_id, sync_epoch)
             .await
         {
             Ok(is_stored) => Some(is_stored),
@@ -632,7 +696,8 @@ impl BlobSynchronizer {
 
         if storage_state_after_deferral == Some(true) {
             tracing::debug!(
-                "blob already stored at all owned shards for current epoch, skipping recovery"
+                sync_epoch,
+                "blob already stored at all owned shards; skipping recovery"
             );
             if waited_for_live_upload_deferral {
                 walrus_utils::with_label!(
@@ -664,7 +729,11 @@ impl BlobSynchronizer {
 
         while let Err(error) = this
             .clone()
-            .recover_blob_slivers(sliver_permits.clone(), shared_metadata.clone())
+            .recover_blob_slivers(
+                sliver_permits.clone(),
+                shared_metadata.clone(),
+                this.target_sync_epoch().await,
+            )
             .await
         {
             let backoff_duration = if cfg!(msim) {
@@ -690,14 +759,17 @@ impl BlobSynchronizer {
         self: Arc<Self>,
         sliver_permits: Arc<Semaphore>,
         shared_metadata: Arc<VerifiedBlobMetadataWithId>,
+        sync_epoch: Epoch,
     ) -> Result<(), RecoverSliverError> {
         let histograms = &self.metrics().recover_blob_part_duration_seconds;
 
         // Note that we only need to recover the slivers in the shards that are assigned to the
-        // node at the time of the start of blob sync. Due to slow event processing, the contract
-        // might have entered the new epoch with new shard assignment. Upon discovery of the new
-        // shard assignment, the node only needs to recover the slivers assigned in the epoch
-        // of the current event due to that:
+        // node in the selected sync epoch. Due to slow event processing, the contract might have
+        // entered a newer epoch with new shard assignment. Until that epoch-change event is
+        // processed, the node may not have created storage for those newer shards, so callers must
+        // use the same sync epoch for both their "is this blob stored?" check and this recovery.
+        // This also preserves the event-driven behavior of recovering against the current event
+        // epoch:
         //   - The node may not have created the new shards yet.
         //   - Since the blob is certified in an earlier epoch, it is this node's responsibility to
         //     hold, recover, and transfer the shard to the new owner.
@@ -706,18 +778,17 @@ impl BlobSynchronizer {
         // this function panics since no shard assignment info is found. Upon restarting the node,
         // the node will enter recovery mode until catching up with all the events and start
         // recovering all the missing blobs.
-        let latest_event_epoch = self.node.current_event_epoch().await?;
         let futures_iter = self
             .node
-            .owned_shards_at_epoch(latest_event_epoch)
+            .owned_shards_at_epoch(sync_epoch)
             .unwrap_or_else(|error| {
                 tracing::error!(
-                    certified_epoch = latest_event_epoch,
+                    sync_epoch,
                     ?error,
-                    "shard assignment must be found at the certified epoch",
+                    "shard assignment must be found at the sync epoch",
                 );
                 panic!(
-                    "shard assignment must be found at the certified epoch {latest_event_epoch}, \
+                    "shard assignment must be found at the sync epoch {sync_epoch}, \
                     error: {error}",
                 )
             })
