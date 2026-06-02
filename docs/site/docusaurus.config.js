@@ -315,6 +315,10 @@ const config = {
   themeConfig:
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
+      colorMode: {
+        defaultMode: "dark",
+        respectPrefersColorScheme: true,
+      },
       image: "img/walrus-card.jpg",
       metadata: [
       { property: 'og:image', content: 'https://docs.wal.app/img/walrus-card.jpg' },
