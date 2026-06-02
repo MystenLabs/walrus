@@ -38,6 +38,12 @@ const config = {
     },
   },
 
+  markdown: {
+    mermaid: true,
+  },
+
+  themes: ["@docusaurus/theme-mermaid"],
+
   url: "https://docs.wal.app",
   baseUrl: process.env.DOCUSAURUS_BASE_URL || "/",
 
@@ -208,6 +214,18 @@ const config = {
     },
 
     path.resolve(__dirname, "./src/shared/plugins/descriptions"),
+
+    [
+      "@docusaurus/plugin-content-docs",
+      {
+        id: "walrus-memory",
+        path: "../walrus-memory-content",
+        routeBasePath: "walrus-memory",
+        sidebarPath: "./sidebarsWalrusMemory.js",
+        remarkPlugins: [remarkMath],
+        rehypePlugins: [rehypeKatex],
+      },
+    ],
   ],
 
   presets: [
@@ -320,12 +338,6 @@ const config = {
             type: "docSidebar",
             sidebarId: "operatorSidebar",
             label: "Service Providers",
-            position: "right",
-          },
-          {
-            type: "docSidebar",
-            sidebarId: "examplesSidebar",
-            label: "Example Apps",
             position: "right",
           },
           { to: "/blog", label: "Blog", position: "right" },

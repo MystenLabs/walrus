@@ -7,10 +7,14 @@
 # Generated files
 .docusaurus
 .cache-loader
+.cache-walrus-memory
 src/.generated/*
 /static/markdown/*
 ws-resources.json
 .markdown/
+
+# Fetched external docs
+/walrus-memory-content
 
 # Misc
 .DS_Store
