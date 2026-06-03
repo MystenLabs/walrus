@@ -52,9 +52,15 @@ WATCHDOG_TIMEOUT_MS=30000
 # By default run 1 iteration for each test, if not specified.
 : ${TEST_NUM:=1}
 
+# By default run all walrus simtests (filtered by the `walrus-simtest` binary name), if not
+# specified. Set TEST_FILTER to a specific test name to run only that test, e.g.
+# TEST_FILTER=test_repeated_node_crash.
+: ${TEST_FILTER:=simtest}
+
 echo ""
 echo "================================================"
 echo "Running e2e simtests with $TEST_NUM iterations"
+echo "Test filter: $TEST_FILTER"
 echo "================================================"
 date
 
@@ -66,7 +72,7 @@ TMPDIR="$WALRUS_TMP_DIR" \
 MSIM_TEST_SEED="$SEED" \
 MSIM_TEST_NUM=${TEST_NUM} \
 MSIM_WATCHDOG_TIMEOUT_MS="$WATCHDOG_TIMEOUT_MS" \
-scripts/simtest/cargo-simtest simtest simtest \
+scripts/simtest/cargo-simtest simtest "$TEST_FILTER" \
   --color never \
   --test-threads "$NUM_CPUS" \
   --profile simtestnightly 2>&1 | tee "$LOG_FILE"
