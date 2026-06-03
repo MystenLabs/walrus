@@ -24,7 +24,7 @@ const OUTPUT_DIR = path.resolve(SITE_ROOT, "../walrus-memory-content");
 
 // All known MemWal doc pages (from docs.json + orphans) for link rewriting
 const KNOWN_PAGES = [
-  "getting-started/what-is-memwal",
+  "getting-started/what-is-walrus-memory",
   "getting-started/quick-start",
   "getting-started/choose-your-path",
   "fundamentals/concepts/memory-space",
@@ -85,6 +85,11 @@ const KNOWN_PAGES = [
   "security/health-check-unsigned",
   "examples/example-apps",
 ];
+
+// --- File rename map (remote filename → local filename) ---
+const RENAME_MAP = {
+  "getting-started/what-is-memwal.md": "getting-started/what-is-walrus-memory.md",
+};
 
 // --- Mintlify component transforms ---
 
@@ -760,8 +765,11 @@ function main() {
     const content = fs.readFileSync(fullPath, "utf8");
     const transformed = transformFile(content);
 
+    // Apply file renames if configured
+    const outputRelPath = RENAME_MAP[relPath] || relPath;
+
     // Preserve directory structure
-    const outPath = path.join(OUTPUT_DIR, relPath);
+    const outPath = path.join(OUTPUT_DIR, outputRelPath);
     const outDir = path.dirname(outPath);
     if (!fs.existsSync(outDir)) {
       fs.mkdirSync(outDir, { recursive: true });

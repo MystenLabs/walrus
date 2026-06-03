@@ -22,7 +22,7 @@ const sidebars = {
       collapsed: false,
       link: {
         type: "doc",
-        id: "getting-started/what-is-memwal",
+        id: "getting-started/what-is-walrus-memory",
       },
       items: [
         "getting-started/quick-start",
