@@ -1213,6 +1213,7 @@ impl Storage {
         &self,
         request: &SyncShardRequest,
         current_epoch: Epoch,
+        max_sliver_count: Option<usize>,
     ) -> Result<SyncShardResponse, SyncShardServiceError> {
         #[cfg(msim)]
         {
@@ -1226,11 +1227,23 @@ impl Storage {
             }
         }
 
+        // Bound `sliver_count` before it sizes the `Vec::with_capacity` allocation below; it comes
+        // from the request and is otherwise only limited on the requester side. `None` disables the
+        // bound, which an operator can configure if it interferes with shard sync.
+        let sliver_count = request.sliver_count();
+        if let Some(limit) = max_sliver_count
+            && sliver_count > limit
+        {
+            return Err(SyncShardServiceError::RequestedSliverCountExceedsLimit {
+                requested: sliver_count,
+                limit,
+            });
+        }
+
         let Some(shard) = self.shard_storage(request.shard_index()).await else {
             return Err(ShardNotAssigned(request.shard_index(), current_epoch).into());
         };
 
-        let sliver_count = request.sliver_count();
         let starting_blob_id = request.starting_blob_id();
         let sliver_type = request.sliver_type();
         let blob_info = self.blob_info.clone();
@@ -2158,7 +2171,7 @@ pub(crate) mod tests {
         );
         let SyncShardResponse::V1(slivers) = storage
             .as_ref()
-            .handle_sync_shard_request(&request, 2)
+            .handle_sync_shard_request(&request, 2, None)
             .await?;
 
         // Verify response matches expected
@@ -2186,7 +2199,7 @@ pub(crate) mod tests {
             SyncShardRequest::new(ShardIndex(123), SliverType::Primary, BlobId([1; 32]), 1, 1);
         let response = storage
             .as_ref()
-            .handle_sync_shard_request(&request, 0)
+            .handle_sync_shard_request(&request, 0, None)
             .await
             .unwrap_err();
 

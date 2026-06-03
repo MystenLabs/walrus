@@ -404,6 +404,13 @@ pub enum SyncShardServiceError {
     #[rest_api_error(reason = "REQUEST_UNAUTHORIZED", status = ApiStatusCode::PermissionDenied)]
     Unauthorized,
 
+    /// The requested number of slivers exceeds the server-side limit.
+    #[error("the requested sliver count {requested} exceeds the limit of {limit}")]
+    #[rest_api_error(
+        reason = "SLIVER_COUNT_EXCEEDS_LIMIT", status = ApiStatusCode::InvalidArgument
+    )]
+    RequestedSliverCountExceedsLimit { requested: usize, limit: usize },
+
     /// The client cannot initiate a sync as it is not a storage node in the current committee.
     #[error("verification of the request to start the sync failed: {0}")]
     #[rest_api_error(

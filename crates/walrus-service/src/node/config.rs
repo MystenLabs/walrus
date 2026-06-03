@@ -1160,6 +1160,9 @@ impl Default for CommitteeServiceConfig {
     }
 }
 
+/// Default hard upper bound on the `sliver_count` a single sync-shard request may ask for.
+pub const DEFAULT_MAX_SLIVER_COUNT_PER_SYNC_REQUEST: usize = 100_000;
+
 /// Configuration for Walrus storage node shard synchronization.
 #[serde_as]
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
@@ -1167,6 +1170,12 @@ impl Default for CommitteeServiceConfig {
 pub struct ShardSyncConfig {
     /// The number of slivers to fetch in a single sync shard request.
     pub sliver_count_per_sync_request: u64,
+    /// Hard server-side upper bound on the `sliver_count` a single sync-shard request may ask for.
+    ///
+    /// Requests above it are rejected before the response vector is allocated, keeping the
+    /// allocation bounded. Defaults to [`DEFAULT_MAX_SLIVER_COUNT_PER_SYNC_REQUEST`] when unset;
+    /// set explicitly to `null` to disable the limit.
+    pub max_sliver_count_per_sync_request: Option<usize>,
     /// The minimum backoff time for shard sync retries.
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "shard_sync_retry_min_backoff_secs")]
@@ -1203,6 +1212,7 @@ impl Default for ShardSyncConfig {
     fn default() -> Self {
         Self {
             sliver_count_per_sync_request: 1000,
+            max_sliver_count_per_sync_request: Some(DEFAULT_MAX_SLIVER_COUNT_PER_SYNC_REQUEST),
             shard_sync_retry_min_backoff: Duration::from_mins(1),
             shard_sync_retry_max_backoff: Duration::from_mins(10),
             max_concurrent_blob_recovery_during_shard_recovery: 100,
@@ -2162,6 +2172,28 @@ mod tests {
         "};
 
         let _: StorageNodeConfig = serde_yaml::from_str(yaml)?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn shard_sync_max_sliver_count_serde() -> TestResult {
+        // Unset falls back to the default limit.
+        let unset: ShardSyncConfig = serde_yaml::from_str("{}")?;
+        assert_eq!(
+            unset.max_sliver_count_per_sync_request,
+            Some(DEFAULT_MAX_SLIVER_COUNT_PER_SYNC_REQUEST)
+        );
+
+        // Explicit null disables the limit.
+        let disabled: ShardSyncConfig =
+            serde_yaml::from_str("max_sliver_count_per_sync_request: null")?;
+        assert_eq!(disabled.max_sliver_count_per_sync_request, None);
+
+        // An explicit value is honored.
+        let custom: ShardSyncConfig =
+            serde_yaml::from_str("max_sliver_count_per_sync_request: 42")?;
+        assert_eq!(custom.max_sliver_count_per_sync_request, Some(42));
 
         Ok(())
     }

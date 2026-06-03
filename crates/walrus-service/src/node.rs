@@ -693,6 +693,8 @@ pub struct StorageNodeInner {
     consistency_check_config: StorageNodeConsistencyCheckConfig,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
     garbage_collection_config: GarbageCollectionConfig,
+    // Server-side cap on the `sliver_count` a sync-shard request may ask for; `None` disables it.
+    max_sliver_count_per_sync_request: Option<usize>,
     recovery_deferrals: RecoveryDeferrals,
     recovery_deferral_notify: Arc<Notify>,
     recovery_deferral_cleanup_token: CancellationToken,
@@ -893,6 +895,9 @@ impl StorageNode {
             consistency_check_config: config.consistency_check.clone(),
             checkpoint_manager,
             garbage_collection_config: config.garbage_collection,
+            max_sliver_count_per_sync_request: config
+                .shard_sync_config
+                .max_sliver_count_per_sync_request,
             recovery_deferrals: std::sync::Arc::new(RwLock::new(Default::default())),
             recovery_deferral_notify: Arc::new(Notify::new()),
             recovery_deferral_cleanup_token: CancellationToken::new(),
@@ -4853,18 +4858,48 @@ impl ServiceState for StorageNodeInner {
 
         tracing::debug!(?request, "sync shard request received");
 
+        // Snapshot the current committee once so the epoch and shard-ownership checks below observe
+        // a single consistent state; a committee advance between two separate reads could otherwise
+        // produce a spurious rejection.
+        let current_committee = self
+            .committee_service
+            .active_committees()
+            .current_committee()
+            .clone();
+
         // If the epoch of the requester should not be older than the current epoch of the node.
         // In a normal scenario, a storage node will never fetch shards from a future epoch.
-        if request.epoch() != self.current_committee_epoch() {
+        if request.epoch() != current_committee.epoch {
             return Err(InvalidEpochError {
                 request_epoch: request.epoch(),
-                server_epoch: self.current_committee_epoch(),
+                server_epoch: current_committee.epoch,
             }
             .into());
         }
 
+        // Require the requester to be assigned `request.shard_index()` in the committee for
+        // `request.epoch()`. The epoch check above ties the request to the current epoch, so that
+        // committee is the current one (during an epoch change the gaining committee is `current`,
+        // the losing committee `previous`). This narrows authorization from any committee member to
+        // the node actually gaining the shard.
+        if !current_committee
+            .shards_for_node_public_key(&public_key)
+            .contains(&request.shard_index())
+        {
+            tracing::warn!(
+                walrus.shard_index = %request.shard_index(),
+                walrus.node = %public_key,
+                "rejecting sync shard request: requester does not own the shard"
+            );
+            return Err(SyncShardServiceError::Unauthorized);
+        }
+
         self.storage
-            .handle_sync_shard_request(request, self.current_committee_epoch())
+            .handle_sync_shard_request(
+                request,
+                current_committee.epoch,
+                self.max_sliver_count_per_sync_request,
+            )
             .await
     }
 }
@@ -4949,12 +4984,13 @@ fn map_flush_error_to_confirmation(error: PendingCacheError) -> ComputeStorageCo
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::HashSet,
         sync::{Arc, OnceLock},
         time::Duration,
     };
 
     use chrono::Utc;
-    use config::ShardSyncConfig;
+    use config::{DEFAULT_MAX_SLIVER_COUNT_PER_SYNC_REQUEST, ShardSyncConfig};
     use contract_service::MockSystemContractService;
     use storage::{
         ShardStatus,
@@ -4986,10 +5022,12 @@ mod tests {
             BlobCertified,
             BlobDeleted,
             BlobRegistered,
+            Committee,
             InvalidBlobId,
             PooledBlobCertified,
             PooledBlobDeleted,
             PooledBlobRegistered,
+            StorageNode,
             StorageNodeCap,
             StoragePoolEvent,
             move_structs::EpochState,
@@ -6129,6 +6167,100 @@ mod tests {
             cluster.wait_for_nodes_to_reach_epoch(epoch).await;
         }
 
+        Ok(())
+    }
+
+    /// Reassigns `shards` to `cluster.nodes[destination_idx]` in the current committee so that the
+    /// destination is the node gaining them, as a real epoch change would arrange.
+    ///
+    /// Shard-sync tests fake a migration by creating storage on the destination directly, without a
+    /// committee that reflects the gain. `sync_shard` now rejects requesters that do not own the
+    /// shard, so the destination must own it in the current committee. The previous committee (used
+    /// to look up the sync source) and the epoch are left unchanged, keeping source selection and
+    /// recovery as in production.
+    ///
+    /// `keep_destination_shards` controls how the sync source is handled. For a direct transfer the
+    /// source holds the data and must stay reachable (for example for metadata recovery), so the
+    /// destination hands it its own previous shards (a swap). For recovery the source holds no data
+    /// and the destination must keep its existing shards to reconstruct from, so the source is
+    /// dropped once empty (`Committee` forbids empty members).
+    async fn reassign_shards_to_destination_in_current_committee(
+        cluster: &TestCluster,
+        shards: &[ShardIndex],
+        destination_idx: usize,
+        keep_destination_shards: bool,
+    ) -> TestResult {
+        let handle = cluster
+            .lookup_service_handle
+            .as_ref()
+            .expect("shard-sync test clusters use a stub lookup service");
+        let destination_key = cluster.nodes[destination_idx].public_key().clone();
+        let shard_set: HashSet<ShardIndex> = shards.iter().copied().collect();
+
+        let updated = {
+            let committees = handle
+                .committees
+                .lock()
+                .expect("lookup mutex is not poisoned");
+            let current = committees.current_committee();
+            let mut members: Vec<StorageNode> = current.members().to_vec();
+            let destination_pos = members
+                .iter()
+                .position(|member| member.public_key == destination_key)
+                .expect("destination is a committee member");
+            let destination_original = members[destination_pos].shard_ids.clone();
+
+            // The destination owns the synced shards, plus its existing shards when recovering.
+            let mut destination_shards = if keep_destination_shards {
+                destination_original.clone()
+            } else {
+                Vec::new()
+            };
+            for shard in shards {
+                if !destination_shards.contains(shard) {
+                    destination_shards.push(*shard);
+                }
+            }
+            members[destination_pos].shard_ids = destination_shards;
+
+            for (index, member) in members.iter_mut().enumerate() {
+                if index != destination_pos
+                    && member
+                        .shard_ids
+                        .iter()
+                        .any(|shard| shard_set.contains(shard))
+                {
+                    member.shard_ids.retain(|shard| !shard_set.contains(shard));
+                    if !keep_destination_shards {
+                        // Hand the source the destination's old shards so it stays non-empty.
+                        member
+                            .shard_ids
+                            .extend(destination_original.iter().copied());
+                    }
+                }
+            }
+            members.retain(|member| !member.shard_ids.is_empty());
+            let new_current = Committee::new(members, current.epoch, current.n_shards())
+                .expect("reassigned committee covers every shard exactly once");
+            ActiveCommittees::new_with_next(
+                Arc::new(new_current),
+                committees.previous_committee().cloned(),
+                committees.next_committee().cloned(),
+                committees.is_change_in_progress(),
+            )
+        };
+        *handle
+            .committees
+            .lock()
+            .expect("lookup mutex is not poisoned") = updated;
+
+        for node in &cluster.nodes {
+            node.storage_node
+                .inner
+                .committee_service
+                .begin_committee_change_to_latest_committee()
+                .await?;
+        }
         Ok(())
     }
 
@@ -7491,6 +7623,91 @@ mod tests {
         Ok(())
     }
 
+    // A committee member requesting a shard it is not assigned in the current committee is rejected
+    // before any sliver transfer.
+    #[tokio::test]
+    async fn sync_shard_node_api_rejects_unowned_shard() -> TestResult {
+        // node 0 holds shards 0 and 1; node 1 holds shards 2 and 3.
+        let (cluster, _, _) =
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+                .await?;
+
+        // node 1, a committee member, requests shard 0, which it does not own. The request is
+        // signed by and verified against node 1's key, so it passes signature verification but must
+        // fail the shard-ownership check.
+        let request = SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, 10, 2);
+        let signed_request = cluster.nodes[1]
+            .as_ref()
+            .inner
+            .protocol_key_pair
+            .sign_message(&SyncShardMsg::new(2, request));
+
+        let result = cluster.nodes[0]
+            .storage_node
+            .sync_shard(
+                cluster.nodes[1]
+                    .as_ref()
+                    .inner
+                    .protocol_key_pair
+                    .0
+                    .public()
+                    .clone(),
+                signed_request,
+            )
+            .await;
+
+        assert!(
+            matches!(result, Err(SyncShardServiceError::Unauthorized)),
+            "expected Unauthorized, got {result:?}"
+        );
+
+        Ok(())
+    }
+
+    // A `sliver_count` above the server-side limit is rejected before the response vector is
+    // allocated.
+    #[tokio::test]
+    async fn sync_shard_node_api_rejects_oversized_sliver_count() -> TestResult {
+        let (cluster, _, _) =
+            cluster_with_initial_epoch_and_certified_blobs(&[&[0, 1], &[2, 3]], &[BLOB], 2, None)
+                .await?;
+
+        // node 0 owns shard 0, so the request passes authorization and reaches the sliver-count
+        // bound; `u64::MAX` is far above the limit and is rejected.
+        let request =
+            SyncShardRequest::new(ShardIndex(0), SliverType::Primary, BLOB_ID, u64::MAX, 2);
+        let signed_request = cluster.nodes[0]
+            .as_ref()
+            .inner
+            .protocol_key_pair
+            .sign_message(&SyncShardMsg::new(2, request));
+
+        let result = cluster.nodes[0]
+            .storage_node
+            .sync_shard(
+                cluster.nodes[0]
+                    .as_ref()
+                    .inner
+                    .protocol_key_pair
+                    .0
+                    .public()
+                    .clone(),
+                signed_request,
+            )
+            .await;
+
+        assert!(
+            matches!(
+                result,
+                Err(SyncShardServiceError::RequestedSliverCountExceedsLimit { limit, .. })
+                    if limit == DEFAULT_MAX_SLIVER_COUNT_PER_SYNC_REQUEST
+            ),
+            "expected RequestedSliverCountExceedsLimit, got {result:?}"
+        );
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn can_read_locked_shard() -> TestResult {
         let (cluster, events, blob) =
@@ -7631,6 +7848,7 @@ mod tests {
     async fn setup_cluster_for_shard_sync_tests(
         assignment: Option<&[&[u16]]>,
         shard_sync_config: Option<ShardSyncConfig>,
+        keep_destination_shards: bool,
     ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorageSet>)> {
         let assignment = assignment.unwrap_or(&[&[0], &[1, 2, 3]]);
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
@@ -7671,6 +7889,18 @@ mod tests {
                 .update_status_in_test(ShardStatus::None)
                 .await?;
         }
+
+        // node 1 is the destination that gains `assignment[0]`; reflect that in the committee so
+        // the source accepts its sync requests. Recovery-exercising tests pass
+        // `keep_destination_shards` so node 1 retains the shards it reconstructs from.
+        let synced_shards: Vec<_> = assignment[0].iter().map(|i| ShardIndex(*i)).collect();
+        reassign_shards_to_destination_in_current_committee(
+            &cluster,
+            &synced_shards,
+            1,
+            keep_destination_shards,
+        )
+        .await?;
 
         Ok((
             cluster,
@@ -7809,7 +8039,8 @@ mod tests {
             ..Default::default()
         };
         let (cluster, blob_details, storage_dst, shard_storage_set) =
-            setup_cluster_for_shard_sync_tests(Some(assignment), Some(shard_sync_config)).await?;
+            setup_cluster_for_shard_sync_tests(Some(assignment), Some(shard_sync_config), false)
+                .await?;
 
         let expected_shard_count = assignment[0].len();
 
@@ -7893,6 +8124,11 @@ mod tests {
                 blob_index_to_end_epoch,
                 blob_index_to_deletable,
             )
+            .await?;
+
+        // node 1 is the destination that recovers shard 0; reflect that in the committee so the
+        // source accepts its sync requests. It keeps its own shards to reconstruct from.
+        reassign_shards_to_destination_in_current_committee(&cluster, &[ShardIndex(0)], 1, true)
             .await?;
 
         Ok((cluster, blob_details, event_senders))
@@ -8130,7 +8366,7 @@ mod tests {
             sliver_type: SliverType,
         ) -> TestResult {
             let (cluster, blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, None).await?;
+                setup_cluster_for_shard_sync_tests(None, None, true).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
@@ -8211,7 +8447,7 @@ mod tests {
             sliver_type: SliverType,
         ) -> TestResult {
             let (cluster, blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, None).await?;
+                setup_cluster_for_shard_sync_tests(None, None, true).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
@@ -8325,7 +8561,7 @@ mod tests {
                 ..Default::default()
             };
             let (cluster, blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, Some(shard_sync_config)).await?;
+                setup_cluster_for_shard_sync_tests(None, Some(shard_sync_config), true).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
@@ -8392,7 +8628,7 @@ mod tests {
         }
         async fn sync_shard_src_abnormal_return(fail_point: &'static str) -> TestResult {
             let (cluster, _blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, None).await?;
+                setup_cluster_for_shard_sync_tests(None, None, true).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
@@ -8517,6 +8753,15 @@ mod tests {
             shard_storage_dst
                 .update_status_in_test(ShardStatus::None)
                 .await?;
+
+            // node 1 gains shard 0; reflect that in the committee so node 0 accepts its requests.
+            reassign_shards_to_destination_in_current_committee(
+                &cluster,
+                &[ShardIndex(0)],
+                1,
+                true,
+            )
+            .await?;
 
             // Starts the shard syncing process in the new shard, which should only use happy path
             // shard sync to sync non-expired certified blobs.
@@ -8670,7 +8915,7 @@ mod tests {
             fail_before_start_fetching: bool,
         ) -> TestResult {
             let (cluster, blob_details, storage_dst, shard_storage_set) =
-                setup_cluster_for_shard_sync_tests(None, None).await?;
+                setup_cluster_for_shard_sync_tests(None, None, false).await?;
 
             assert_eq!(shard_storage_set.shard_storage.len(), 1);
             let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
