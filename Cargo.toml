@@ -49,9 +49,9 @@ collectable = "0.0.2"
 colored = "3.1.1"
 const-str = "0.6.4"
 criterion = "0.8.2"
-diesel = { version = "2.2", features = ["chrono", "postgres", "serde_json", "uuid"] }
-diesel-async = { version = "0.6", features = ["postgres"] }
-diesel_migrations = { version = "2.2.0", features = ["postgres"] }
+diesel = { version = "2.3", features = ["chrono", "postgres", "serde_json", "uuid"] }
+diesel-async = { version = "0.9", features = ["postgres"] }
+diesel_migrations = { version = "2.3", features = ["postgres"] }
 enum_dispatch = "0.3"
 eyre = "0.6.12"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "4db0e90c732bbf7420ca20de808b698883148d9c" }

@@ -5,8 +5,9 @@ use std::{panic::Location, time::Duration};
 
 use anyhow::Result;
 use diesel::{QueryableByName, sql_types::Bytea};
-use diesel_async::{RunQueryDsl, scoped_futures::ScopedFutureExt};
+use diesel_async::RunQueryDsl;
 use object_store::{ObjectStore, gcp::GoogleCloudStorageBuilder, local::LocalFileSystem};
+use scoped_futures::ScopedFutureExt;
 use walrus_core::BlobId;
 
 /// Maximum number of pool refs drained per pool-expiry GC tick. Bounds the per-tick write
