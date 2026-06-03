@@ -7,14 +7,9 @@
 const sidebars = {
   walrusMemorySidebar: [
     {
-      type: "html",
-      value:
-        '<div style="font-weight:700;font-size:1.1rem;' +
-        "padding:0.6rem 0.75rem 0.4rem;" +
-        "color:var(--ifm-color-primary);" +
-        "border-bottom:1px solid var(--ifm-toc-border-color);" +
-        'margin-bottom:0.5rem">Walrus Memory</div>',
-      defaultStyle: true,
+      type: "doc",
+      id: "index",
+      label: "Walrus Memory",
     },
     {
       type: "category",
