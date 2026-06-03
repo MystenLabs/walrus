@@ -468,7 +468,7 @@ Sui smart contract as the on-chain index.
     the one that fits your use case. > Tip > > These paths aren't mutually exclusive.
 - [Quick Start](https://docs.wal.app/docs/walrus-memory/getting-started/quick-start.md):
     The fastest way to get Walrus Memory running is through the TypeScript SDK.
-- [What Is Memwal](https://docs.wal.app/docs/walrus-memory/getting-started/what-is-memwal.md):
+- [What Is Walrus Memory](https://docs.wal.app/docs/walrus-memory/getting-started/what-is-walrus-memory.md):
     > Note > > Walrus Memory is currently in beta and actively evolving. While fully usable today,
     the team continues to refine the developer experience and operational guidance. the team
     welcomes feedback from early builders as the team continues to improve the product.
