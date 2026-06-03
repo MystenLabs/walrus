@@ -24,7 +24,7 @@ Use a hosted relayer, or deploy your own [self-hosted relayer](/walrus-memory/re
 | Network | Relayer URL |
 | --- | --- |
 | **Production** (Mainnet) | `https://relayer.memory.walrus.xyz` |
-| **Staging** (Testnet) | `https://relayer.staging.memory.walrus.xyz` |
+| **Staging** (Testnet) | `https://relayer-staging.memory.walrus.xyz` |
 
 Go to: [Managed Relayer](/walrus-memory/relayer/public-relayer)
 

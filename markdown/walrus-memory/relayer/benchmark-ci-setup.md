@@ -39,7 +39,7 @@ Railway service: `relayer`
 | Target | Railway environment | Public relayer URL | Sui network |
 | --- | --- | --- | --- |
 | dev | `dev` | `https://relayer.dev.memory.walrus.xyz` | `testnet` |
-| staging | `staging` | `https://relayer.staging.memory.walrus.xyz` | `testnet` |
+| staging | `staging` | `https://relayer-staging.memory.walrus.xyz` | `testnet` |
 
 ## Benchmark test accounts
 
@@ -62,7 +62,7 @@ For each environment, set this Variable:
 
 | Variable | dev | staging |
 | --- | --- | --- |
-| `BENCH_SERVER_URL` | `https://relayer.dev.memory.walrus.xyz` | `https://relayer.staging.memory.walrus.xyz` |
+| `BENCH_SERVER_URL` | `https://relayer.dev.memory.walrus.xyz` | `https://relayer-staging.memory.walrus.xyz` |
 
 For each environment, set these Secrets:
 
@@ -79,7 +79,7 @@ Remember and recall against staging:
 $ cd services/server/scripts
 
 $ ./node_modules/.bin/tsx bench-recall-latency.ts \
-  --server-url https://relayer.staging.memory.walrus.xyz \
+  --server-url https://relayer-staging.memory.walrus.xyz \
   --account-id "$BENCH_ACCOUNT_ID" \
   --delegate-key "$BENCH_DELEGATE_KEY" \
   --namespace benchmark \

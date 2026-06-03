@@ -92,7 +92,6 @@ The following endpoints are provided as a public good by Walrus Foundation.
     | App | URL |
     | --- | --- |
     | **Walrus Memory Playground** | [memory.walrus.xyz](https://memory.walrus.xyz) |
-    | **Walrus-hosted Playground** | [memwal.wal.app](https://memwal.wal.app) |
 
     For the contract-based setup flow, see [Delegate Key Management](/walrus-memory/contract/delegate-key-management) and [Walrus Memory smart contract](/walrus-memory/contract/overview).
 
@@ -107,7 +106,7 @@ Following endpoints are provided as public good by Walrus Foundation.
     | Network | Relayer URL |
     | --- | --- |
     | **Production** (Mainnet) | `https://relayer.memory.walrus.xyz` |
-    | **Staging** (Testnet) | `https://relayer.staging.memory.walrus.xyz` |
+    | **Staging** (Testnet) | `https://relayer-staging.memory.walrus.xyz` |
 
   ### Configure the SDK
 

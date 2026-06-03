@@ -30,7 +30,7 @@ For most teams, the best default is:
     npx -y @mysten-incubation/memwal-mcp login --prod
     ```
 
-    The package writes credentials to `~/.memwal/credentials.json`. For other environments use `--staging`, `--dev`, or `--local`.
+    The package writes credentials to `~/.memwal/credentials.json`. For other environments use `--staging` or `--local`.
 
     :::warning
 Run this in a real terminal (with a TTY). The login command opens a browser and waits for your wallet approval. If you wrap it in a non-interactive shell, the browser won't pop and the flow exits silently.

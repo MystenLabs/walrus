@@ -38,7 +38,7 @@ Memories saved from Cursor surface in Claude Desktop, Codex, and vice versa, not
 
 **Environment Presets**
 
-`--prod` / `--staging` / `--dev` / `--local` flags switch networks without editing client configs
+`--prod` / `--staging` / `--local` flags switch networks without editing client configs
 
 ## When to use this
 

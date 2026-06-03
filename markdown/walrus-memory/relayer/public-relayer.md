@@ -7,7 +7,7 @@ A managed relayer is a simpler experience for teams that want to get started wit
 | Network | Relayer URL |
 |---|---|
 | **Production** (Mainnet) | `https://relayer.memory.walrus.xyz` |
-| **Staging** (Testnet) | `https://relayer.staging.memory.walrus.xyz` |
+| **Staging** (Testnet) | `https://relayer-staging.memory.walrus.xyz` |
 
 ## Minimal config
 

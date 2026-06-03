@@ -27,8 +27,8 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.9ef9b6db.css">
-<script src="/assets/js/runtime~main.80409a99.js" defer="defer"></script>
-<script src="/assets/js/main.2f7f561e.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.b1329fae.js" defer="defer"></script>
+<script src="/assets/js/main.33bff76e.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -67,7 +67,7 @@
 <table><thead><tr><th>Argument</th><th>Type</th><th>Required</th><th>Default</th><th>Description</th></tr></thead><tbody><tr><td><code>key</code></td><td><code>str</code></td><td>Yes</td><td></td><td>Ed25519 delegate private key in hex</td></tr><tr><td><code>account_id</code></td><td><code>str</code></td><td>Yes</td><td></td><td>Walrus Memory account object ID on Sui</td></tr><tr><td><code>server_url</code></td><td><code>str</code></td><td>No</td><td><code>http://localhost:8000</code></td><td>Explicit relayer URL, wins over <code>env</code></td></tr><tr><td><code>namespace</code></td><td><code>str</code></td><td>No</td><td><code>&quot;default&quot;</code></td><td>Default namespace for memory isolation</td></tr><tr><td><code>env</code></td><td><code>str</code></td><td>No</td><td></td><td>Hosted relayer preset: <code>staging</code> for testing or <code>prod</code> for production</td></tr></tbody></table>
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="environment-presets">Environment presets<a href="#environment-presets" class="hash-link" aria-label="Direct link to Environment presets" title="Direct link to Environment presets" translate="no">​</a></h3>
 <p>Instead of hardcoding a URL, pass <code>env</code>. The public docs and Colab example use <code>staging</code> for testing and <code>prod</code> for production credentials.</p>
-<table><thead><tr><th><code>env</code></th><th>Relayer URL</th></tr></thead><tbody><tr><td><code>prod</code></td><td><code>https://relayer.memory.walrus.xyz</code></td></tr><tr><td><code>staging</code></td><td><code>https://relayer.staging.memory.walrus.xyz</code></td></tr></tbody></table>
+<table><thead><tr><th><code>env</code></th><th>Relayer URL</th></tr></thead><tbody><tr><td><code>prod</code></td><td><code>https://relayer.memory.walrus.xyz</code></td></tr><tr><td><code>staging</code></td><td><code>https://relayer-staging.memory.walrus.xyz</code></td></tr></tbody></table>
 <p>Precedence: an explicit non-default <code>server_url</code> &gt; <code>env</code> &gt; the default. An unknown preset raises <code>ValueError</code>.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="first-memory">First memory<a href="#first-memory" class="hash-link" aria-label="Direct link to First memory" title="Direct link to First memory" translate="no">​</a></h2>
 <p><code>remember</code> returns as soon as the relayer accepts the job (~500ms); the upload + onchain commit run in the background. Use <code>remember_and_wait</code> to block until it is fully persisted.</p>

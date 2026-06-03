@@ -165,8 +165,7 @@ Shortcut flags that set both the relayer and the dashboard URL in one switch:
 | Flag | Relayer | Dashboard |
 | --- | --- | --- |
 | `--prod` | `https://relayer.memory.walrus.xyz` | `https://memory.walrus.xyz` |
-| `--dev` | `https://relayer.dev.memory.walrus.xyz` | `https://dev.memory.walrus.xyz` |
-| `--staging` | `https://relayer.staging.memory.walrus.xyz` | `https://staging.memory.walrus.xyz` |
+| `--staging` | `https://relayer-staging.memory.walrus.xyz` | `https://staging.memory.walrus.xyz` |
 | `--local` | `http://127.0.0.1:8000` | `http://localhost:5173` |
 
 Explicit `--relayer` and `--web-url` override the preset. You can also pass either flag without a preset to point at a custom URL.
