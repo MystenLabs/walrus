@@ -287,7 +287,7 @@ export default function NavbarContent() {
               <>
                 <NavbarItems items={before} />
                 <AppsDropdown items={[
-                  { label: "Walrus Memory", href: "/walrus-memory/getting-started/what-is-memwal" },
+                  { label: "Walrus Memory", href: "/walrus-memory/getting-started/what-is-walrus-memory" },
                 ]} />
                 <NavbarItems items={after} />
               </>
