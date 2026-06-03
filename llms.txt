@@ -472,6 +472,10 @@ Sui smart contract as the on-chain index.
     > Note > > Walrus Memory is currently in beta and actively evolving. While fully usable today,
     the team continues to refine the developer experience and operational guidance. the team
     welcomes feedback from early builders as the team continues to improve the product.
+- [Walrus Memory](https://docs.wal.app/docs/walrus-memory.md):
+    Walrus Memory gives AI agents persistent, portable memory that works across apps, sessions, and
+    workflows. Ownership and access are enforced onchain through Sui smart contracts, and all
+    content is encrypted through Seal before reaching Walrus.
 - [Database Sync](https://docs.wal.app/docs/walrus-memory/indexer/database-sync.md):
     The indexer syncs account data into PostgreSQL so the relayer can resolve ownership quickly
     without hitting the blockchain on every request. Both the relayer and the indexer connect to
