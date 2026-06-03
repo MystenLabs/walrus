@@ -300,10 +300,6 @@ const walrusMemoryOutputDir = path.join(outputDir, 'walrus-memory');
 if (fs.existsSync(walrusMemoryDir)) {
   console.log('\n📝 Exporting Walrus Memory docs...');
   fs.mkdirSync(walrusMemoryOutputDir, { recursive: true });
-  copyMarkdownFiles(walrusMemoryDir, walrusMemoryDir);
-  // Move exported files from their default output location to the walrus-memory subdirectory
-  // copyMarkdownFiles writes to outputDir based on baseDir, so we need to re-export with correct paths
-  // Actually, let's do a direct recursive copy with cleaning
   function copyWalrusMemoryFiles(dir, baseDir) {
     const files = fs.readdirSync(dir);
     files.forEach(file => {
