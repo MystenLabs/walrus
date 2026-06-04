@@ -9,13 +9,13 @@ durations, and configuration constants. Those values drift over time, so the
 volatile blocks are generated from source-of-truth files instead of being
 hand-maintained:
 
-  * setup/client_config.yaml
+    * setup/client_config.yaml
         system / staking / exchange object IDs, RPC URLs, shard counts, and the
         maximum number of epochs ahead, for both Mainnet and Testnet.
-  * mainnet-contracts/<pkg>/Published.toml
+    * mainnet-contracts/<pkg>/Published.toml
         Mainnet package IDs (the `original-id` field) for the WAL token, the
         Walrus system package, and the subsidies package.
-  * scripts/network_reference_data.yaml
+    * scripts/network_reference_data.yaml
         curated values that have no other machine-readable source: public
         endpoints, Walrus Sites package IDs, production epoch durations, and
         token-unit constants. That file also records the page owner and the

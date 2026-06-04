@@ -69,7 +69,7 @@ repos:
         entry: python3 scripts/generate_network_reference.py --check
         language: system
         pass_filenames: false
-        files: ^(docs/content/network-reference\.mdx|scripts/network_reference_data\.yaml|setup/client_config\.yaml|mainnet-contracts/.*/Published\.toml|scripts/generate_network_reference\.py)$
+        files: (network-reference\.mdx|client_config\.yaml|Published\.toml|network_reference_data\.yaml|generate_network_reference\.py)$
       - id: cargo-fmt
         name: cargo-fmt
         entry: cargo fmt
