@@ -489,10 +489,9 @@ Sui smart contract as the on-chain index.
     quickly. Without the indexer, every authenticated request would require the relayer to scan the
     onchain AccountRegistry to find which MemWalAccount holds a given delegate key.
 - [Changelog](https://docs.wal.app/docs/walrus-memory/mcp/changelog.md):
-    Added relayer compatibility metadata checks before opening the MCP bridge. Stdio MCP server for
-    Walrus Memory with browser-based wallet login. Inline memwallogin and memwallogout session
-    tools. Memory tools for remember, recall, analyze, and restore through the Walrus Memory
-    relayer.
+    Rebranded package metadata and documentation from Walrus Memory to Walrus Memory. Added relayer
+    compatibility metadata checks before opening the MCP bridge. Stdio MCP server for Walrus Memory
+    with browser-based wallet login. Inline memwallogin and memwallogout session tools.
 - [How It Works](https://docs.wal.app/docs/walrus-memory/mcp/how-it-works.md):
     This page explains what @mysten-incubation/memwal-mcp actually does on the client machine. The
     package has two main runtime modes.

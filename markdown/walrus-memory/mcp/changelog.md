@@ -1,5 +1,9 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+### Changed
+
+- Rebranded package metadata and documentation from Walrus Memory to Walrus Memory.
+
 ### Added
 
 - Added relayer compatibility metadata checks before opening the MCP bridge.

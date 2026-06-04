@@ -40,7 +40,7 @@ flowchart TD
   A["MCP host starts memwal-mcp"] --> B{"credentials.json exists?"}
   B -- "No" --> C["Start auth-required mode"]
   C --> D["Agent can call memwal_login"]
-  D --> E["Browser opens MemWal connect flow"]
+  D --> E["Browser opens Walrus Memory connect flow"]
   E --> F["User approves wallet sign-in"]
   F --> G["credentials.json written locally"]
   G --> H["Retry original memory tool call"]
