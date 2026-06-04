@@ -94,6 +94,7 @@ const sidebars = {
         'troubleshooting/reading-blobs-after-upload',
       ],
     },
+    "network-reference",
     "typescript-sdk/sdks",
     'large-uploads',
     'data-security',
