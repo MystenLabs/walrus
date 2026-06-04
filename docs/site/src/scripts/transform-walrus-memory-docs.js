@@ -662,6 +662,26 @@ function fixNumberedHeadingCase(content) {
   );
 }
 
+// --- AgentPrompt injection ---
+
+// Pages that should have an AgentPrompt callout injected after the frontmatter.
+// Each key is a relative file path, and the value is the prompt text.
+const AGENT_PROMPTS = {
+  "getting-started/quick-start.md":
+    "Run `curl -sL https://memory.walrus.xyz/skills/setup` and use the returned instructions to set up Walrus Memory in this AI client.",
+};
+
+function injectAgentPrompt(content, relPath) {
+  const prompt = AGENT_PROMPTS[relPath];
+  if (!prompt) return content;
+
+  // Insert the AgentPrompt component right after the frontmatter closing ---
+  return content.replace(
+    /^(---\n[\s\S]*?\n---\n)/,
+    `$1\n<AgentPrompt\n  prompt="${prompt}"\n/>\n`,
+  );
+}
+
 // --- Main pipeline ---
 
 function transformFile(content) {
@@ -758,7 +778,8 @@ function main() {
     if (relPath.startsWith("src/")) continue;
 
     const content = fs.readFileSync(fullPath, "utf8");
-    const transformed = transformFile(content);
+    let transformed = transformFile(content);
+    transformed = injectAgentPrompt(transformed, relPath);
 
     // Preserve directory structure
     const outPath = path.join(OUTPUT_DIR, relPath);
