@@ -113,6 +113,7 @@
     "/docs/tusky-migration-guide.md": "/markdown/tusky-migration-guide.md",
     "/docs/typescript-sdk/sdks.md": "/markdown/typescript-sdk/sdks.md",
     "/docs/usage/client-cli.md": "/markdown/walrus-client/storing-blobs.md",
+    "/docs/usage/interacting.md": "/markdown/walrus-client/index.md",
     "/docs/usage/examples.md": "/markdown/examples/javascript.md",
     "/docs/usage/glossary.md": "/markdown/glossary.md",
     "/docs/usage/json-api.md": "/markdown/walrus-client/json-mode.md",
@@ -318,6 +319,10 @@
       "location": "/docs/examples",
       "status_code": 301
     },
+    "/docs/usage/interacting": {
+      "location": "/docs/walrus-client",
+      "status_code": 301
+    },
     "/docs/usage/glossary": {
       "location": "/docs/glossary",
       "status_code": 301
@@ -496,6 +501,10 @@
     },
     "/usage/examples": {
       "location": "/docs/examples",
+      "status_code": 301
+    },
+    "/usage/interacting": {
+      "location": "/docs/walrus-client",
       "status_code": 301
     },
     "/usage/glossary": {
@@ -832,6 +841,14 @@
     },
     "/usage/examples/index": {
       "location": "/docs/examples",
+      "status_code": 301
+    },
+    "/usage/interacting.html": {
+      "location": "/docs/walrus-client",
+      "status_code": 301
+    },
+    "/usage/interacting/index": {
+      "location": "/docs/walrus-client",
       "status_code": 301
     },
     "/usage/glossary.html": {
