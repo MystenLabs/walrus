@@ -68,13 +68,24 @@
 .copyBtn {
   border: 1px solid var(--ifm-color-emphasis-500);
   background: transparent;
-  color: var(--ifm-heading-color);
+  color: var(--ifm-color-emphasis-900);
+}
+
+:global([data-theme='dark']) .copyBtn {
+  color: #faf8f5;
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .copyBtn:hover {
   border-color: var(--ifm-color-emphasis-600);
   background: var(--ifm-color-emphasis-200);
-  color: var(--ifm-heading-color);
+  color: var(--ifm-color-emphasis-900);
+}
+
+:global([data-theme='dark']) .copyBtn:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .agentBtn {
