@@ -281,7 +281,7 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                             // task is not a concern, and we should limit the resource this task
                             // can use.
                             //
-                            // TODO(zhewu): ideally, we should create iterators over the sliver
+                            // TODO(WAL-1240): ideally, we should create iterators over the sliver
                             // column families, and perform sequential scan along with
                             // BlobInfoIterator to conduct more efficient existence check. This
                             // requires the SafeIterator to support seek() functionality first.
