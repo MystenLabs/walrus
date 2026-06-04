@@ -66,13 +66,14 @@
 }
 
 .copyBtn {
-  border: 1px solid var(--ifm-color-emphasis-300);
+  border: 1px solid var(--ifm-color-emphasis-500);
   background: transparent;
-  color: var(--ifm-color-emphasis-800);
+  color: var(--ifm-heading-color);
 }
 
 .copyBtn:hover {
-  border-color: var(--ifm-color-emphasis-500);
+  border-color: var(--ifm-color-emphasis-600);
+  background: var(--ifm-color-emphasis-200);
   color: var(--ifm-heading-color);
 }
 
