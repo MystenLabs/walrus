@@ -298,10 +298,10 @@ def render_token_units(sources):
 RENDERERS = {
     "network-parameters": render_network_parameters,
     "rpc-endpoints": render_rpc_endpoints,
-    "mainnet-packages": render_mainnet_packages,
+    "package-ids": render_mainnet_packages,
     "sites-packages": render_sites_packages,
     "object-ids": render_object_ids,
-    "testnet-exchange-objects": render_testnet_exchange_objects,
+    "exchange-objects": render_testnet_exchange_objects,
     "reference-endpoints": render_reference_endpoints,
     "upload-relays": render_upload_relays,
     "token-units": render_token_units,

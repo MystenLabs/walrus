@@ -50,13 +50,13 @@ The Walrus client and the TypeScript SDK infer package IDs automatically from th
 
 ### Walrus and WAL packages on Mainnet
 
-{/* GENERATED:START id=mainnet-packages */}
+{/* GENERATED:START id=package-ids */}
 | **Package** | **ID** |
 |---|---|
 | WAL token | [`0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59`](https://suiscan.xyz/mainnet/object/0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59/tx-blocks) |
 | Walrus system | [`0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77`](https://suiscan.xyz/mainnet/object/0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77/tx-blocks) |
 | Subsidies | [`0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc`](https://suiscan.xyz/mainnet/object/0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc/tx-blocks) |
-{/* GENERATED:END id=mainnet-packages */}
+{/* GENERATED:END id=package-ids */}
 
 Testnet package IDs change when contracts are redeployed. Read the current Testnet package IDs from the `Move.lock` files in the subdirectories of the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) rather than pinning a copied value.
 
@@ -86,12 +86,12 @@ The Walrus client configuration identifies the network through its system object
 
 On Testnet, the SUI/WAL exchange objects used by `walrus get-wal` are:
 
-{/* GENERATED:START id=testnet-exchange-objects */}
+{/* GENERATED:START id=exchange-objects */}
 - `0xf4d164ea2def5fe07dc573992a029e010dba09b1a8dcbc44c5c2e79567f39073`
 - `0x19825121c52080bb1073662231cfea5c0e4d905fd13e95f21e9a018f2ef41862`
 - `0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5`
 - `0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1`
-{/* GENERATED:END id=testnet-exchange-objects */}
+{/* GENERATED:END id=exchange-objects */}
 
 These object IDs are pre-filled in the [client configuration files](#walrus-cli). The configuration file is the authoritative source if a value here differs.
 
