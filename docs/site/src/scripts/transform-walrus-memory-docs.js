@@ -812,7 +812,7 @@ workflows. Ownership and access are enforced onchain through Sui smart contracts
 encrypted through Seal before reaching Walrus.
 
 <Cards>
-  <Card title="Get Started" href="/walrus-memory/getting-started/what-is-memwal">
+  <Card title="Get Started" href="/walrus-memory/getting-started/what-is-walrus-memory">
     Learn what Walrus Memory is and get up and running quickly
   </Card>
   <Card title="Concepts" href="/walrus-memory/fundamentals/concepts/memory-space">
