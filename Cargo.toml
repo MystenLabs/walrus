@@ -17,6 +17,7 @@ default-members = [
   "crates/walrus-upload-relay",
   "crates/walrus-utils",
 ]
+exclude = ["crates/rocksdb"]
 members = ["crates/*"]
 resolver = "2"
 
