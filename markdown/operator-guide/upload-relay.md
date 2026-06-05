@@ -10,6 +10,8 @@ The upload relay is a downloadable program that community members, Mysten Labs, 
 > 
 > - **Testnet:** `https://upload-relay.testnet.walrus.space`
 > - **Mainnet:** `https://upload-relay.mainnet.walrus.space`
+> 
+> These endpoints are also listed in the [Network Reference](/docs/network-reference#upload-relays).
 ## Understand the design
 
 At a high level, a client stores a blob using an upload relay as follows:

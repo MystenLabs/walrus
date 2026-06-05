@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-You can read blobs using HTTP GET requests with their blob ID or object ID.
+You can read blobs using HTTP GET requests with their blob ID or object ID. Set `$AGGREGATOR` to an aggregator endpoint from the [Network Reference](/docs/network-reference#aggregators-and-publishers).
 
 > **Reading a blob right after upload?**
 >

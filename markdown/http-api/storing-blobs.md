@@ -3,7 +3,7 @@
 > **No public Mainnet publisher**
 >
 > Walrus has no public unauthenticated publisher on Mainnet. There are no plans to create one. On Mainnet, run your own authenticated publisher (or use the [Upload Relay](/docs/operator-guide/upload-relay) or [TypeScript SDK](/docs/typescript-sdk/sdks) directly). The public publisher endpoints below are for Testnet, where WAL has no monetary value.
-You can store data using HTTP PUT requests. The following examples use `curl` to store blobs through a publisher:
+You can store data using HTTP PUT requests. The following examples use `curl` to store blobs through a publisher. Set `$PUBLISHER` to a publisher endpoint from the [Network Reference](/docs/network-reference#aggregators-and-publishers):
 
 ```sh
 # Store the string `some string` for 1 storage epoch

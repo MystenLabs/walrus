@@ -105,12 +105,11 @@ Sui smart contract as the on-chain index.
 
 - [Quilt HTTP APIs](https://docs.wal.app/docs/http-api/quilt-http-apis.md):
     Walrus supports storing and retrieving multiple blobs as a single unit called a quilt.
-    Publishers and aggregators both support quilt operations. All query parameters available for
-    storing regular blobs can also be used when storing quilts.
+    Publishers and aggregators both support quilt operations. Set $PUBLISHER and $AGGREGATOR to
+    endpoints from the Network Reference.
 - [Reading Blobs](https://docs.wal.app/docs/http-api/reading-blobs.md):
-    You can read blobs using HTTP GET requests with their blob ID or object ID. > Reading a blob
-    right after upload? > > When you read through a CDN-fronted aggregator immediately after
-    certification, the CDN might briefly cache a 404 from before the blob propagated.
+    You can read blobs using HTTP GET requests with their blob ID or object ID. Set $AGGREGATOR to
+    an aggregator endpoint from the Network Reference. > Reading a blob right after upload?
 - [Storing Blobs](https://docs.wal.app/docs/http-api/storing-blobs.md):
     > No public Mainnet publisher > > Walrus has no public unauthenticated publisher on Mainnet.
     There are no plans to create one. On Mainnet, run your own authenticated publisher (or use the
@@ -120,8 +119,8 @@ Sui smart contract as the on-chain index.
 
 - [SDKs](https://docs.wal.app/docs/typescript-sdk/sdks.md):
     Mysten Labs has built and published a Walrus TypeScript SDK, which supports a wide variety of
-    operations. See also the related examples. The Walrus core team is actively working on a Rust
-    SDK for Walrus. For data security, use the TypeScript SDK for Seal.
+    operations. See also the related examples. The SDK bundles the package and object IDs for each
+    network, so selecting a network applies the correct values automatically.
 
 ## Examples
 
@@ -411,6 +410,13 @@ Sui smart contract as the on-chain index.
     individual blobs larger than 1 GiB require certain workarounds and planning for optimal
     performance and efficiency. After you plan your upload strategy, estimate the storage costs for
     your data.
+
+## Network Reference
+
+- [Network Reference](https://docs.wal.app/docs/network-reference.md):
+    This page is the single canonical reference for the volatile values you need to integrate with
+    Walrus: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and
+    staking object IDs, token units, and configuration snippets.
 
 ## Walrus Memory
 

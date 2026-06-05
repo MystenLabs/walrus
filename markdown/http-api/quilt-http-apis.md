@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](/docs/system-overview/quilt). Publishers and aggregators both support quilt operations.
+Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](/docs/system-overview/quilt). Publishers and aggregators both support quilt operations. Set `$PUBLISHER` and `$AGGREGATOR` to endpoints from the [Network Reference](/docs/network-reference#aggregators-and-publishers).
 
 ## Storing quilts
 

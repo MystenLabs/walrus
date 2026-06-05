@@ -30,6 +30,8 @@ curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/conf
 
  
 
+For the canonical configuration snippets and the object IDs they contain, see the [Network Reference](/docs/network-reference#configuration-snippets).
+
 ## Sample `systemd` configuration
 
 The following example shows an aggregator node that hosts an HTTP endpoint you can use to fetch data from Walrus over the web.

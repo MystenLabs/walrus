@@ -4,6 +4,8 @@
 
 Mysten Labs has built and published a [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus), which supports a wide variety of operations. See also the related [examples](https://github.com/MystenLabs/ts-sdks/tree/main/packages/walrus/examples).
 
+The SDK bundles the package and object IDs for each network, so selecting a network applies the correct values automatically. To configure a custom or pinned deployment, pass the system and staking object IDs from the [Network Reference](/docs/network-reference#system-and-staking-object-ids).
+
 The Walrus core team is actively working on a Rust SDK for Walrus.
 
 For data security, use the [TypeScript SDK](https://www.npmjs.com/package/@mysten/seal) for Seal. It provides threshold encryption and onchain access control for decentralized data protection. Also, refer to [data security](/docs/data-security) for details.

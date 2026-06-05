@@ -65,6 +65,8 @@ Download the configuration file:
 $ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
 
+This pre-filled file includes both the Mainnet and Testnet contexts. For the canonical endpoints, RPC URLs, object IDs, and configuration snippets, see the [Network Reference](/docs/network-reference).
+
 Configure the Sui client to connect to Testnet.
 
 The Sui client configuration is separate from the Walrus client configuration. [Learn more about the Sui client configuration.](https://docs.sui.io/guides/developer/getting-started/configure-sui-client)

@@ -26,6 +26,8 @@ curl "https://docs.wal.app/setup/client_config_mainnet.yaml" -o /opt/walrus/conf
 curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/config/client_config.yaml
 ```
 
+For the canonical configuration snippets and the object IDs they contain, see the [Network Reference](/docs/network-reference#configuration-snippets).
+
 ## Create and fund the publisher wallet {#fund-publisher}
 
 The publisher needs a **separate wallet** from the storage node, even if it runs on the same host. See the [storage node FAQ](/docs/operator-guide/storage-nodes/storage-node-faq#wallets) for details on wallet requirements.
