@@ -1,5 +1,10 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+### Fixed
+
+- Accept HTTPS dashboard sign-in callbacks to the local `127.0.0.1` MCP listener.
+- Reload credentials after `memwal_login` so memory tools work without restarting the MCP client.
+
 ### Changed
 
 - Rebranded package metadata and documentation from Walrus Memory to Walrus Memory.
