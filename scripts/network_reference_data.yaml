@@ -1,0 +1,67 @@
+# Curated source of truth for the volatile values on
+# docs/content/network-reference.mdx that have NO machine-readable canonical
+# file elsewhere in this repository (public service endpoints, Walrus Sites
+# package IDs that live in the walrus-sites repo, production epoch durations,
+# and token-unit constants).
+#
+# This file is an INPUT to scripts/generate_network_reference.py. It lives next
+# to that script (rather than under docs/data/) on purpose: docs/data/*.yaml is
+# auto-published as static JSON by the docs site build, and this curated subset
+# is not the complete network reference, so publishing it would be misleading.
+#
+# Values that DO have a canonical source are read by the generator directly from
+# that source and must NOT be duplicated here:
+#   - System/staking/exchange object IDs, RPC URLs, shard counts, and
+#     max-epochs-ahead come from `setup/client_config.yaml`.
+#   - Mainnet package IDs come from `mainnet-contracts/<pkg>/Published.toml`
+#     (the `original-id` field).
+#
+# Owner:           Walrus documentation maintainers (Developer Relations).
+# Refresh cadence: Reviewed on the first business day of each month, and
+#                  immediately whenever a contract is redeployed or a public
+#                  endpoint changes. The CI drift check below also forces a
+#                  refresh whenever a canonical source file changes in a PR.
+#
+# To apply changes, edit this file or the canonical sources above and run:
+#   python3 scripts/generate_network_reference.py
+# CI fails if the page drifts from these sources (see the `network-reference`
+# job in .github/workflows/lint.yml).
+
+# Production epoch durations. These are operational network parameters, not
+# values stored in any in-repo config, so they are maintained here.
+epoch_durations:
+  mainnet: "2 weeks"
+  testnet: "1 day"
+
+# Walrus Sites package IDs. These are published from the separate
+# MystenLabs/walrus-sites repository and configured in its `sites-config.yaml`.
+sites_packages:
+  mainnet: "0x5a0c509a659ba982f91ff1189872b8d528f8c02b5f6285a3931fc4c2869ccc9c"
+  testnet: "0x22b8c1496650eb45fbcca0f8f37fae77ed33b7d4eaab4da5f0bb9b62a8708dcb"
+
+# Reference aggregator and publisher endpoints operated by Mysten Labs. There is
+# deliberately no public unauthenticated publisher on Mainnet.
+reference_endpoints:
+  - service: Aggregator
+    network: Mainnet
+    url: "https://aggregator.walrus-mainnet.walrus.space"
+  - service: Aggregator
+    network: Testnet
+    url: "https://aggregator.walrus-testnet.walrus.space"
+  - service: Publisher
+    network: Testnet
+    url: "https://publisher.walrus-testnet.walrus.space"
+
+# Public upload relays operated by Mysten Labs.
+upload_relays:
+  mainnet: "https://upload-relay.mainnet.walrus.space"
+  testnet: "https://upload-relay.testnet.walrus.space"
+
+# Token denominations. Fixed protocol constants.
+token_units:
+  - token: WAL
+    smallest_unit: FROST
+    conversion: "1 WAL = 1,000,000,000 FROST"
+  - token: SUI
+    smallest_unit: MIST
+    conversion: "1 SUI = 1,000,000,000 MIST"
