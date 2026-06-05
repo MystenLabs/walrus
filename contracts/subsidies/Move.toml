@@ -1,13 +1,16 @@
 [package]
-name = "Subsidies"
+name = "subsidies"
 license = "Apache-2.0"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
-edition = "2024.beta"
+edition = "2024"
+# TODO(WAL-1125): remove the explicit `std` and `sui` dependencies below (and this
+# `implicit-dependencies = false` override) once simtest's package system can pull external
+# git dependencies. Until then, simtest cannot resolve the implicit framework deps, so we pin
+# them explicitly.
+implicit-dependencies = false
 
 [dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.73.1" }
-WAL = { local = "../wal" }
-Walrus = { local = "../walrus" }
-
-[addresses]
-subsidies = "0x0"
+std = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "testnet-v1.73.0" }
+sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.73.0" }
+wal = { local = "../wal" }
+walrus = { local = "../walrus" }

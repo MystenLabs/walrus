@@ -4,62 +4,32 @@
 [move]
 version = 4
 
-[pinned.mainnet.MoveStdlib]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "2f5992f189cd24445cd010ccf0aa7ff418ff93b1" }
-use_environment = "mainnet"
-manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
-deps = {}
-
-[pinned.mainnet.Sui]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "2f5992f189cd24445cd010ccf0aa7ff418ff93b1" }
-use_environment = "mainnet"
-manifest_digest = "CD547CB1ACCE0880C835DAED2D8FFCB91D56C833AE5240D3AA5B918398263195"
-deps = { MoveStdlib = "MoveStdlib" }
-
-[pinned.mainnet.WAL]
-source = { local = "../wal" }
-use_environment = "mainnet"
-manifest_digest = "0098646AD9890801C58765FC6EBDB500AB3A3DB6AC77F9A0A6B4D9E49802DD1B"
-deps = { Sui = "Sui" }
-
-[pinned.mainnet.Walrus]
-source = { local = "../walrus" }
-use_environment = "mainnet"
-manifest_digest = "883FE23C0272D7AC3ADF99F36155886CE31379A9E3FBAD52ABEBCEDE1DA56A9E"
-deps = { Sui = "Sui", WAL = "WAL" }
-
-[pinned.mainnet.walrus_subsidies]
-source = { root = true }
-use_environment = "mainnet"
-manifest_digest = "B58373A94905C6E956264F433F624B48344BF14FFDEE47138E050FC1B09DA614"
-deps = { Sui = "Sui", WAL = "WAL", Walrus = "Walrus" }
-
 [pinned.testnet.MoveStdlib]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "ff1fe0ec455153707136cffd0dc77dfb77ba9ad5" }
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "0a9aa917aabeb5a6f64b822a075206440b4db3dc" }
 use_environment = "testnet"
 manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
 deps = {}
 
 [pinned.testnet.Sui]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "ff1fe0ec455153707136cffd0dc77dfb77ba9ad5" }
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "0a9aa917aabeb5a6f64b822a075206440b4db3dc" }
 use_environment = "testnet"
 manifest_digest = "7AFB66695545775FBFBB2D3078ADFD084244D5002392E837FDE21D9EA1C6D01C"
 deps = { MoveStdlib = "MoveStdlib" }
 
-[pinned.testnet.WAL]
+[pinned.testnet.wal]
 source = { local = "../wal" }
 use_environment = "testnet"
-manifest_digest = "3D00D9788103ED9EEA66695EC17C180B46397265F573904D6F6CB7596125E8A4"
-deps = { Sui = "Sui" }
+manifest_digest = "F666215FE4F7E2CF1988CAB9CF0C7101BF911109CC95298D1565A5DA07777AD6"
+deps = { std = "MoveStdlib", sui = "Sui" }
 
-[pinned.testnet.Walrus]
+[pinned.testnet.walrus]
 source = { local = "../walrus" }
 use_environment = "testnet"
-manifest_digest = "CA158C41E9979D7CCE420B79AA10E3D44D4744BD39A7E394E84DBC2B0DDCFB40"
-deps = { Sui = "Sui", WAL = "WAL" }
+manifest_digest = "45AD345AA2A716668E14A5BD1A532A99593F9547D612C6E7E5FE8F0C3B3AAC35"
+deps = { std = "MoveStdlib", sui = "Sui", wal = "wal" }
 
 [pinned.testnet.walrus_subsidies]
 source = { root = true }
 use_environment = "testnet"
-manifest_digest = "80AFC0888C993D0CA9B6389BC088808FEE7217CFAD8800B9249AEE3915846ED9"
-deps = { Sui = "Sui", WAL = "WAL", Walrus = "Walrus" }
+manifest_digest = "8733032D8BBDFF25C0B8AC89756AF0C288A679FE542DDD2E3F8C887E95F08682"
+deps = { std = "MoveStdlib", sui = "Sui", wal = "wal", walrus = "walrus" }

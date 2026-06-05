@@ -14,7 +14,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use move_core_types::language_storage::StructTag;
 use move_package_alt::{
     RootPackage,
-    schema::{OriginalID, Publication, PublishAddresses, PublishedID},
+    schema::{Environment, OriginalID, Publication, PublishAddresses, PublishedID},
 };
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use sui_move_build::{CompiledPackage, PackageDependencies};
@@ -98,24 +98,51 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
+/// Maps the wallet's active env alias to the env name used to load the package.
+///
+/// We don't pass the wallet's alias directly to `PackageLoader` because our `Move.toml`s only
+/// declare the two env names that come from `SuiFlavor`'s defaults — `mainnet` and `testnet` —
+/// and an unknown name (notably the test cluster's `localnet`) would fail dep-package validation.
+/// `mainnet` passes through (so production mainnet upgrades read each dep's
+/// `[published.mainnet]` entry). Everything else — `testnet`, `localnet`, custom aliases — maps
+/// to `testnet`, which is the env name our `testnet-contracts/` `Published.toml` files key on
+/// and the env name we write for fresh publishes during tests.
+fn compile_env_name_for_alias(alias: &str) -> &'static str {
+    match alias {
+        "mainnet" => "mainnet",
+        _ => "testnet",
+    }
+}
+
 /// Compiles a package and returns the compiled package, and build config.
-/// `env` is the environment to use for the package management system, and should be derived
-/// from the wallet that performs the publish/upgrade.
+///
+/// Loads the root package in persistent mode. The env name is chosen from the wallet's active
+/// alias via `compile_env_name_for_alias` so that production mainnet upgrades read
+/// `[published.mainnet]` from each dep's `Published.toml` while everything else (including
+/// `testnet-contracts/` and test-cluster fresh publishes) goes through `[published.testnet]`.
+/// The wallet's actual `chain_id` is bound to that env name so the resulting publish transaction
+/// still reaches the correct chain. Package addresses propagate between sibling packages via
+/// each one's per-directory `Published.toml`.
 pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
     chain_id: Option<String>,
     wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
-    let env = wallet
-        .find_package_environment(&package_path, &build_config)
-        .await?;
+    let env_name = compile_env_name_for_alias(&wallet.get_active_env().alias);
+    let env = Environment::new(env_name.to_string(), chain_id.clone().unwrap_or_default());
 
     let build_config_clone = build_config.clone();
     let package_path_clone = package_path.clone();
-
     let root_pkg: RootPackage<SuiFlavor> = build_config_clone
         .package_loader(&package_path_clone, &env, wallet.sui_flavor())
+        // TODO(WAL-1125): under simtest the package system can't fetch external git deps, but
+        // `Move.lock`'s `[pinned.testnet]` still points its `std`/`sui` entries at git sources.
+        // The default loader fetches each lockfile pin before checking digests, which triggers a
+        // real `git clone` that hangs under msim. Forcing a repin makes the loader read the
+        // (already-rewritten) manifest with local paths instead. Drop once simtest can pull
+        // external git deps, together with `update_contract_sui_dependency_to_local_copy`.
+        .force_repin(cfg!(msim))
         .load()
         .await?;
 
@@ -256,10 +283,6 @@ pub(crate) async fn publish_package(
     )?;
 
     let chain_id = retry_client.get_chain_identifier().await?;
-
-    // TODO(WAL-1126): this is a temporary workaround and should be removed once sui publish works
-    // with ephemeral publishing.
-    system_setup::add_localnet_env_to_contract_toml(package_path.clone(), chain_id.clone())?;
 
     if cfg!(msim) {
         // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
@@ -422,32 +445,24 @@ pub(crate) async fn publish_coin_and_system_package(
     };
 
     let walrus_contract_directory = if let Some(deploy_directory) = deploy_directory {
-        // Clear the deploy directory before copying to avoid stale files
-        if deploy_directory.exists() {
-            // TODO(WAL-1126): remove this once sui publish works with ephemeral publishing.
-            // If the contract directory already exists and has been used for publishing, all the
-            // published info will be stored in the contract directory, which will make all the
-            // contracts appear as published. The root cause is that sui publish does not support
-            // ephemeral publishing yet.
-            //
-            // To make this work, we should clear the published info from the contract directory.
-            // This should not be needed if we can use ephemeral publishing.
-            tracing::warn!(
-                "clearing deploy directory {:?} before copying to it",
-                deploy_directory
-            );
-            // Clear all contents inside the directory without removing the directory itself
-            for entry in std::fs::read_dir(&deploy_directory)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_dir() {
-                    std::fs::remove_dir_all(path)?;
-                } else {
-                    std::fs::remove_file(path)?;
+        copy_recursively(&contract_dir, &deploy_directory).await?;
+
+        // We're about to publish each of these packages *fresh* on the test cluster. The source
+        // `testnet-contracts/<pkg>/Published.toml` files (carried over by `copy_recursively`)
+        // record the real testnet publication, which under env name `"testnet"` would make the
+        // compile think the package is already published and trip the
+        // `published_root_module().is_none()` assertion. Drop each one so the fresh publishes
+        // write clean entries.
+        for entry in std::fs::read_dir(&deploy_directory)? {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                let published_toml = entry.path().join("Published.toml");
+                if published_toml.exists() {
+                    std::fs::remove_file(&published_toml)?;
                 }
             }
         }
-        copy_recursively(&contract_dir, &deploy_directory).await?;
+
         deploy_directory
     } else {
         contract_dir
@@ -711,4 +726,43 @@ pub async fn create_system_and_staking_objects(
         staking_object_id,
         upgrade_manager_object_id,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compile_env_name_for_alias;
+
+    #[test]
+    fn mainnet_alias_passes_through() {
+        // Mainnet upgrades must read `[published.mainnet]` from each dep's `Published.toml`
+        // (notably `mainnet-contracts/wal/Published.toml` only has that block); reading a
+        // `[published.testnet]` entry — or none — would either silently link against the wrong
+        // dep address or fail the unpublished-dependency assertion.
+        assert_eq!(compile_env_name_for_alias("mainnet"), "mainnet");
+    }
+
+    #[test]
+    fn testnet_alias_uses_testnet_env() {
+        assert_eq!(compile_env_name_for_alias("testnet"), "testnet");
+    }
+
+    #[test]
+    fn localnet_alias_falls_back_to_testnet() {
+        // The Sui test cluster's wallet alias is `localnet`, but our contract source trees only
+        // record publications under `mainnet` / `testnet` env names, and fresh test-cluster
+        // publishes write `[published.testnet]` entries to match the lockfile's `[pinned.testnet]`
+        // block. Mapping `localnet` to `testnet` lets the test cluster publish + read addresses
+        // through the same env key.
+        assert_eq!(compile_env_name_for_alias("localnet"), "testnet");
+    }
+
+    #[test]
+    fn unknown_alias_falls_back_to_testnet() {
+        // Any custom wallet alias a user might set (e.g. a self-hosted devnet) lands on the
+        // testnet env name so publish writes a `[published.testnet]` entry and subsequent
+        // compiles can read it back. The actual chain id is still bound separately.
+        assert_eq!(compile_env_name_for_alias("custom"), "testnet");
+        assert_eq!(compile_env_name_for_alias("devnet"), "testnet");
+        assert_eq!(compile_env_name_for_alias(""), "testnet");
+    }
 }
