@@ -3,7 +3,14 @@
 
 //! Tools for inspecting and maintaining the RocksDB database.
 
-use std::{collections::BTreeMap, path::PathBuf, thread::sleep, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs::File,
+    io::{BufRead, BufReader},
+    path::{Path, PathBuf},
+    thread::sleep,
+    time::Duration,
+};
 
 use anyhow::{Context, Result, bail};
 use bincode::Options;
@@ -206,6 +213,19 @@ pub enum DbToolCommands {
         db_path: PathBuf,
     },
 
+    /// Map logged RocksDB SST corruption to the affected live column family.
+    DetectCorruptColumnFamilies {
+        /// Path to the RocksDB database directory.
+        #[arg(long)]
+        db_path: PathBuf,
+        /// WAL recovery mode to use for the read-only open.
+        #[arg(long, value_enum, default_value_t = ProbeWalRecoveryMode::PointInTime)]
+        wal_recovery_mode: ProbeWalRecoveryMode,
+        /// Path to RocksDB LOG files. Defaults to `db_path`.
+        #[arg(long)]
+        log_dir: Option<PathBuf>,
+    },
+
     /// Open the RocksDB database read-only with a selectable WAL recovery mode and report what
     /// data is visible without persisting any recovery result.
     #[command(hide = true)]
@@ -381,6 +401,11 @@ impl DbToolCommands {
                 column_family_names,
             } => drop_column_families(db_path, column_family_names),
             Self::ListColumnFamilies { db_path } => list_column_families(db_path),
+            Self::DetectCorruptColumnFamilies {
+                db_path,
+                wal_recovery_mode,
+                log_dir,
+            } => detect_corrupt_column_families(db_path, wal_recovery_mode, log_dir),
             Self::ProbeRecovery {
                 db_path,
                 wal_recovery_mode,
@@ -841,6 +866,280 @@ fn list_column_families(db_path: PathBuf) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn detect_corrupt_column_families(
+    db_path: PathBuf,
+    wal_recovery_mode: ProbeWalRecoveryMode,
+    log_dir: Option<PathBuf>,
+) -> Result<()> {
+    let log_dir = log_dir.unwrap_or_else(|| db_path.clone());
+    let logged_sst_probe = collect_logged_corrupt_ssts(&log_dir)?;
+
+    report_logged_sst_probe(&log_dir, &logged_sst_probe);
+    if logged_sst_probe.sst_file_names.is_empty() {
+        return Ok(());
+    }
+
+    let (column_families, db_kind, db_opts, db_table_opts_factory) =
+        prepare_recovery_open(&db_path, wal_recovery_mode).with_context(|| {
+            format!(
+                "failed to prepare read-only DB open at {}; cannot map logged SST corruption to \
+                column families",
+                db_path.display()
+            )
+        })?;
+    let db = DB::open_cf_with_opts_for_read_only(
+        &db_opts,
+        &db_path,
+        cf_options(&column_families, db_kind, &db_table_opts_factory),
+        false,
+    )
+    .with_context(|| {
+        format!(
+            "failed to open DB read-only at {}; cannot map logged SST corruption to column \
+            families",
+            db_path.display()
+        )
+    })?;
+
+    println!("Opened DB read-only at {}", db_path.display());
+    println!("WAL recovery mode: {wal_recovery_mode}");
+    println!("Detected DB kind: {}", probe_db_kind_name(db_kind));
+    println!("Column families discovered: {}", column_families.len());
+    println!("Probe is non-mutating: it only reads RocksDB LOG files and live-file metadata.");
+    println!();
+
+    let mappings = map_sst_files_to_column_families(&db, &logged_sst_probe.sst_file_names)
+        .context("failed to map logged corrupted SSTs to live column families")?;
+    if report_logged_sst_mappings(&mappings) {
+        bail!("detected suspect column families from logged SST corruption");
+    }
+
+    bail!("found logged SST corruption but could not map it to a live column family")
+}
+
+#[derive(Debug, Default)]
+struct LoggedSstProbe {
+    log_files_scanned: usize,
+    sst_file_names: BTreeSet<String>,
+}
+
+#[derive(Debug)]
+struct LoggedSstMapping {
+    sst_file_name: String,
+    column_family_name: Option<String>,
+    level: Option<i32>,
+    size: Option<usize>,
+}
+
+fn collect_logged_corrupt_ssts(log_dir: &Path) -> Result<LoggedSstProbe> {
+    let log_files = rocksdb_log_files(log_dir)?;
+    let mut probe = LoggedSstProbe {
+        log_files_scanned: log_files.len(),
+        ..Default::default()
+    };
+
+    for log_file in log_files {
+        let file = File::open(&log_file)
+            .with_context(|| format!("failed to open RocksDB LOG file `{}`", log_file.display()))?;
+        for line in BufReader::new(file).lines() {
+            let line = line.with_context(|| {
+                format!("failed to read RocksDB LOG file `{}`", log_file.display())
+            })?;
+            probe
+                .sst_file_names
+                .extend(extract_corrupt_sst_file_names(&line));
+        }
+    }
+
+    Ok(probe)
+}
+
+fn rocksdb_log_files(log_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut log_files = Vec::new();
+    for entry in std::fs::read_dir(log_dir).with_context(|| {
+        format!(
+            "failed to read RocksDB LOG directory `{}`",
+            log_dir.display()
+        )
+    })? {
+        let entry = entry.with_context(|| {
+            format!(
+                "failed to read entry in LOG directory `{}`",
+                log_dir.display()
+            )
+        })?;
+        let file_type = entry.file_type().with_context(|| {
+            format!(
+                "failed to read file type for LOG directory entry `{}`",
+                entry.path().display()
+            )
+        })?;
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let Some(file_name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if file_name == "LOG" || file_name.starts_with("LOG.old.") || file_name.starts_with("LOG.")
+        {
+            log_files.push(entry.path());
+        }
+    }
+    log_files.sort();
+    Ok(log_files)
+}
+
+fn extract_corrupt_sst_file_names(line: &str) -> Vec<String> {
+    let lower_line = line.to_ascii_lowercase();
+    if !lower_line.contains("corrupt") && !lower_line.contains("checksum mismatch") {
+        return Vec::new();
+    }
+
+    let mut sst_file_names = BTreeSet::new();
+    let mut search_from = 0;
+    while let Some(relative_sst_position) = line[search_from..].find(".sst") {
+        let sst_end = search_from + relative_sst_position + ".sst".len();
+        let mut path_start = search_from + relative_sst_position;
+        while path_start > 0 {
+            let previous = line.as_bytes()[path_start - 1] as char;
+            if previous.is_ascii_whitespace()
+                || matches!(previous, '"' | '\'' | '`' | '(' | '[' | '<' | '=')
+            {
+                break;
+            }
+            path_start -= 1;
+        }
+
+        if let Some(sst_file_name) = normalize_sst_file_name(&line[path_start..sst_end]) {
+            sst_file_names.insert(sst_file_name);
+        }
+        search_from = sst_end;
+    }
+
+    sst_file_names.into_iter().collect()
+}
+
+fn normalize_sst_file_name(value: &str) -> Option<String> {
+    let trimmed = value.trim_matches(|character: char| {
+        matches!(
+            character,
+            '"' | '\'' | '`' | '(' | ')' | '[' | ']' | '<' | '>' | ',' | ';' | ':'
+        )
+    });
+    let file_name = Path::new(trimmed).file_name()?.to_str()?;
+    file_name.ends_with(".sst").then(|| file_name.to_owned())
+}
+
+fn map_sst_files_to_column_families(
+    db: &DB,
+    sst_file_names: &BTreeSet<String>,
+) -> Result<Vec<LoggedSstMapping>> {
+    let mut live_files_by_name = BTreeMap::new();
+    for live_file in db.live_files()? {
+        if let Some(sst_file_name) = normalize_sst_file_name(&live_file.name) {
+            live_files_by_name.insert(
+                sst_file_name,
+                (
+                    live_file.column_family_name,
+                    live_file.level,
+                    live_file.size,
+                ),
+            );
+        }
+    }
+
+    Ok(sst_file_names
+        .iter()
+        .map(|sst_file_name| {
+            let live_file = live_files_by_name.get(sst_file_name);
+            LoggedSstMapping {
+                sst_file_name: sst_file_name.clone(),
+                column_family_name: live_file.map(|(cf_name, _, _)| cf_name.clone()),
+                level: live_file.map(|(_, level, _)| *level),
+                size: live_file.map(|(_, _, size)| *size),
+            }
+        })
+        .collect())
+}
+
+fn report_logged_sst_probe(log_dir: &Path, probe: &LoggedSstProbe) {
+    println!(
+        "Fast path: scanned {} RocksDB LOG file(s) in {}",
+        probe.log_files_scanned,
+        log_dir.display()
+    );
+
+    if probe.sst_file_names.is_empty() {
+        println!("Fast path: no corruption-related SST references found in RocksDB LOG files.");
+    } else {
+        println!(
+            "Fast path: found {} corruption-related SST reference(s): {}",
+            probe.sst_file_names.len(),
+            probe
+                .sst_file_names
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    println!();
+}
+
+fn report_logged_sst_mappings(mappings: &[LoggedSstMapping]) -> bool {
+    let mut mapped_by_cf = BTreeMap::<&str, Vec<&LoggedSstMapping>>::new();
+    let mut unmapped_ssts = Vec::new();
+    for mapping in mappings {
+        if let Some(column_family_name) = &mapping.column_family_name {
+            mapped_by_cf
+                .entry(column_family_name.as_str())
+                .or_default()
+                .push(mapping);
+        } else {
+            unmapped_ssts.push(mapping.sst_file_name.as_str());
+        }
+    }
+
+    if !mapped_by_cf.is_empty() {
+        println!("Suspect column families from logged SST corruption:");
+        for (column_family_name, mappings) in mapped_by_cf {
+            let sst_details = mappings
+                .iter()
+                .map(|mapping| {
+                    format!(
+                        "{} (level={}, size={} bytes)",
+                        mapping.sst_file_name,
+                        format_optional_value(mapping.level),
+                        format_optional_value(mapping.size)
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            println!("  {column_family_name}: {sst_details}");
+        }
+        println!();
+    }
+
+    if !unmapped_ssts.is_empty() {
+        println!(
+            "Logged corrupted SSTs not found among current live files: {}",
+            unmapped_ssts.join(", ")
+        );
+        println!();
+    }
+
+    mappings
+        .iter()
+        .any(|mapping| mapping.column_family_name.is_some())
+}
+
+fn format_optional_value<T: std::fmt::Display>(value: Option<T>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "n/a".to_string())
 }
 
 fn probe_recovery(
@@ -1656,6 +1955,116 @@ mod tests {
     }
 
     #[test]
+    fn detect_corrupt_column_families_succeeds_for_clean_storage_db() -> Result<()> {
+        let db_dir = tempdir()?;
+        let db_table_opts_factory =
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), true);
+        let mut db_opts = RocksdbOptions::from(&db_table_opts_factory.global());
+        db_opts.create_if_missing(true);
+        db_opts.create_missing_column_families(true);
+
+        let primary_cf_name = primary_slivers_column_family_name(ShardIndex(0));
+        let db = DB::open_cf_descriptors(
+            &db_opts,
+            db_dir.path(),
+            vec![
+                ColumnFamilyDescriptor::new(
+                    aggregate_blob_info_cf_name(),
+                    blob_info_cf_options(&db_table_opts_factory),
+                ),
+                ColumnFamilyDescriptor::new(metadata_cf_name(), db_table_opts_factory.metadata()),
+                ColumnFamilyDescriptor::new(primary_cf_name.clone(), db_table_opts_factory.shard()),
+                ColumnFamilyDescriptor::new("custom_cf", RocksdbOptions::default()),
+            ],
+        )?;
+
+        let metadata_cf = db
+            .cf_handle(metadata_cf_name())
+            .expect("metadata column family should exist");
+        db.put_cf(&metadata_cf, b"metadata-key", b"metadata-value")?;
+        let primary_cf = db
+            .cf_handle(&primary_cf_name)
+            .expect("primary slivers column family should exist");
+        db.put_cf(&primary_cf, b"blob-key", b"sliver-value")?;
+        drop(metadata_cf);
+        drop(primary_cf);
+        drop(db);
+
+        detect_corrupt_column_families(
+            db_dir.path().to_path_buf(),
+            ProbeWalRecoveryMode::PointInTime,
+            None,
+        )
+    }
+
+    #[test]
+    fn extracts_corrupt_sst_references_from_log_lines() -> Result<()> {
+        let log_dir = tempdir()?;
+        std::fs::write(
+            log_dir.path().join("LOG"),
+            concat!(
+                "ordinary log line, but mentions /opt/walrus/db/111111.sst\n",
+                "rocksdb error: Corruption: block checksum mismatch: stored = 1, computed = 2 ",
+                "in /opt/walrus/db/486117.sst offset 332208453 size 720421\n",
+                "Corruption: checksum mismatch in file=000123.sst offset 10\n",
+            ),
+        )?;
+
+        let probe = collect_logged_corrupt_ssts(log_dir.path())?;
+
+        assert_eq!(probe.log_files_scanned, 1);
+        assert_eq!(
+            probe.sst_file_names,
+            ["000123.sst".to_string(), "486117.sst".to_string()]
+                .into_iter()
+                .collect()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn maps_logged_sst_to_live_column_family() -> Result<()> {
+        let db_dir = tempdir()?;
+        let db_table_opts_factory =
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), true);
+        let mut db_opts = RocksdbOptions::from(&db_table_opts_factory.global());
+        db_opts.create_if_missing(true);
+        db_opts.create_missing_column_families(true);
+
+        let primary_cf_name = primary_slivers_column_family_name(ShardIndex(0));
+        let db = DB::open_cf_descriptors(
+            &db_opts,
+            db_dir.path(),
+            vec![
+                ColumnFamilyDescriptor::new(metadata_cf_name(), db_table_opts_factory.metadata()),
+                ColumnFamilyDescriptor::new(primary_cf_name.clone(), db_table_opts_factory.shard()),
+            ],
+        )?;
+
+        let primary_cf = db
+            .cf_handle(&primary_cf_name)
+            .expect("primary slivers column family should exist");
+        db.put_cf(&primary_cf, b"blob-key", b"sliver-value")?;
+        db.flush_cf(&primary_cf)?;
+
+        let primary_sst_name = db
+            .live_files()?
+            .into_iter()
+            .find(|live_file| live_file.column_family_name == primary_cf_name)
+            .and_then(|live_file| normalize_sst_file_name(&live_file.name))
+            .expect("flushed primary column family should have a live SST");
+        let mappings =
+            map_sst_files_to_column_families(&db, &[primary_sst_name].into_iter().collect())?;
+
+        assert_eq!(mappings.len(), 1);
+        assert_eq!(
+            mappings[0].column_family_name.as_deref(),
+            Some(primary_cf_name.as_str())
+        );
+        Ok(())
+    }
+
+    #[test]
     fn detect_storage_probe_db() {
         let column_families = vec![
             "default".to_string(),
@@ -1698,6 +2107,31 @@ mod tests {
 
         assert!(!help.contains("probe-recovery"));
         assert!(!help.contains("recover-db"));
+    }
+
+    #[test]
+    fn detect_corrupt_column_families_command_parses() {
+        let args = DbToolArgs::try_parse_from([
+            "db-tool",
+            "detect-corrupt-column-families",
+            "--db-path",
+            "/tmp/testdb",
+            "--wal-recovery-mode",
+            "absolute-consistency",
+            "--log-dir",
+            "/tmp/rocksdb-logs",
+        ])
+        .expect("detect-corrupt-column-families command should parse");
+
+        assert!(matches!(
+            args.command,
+            DbToolCommands::DetectCorruptColumnFamilies {
+                db_path,
+                wal_recovery_mode: ProbeWalRecoveryMode::AbsoluteConsistency,
+                log_dir: Some(log_dir),
+            } if db_path == std::path::PathBuf::from("/tmp/testdb")
+                && log_dir == std::path::PathBuf::from("/tmp/rocksdb-logs")
+        ));
     }
 
     #[test]
