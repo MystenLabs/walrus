@@ -109,7 +109,7 @@ fi
 TMPDIR="$(mktemp -d)"
 export TMPDIR
 
-SUI_VERSION="testnet-v1.73.0"
+SUI_VERSION="testnet-v1.73.1"
 
 # TODO(WAL-1125): remove the cloning after sui package management system can work with simtest
 #                 pulling dependency from external repository.
