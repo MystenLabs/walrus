@@ -87,6 +87,11 @@ impl NodeRecoveryHandler {
 
             fail_point_async!("start_node_recovery_entry");
 
+            // Number of consecutive backoffs caused by an owned shard whose storage is not created
+            // yet. Scoped to this recovery task, so it is reset here and grows only while stalled.
+            let mut shard_not_created_backoffs: i64 = 0;
+            node.metrics.node_recovery_shard_not_created_backoff.set(0);
+
             loop {
                 // Node can enter recovery catch up mode while recovery is in progress. In this
                 // case, we should skip recovery. Once the node is caught up to the latest epoch,
@@ -115,8 +120,13 @@ impl NodeRecoveryHandler {
                     .into_iter()
                     .find(|shard| !existing_shards.contains(shard));
                 if let Some(shard) = uncreated_owned_shard {
+                    shard_not_created_backoffs += 1;
+                    node.metrics
+                        .node_recovery_shard_not_created_backoff
+                        .set(shard_not_created_backoffs);
                     tracing::warn!(
                         %shard,
+                        backoff_count = shard_not_created_backoffs,
                         "owned shard storage not created yet; backing off for event processing"
                     );
                     tokio::time::sleep(SHARD_NOT_CREATED_BACKOFF).await;
