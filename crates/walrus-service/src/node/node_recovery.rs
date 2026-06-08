@@ -109,13 +109,11 @@ impl NodeRecoveryHandler {
                 // and the loop would spin without making progress. Back off so event processing can
                 // create the shard and restart recovery. The sleep yields the executor, which is
                 // what was missing during the stall on the single-threaded simulator.
-                let mut uncreated_owned_shard = None;
-                for shard in node.owned_shards_at_latest_epoch() {
-                    if node.storage.shard_storage(shard).await.is_none() {
-                        uncreated_owned_shard = Some(shard);
-                        break;
-                    }
-                }
+                let existing_shards = node.storage.existing_shards().await;
+                let uncreated_owned_shard = node
+                    .owned_shards_at_latest_epoch()
+                    .into_iter()
+                    .find(|shard| !existing_shards.contains(shard));
                 if let Some(shard) = uncreated_owned_shard {
                     tracing::warn!(
                         %shard,
