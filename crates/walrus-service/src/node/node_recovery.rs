@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use sui_macros::fail_point_async;
@@ -15,6 +15,11 @@ use super::{
     config::NodeRecoveryConfig,
 };
 use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
+
+/// How long node recovery backs off before re-scanning when it owns a shard at the latest epoch
+/// whose local storage has not been created yet. The sleep also yields the executor so event
+/// processing can create the shard and restart recovery.
+const SHARD_NOT_CREATED_BACKOFF: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone)]
 pub struct NodeRecoveryHandler {
@@ -96,6 +101,28 @@ impl NodeRecoveryHandler {
                         "node recovery encountered node is in catching up; skip recovery"
                     );
                     return;
+                }
+
+                // If we own a shard at the latest epoch whose local storage has not been created
+                // yet (it was gained for a newer epoch whose EpochChangeStart has not been
+                // processed), do not scan or sync: every blob would read "not stored" on that shard
+                // and the loop would spin without making progress. Back off so event processing can
+                // create the shard and restart recovery. The sleep yields the executor, which is
+                // what was missing during the stall on the single-threaded simulator.
+                let mut uncreated_owned_shard = None;
+                for shard in node.owned_shards_at_latest_epoch() {
+                    if node.storage.shard_storage(shard).await.is_none() {
+                        uncreated_owned_shard = Some(shard);
+                        break;
+                    }
+                }
+                if let Some(shard) = uncreated_owned_shard {
+                    tracing::warn!(
+                        %shard,
+                        "owned shard storage not created yet; backing off for event processing"
+                    );
+                    tokio::time::sleep(SHARD_NOT_CREATED_BACKOFF).await;
+                    continue;
                 }
 
                 // Keep track of ongoing blob syncs. Note that the memory usage of this list
