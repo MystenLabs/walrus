@@ -108,7 +108,9 @@ jobs:
   test:
     name: Test Rust code (gRPC level ${{ matrix.grpc_migration_level }})
     needs: diff
-    if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
+    # TEMP (revert before merge): skip to save CI time while stressing simtests.
+    # if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
+    if: false
     runs-on: ubuntu-ghcloud
     strategy:
       matrix:
@@ -182,13 +184,46 @@ jobs:
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
+    # TEMP (revert before merge): stress repeated_node_crash across seeds 429, 460, 531, 536 (prior
+    # repros) plus 701..900, with node-recovery info logging (204 matrix jobs x MSIM_TEST_NUM=10). Each job
+    # runs 10 seeds (~110s each), staying under the simtest profile's 1800s terminate-after so
+    # a TIMEOUT remains a real hang signal. The deadlock-demo / ci-hang-demo error logs identify
+    # which node wedges when a seed fails. Bases: seeds 429, 460, 531, 536 (prior repros) plus 701..900.
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        base:
+          [
+            429, 460, 531, 536,
+            701, 702, 703, 704, 705, 706, 707, 708, 709, 710,
+            711, 712, 713, 714, 715, 716, 717, 718, 719, 720,
+            721, 722, 723, 724, 725, 726, 727, 728, 729, 730,
+            731, 732, 733, 734, 735, 736, 737, 738, 739, 740,
+            741, 742, 743, 744, 745, 746, 747, 748, 749, 750,
+            751, 752, 753, 754, 755, 756, 757, 758, 759, 760,
+            761, 762, 763, 764, 765, 766, 767, 768, 769, 770,
+            771, 772, 773, 774, 775, 776, 777, 778, 779, 780,
+            781, 782, 783, 784, 785, 786, 787, 788, 789, 790,
+            791, 792, 793, 794, 795, 796, 797, 798, 799, 800,
+            801, 802, 803, 804, 805, 806, 807, 808, 809, 810,
+            811, 812, 813, 814, 815, 816, 817, 818, 819, 820,
+            821, 822, 823, 824, 825, 826, 827, 828, 829, 830,
+            831, 832, 833, 834, 835, 836, 837, 838, 839, 840,
+            841, 842, 843, 844, 845, 846, 847, 848, 849, 850,
+            851, 852, 853, 854, 855, 856, 857, 858, 859, 860,
+            861, 862, 863, 864, 865, 866, 867, 868, 869, 870,
+            871, 872, 873, 874, 875, 876, 877, 878, 879, 880,
+            881, 882, 883, 884, 885, 886, 887, 888, 889, 890,
+            891, 892, 893, 894, 895, 896, 897, 898, 899, 900,
+          ]
     env:
-      # Turn off Sui logging since it can be very distractive in CI
+      # Turn off Sui logging since it can be very distractive in CI.
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
-      # Default: all 5 seeds. PRs with the `ci:less-simtest-seeds` label run only
-      # 2 seeds (1 without gRPC, 1 with gRPC).
-      SIMTEST_REDUCED: ${{ github.event_name != 'push' && contains(github.event.pull_request.labels.*.name, 'ci:less-simtest-seeds')
-        }}
+      # Silence anyhow's error backtraces (the noisy "Stack backtrace:" blocks logged on
+      # handled errors during the crash test). Real panic backtraces still print via the
+      # workflow-level RUST_BACKTRACE.
+      RUST_LIB_BACKTRACE: "0"
     steps:
       - uses: taiki-e/install-action@a2352fc6ce487f030a3aa709482d57823eadfb37 # pin@v2.75.16
         with:
@@ -199,19 +234,8 @@ jobs:
           gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - run: ./scripts/simtest/install.sh
-      - name: Run tests (seed=1, legacy json-rpc)
-        run: MSIM_TEST_SEED=1 WALRUS_GRPC_MIGRATION_LEVEL=0 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=2)
-        run: MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=3, legacy json-rpc)
-        if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=0 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=4)
-        if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=4 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=5)
-        if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=5 cargo simtest simtest --profile simtest
+      - name: repeated_node_crash (base ${{ matrix.base }} x10)
+        run: MSIM_TEST_SEED=${{ matrix.base }} MSIM_TEST_NUM=10 cargo simtest simtest_test_repeated_node_crash --profile simtest --no-capture
 
   simtests-build:
     name: Build all simtests
