@@ -1,0 +1,13 @@
+# Raise the per-thread minimum stack size for all cargo-launched processes
+# (test binaries, build scripts, `cargo run`).
+#
+# Rationale: e2e tests in `walrus-e2e-tests` build deep async call chains through the
+# Sui SDK (`Wallet::execute_transaction_may_fail` and friends are ~10 KB stack frames each).
+# Composed in test setup these exceed the default thread stack and abort with
+# `fatal runtime error: stack overflow`. The libtest harness runs each test on its own
+# spawned thread, which honors RUST_MIN_STACK at creation time; cargo-nextest propagates
+# this `[env]` table into the test process. 32 MiB is verified sufficient.
+#
+# Non-`force`: a developer who already exports RUST_MIN_STACK keeps their own value.
+[env]
+RUST_MIN_STACK = "33554432"
