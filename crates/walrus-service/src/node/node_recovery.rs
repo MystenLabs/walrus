@@ -87,50 +87,15 @@ impl NodeRecoveryHandler {
 
             fail_point_async!("start_node_recovery_entry");
 
-            // Number of consecutive backoffs caused by an owned shard whose storage is not created
-            // yet. Scoped to this recovery task, so it is reset here and grows only while stalled.
-            let mut shard_not_created_backoffs: i64 = 0;
+            // Clear any backoff count left over from a previous (aborted) recovery task on this
+            // node; `wait_until_owned_shards_exist` maintains it from here.
             node.metrics.node_recovery_shard_not_created_backoff.set(0);
 
             loop {
-                // Node can enter recovery catch up mode while recovery is in progress. In this
-                // case, we should skip recovery. Once the node is caught up to the latest epoch,
-                // the recovery task will be restarted.
-                if node
-                    .storage
-                    .node_status()
-                    .expect("reading node status should not fail")
-                    .is_catching_up()
-                {
-                    tracing::info!(
-                        "node recovery encountered node is in catching up; skip recovery"
-                    );
+                // Block until the node is ready to run a recovery scan pass. Stops the recovery
+                // task if the node started catching up.
+                if !wait_until_ready_to_scan(&node).await {
                     return;
-                }
-
-                // If we own a shard at the latest epoch whose local storage has not been created
-                // yet (it was gained for a newer epoch whose EpochChangeStart has not been
-                // processed), do not scan or sync: every blob would read "not stored" on that shard
-                // and the loop would spin without making progress. Back off so event processing can
-                // create the shard and restart recovery. The sleep yields the executor, which is
-                // what was missing during the stall on the single-threaded simulator.
-                let existing_shards = node.storage.existing_shards().await;
-                let uncreated_owned_shard = node
-                    .owned_shards_at_latest_epoch()
-                    .into_iter()
-                    .find(|shard| !existing_shards.contains(shard));
-                if let Some(shard) = uncreated_owned_shard {
-                    shard_not_created_backoffs += 1;
-                    node.metrics
-                        .node_recovery_shard_not_created_backoff
-                        .set(shard_not_created_backoffs);
-                    tracing::warn!(
-                        %shard,
-                        backoff_count = shard_not_created_backoffs,
-                        "owned shard storage not created yet; backing off for event processing"
-                    );
-                    tokio::time::sleep(SHARD_NOT_CREATED_BACKOFF).await;
-                    continue;
                 }
 
                 // Keep track of ongoing blob syncs. Note that the memory usage of this list
@@ -319,5 +284,62 @@ impl NodeRecoveryHandler {
         }
 
         Ok(())
+    }
+}
+
+/// Blocks until the node is ready to run a recovery scan pass and returns `true`, or returns
+/// `false` if the node started catching up, in which case the recovery task should stop. The node
+/// is ready once it has local storage for every shard it owns at the latest committee epoch. Both
+/// conditions are re-checked on every backoff iteration, so catch-up that begins while waiting also
+/// stops the task.
+///
+/// A node can own a shard at the latest committee epoch whose local storage does not exist yet: the
+/// committee advanced to a newer epoch, but event processing has not yet handled that epoch's
+/// `EpochChangeStart`, which is what creates the shard. Recovery must not create it here: blob sync
+/// targets `owned_shards_at_epoch(current_event_epoch)`, which still excludes the shard, and shard
+/// creation is part of the ordered epoch transition owned by event processing. If the scan ran in
+/// this state, every blob would read "not stored" on the missing shard, producing futile syncs and
+/// repeated full re-scans (and, on the single-threaded simulator, starving event processing
+/// entirely). So back off and re-check until the shard exists; the sleep also yields the executor.
+async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> bool {
+    let mut backoff_count: i64 = 0;
+    loop {
+        // The node can enter recovery catch-up mode while waiting. In that case the recovery task
+        // should stop; it is restarted once the node has caught up to the latest epoch.
+        if node
+            .storage
+            .node_status()
+            .expect("reading node status should not fail")
+            .is_catching_up()
+        {
+            tracing::info!("node recovery encountered node is in catching up; skip recovery");
+            return false;
+        }
+
+        let existing_shards = node.storage.existing_shards().await;
+        let uncreated_owned_shard = node
+            .owned_shards_at_latest_epoch()
+            .into_iter()
+            .find(|shard| !existing_shards.contains(shard));
+
+        let Some(shard) = uncreated_owned_shard else {
+            // All owned shards exist; clear the stall gauge (if it was raised) and let the caller
+            // proceed with the scan.
+            if backoff_count != 0 {
+                node.metrics.node_recovery_shard_not_created_backoff.set(0);
+            }
+            return true;
+        };
+
+        backoff_count += 1;
+        node.metrics
+            .node_recovery_shard_not_created_backoff
+            .set(backoff_count);
+        tracing::warn!(
+            %shard,
+            backoff_count,
+            "owned shard storage not created yet; backing off for event processing"
+        );
+        tokio::time::sleep(SHARD_NOT_CREATED_BACKOFF).await;
     }
 }
