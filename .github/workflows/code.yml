@@ -219,7 +219,10 @@ jobs:
           ]
     env:
       # Turn off Sui logging since it can be very distractive in CI.
-      RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
+      # TEMP (revert before merge): surface the node-recovery shard-not-created backoff WARN so we
+      # can confirm the fixed code path is actually exercised (grep "backing off for event
+      # processing"; backoff_count shows how many consecutive backoffs each occurrence took).
+      RUST_LOG: simtest=info,error,walrus_service::node::node_recovery=warn,sui_=off,consensus_core=off
       # Silence anyhow's error backtraces (the noisy "Stack backtrace:" blocks logged on
       # handled errors during the crash test). Real panic backtraces still print via the
       # workflow-level RUST_BACKTRACE.
