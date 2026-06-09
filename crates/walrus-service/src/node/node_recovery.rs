@@ -94,8 +94,9 @@ impl NodeRecoveryHandler {
             loop {
                 // Block until the node is ready to run a recovery scan pass. Stops the recovery
                 // task if the node started catching up.
-                if !wait_until_ready_to_scan(&node).await {
-                    return;
+                match wait_until_ready_to_scan(&node).await {
+                    ScanReadiness::Ready => {}
+                    ScanReadiness::CatchingUp => return,
                 }
 
                 // Keep track of ongoing blob syncs. Note that the memory usage of this list
@@ -287,11 +288,20 @@ impl NodeRecoveryHandler {
     }
 }
 
-/// Blocks until the node is ready to run a recovery scan pass and returns `true`, or returns
-/// `false` if the node started catching up, in which case the recovery task should stop. The node
-/// is ready once it has local storage for every shard it owns at the latest committee epoch. Both
-/// conditions are re-checked on every backoff iteration, so catch-up that begins while waiting also
-/// stops the task.
+/// Outcome of waiting for the node to become ready to run a recovery scan pass.
+enum ScanReadiness {
+    /// The node has local storage for every shard it owns at the latest committee epoch; the
+    /// caller should run a scan pass.
+    Ready,
+    /// The node started catching up; the recovery task should stop. It is restarted once the node
+    /// has caught up to the latest epoch.
+    CatchingUp,
+}
+
+/// Blocks until the node is ready to run a recovery scan pass ([`ScanReadiness::Ready`]), or
+/// returns [`ScanReadiness::CatchingUp`] if the node started catching up. Both conditions are
+/// re-checked on every backoff iteration, so catch-up that begins while waiting also stops the
+/// task.
 ///
 /// A node can own a shard at the latest committee epoch whose local storage does not exist yet: the
 /// committee advanced to a newer epoch, but event processing has not yet handled that epoch's
@@ -301,11 +311,9 @@ impl NodeRecoveryHandler {
 /// this state, every blob would read "not stored" on the missing shard, producing futile syncs and
 /// repeated full re-scans (and, on the single-threaded simulator, starving event processing
 /// entirely). So back off and re-check until the shard exists; the sleep also yields the executor.
-async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> bool {
+async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> ScanReadiness {
     let mut backoff_count: i64 = 0;
     loop {
-        // The node can enter recovery catch-up mode while waiting. In that case the recovery task
-        // should stop; it is restarted once the node has caught up to the latest epoch.
         if node
             .storage
             .node_status()
@@ -313,7 +321,7 @@ async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> bool {
             .is_catching_up()
         {
             tracing::info!("node recovery encountered node is in catching up; skip recovery");
-            return false;
+            return ScanReadiness::CatchingUp;
         }
 
         let existing_shards = node.storage.existing_shards().await;
@@ -328,7 +336,7 @@ async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> bool {
             if backoff_count != 0 {
                 node.metrics.node_recovery_shard_not_created_backoff.set(0);
             }
-            return true;
+            return ScanReadiness::Ready;
         };
 
         backoff_count += 1;
