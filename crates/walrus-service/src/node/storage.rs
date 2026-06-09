@@ -49,6 +49,7 @@ use self::{
         garbage_collector_last_started_epoch_key,
         garbage_collector_table_cf_name,
         metadata_cf_name,
+        node_recovery_progress_cf_name,
         node_status_cf_name,
         pending_recover_slivers_column_family_name,
         primary_slivers_column_family_name,
@@ -62,6 +63,7 @@ use self::{
 use super::{
     errors::{ShardNotAssigned, SyncShardServiceError},
     metrics::{NodeMetricSet, STATUS_FAILURE, STATUS_SUCCESS},
+    node_recovery::NodeRecoveryProgress,
 };
 use crate::utils::{self, BatchProcessingResult};
 
@@ -183,6 +185,7 @@ impl Display for NodeStatus {
 pub struct Storage {
     database: Arc<RocksDB>,
     node_status: DBMap<(), NodeStatus>,
+    node_recovery_progress: DBMap<(), NodeRecoveryProgress>,
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
@@ -279,6 +282,8 @@ impl Storage {
 
         let node_status_cf_name = node_status_cf_name();
         let node_status_options = db_table_opts_factory.node_status();
+        let node_recovery_progress_cf_name = node_recovery_progress_cf_name();
+        let node_recovery_progress_options = db_table_opts_factory.node_recovery_progress();
         let metadata_options = db_table_opts_factory.metadata();
         let metadata_cf_name = metadata_cf_name();
         let blob_info_column_families = BlobInfoTable::options(&db_table_opts_factory);
@@ -292,6 +297,10 @@ impl Storage {
             .map(|(name, opts)| (name.as_str(), std::mem::take(opts)))
             .chain([
                 (node_status_cf_name, node_status_options),
+                (
+                    node_recovery_progress_cf_name,
+                    node_recovery_progress_options,
+                ),
                 (metadata_cf_name, metadata_options),
                 (event_cursor_cf_name, event_cursor_options),
                 (
@@ -327,6 +336,13 @@ impl Storage {
         if node_status.get(&())?.is_none() {
             node_status.insert(&(), &NodeStatus::Standby)?;
         }
+
+        let node_recovery_progress = DBMap::reopen(
+            &database,
+            Some(node_recovery_progress_cf_name),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
 
         let garbage_collector_table = DBMap::reopen(
             &database,
@@ -384,6 +400,7 @@ impl Storage {
         let storage = Self {
             database,
             node_status,
+            node_recovery_progress,
             metadata,
             blob_info,
             event_cursor,
@@ -413,6 +430,26 @@ impl Storage {
 
     pub(super) fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
         self.node_status.insert(&(), &status)
+    }
+
+    /// Returns the persisted node recovery progress, if any.
+    pub(crate) fn get_node_recovery_progress(
+        &self,
+    ) -> Result<Option<NodeRecoveryProgress>, TypedStoreError> {
+        self.node_recovery_progress.get(&())
+    }
+
+    /// Persists the given node recovery progress.
+    pub(crate) fn set_node_recovery_progress(
+        &self,
+        progress: &NodeRecoveryProgress,
+    ) -> Result<(), TypedStoreError> {
+        self.node_recovery_progress.insert(&(), progress)
+    }
+
+    /// Clears any persisted node recovery progress.
+    pub(crate) fn clear_node_recovery_progress(&self) -> Result<(), TypedStoreError> {
+        self.node_recovery_progress.remove(&())
     }
 
     /// Returns the last epochs for which garbage collection was started and completed.
@@ -1296,6 +1333,17 @@ impl Storage {
     ) -> BlobInfoIterator<'_> {
         self.blob_info
             .certified_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
+    }
+
+    /// Returns an iterator over the certified blob info before the specified epoch, starting
+    /// at the given bound.
+    pub(crate) fn certified_blob_info_iter_before_epoch_from(
+        &self,
+        epoch: Epoch,
+        starting_blob_id_bound: std::ops::Bound<BlobId>,
+    ) -> BlobInfoIterator<'_> {
+        self.blob_info
+            .certified_blob_info_iter_before_epoch(epoch, starting_blob_id_bound)
     }
 
     /// Returns an iterator over the certified per-object blob info before the specified epoch.
@@ -2417,6 +2465,36 @@ pub(crate) mod tests {
             all_certified_blob_object_ids(&storage, 4)?,
             vec![object_ids[1], object_ids[2]]
         );
+
+        Ok(())
+    }
+
+    // Verifies the storage round-trip for NodeRecoveryProgress: not present initially,
+    // readable after set, gone after clear. Also verifies that a non-trivial owned_shards
+    // set survives serialization unchanged.
+    #[tokio::test]
+    async fn node_recovery_progress_round_trip() -> TestResult {
+        let storage = empty_storage().await;
+        let inner = &storage.inner;
+
+        assert!(inner.get_node_recovery_progress()?.is_none());
+
+        let progress = NodeRecoveryProgress {
+            epoch: 42,
+            owned_shards: [ShardIndex(1), ShardIndex(2), ShardIndex(7)]
+                .into_iter()
+                .collect(),
+            last_settled_blob_id: BlobId([7; 32]),
+        };
+        inner.set_node_recovery_progress(&progress)?;
+
+        let loaded = inner
+            .get_node_recovery_progress()?
+            .expect("should have loaded progress");
+        assert_eq!(loaded, progress);
+
+        inner.clear_node_recovery_progress()?;
+        assert!(inner.get_node_recovery_progress()?.is_none());
 
         Ok(())
     }

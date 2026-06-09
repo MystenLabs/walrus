@@ -1254,12 +1254,16 @@ pub struct NodeRecoveryConfig {
     /// Different from `BlobRecoveryConfig::max_concurrent_blob_syncs`, this is to control the
     /// number of blob recover tasks initiated by node recovery logic.
     pub max_concurrent_blob_syncs_during_recovery: usize,
+    /// Persist the recovery checkpoint after this many blob_ids of settled-progress have
+    /// advanced since the last persist. Bounds the worst-case rescan after a crash.
+    pub checkpoint_persist_interval: u64,
 }
 
 impl Default for NodeRecoveryConfig {
     fn default() -> Self {
         Self {
             max_concurrent_blob_syncs_during_recovery: 1000,
+            checkpoint_persist_interval: 1000,
         }
     }
 }

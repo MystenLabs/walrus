@@ -3010,7 +3010,7 @@ impl StorageNodeInner {
     }
 
     #[tracing::instrument(skip_all)]
-    async fn is_stored_at_specific_shards(
+    pub(crate) async fn is_stored_at_specific_shards(
         &self,
         blob_id: &BlobId,
         shards: &[ShardIndex],

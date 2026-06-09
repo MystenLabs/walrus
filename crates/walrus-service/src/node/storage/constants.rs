@@ -9,6 +9,7 @@ const PER_OBJECT_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "per_object_blob_info";
 const PER_OBJECT_POOLED_BLOB_INFO_COLUMN_FAMILY_NAME: &str = "per_object_pooled_blob_info";
 const STORAGE_POOL_INFO_COLUMN_FAMILY_NAME: &str = "storage_pool_info";
 const NODE_STATUS_COLUMN_FAMILY_NAME: &str = "node_status";
+const NODE_RECOVERY_PROGRESS_COLUMN_FAMILY_NAME: &str = "node_recovery_progress";
 const METADATA_COLUMN_FAMILY_NAME: &str = "metadata";
 const EVENT_INDEX_COLUMN_FAMILY_NAME: &str = "latest_handled_event_index";
 const EVENT_CURSOR_COLUMN_FAMILY_NAME: &str = "event_cursor";
@@ -53,6 +54,11 @@ pub fn storage_pool_info_cf_name() -> &'static str {
 /// Returns the name of the node status column family.
 pub fn node_status_cf_name() -> &'static str {
     NODE_STATUS_COLUMN_FAMILY_NAME
+}
+
+/// Returns the name of the node recovery progress column family.
+pub fn node_recovery_progress_cf_name() -> &'static str {
+    NODE_RECOVERY_PROGRESS_COLUMN_FAMILY_NAME
 }
 
 /// Returns the name of the metadata column family.
@@ -143,6 +149,7 @@ mod tests {
         assert_eq!(aggregate_blob_info_cf_name(), "aggregate_blob_info");
         assert_eq!(per_object_blob_info_cf_name(), "per_object_blob_info");
         assert_eq!(node_status_cf_name(), "node_status");
+        assert_eq!(node_recovery_progress_cf_name(), "node_recovery_progress");
         assert_eq!(event_index_cf_name(), "latest_handled_event_index");
 
         let shard = ShardIndex(900);

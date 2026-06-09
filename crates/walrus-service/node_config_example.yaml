@@ -73,6 +73,7 @@ db_config:
     pin_l0_filter_and_index_blocks_in_block_cache: true
     hard_pending_compaction_bytes_limit: 0
   node_status: null
+  node_recovery_progress: null
   garbage_collector: null
   blob_info: null
   per_object_blob_info: null
@@ -239,6 +240,7 @@ checkpoint_config:
 admin_socket_path: null
 node_recovery_config:
   max_concurrent_blob_syncs_during_recovery: 1000
+  checkpoint_persist_interval: 1000
 blob_event_processor_config:
   num_workers: 10
 garbage_collection:
