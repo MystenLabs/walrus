@@ -8,6 +8,7 @@ use sui_macros::fail_point_async;
 use tokio::sync::Mutex;
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
+use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use super::{
     StorageNodeInner,
@@ -16,10 +17,12 @@ use super::{
 };
 use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
 
-/// How long node recovery backs off before re-scanning when it owns a shard at the latest epoch
-/// whose local storage has not been created yet. The sleep also yields the executor so event
-/// processing can create the shard and restart recovery.
-const SHARD_NOT_CREATED_BACKOFF: Duration = Duration::from_secs(1);
+/// Exponential backoff bounds for re-checking shard creation while node recovery waits for event
+/// processing to create a shard it owns at the latest epoch. The wait starts small so the common
+/// case resumes quickly, and is capped at one minute. The sleep also yields the executor so
+/// event processing can create the shard and self-heal.
+const SHARD_NOT_CREATED_BACKOFF_MIN: Duration = Duration::from_secs(1);
+const SHARD_NOT_CREATED_BACKOFF_MAX: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 pub struct NodeRecoveryHandler {
@@ -86,10 +89,6 @@ impl NodeRecoveryHandler {
             );
 
             fail_point_async!("start_node_recovery_entry");
-
-            // Clear any backoff count left over from a previous (aborted) recovery task on this
-            // node; `wait_until_owned_shards_exist` maintains it from here.
-            node.metrics.node_recovery_shard_not_created_backoff.set(0);
 
             loop {
                 // Block until the node is ready to run a recovery scan pass. Stops the recovery
@@ -312,8 +311,16 @@ enum ScanReadiness {
 /// repeated full re-scans (and, on the single-threaded simulator, starving event processing
 /// entirely). So back off and re-check until the shard exists; the sleep also yields the executor.
 async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> ScanReadiness {
-    let mut backoff_count: i64 = 0;
-    loop {
+    // Exponential backoff, recreated per stall episode so a fresh stall starts at the small bound.
+    // The seed only feeds the jitter offset; a constant keeps it deterministic under the simulator.
+    let mut backoff = ExponentialBackoff::new_with_seed(
+        SHARD_NOT_CREATED_BACKOFF_MIN,
+        SHARD_NOT_CREATED_BACKOFF_MAX,
+        None,
+        0,
+    );
+    let mut total_wait = Duration::ZERO;
+    let readiness = loop {
         if node
             .storage
             .node_status()
@@ -321,33 +328,41 @@ async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> ScanReadiness {
             .is_catching_up()
         {
             tracing::info!("node recovery encountered node is in catching up; skip recovery");
-            return ScanReadiness::CatchingUp;
+            break ScanReadiness::CatchingUp;
         }
 
         let existing_shards = node.storage.existing_shards().await;
-        let uncreated_owned_shard = node
+        let missing_owned_shards: Vec<_> = node
             .owned_shards_at_latest_epoch()
             .into_iter()
-            .find(|shard| !existing_shards.contains(shard));
+            .filter(|shard| !existing_shards.contains(shard))
+            .collect();
 
-        let Some(shard) = uncreated_owned_shard else {
-            // All owned shards exist; clear the stall gauge (if it was raised) and let the caller
-            // proceed with the scan.
-            if backoff_count != 0 {
-                node.metrics.node_recovery_shard_not_created_backoff.set(0);
-            }
-            return ScanReadiness::Ready;
+        let Some(first_missing) = missing_owned_shards.first().copied() else {
+            break ScanReadiness::Ready;
         };
 
-        backoff_count += 1;
+        let delay = backoff
+            .next_delay()
+            .unwrap_or(SHARD_NOT_CREATED_BACKOFF_MAX);
+        total_wait += delay;
         node.metrics
-            .node_recovery_shard_not_created_backoff
-            .set(backoff_count);
+            .node_recovery_shard_wait_seconds
+            .set(i64::try_from(total_wait.as_secs()).unwrap_or(i64::MAX));
+        node.metrics
+            .node_recovery_missing_owned_shards
+            .set(i64::try_from(missing_owned_shards.len()).unwrap_or(i64::MAX));
         tracing::warn!(
-            %shard,
-            backoff_count,
-            "owned shard storage not created yet; backing off for event processing"
+            shard = %first_missing,
+            missing_owned_shards = missing_owned_shards.len(),
+            wait_secs = total_wait.as_secs(),
+            "owned shard storage not created yet; waiting for event processing"
         );
-        tokio::time::sleep(SHARD_NOT_CREATED_BACKOFF).await;
-    }
+        tokio::time::sleep(delay).await;
+    };
+
+    node.metrics.node_recovery_shard_wait_seconds.set(0);
+    node.metrics.node_recovery_missing_owned_shards.set(0);
+
+    readiness
 }

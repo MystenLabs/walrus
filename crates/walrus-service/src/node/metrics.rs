@@ -215,11 +215,15 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of ongoing blob syncs during node recovery."]
         node_recovery_ongoing_blob_syncs: IntGauge[],
 
-        #[help = "The number of consecutive backoffs in the current node recovery caused by owning \
-        a shard at the latest epoch whose local storage has not been created yet. Reset to 0 when \
-        a recovery task starts; a large or growing value means event processing is not creating \
-        the gained shard."]
-        node_recovery_shard_not_created_backoff: IntGauge[],
+        #[help = "Seconds the current node recovery has spent waiting for the local storage of \
+        shards it owns at the latest epoch to be created. 0 when not waiting; a large or growing \
+        value means event processing is not creating the gained shard."]
+        node_recovery_shard_wait_seconds: IntGauge[],
+
+        #[help = "The number of shards the node owns at the latest epoch whose local storage has \
+        not been created yet, while node recovery is waiting for event processing to create them. \
+        0 once all owned shards exist."]
+        node_recovery_missing_owned_shards: IntGauge[],
 
         #[help = "The number of blob events pending processing in the queue between the \
         BackgroundEventProcessor and BlobEventProcessor."]
