@@ -542,11 +542,16 @@ impl Storage {
         &self,
         removed: &[ShardIndex],
     ) -> Result<(), TypedStoreError> {
-        let mut shard_map_lock = self.lock_shards().await;
         for shard_index in removed {
             tracing::info!(walrus.shard_index = %shard_index, "removing storage for shard");
-            if let Some(shard_storage) = shard_map_lock.shards_guard.remove(shard_index) {
-                // Do not hold the `shards` lock when deleting column families.
+            // Remove the shard from the map under the lock, then release the lock before
+            // deleting column families. Do not hold the `shards` lock when deleting column
+            // families, as that is a potentially long-running, blocking operation.
+            let shard_storage = {
+                let mut shard_map_lock = self.lock_shards().await;
+                shard_map_lock.shards_guard.remove(shard_index)
+            };
+            if let Some(shard_storage) = shard_storage {
                 shard_storage.delete_shard_storage()?;
             }
             tracing::info!(
