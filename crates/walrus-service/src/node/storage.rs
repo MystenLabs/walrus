@@ -66,6 +66,7 @@ use super::{
 use crate::utils::{self, BatchProcessingResult};
 
 pub(crate) mod blob_info;
+pub(crate) mod blob_info_snapshot;
 pub(crate) mod constants;
 
 mod database_config;

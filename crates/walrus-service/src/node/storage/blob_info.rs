@@ -57,7 +57,11 @@ use self::{
     per_object_pooled_blob_info::PerObjectPooledBlobInfoMergeOperand,
     storage_pool_info::StoragePoolInfoMergeOperand,
 };
-use super::{DatabaseTableOptionsFactory, constants};
+use super::{
+    DatabaseTableOptionsFactory,
+    blob_info_snapshot::{self, SnapshotError, SnapshotHeader, SnapshotStats},
+    constants,
+};
 use crate::{
     node::metrics::NodeMetricSet,
     utils::{self, process_items_in_batches},
@@ -435,6 +439,30 @@ impl BlobInfoTable {
                 blob_id,
                 &BlobInfoMergeOperand::MarkMetadataStored(metadata_stored).to_bytes(),
             )],
+        )
+    }
+
+    /// Serializes a blob info snapshot of the `per_object_blob_info`,
+    /// `per_object_pooled_blob_info`, and `storage_pool_info` tables to `writer`.
+    ///
+    /// The serialization is a deterministic function of the table contents; see
+    /// [`super::blob_info_snapshot`] for the format and the determinism requirements. For the
+    /// snapshot to be identical across nodes, this must be called at a point where the tables
+    /// are identical across nodes, that is, directly after GC phase 1 at the epoch boundary and
+    /// before processing any further events.
+    // TODO(WAL-1185): remove the allow once the snapshot writer task uses this method.
+    #[allow(dead_code)]
+    pub fn write_snapshot<W: std::io::Write>(
+        &self,
+        header: &SnapshotHeader,
+        writer: W,
+    ) -> Result<SnapshotStats, SnapshotError> {
+        blob_info_snapshot::write_snapshot(
+            writer,
+            header,
+            self.per_object_blob_info.safe_range_iter(..)?,
+            self.per_object_pooled_blob_info.safe_range_iter(..)?,
+            self.storage_pool_info.safe_range_iter(..)?,
         )
     }
 
