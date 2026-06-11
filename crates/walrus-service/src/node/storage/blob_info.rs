@@ -438,6 +438,13 @@ impl BlobInfoTable {
         )
     }
 
+    /// Creates a RocksDB checkpoint of the entire database (all column families, not only the
+    /// blob info tables) at `path`. Uses hard links, so `path` must be on the same filesystem
+    /// as the database.
+    pub fn checkpoint_database(&self, path: &std::path::Path) -> Result<(), TypedStoreError> {
+        self.per_object_blob_info.checkpoint_db(path)
+    }
+
     /// Returns an iterator over all entries in the aggregate blob info table within the given
     /// range.
     pub fn aggregate_blob_info_range_iter(

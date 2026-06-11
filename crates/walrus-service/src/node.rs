@@ -7,6 +7,7 @@ use std::{
     collections::{BTreeMap, hash_map::Entry},
     future::Future,
     num::{NonZero, NonZeroU16, NonZeroUsize},
+    path::PathBuf,
     pin::Pin,
     sync::{
         Arc,
@@ -213,6 +214,7 @@ pub mod server;
 pub mod system_events;
 
 pub(crate) mod blob_event_processor;
+pub(crate) mod blob_info_snapshot_writer;
 pub(crate) mod consistency_check;
 pub(crate) mod db_checkpoint;
 pub(crate) mod errors;
@@ -674,6 +676,8 @@ pub struct StorageNodeInner {
     // Sender for updating the latest event epoch.
     latest_event_epoch_sender: watch::Sender<Option<Epoch>>,
     consistency_check_config: StorageNodeConsistencyCheckConfig,
+    blob_info_snapshot_config: blob_info_snapshot_writer::BlobInfoSnapshotWriterConfig,
+    blob_info_snapshot_dir: PathBuf,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
     garbage_collection_config: GarbageCollectionConfig,
     recovery_deferrals: RecoveryDeferrals,
@@ -874,6 +878,10 @@ impl StorageNode {
             latest_event_epoch_sender,
             latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
+            blob_info_snapshot_config: config.blob_info_snapshot.clone(),
+            blob_info_snapshot_dir: blob_info_snapshot_writer::snapshot_base_dir(
+                &config.storage_path,
+            ),
             checkpoint_manager,
             garbage_collection_config: config.garbage_collection,
             recovery_deferrals: std::sync::Arc::new(RwLock::new(Default::default())),
@@ -982,6 +990,10 @@ impl StorageNode {
 
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
     pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+        // If the node crashed before or during the epoch-boundary checkpoint cleanup, finish
+        // it now so that a stale checkpoint does not pin disk space for a full epoch.
+        blob_info_snapshot_writer::spawn_startup_cleanup(self.inner.clone());
+
         if let Err(error) = self
             .epoch_change_driver
             .schedule_relevant_calls_for_current_epoch()
@@ -1902,9 +1914,13 @@ impl StorageNode {
         // phase 1's disk traffic on the same RocksDB instance.
         self.start_garbage_collection_task(event.epoch).await?;
 
-        // Capture the event index before the handle is moved into `execute_epoch_change` so
-        // we can later detect whether this event is being reprocessed.
+        // Determine whether this event is being reprocessed before the handle is moved into
+        // `execute_epoch_change`: the finisher task it spawns marks the event as complete in
+        // the background, so checking afterwards could misclassify normal processing as
+        // reprocessing and skip the checkpoint and consistency check below.
         let event_index = event_handle.index();
+        let node_is_reprocessing_events =
+            self.inner.storage.get_latest_handled_event_index()? >= event_index;
 
         // During epoch change, we need to lock the read access to shard map until all the new
         // shards are created.
@@ -1928,6 +1944,30 @@ impl StorageNode {
         self.epoch_change_driver
             .schedule_post_epoch_change_subsidies();
 
+        // Create the blob info snapshot checkpoint after GC phase 1 has settled the blob info
+        // tables and before any further events are processed. Operators serialize and compare
+        // the checkpoints offline with `db-tool bench-blob-info-snapshot`.
+        //
+        // This runs before scheduling the consistency check so that the checkpoint (a memtable
+        // flush plus hard links, seconds) finishes before the check's long background scan
+        // starts competing for disk I/O. Both capture their state inline while event
+        // processing is blocked, so the ordering between them does not affect determinism.
+        if self.inner.blob_info_snapshot_config.enabled
+            && !node_is_reprocessing_events
+            && let Err(error) = blob_info_snapshot_writer::create_checkpoint_at_epoch_boundary(
+                self.inner.clone(),
+                event.epoch,
+            )
+            .await
+        {
+            self.inner.metrics.blob_info_snapshot_error_total.inc();
+            tracing::warn!(
+                ?error,
+                walrus.epoch = event.epoch,
+                "failed to create the blob info snapshot checkpoint at the epoch boundary"
+            );
+        }
+
         // Schedule the storage node consistency check after garbage collection has settled the
         // aggregate blob info table. The iterator's `is_certified` filter relies on counters
         // that GC decrements for newly-expired deletable and pooled blobs, so the digest
@@ -1938,8 +1978,6 @@ impl StorageNode {
         // - consistency check is disabled
         // - node is reprocessing events (blob info table should not be affected by future
         //   events)
-        let node_is_reprocessing_events =
-            self.inner.storage.get_latest_handled_event_index()? >= event_index;
         if self.inner.consistency_check_config.enable_consistency_check
             && !node_is_reprocessing_events
             && let Err(err) = consistency_check::schedule_background_consistency_check(
