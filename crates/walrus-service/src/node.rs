@@ -1983,38 +1983,17 @@ impl StorageNode {
         self.epoch_change_driver
             .schedule_post_epoch_change_subsidies();
 
-        // Schedule the storage node consistency check after garbage collection has settled the
-        // aggregate blob info table. The iterator's `is_certified` filter relies on counters
-        // that GC decrements for newly-expired deletable and pooled blobs, so the digest
-        // depends on whether GC has run. Taking the snapshot after GC keeps the digest
-        // deterministic across nodes and across replay of `EpochChangeStart` after a crash.
-        //
-        // Skipped when:
-        // - consistency check is disabled
-        // - node is reprocessing events (blob info table should not be affected by future
-        //   events)
         let node_is_reprocessing_events =
             self.inner.storage.get_latest_handled_event_index()? >= event_index;
-        if self.inner.consistency_check_config.enable_consistency_check
-            && !node_is_reprocessing_events
-            && let Err(err) = consistency_check::schedule_background_consistency_check(
-                self.inner.clone(),
-                self.blob_sync_handler.clone(),
-                event.epoch,
-            )
-            .await
-        {
-            tracing::warn!(
-                ?err,
-                walrus.epoch = event.epoch,
-                "failed to schedule background blob info consistency check"
-            );
-        }
 
-        // Create the blob info snapshot checkpoint at the same deterministic point as the
-        // consistency check: after GC phase 1 has settled the blob info tables and before
-        // any further events are processed. Operators serialize and compare the checkpoints
-        // offline with `db-tool bench-blob-info-snapshot`.
+        // Create the blob info snapshot checkpoint after GC phase 1 has settled the blob info
+        // tables and before any further events are processed. Operators serialize and compare
+        // the checkpoints offline with `db-tool bench-blob-info-snapshot`.
+        //
+        // This runs before scheduling the consistency check so that the checkpoint (a memtable
+        // flush plus hard links, seconds) finishes before the check's long background scan
+        // starts competing for disk I/O. Both capture their state inline while event
+        // processing is blocked, so the ordering between them does not affect determinism.
         if self.inner.blob_info_snapshot_config.enabled
             && !node_is_reprocessing_events
             && let Err(error) = blob_info_snapshot_writer::create_checkpoint_at_epoch_boundary(
@@ -2028,6 +2007,32 @@ impl StorageNode {
                 ?error,
                 walrus.epoch = event.epoch,
                 "failed to create the blob info snapshot checkpoint at the epoch boundary"
+            );
+        }
+
+        // Schedule the storage node consistency check after garbage collection has settled the
+        // aggregate blob info table. The iterator's `is_certified` filter relies on counters
+        // that GC decrements for newly-expired deletable and pooled blobs, so the digest
+        // depends on whether GC has run. Taking the snapshot after GC keeps the digest
+        // deterministic across nodes and across replay of `EpochChangeStart` after a crash.
+        //
+        // Skipped when:
+        // - consistency check is disabled
+        // - node is reprocessing events (blob info table should not be affected by future
+        //   events)
+        if self.inner.consistency_check_config.enable_consistency_check
+            && !node_is_reprocessing_events
+            && let Err(err) = consistency_check::schedule_background_consistency_check(
+                self.inner.clone(),
+                self.blob_sync_handler.clone(),
+                event.epoch,
+            )
+            .await
+        {
+            tracing::warn!(
+                ?err,
+                walrus.epoch = event.epoch,
+                "failed to schedule background blob info consistency check"
             );
         }
 
