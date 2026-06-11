@@ -475,6 +475,12 @@ impl Storage {
         self.blob_info.clear()
     }
 
+    /// Creates a RocksDB checkpoint of the entire database at `path`; see
+    /// [`blob_info::BlobInfoTable::checkpoint_database`].
+    pub(crate) fn checkpoint_database(&self, path: &Path) -> Result<(), TypedStoreError> {
+        self.blob_info.checkpoint_database(path)
+    }
+
     /// Returns lock write access to the shards map, and returns the underlying shard map.
     pub(crate) async fn lock_shards(&self) -> StorageShardLock {
         let shards_guard = self.shards.clone().write_owned().await;
