@@ -325,7 +325,10 @@ pub enum DbToolCommands {
     /// `storage_pool_info` column families into a snapshot file and reports its size, the
     /// serialization and deserialization durations, the bulk-load duration into a scratch
     /// database, and zstd compression ratios. The database is opened read-only; run this
-    /// against a stopped node's database or against a copy of a running node's database.
+    /// against a stopped node's database, a RocksDB checkpoint, or a filesystem snapshot of
+    /// the database directory. Plain file copies of a live database directory are not safe
+    /// inputs, and a live database, while it usually opens, yields a view that is stale by
+    /// the unflushed WAL tail.
     BenchBlobInfoSnapshot {
         /// Path to the RocksDB database directory.
         #[arg(long)]
