@@ -1689,6 +1689,10 @@ fn bench_blob_info_snapshot(
         stats.storage_pool_count
     );
     println!(
+        "  snapshot digest (xxhash64): {:016x}  <- compare across nodes for the same epoch",
+        stats.checksum
+    );
+    println!(
         "  snapshot size: {} bytes ({:.1} MiB, {:.1} bytes/entry)",
         stats.bytes_written,
         mib(stats.bytes_written),

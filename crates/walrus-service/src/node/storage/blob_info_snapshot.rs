@@ -150,6 +150,11 @@ pub(crate) struct SnapshotStats {
     pub per_object_pooled_count: u64,
     /// The number of entries serialized from `storage_pool_info`.
     pub storage_pool_count: u64,
+    /// The xxhash64 checksum of the snapshot contents (also stored in the snapshot trailer).
+    ///
+    /// Since the serialization is deterministic, this is a fingerprint of the snapshotted
+    /// table contents: nodes with identical tables produce identical checksums.
+    pub checksum: u64,
 }
 
 /// The fully deserialized contents of a blob info snapshot.
@@ -233,6 +238,7 @@ pub(crate) fn write_snapshot<W: Write>(
         per_object_count,
         per_object_pooled_count,
         storage_pool_count,
+        checksum,
     })
 }
 
