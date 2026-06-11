@@ -1652,9 +1652,29 @@ fn bench_blob_info_snapshot(
     println!("  database:      {}", db_path.display());
     println!("  snapshot file: {}", output_path.display());
 
-    // The header contents are irrelevant for the benchmark; the real writer fills in the
-    // epoch and the event cursor of the epoch boundary the snapshot is taken at.
-    let header = SnapshotHeader::new(0, EventStreamCursor::default(), BlobId::ZERO);
+    // When the input is a node-created `checkpoint_epoch_<N>` directory, embed its epoch in
+    // the header so that the digest only matches across snapshots taken at the same epoch
+    // boundary. The event cursor deliberately stays at its default: the cursor stored in the
+    // database is not deterministic at the checkpoint instant (event completion is marked by
+    // a background task), so embedding it would cause spurious digest mismatches. The real
+    // writer receives both values in-process from the epoch change event instead.
+    let checkpoint_epoch = db_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix("checkpoint_epoch_"))
+        .and_then(|epoch| epoch.parse::<Epoch>().ok());
+    match checkpoint_epoch {
+        Some(epoch) => println!("  checkpoint epoch: {epoch} (embedded in the digest)"),
+        None => println!(
+            "  checkpoint epoch: unknown (not a checkpoint_epoch_<N> directory); \
+            using epoch 0 in the header"
+        ),
+    }
+    let header = SnapshotHeader::new(
+        checkpoint_epoch.unwrap_or(0),
+        EventStreamCursor::default(),
+        BlobId::ZERO,
+    );
 
     let file = File::create(&output_path)?;
     let mut writer = BufWriter::with_capacity(1 << 20, file);

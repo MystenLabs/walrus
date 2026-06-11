@@ -1957,9 +1957,13 @@ impl StorageNode {
         // phase 1's disk traffic on the same RocksDB instance.
         self.start_garbage_collection_task(event.epoch).await?;
 
-        // Capture the event index before the handle is moved into `execute_epoch_change` so
-        // we can later detect whether this event is being reprocessed.
+        // Determine whether this event is being reprocessed before the handle is moved into
+        // `execute_epoch_change`: the finisher task it spawns marks the event as complete in
+        // the background, so checking afterwards could misclassify normal processing as
+        // reprocessing and skip the checkpoint and consistency check below.
         let event_index = event_handle.index();
+        let node_is_reprocessing_events =
+            self.inner.storage.get_latest_handled_event_index()? >= event_index;
 
         // During epoch change, we need to lock the read access to shard map until all the new
         // shards are created.
@@ -1982,9 +1986,6 @@ impl StorageNode {
         // for the epoch that just ended.
         self.epoch_change_driver
             .schedule_post_epoch_change_subsidies();
-
-        let node_is_reprocessing_events =
-            self.inner.storage.get_latest_handled_event_index()? >= event_index;
 
         // Create the blob info snapshot checkpoint after GC phase 1 has settled the blob info
         // tables and before any further events are processed. Operators serialize and compare
