@@ -7,6 +7,7 @@ use std::{
     collections::{BTreeMap, hash_map::Entry},
     future::Future,
     num::{NonZero, NonZeroU16, NonZeroUsize},
+    path::PathBuf,
     pin::Pin,
     sync::{
         Arc,
@@ -213,6 +214,7 @@ pub mod server;
 pub mod system_events;
 
 pub(crate) mod blob_event_processor;
+pub(crate) mod blob_info_snapshot_writer;
 pub(crate) mod consistency_check;
 pub(crate) mod db_checkpoint;
 pub(crate) mod errors;
@@ -691,6 +693,8 @@ pub struct StorageNodeInner {
     // Sender for updating the latest event epoch.
     latest_event_epoch_sender: watch::Sender<Option<Epoch>>,
     consistency_check_config: StorageNodeConsistencyCheckConfig,
+    blob_info_snapshot_config: blob_info_snapshot_writer::BlobInfoSnapshotWriterConfig,
+    blob_info_snapshot_dir: PathBuf,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
     garbage_collection_config: GarbageCollectionConfig,
     // Server-side cap on the `sliver_count` a sync-shard request may ask for; `None` disables it.
@@ -893,6 +897,10 @@ impl StorageNode {
             latest_event_epoch_sender,
             latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
+            blob_info_snapshot_config: config.blob_info_snapshot.clone(),
+            blob_info_snapshot_dir: blob_info_snapshot_writer::snapshot_base_dir(
+                &config.storage_path,
+            ),
             checkpoint_manager,
             garbage_collection_config: config.garbage_collection,
             max_sliver_count_per_sync_request: config
@@ -1004,6 +1012,10 @@ impl StorageNode {
 
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
     pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+        // If the node crashed before or during the epoch-boundary checkpoint cleanup, finish
+        // it now so that a stale checkpoint does not pin disk space for a full epoch.
+        blob_info_snapshot_writer::spawn_startup_cleanup(self.inner.clone());
+
         if let Err(error) = self
             .epoch_change_driver
             .schedule_relevant_calls_for_current_epoch()
@@ -1996,6 +2008,26 @@ impl StorageNode {
                 ?err,
                 walrus.epoch = event.epoch,
                 "failed to schedule background blob info consistency check"
+            );
+        }
+
+        // Create the blob info snapshot checkpoint at the same deterministic point as the
+        // consistency check: after GC phase 1 has settled the blob info tables and before
+        // any further events are processed. Operators serialize and compare the checkpoints
+        // offline with `db-tool bench-blob-info-snapshot`.
+        if self.inner.blob_info_snapshot_config.enabled
+            && !node_is_reprocessing_events
+            && let Err(error) = blob_info_snapshot_writer::create_checkpoint_at_epoch_boundary(
+                self.inner.clone(),
+                event.epoch,
+            )
+            .await
+        {
+            self.inner.metrics.blob_info_snapshot_error_total.inc();
+            tracing::warn!(
+                ?error,
+                walrus.epoch = event.epoch,
+                "failed to create the blob info snapshot checkpoint at the epoch boundary"
             );
         }
 

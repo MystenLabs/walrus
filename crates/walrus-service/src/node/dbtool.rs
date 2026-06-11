@@ -1914,6 +1914,31 @@ mod tests {
         compact_db(db_dir.path().to_path_buf(), CompactDbMode::Full)
     }
 
+    /// Exercises the full operator verification workflow: a real node database is
+    /// checkpointed at the epoch boundary, and the benchmark serializes the blob info tables
+    /// from the checkpoint directory.
+    #[tokio::test]
+    async fn bench_runs_on_a_node_database_checkpoint() -> Result<()> {
+        use walrus_sui::{test_utils::EventForTesting as _, types::BlobRegistered};
+
+        let storage = crate::test_utils::empty_storage_with_shards(&[]).await;
+        let blob_id = walrus_core::test_utils::blob_id_from_u64(42);
+        storage
+            .as_ref()
+            .update_blob_info(0, &BlobRegistered::for_testing(blob_id).into())?;
+
+        let checkpoint_dir = tempdir()?;
+        let checkpoint_path = checkpoint_dir.path().join("checkpoint_epoch_1");
+        storage.as_ref().checkpoint_database(&checkpoint_path)?;
+
+        let output_path = checkpoint_dir.path().join("snapshot.bench");
+        bench_blob_info_snapshot(checkpoint_path, Some(output_path.clone()), vec![1], true)?;
+
+        let contents = read_snapshot(&std::fs::read(&output_path)?)?;
+        assert_eq!(contents.per_object.len(), 1);
+        Ok(())
+    }
+
     #[test]
     fn bench_blob_info_snapshot_roundtrips_database_contents() -> Result<()> {
         use walrus_core::test_utils::blob_id_from_u64;
