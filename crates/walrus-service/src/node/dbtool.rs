@@ -3,7 +3,14 @@
 
 //! Tools for inspecting and maintaining the RocksDB database.
 
-use std::{collections::BTreeMap, path::PathBuf, thread::sleep, time::Duration};
+use std::{
+    collections::BTreeMap,
+    fs::File,
+    io::BufWriter,
+    path::PathBuf,
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result, bail};
 use bincode::Options;
@@ -22,7 +29,7 @@ use rocksdb::{
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
-use typed_store::rocks::be_fix_int_ser;
+use typed_store::{TypedStoreError, rocks::be_fix_int_ser};
 use walrus_core::{
     BlobId,
     Epoch,
@@ -34,7 +41,7 @@ use super::DatabaseTableOptionsFactory;
 use crate::{
     event::{
         event_processor::db::constants::{self as event_processor_constants},
-        events::{InitState, PositionedStreamEvent},
+        events::{EventStreamCursor, InitState, PositionedStreamEvent},
     },
     node::{
         DatabaseConfig,
@@ -55,11 +62,14 @@ use crate::{
                 BlobInfo,
                 CertifiedBlobInfoApi,
                 PerObjectBlobInfo,
+                PerObjectPooledBlobInfo,
+                StoragePoolInfo,
                 blob_info_cf_options,
                 per_object_blob_info_cf_options,
                 per_object_pooled_blob_info_cf_options,
                 storage_pool_info_cf_options,
             },
+            blob_info_snapshot::{SnapshotHeader, read_snapshot, write_snapshot},
             constants::{
                 aggregate_blob_info_cf_name,
                 event_cursor_cf_name,
@@ -308,6 +318,29 @@ pub enum DbToolCommands {
         #[command(subcommand)]
         command: EventProcessorCommands,
     },
+
+    /// Benchmark blob info snapshot serialization against an existing database.
+    ///
+    /// Serializes the `per_object_blob_info`, `per_object_pooled_blob_info`, and
+    /// `storage_pool_info` column families into a snapshot file and reports its size, the
+    /// serialization and deserialization durations, the bulk-load duration into a scratch
+    /// database, and zstd compression ratios. The database is opened read-only; run this
+    /// against a stopped node's database or against a copy of a running node's database.
+    BenchBlobInfoSnapshot {
+        /// Path to the RocksDB database directory.
+        #[arg(long)]
+        db_path: PathBuf,
+        /// Path of the snapshot file written by the benchmark; defaults to
+        /// `blob_info_snapshot.bench` in the system temp directory.
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// Zstd compression levels to measure.
+        #[arg(long, value_delimiter = ',', default_value = "1,3,9")]
+        zstd_levels: Vec<i32>,
+        /// Skip the bulk-load timing into a scratch database.
+        #[arg(long, default_value_t = false)]
+        skip_bulk_load: bool,
+    },
 }
 
 /// Commands for reading event blob writer metadata.
@@ -422,6 +455,12 @@ impl DbToolCommands {
             Self::EventProcessor { db_path, command } => match command {
                 EventProcessorCommands::ReadInitState => read_event_processor_init_state(db_path),
             },
+            Self::BenchBlobInfoSnapshot {
+                db_path,
+                output,
+                zstd_levels,
+                skip_bulk_load,
+            } => bench_blob_info_snapshot(db_path, output, zstd_levels, skip_bulk_load),
         }
     }
 }
@@ -1549,6 +1588,246 @@ fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// Returns a typed iterator over all entries of a blob-info-related column family, decoding
+/// keys with the typed-store key encoding and values with BCS, matching how the storage node
+/// itself reads these tables.
+fn snapshot_source_iter<'db, V: serde::de::DeserializeOwned>(
+    db: &'db DB,
+    cf_name: &'static str,
+) -> Result<impl Iterator<Item = std::result::Result<(ObjectID, V), TypedStoreError>> + 'db> {
+    let cf = db
+        .cf_handle(cf_name)
+        .with_context(|| format!("column family {cf_name} should exist in the database"))?;
+    Ok(db
+        .iterator_cf(&cf, rocksdb::IteratorMode::Start)
+        .map(|item| {
+            let (key, value) =
+                item.map_err(|error| TypedStoreError::RocksDBError(error.to_string()))?;
+            let key_config = bincode::DefaultOptions::new()
+                .with_big_endian()
+                .with_fixint_encoding();
+            let object_id: ObjectID = key_config
+                .deserialize(&key)
+                .map_err(|error| TypedStoreError::SerializationError(error.to_string()))?;
+            let value: V = bcs::from_bytes(&value)
+                .map_err(|error| TypedStoreError::SerializationError(error.to_string()))?;
+            Ok((object_id, value))
+        }))
+}
+
+fn bench_blob_info_snapshot(
+    db_path: PathBuf,
+    output: Option<PathBuf>,
+    zstd_levels: Vec<i32>,
+    skip_bulk_load: bool,
+) -> Result<()> {
+    let factory = DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false);
+    let db = DB::open_cf_with_opts_for_read_only(
+        &RocksdbOptions::default(),
+        &db_path,
+        [
+            (
+                per_object_blob_info_cf_name(),
+                per_object_blob_info_cf_options(&factory),
+            ),
+            (
+                per_object_pooled_blob_info_cf_name(),
+                per_object_pooled_blob_info_cf_options(&factory),
+            ),
+            (
+                storage_pool_info_cf_name(),
+                storage_pool_info_cf_options(&factory),
+            ),
+        ],
+        false,
+    )
+    .context("failed to open the database read-only; run against a stopped node or a DB copy")?;
+
+    let output_path =
+        output.unwrap_or_else(|| std::env::temp_dir().join("blob_info_snapshot.bench"));
+    println!("Blob info snapshot benchmark");
+    println!("  database:      {}", db_path.display());
+    println!("  snapshot file: {}", output_path.display());
+
+    // The header contents are irrelevant for the benchmark; the real writer fills in the
+    // epoch and the event cursor of the epoch boundary the snapshot is taken at.
+    let header = SnapshotHeader::new(0, EventStreamCursor::default(), BlobId::ZERO);
+
+    let file = File::create(&output_path)?;
+    let mut writer = BufWriter::with_capacity(1 << 20, file);
+    let serialize_start = Instant::now();
+    let stats = write_snapshot(
+        &mut writer,
+        &header,
+        snapshot_source_iter::<PerObjectBlobInfo>(&db, per_object_blob_info_cf_name())?,
+        snapshot_source_iter::<PerObjectPooledBlobInfo>(
+            &db,
+            per_object_pooled_blob_info_cf_name(),
+        )?,
+        snapshot_source_iter::<StoragePoolInfo>(&db, storage_pool_info_cf_name())?,
+    )?;
+    writer.into_inner()?.sync_all()?;
+    let serialize_elapsed = serialize_start.elapsed();
+    drop(db);
+
+    let total_entries =
+        stats.per_object_count + stats.per_object_pooled_count + stats.storage_pool_count;
+    println!("  entries:");
+    println!(
+        "    per_object_blob_info:        {}",
+        stats.per_object_count
+    );
+    println!(
+        "    per_object_pooled_blob_info: {}",
+        stats.per_object_pooled_count
+    );
+    println!(
+        "    storage_pool_info:           {}",
+        stats.storage_pool_count
+    );
+    println!(
+        "  snapshot size: {} bytes ({:.1} MiB, {:.1} bytes/entry)",
+        stats.bytes_written,
+        mib(stats.bytes_written),
+        ratio(stats.bytes_written, total_entries),
+    );
+    println!(
+        "  serialize + write + sync: {:.2?} ({:.1} MiB/s, {:.0} entries/s)",
+        serialize_elapsed,
+        mib(stats.bytes_written) / serialize_elapsed.as_secs_f64(),
+        ratio(total_entries, 1) / serialize_elapsed.as_secs_f64(),
+    );
+
+    let bytes = std::fs::read(&output_path)?;
+    let deserialize_start = Instant::now();
+    let contents = read_snapshot(&bytes)?;
+    let deserialize_elapsed = deserialize_start.elapsed();
+    println!(
+        "  read + deserialize + verify checksum: {:.2?} ({:.1} MiB/s, {:.0} entries/s)",
+        deserialize_elapsed,
+        mib(stats.bytes_written) / deserialize_elapsed.as_secs_f64(),
+        ratio(total_entries, 1) / deserialize_elapsed.as_secs_f64(),
+    );
+
+    if !skip_bulk_load {
+        let load_elapsed = bulk_load_into_scratch_db(&contents)?;
+        println!(
+            "  bulk load into scratch db: {:.2?} ({:.0} entries/s)",
+            load_elapsed,
+            ratio(total_entries, 1) / load_elapsed.as_secs_f64(),
+        );
+    }
+
+    for level in zstd_levels {
+        let compress_start = Instant::now();
+        let compressed = zstd::stream::encode_all(bytes.as_slice(), level)?;
+        let compress_elapsed = compress_start.elapsed();
+        let decompress_start = Instant::now();
+        let decompressed = zstd::stream::decode_all(compressed.as_slice())?;
+        let decompress_elapsed = decompress_start.elapsed();
+        anyhow::ensure!(decompressed == bytes, "zstd roundtrip mismatch");
+        println!(
+            "  zstd level {level}: {} bytes ({:.2}x ratio), compress {:.2?}, decompress {:.2?}",
+            compressed.len(),
+            ratio(stats.bytes_written, u64::try_from(compressed.len())?),
+            compress_elapsed,
+            decompress_elapsed,
+        );
+    }
+
+    Ok(())
+}
+
+/// Loads the snapshot contents into a freshly created scratch database with the same column
+/// families and key/value encodings as a real node, and returns the elapsed time. The scratch
+/// database is deleted afterwards.
+fn bulk_load_into_scratch_db(
+    contents: &crate::node::storage::blob_info_snapshot::SnapshotContents,
+) -> Result<Duration> {
+    const BATCH_SIZE: usize = 10_000;
+
+    let scratch_path =
+        std::env::temp_dir().join(format!("blob_info_snapshot_load_{}", std::process::id()));
+    let factory = DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false);
+    let mut db_options = RocksdbOptions::default();
+    db_options.create_if_missing(true);
+    db_options.create_missing_column_families(true);
+    let db = DB::open_cf_with_opts(
+        &db_options,
+        &scratch_path,
+        [
+            (
+                per_object_blob_info_cf_name(),
+                per_object_blob_info_cf_options(&factory),
+            ),
+            (
+                per_object_pooled_blob_info_cf_name(),
+                per_object_pooled_blob_info_cf_options(&factory),
+            ),
+            (
+                storage_pool_info_cf_name(),
+                storage_pool_info_cf_options(&factory),
+            ),
+        ],
+    )?;
+
+    fn load_section<V: Serialize>(
+        db: &DB,
+        cf_name: &'static str,
+        entries: &[(ObjectID, V)],
+    ) -> Result<()> {
+        let cf = db
+            .cf_handle(cf_name)
+            .with_context(|| format!("column family {cf_name} should exist in the scratch db"))?;
+        for chunk in entries.chunks(BATCH_SIZE) {
+            let mut batch = rocksdb::WriteBatch::default();
+            for (object_id, value) in chunk {
+                batch.put_cf(&cf, be_fix_int_ser(object_id)?, bcs::to_bytes(value)?);
+            }
+            db.write(batch)?;
+        }
+        Ok(())
+    }
+
+    let start = Instant::now();
+    load_section(&db, per_object_blob_info_cf_name(), &contents.per_object)?;
+    load_section(
+        &db,
+        per_object_pooled_blob_info_cf_name(),
+        &contents.per_object_pooled,
+    )?;
+    load_section(&db, storage_pool_info_cf_name(), &contents.storage_pools)?;
+    db.flush()?;
+    let elapsed = start.elapsed();
+
+    drop(db);
+    let _ = DB::destroy(&RocksdbOptions::default(), &scratch_path);
+    let _ = std::fs::remove_dir_all(&scratch_path);
+    Ok(elapsed)
+}
+
+/// Converts a byte count to MiB as a float for reporting.
+fn mib(bytes: u64) -> f64 {
+    const BYTES_PER_MIB: f64 = (1u64 << 20) as f64;
+    u64_to_f64(bytes) / BYTES_PER_MIB
+}
+
+/// Returns `numerator / denominator` as a float for reporting; returns 0.0 for a zero
+/// denominator.
+fn ratio(numerator: u64, denominator: u64) -> f64 {
+    if denominator == 0 {
+        return 0.0;
+    }
+    u64_to_f64(numerator) / u64_to_f64(denominator)
+}
+
+/// Converts a `u64` to `f64` for reporting purposes, where precision loss on huge values is
+/// acceptable.
+#[allow(clippy::cast_precision_loss)]
+fn u64_to_f64(value: u64) -> f64 {
+    value as f64
+}
+
 #[cfg(test)]
 mod tests {
     use clap::{CommandFactory, Parser};
@@ -1626,6 +1905,111 @@ mod tests {
         drop(db);
 
         compact_db(db_dir.path().to_path_buf(), CompactDbMode::Full)
+    }
+
+    #[test]
+    fn bench_blob_info_snapshot_roundtrips_database_contents() -> Result<()> {
+        use walrus_core::test_utils::blob_id_from_u64;
+        use walrus_sui::test_utils::{FIXED_STORAGE_POOL_ID, fixed_event_id_for_testing};
+
+        let db_dir = tempdir()?;
+        let db_table_opts_factory =
+            DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false);
+        let mut db_opts = RocksdbOptions::from(&db_table_opts_factory.global());
+        db_opts.create_if_missing(true);
+        db_opts.create_missing_column_families(true);
+
+        let db = DB::open_cf_descriptors(
+            &db_opts,
+            db_dir.path(),
+            vec![
+                ColumnFamilyDescriptor::new(
+                    per_object_blob_info_cf_name(),
+                    per_object_blob_info_cf_options(&db_table_opts_factory),
+                ),
+                ColumnFamilyDescriptor::new(
+                    per_object_pooled_blob_info_cf_name(),
+                    per_object_pooled_blob_info_cf_options(&db_table_opts_factory),
+                ),
+                ColumnFamilyDescriptor::new(
+                    storage_pool_info_cf_name(),
+                    storage_pool_info_cf_options(&db_table_opts_factory),
+                ),
+                // An unrelated column family, mimicking a real node database with many more
+                // column families than the benchmark opens.
+                ColumnFamilyDescriptor::new("custom_cf", RocksdbOptions::default()),
+            ],
+        )?;
+
+        let per_object_entries = vec![
+            (
+                ObjectID::from_single_byte(1),
+                PerObjectBlobInfo::new_for_testing(
+                    blob_id_from_u64(1),
+                    1,
+                    Some(2),
+                    10,
+                    true,
+                    fixed_event_id_for_testing(7),
+                    false,
+                ),
+            ),
+            (
+                ObjectID::from_single_byte(2),
+                PerObjectBlobInfo::new_for_testing(
+                    blob_id_from_u64(2),
+                    3,
+                    None,
+                    20,
+                    false,
+                    fixed_event_id_for_testing(8),
+                    false,
+                ),
+            ),
+        ];
+        let pooled_entries = vec![(
+            ObjectID::from_single_byte(3),
+            PerObjectPooledBlobInfo::new_for_testing(
+                blob_id_from_u64(3),
+                4,
+                None,
+                FIXED_STORAGE_POOL_ID,
+                fixed_event_id_for_testing(9),
+            ),
+        )];
+        let pool_entries = vec![(ObjectID::from_single_byte(4), StoragePoolInfo::new(1, 30))];
+
+        fn put_entries<V: Serialize>(
+            db: &DB,
+            cf_name: &str,
+            entries: &[(ObjectID, V)],
+        ) -> Result<()> {
+            let cf = db
+                .cf_handle(cf_name)
+                .expect("column family should exist in test db");
+            for (object_id, value) in entries {
+                db.put_cf(&cf, be_fix_int_ser(object_id)?, bcs::to_bytes(value)?)?;
+            }
+            Ok(())
+        }
+        put_entries(&db, per_object_blob_info_cf_name(), &per_object_entries)?;
+        put_entries(&db, per_object_pooled_blob_info_cf_name(), &pooled_entries)?;
+        put_entries(&db, storage_pool_info_cf_name(), &pool_entries)?;
+        drop(db);
+
+        let output_path = db_dir.path().join("snapshot.bench");
+        bench_blob_info_snapshot(
+            db_dir.path().to_path_buf(),
+            Some(output_path.clone()),
+            vec![1],
+            false,
+        )?;
+
+        let contents = read_snapshot(&std::fs::read(&output_path)?)?;
+        assert_eq!(contents.per_object, per_object_entries);
+        assert_eq!(contents.per_object_pooled, pooled_entries);
+        assert_eq!(contents.storage_pools, pool_entries);
+        Ok(())
     }
 
     #[test]

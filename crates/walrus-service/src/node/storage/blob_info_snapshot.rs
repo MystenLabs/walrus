@@ -43,9 +43,6 @@
 //! MUST bump [`SNAPSHOT_FORMAT_VERSION`]: the snapshot bytes are consensus-critical, since all
 //! nodes must produce bit-identical snapshots for the same epoch.
 
-// TODO(WAL-1185): remove once the snapshot writer task consumes this module.
-#![allow(dead_code)]
-
 use std::{
     hash::Hasher as _,
     io::{Cursor, Read, Write},
