@@ -14,6 +14,7 @@ use super::{
     StorageNodeInner,
     blob_sync::{BlobSyncHandler, SyncStatus},
     config::NodeRecoveryConfig,
+    shard_sync::ShardSyncHandler,
 };
 use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
 
@@ -28,6 +29,10 @@ const SHARD_NOT_CREATED_BACKOFF_MAX: Duration = Duration::from_secs(60);
 pub struct NodeRecoveryHandler {
     node: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,
+    // Used to wait for ongoing shard syncs before recovering blobs: shard sync fills
+    // newly gained shards far more cheaply than per-blob recovery, so recovery defers
+    // to it.
+    shard_sync_handler: ShardSyncHandler,
 
     // There can be at most one background shard removal task at a time.
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
@@ -40,11 +45,13 @@ impl NodeRecoveryHandler {
     pub fn new(
         node: Arc<StorageNodeInner>,
         blob_sync_handler: Arc<BlobSyncHandler>,
+        shard_sync_handler: ShardSyncHandler,
         config: NodeRecoveryConfig,
     ) -> Self {
         Self {
             node,
             blob_sync_handler,
+            shard_sync_handler,
             task_handle: Arc::new(Mutex::new(None)),
             config,
         }
@@ -72,6 +79,7 @@ impl NodeRecoveryHandler {
 
         let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();
+        let shard_sync_handler = self.shard_sync_handler.clone();
         let max_concurrent_blob_syncs_during_recovery =
             self.config.max_concurrent_blob_syncs_during_recovery;
         let task_handle = tokio::spawn(async move {
@@ -93,7 +101,7 @@ impl NodeRecoveryHandler {
             loop {
                 // Block until the node is ready to run a recovery scan pass. Stops the recovery
                 // task if the node started catching up.
-                match wait_until_ready_to_scan(&node).await {
+                match wait_until_ready_to_scan(&node, &shard_sync_handler).await {
                     ScanReadiness::Ready => {}
                     ScanReadiness::CatchingUp => return,
                 }
@@ -243,6 +251,11 @@ impl NodeRecoveryHandler {
                 // and we can avoid the extra loop of all the blob syncs finished successfully.
             }
 
+            // A shard sync may have been started by an epoch change after the last scan
+            // pass began. The node is fully synced for the epoch only once both blob
+            // recovery and all shard syncs are complete, so drain them before attesting.
+            shard_sync_handler.wait_until_no_sync_in_progress().await;
+
             let current_node_status = node
                 .storage
                 .node_status()
@@ -298,19 +311,28 @@ enum ScanReadiness {
 }
 
 /// Blocks until the node is ready to run a recovery scan pass ([`ScanReadiness::Ready`]), or
-/// returns [`ScanReadiness::CatchingUp`] if the node started catching up. Both conditions are
-/// re-checked on every backoff iteration, so catch-up that begins while waiting also stops the
-/// task.
+/// returns [`ScanReadiness::CatchingUp`] if the node started catching up. All conditions are
+/// re-checked on every iteration, so catch-up that begins while waiting also stops the task.
 ///
-/// A node can own a shard at the latest committee epoch whose local storage does not exist yet: the
-/// committee advanced to a newer epoch, but event processing has not yet handled that epoch's
-/// `EpochChangeStart`, which is what creates the shard. Recovery must not create it here: blob sync
-/// targets `owned_shards_at_epoch(current_event_epoch)`, which still excludes the shard, and shard
-/// creation is part of the ordered epoch transition owned by event processing. If the scan ran in
-/// this state, every blob would read "not stored" on the missing shard, producing futile syncs and
-/// repeated full re-scans (and, on the single-threaded simulator, starving event processing
-/// entirely). So back off and re-check until the shard exists; the sleep also yields the executor.
-async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> ScanReadiness {
+/// Readiness requires, besides the node not catching up:
+///
+/// - No shard sync is in progress. Shard sync fills newly gained shards far more cheaply than
+///   per-blob recovery (and per-blob recovery would redundantly decode slivers for shards that
+///   shard sync is copying in bulk), so recovery defers to it.
+/// - Local storage exists for every shard the node owns at the latest committee epoch. A node can
+///   own a shard whose local storage does not exist yet: the committee advanced to a newer epoch,
+///   but event processing has not yet handled that epoch's `EpochChangeStart`, which is what
+///   creates the shard. Recovery must not create it here: blob sync targets
+///   `owned_shards_at_epoch(current_event_epoch)`, which still excludes the shard, and shard
+///   creation is part of the ordered epoch transition owned by event processing. If the scan ran
+///   in this state, every blob would read "not stored" on the missing shard, producing futile
+///   syncs and repeated full re-scans (and, on the single-threaded simulator, starving event
+///   processing entirely). So back off and re-check until the shard exists; the sleep also yields
+///   the executor.
+async fn wait_until_ready_to_scan(
+    node: &StorageNodeInner,
+    shard_sync_handler: &ShardSyncHandler,
+) -> ScanReadiness {
     // Exponential backoff, recreated per stall episode so a fresh stall starts at the small bound.
     // The seed only feeds the jitter offset; a constant keeps it deterministic under the simulator.
     let mut backoff = ExponentialBackoff::new_with_seed(
@@ -329,6 +351,13 @@ async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> ScanReadiness {
         {
             tracing::info!("node recovery encountered node is in catching up; skip recovery");
             break ScanReadiness::CatchingUp;
+        }
+
+        if shard_sync_handler.has_sync_in_progress() {
+            tracing::info!("waiting for ongoing shard syncs before scanning blobs to recover");
+            shard_sync_handler.wait_until_no_sync_in_progress().await;
+            // Loop back to re-check the catch-up status, which may have changed while waiting.
+            continue;
         }
 
         let existing_shards = node.storage.existing_shards().await;

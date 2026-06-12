@@ -139,6 +139,11 @@ impl NodeStatus {
         matches!(self, NodeStatus::Active)
     }
 
+    /// Returns `true` if the node is recovering missing slivers for its shards.
+    pub fn is_recovering(&self) -> bool {
+        matches!(self, NodeStatus::RecoveryInProgress(_))
+    }
+
     /// Returns `true` if the node is catching up.
     pub fn is_catching_up(&self) -> bool {
         matches!(

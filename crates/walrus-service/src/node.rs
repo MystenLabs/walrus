@@ -938,6 +938,7 @@ impl StorageNode {
         let node_recovery_handler = NodeRecoveryHandler::new(
             inner.clone(),
             blob_sync_handler.clone(),
+            shard_sync_handler.clone(),
             config.node_recovery_config.clone(),
         );
         node_recovery_handler.restart_recovery().await?;
@@ -2255,13 +2256,14 @@ impl StorageNode {
         {
             // If the node is already in recovery mode, we need to restart node recovery to recover
             // to the latest epoch. This is to make sure that the node is always recovering to the
-            // latest epoch.
+            // latest epoch. Since the node is up-to-date with events, newly gained shards are
+            // synced from their previous owners instead of being filled by blob recovery.
             tracing::info!(
                 "node is currently recovering to epoch {recovering_epoch}, restarting \
                 node recovery to recover to the latest epoch {}",
                 event.epoch
             );
-            self.process_shard_changes_in_new_epoch_and_start_node_recovery(
+            self.process_shard_changes_in_new_epoch_while_recovering(
                 event_handle,
                 event,
                 shard_map_lock,
@@ -2347,6 +2349,88 @@ impl StorageNode {
                     event_handle,
                     event,
                     shard_diff_calculator.shards_to_remove().to_vec(),
+                    committees,
+                    true,
+                );
+        } else {
+            event_handle.mark_as_complete();
+        }
+
+        Ok(())
+    }
+
+    /// Processes the shard changes in the new epoch while node recovery is already in progress.
+    ///
+    /// In contrast to [`Self::process_shard_changes_in_new_epoch_and_start_node_recovery`], which
+    /// handles a node that has lost track of the previous epoch's shard assignment, the node here
+    /// is up-to-date with events, so newly gained shards are filled using shard sync from their
+    /// previous owners instead of per-blob recovery. The restarted node recovery task waits for
+    /// these shard syncs to finish before recovering blobs, and attests epoch sync done once both
+    /// are complete.
+    ///
+    /// As all functions that are passed an [`EventHandle`], this is responsible for marking the
+    /// event as completed.
+    async fn process_shard_changes_in_new_epoch_while_recovering(
+        &self,
+        event_handle: EventHandle,
+        event: &EpochChangeStart,
+        shard_map_lock: StorageShardLock,
+    ) -> anyhow::Result<()> {
+        // Advance the recovery target so that the recovery task attests epoch sync done for the
+        // latest epoch; a stale attestation would be dropped by the contract service. This must
+        // happen before starting the shard syncs and restarting the recovery task below.
+        self.inner
+            .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
+
+        sui_macros::fail_point!("fail_point_shard_changes_in_new_epoch_while_recovering");
+
+        let public_key = self.inner.public_key();
+        let committees = self.inner.committee_service.active_committees();
+        let shard_diff_calculator =
+            ShardDiffCalculator::new(&committees, public_key, shard_map_lock.existing_shards());
+
+        let shards_gained = shard_diff_calculator.gained_shards_from_prev_epoch();
+        tracing::info!(
+            ?shards_gained,
+            "processing shard changes in new epoch while node recovery is in progress"
+        );
+
+        // Note that the shard_map_lock will be unlocked after this function returns.
+        self.create_new_shards_and_start_sync(shard_map_lock, shards_gained, &committees, false)
+            .await?;
+
+        // For shards that just moved out, we need to lock them to not store more data in them.
+        for shard_id in shard_diff_calculator.shards_to_lock() {
+            let Some(shard_storage) = self.inner.storage.shard_storage(*shard_id).await else {
+                tracing::info!("skipping lost shard during epoch change as it is not stored");
+                continue;
+            };
+            tracing::info!(
+                walrus.shard_index = %shard_id,
+                epoch = event.epoch,
+                "locking shard for epoch change"
+            );
+            shard_storage
+                .lock_shard_for_epoch_change()
+                .await
+                .context("failed to lock shard")?;
+        }
+
+        // Restart node recovery to recover to the latest epoch. The recovery task waits for the
+        // shard syncs started above to finish before scanning for blobs to recover.
+        self.node_recovery_handler
+            .start_node_recovery(event.epoch)
+            .await?;
+
+        // The recovery task is in charge of attesting epoch sync done, so the finisher is always
+        // told that there are ongoing shard syncs.
+        let shards_to_remove = shard_diff_calculator.shards_to_remove();
+        if !shards_to_remove.is_empty() {
+            self.start_epoch_change_finisher
+                .start_finish_epoch_change_tasks(
+                    event_handle,
+                    event,
+                    shards_to_remove.to_vec(),
                     committees,
                     true,
                 );

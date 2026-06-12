@@ -1082,6 +1082,241 @@ mod tests {
         clear_fail_point("start_node_recovery_entry");
     }
 
+    // Tests that an epoch change occurring while node recovery is in progress fills newly
+    // gained shards using shard sync, and that node recovery does not start any blob syncs
+    // while shard syncs are running.
+    //
+    // The test crashes a node long enough for it to enter RecoveryInProgress state, holds the
+    // recovery task using a fail point, stakes additional weight on the node so that it gains
+    // shards at a subsequent epoch change (which it processes while recovering), and then
+    // releases the recovery task.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_node_recovery_across_epoch_change_with_shard_gain() {
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(30))
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .build(),
+            )
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .with_default_num_checkpoints_per_blob()
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+
+        let client_arc = Arc::new(client);
+
+        // Starts a background workload that a client keeps writing and retrieving data.
+        let workload_handle =
+            simtest_utils::start_background_workload(client_arc.clone(), false, None, None);
+
+        // Run the workload to get some data in the system.
+        tokio::time::sleep(Duration::from_mins(1)).await;
+
+        let target_node_id = walrus_cluster.nodes[0]
+            .node_id
+            .expect("node id should be set");
+        let initial_owned_shard_count =
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]]).await[0]
+                .shard_detail
+                .as_ref()
+                .expect("shard detail should be set")
+                .owned
+                .len();
+
+        // Tracks the number of shard sync tasks currently running on the target node, the
+        // total number of shard syncs started on it, and whether node recovery started a
+        // blob sync while a shard sync was running (which must never happen).
+        let active_shard_syncs = Arc::new(AtomicU64::new(0));
+        let total_shard_syncs_started = Arc::new(AtomicU64::new(0));
+        let ordering_violation = Arc::new(AtomicBool::new(false));
+        {
+            let active_shard_syncs = active_shard_syncs.clone();
+            let total_shard_syncs_started = total_shard_syncs_started.clone();
+            register_fail_point("fail_point_shard_sync_task_started", move || {
+                if sui_simulator::current_simnode_id() == target_node_id {
+                    active_shard_syncs.fetch_add(1, Ordering::SeqCst);
+                    total_shard_syncs_started.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+        }
+        {
+            let active_shard_syncs = active_shard_syncs.clone();
+            register_fail_point("fail_point_shard_sync_task_finished", move || {
+                if sui_simulator::current_simnode_id() == target_node_id {
+                    active_shard_syncs.fetch_sub(1, Ordering::SeqCst);
+                }
+            });
+        }
+        {
+            let active_shard_syncs = active_shard_syncs.clone();
+            let ordering_violation = ordering_violation.clone();
+            register_fail_point("fail_point_node_recovery_start_sync", move || {
+                if sui_simulator::current_simnode_id() == target_node_id
+                    && active_shard_syncs.load(Ordering::SeqCst) > 0
+                {
+                    ordering_violation.store(true, Ordering::SeqCst);
+                }
+            });
+        }
+
+        // Tracks that the target node processed an epoch change through the recovering path.
+        let recovering_path_hit = Arc::new(AtomicBool::new(false));
+        {
+            let recovering_path_hit = recovering_path_hit.clone();
+            register_fail_point(
+                "fail_point_shard_changes_in_new_epoch_while_recovering",
+                move || {
+                    if sui_simulator::current_simnode_id() == target_node_id {
+                        recovering_path_hit.store(true, Ordering::SeqCst);
+                    }
+                },
+            );
+        }
+
+        // Holds the recovery task of the target node so that the recovery reliably spans
+        // multiple epoch changes; released once the node has gained shards while recovering.
+        let hold_recovery = Arc::new(AtomicBool::new(true));
+        {
+            let hold_recovery = hold_recovery.clone();
+            register_fail_point_async("start_node_recovery_entry", move || {
+                let hold_recovery = hold_recovery.clone();
+                async move {
+                    if sui_simulator::current_simnode_id() != target_node_id {
+                        return;
+                    }
+                    tracing::info!("holding node recovery until released by the test");
+                    while hold_recovery.load(Ordering::SeqCst) {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                    tracing::info!("node recovery released by the test");
+                }
+            });
+        }
+
+        // Crash the target node for more than two epochs so that it enters recovery mode when
+        // it comes back.
+        let fail_triggered = Arc::new(AtomicBool::new(false));
+        let fail_triggered_clone = fail_triggered.clone();
+        register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
+            crash_target_node(
+                target_node_id,
+                fail_triggered_clone.clone(),
+                Duration::from_mins(1),
+            );
+        });
+
+        // Wait until the target node is back and in RecoveryInProgress state.
+        wait_until(
+            Duration::from_mins(4),
+            "target node should enter recovery",
+            || async {
+                simtest_utils::try_get_nodes_health_info([&walrus_cluster.nodes[0]]).await[0]
+                    .as_ref()
+                    .is_ok_and(|info| info.node_status.starts_with("RecoveryInProgress"))
+            },
+        )
+        .await;
+
+        // Stake additional weight on the recovering node so that it gains shards at a
+        // subsequent epoch change, which it processes while still recovering.
+        client_arc
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[0]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        // Wait until the node gains shards and starts syncing them. Since the recovery task is
+        // held, any shard sync here necessarily starts while the node is recovering.
+        wait_until(
+            Duration::from_mins(4),
+            "target node should start syncing gained shards while recovering",
+            || async { total_shard_syncs_started.load(Ordering::SeqCst) > 0 },
+        )
+        .await;
+
+        // Release the recovery task; it must wait for the shard syncs to finish before
+        // recovering blobs, and eventually transition the node to Active.
+        hold_recovery.store(false, Ordering::SeqCst);
+
+        wait_until(
+            Duration::from_mins(4),
+            "target node should finish recovery and become active",
+            || async {
+                simtest_utils::try_get_nodes_health_info([&walrus_cluster.nodes[0]]).await[0]
+                    .as_ref()
+                    .is_ok_and(|info| info.node_status == "Active")
+            },
+        )
+        .await;
+
+        assert!(
+            recovering_path_hit.load(Ordering::SeqCst),
+            "an epoch change should have been processed while node recovery was in progress"
+        );
+        assert!(
+            !ordering_violation.load(Ordering::SeqCst),
+            "node recovery must not start blob syncs while shard syncs are running"
+        );
+
+        // The gained shards should be owned by the node and be ready to serve traffic.
+        let node_health_info =
+            simtest_utils::get_nodes_health_info([&walrus_cluster.nodes[0]]).await;
+        let owned_shards = &node_health_info[0]
+            .shard_detail
+            .as_ref()
+            .expect("shard detail should be set")
+            .owned;
+        assert!(
+            owned_shards.len() > initial_owned_shard_count,
+            "the node should have gained shards during recovery"
+        );
+        for shard in owned_shards {
+            assert_eq!(shard.status, ShardStatus::Ready);
+        }
+
+        workload_handle.abort();
+
+        blob_info_consistency_check.check_storage_node_consistency();
+
+        clear_fail_point("start_node_recovery_entry");
+    }
+
+    /// Repeatedly polls `condition` until it returns `true`, panicking with `description` if
+    /// `timeout` elapses first.
+    async fn wait_until<F, Fut>(timeout: Duration, description: &str, condition: F)
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if condition().await {
+                return;
+            }
+            if Instant::now() > deadline {
+                panic!("timeout waiting until: {description}");
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
     // Tests upgrading the walrus contracts from testnet-contracts to the development branch
     // contracts. Whether a migration epoch is needed or not depends on the specific contract
     // upgrade path.
