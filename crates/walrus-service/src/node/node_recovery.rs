@@ -264,6 +264,11 @@ impl NodeRecoveryHandler {
                 tracing::info!("node recovery task finished; set node status to active");
                 match node.set_node_status(NodeStatus::Active) {
                     Ok(()) => {
+                        // While the node is recovering, this is the only place that attests
+                        // epoch sync done: shard sync skips its own attestation in
+                        // RecoveryInProgress state (see the epoch_sync_done handling in
+                        // shard_sync.rs), so that the attestation covers both the recovered
+                        // blobs and all synced shards.
                         node.contract_service
                             .epoch_sync_done(certified_before_epoch, node.node_capability())
                             .await
@@ -343,6 +348,13 @@ async fn wait_until_ready_to_scan(
     );
     let mut total_wait = Duration::ZERO;
     let readiness = loop {
+        // Wait for ongoing shard syncs to finish first, so that the status check below always
+        // runs after the (possibly long) wait and picks up catch-up that began while parked.
+        if shard_sync_handler.has_sync_in_progress() {
+            tracing::info!("waiting for ongoing shard syncs before scanning blobs to recover");
+            shard_sync_handler.wait_until_no_sync_in_progress().await;
+        }
+
         if node
             .storage
             .node_status()
@@ -351,13 +363,6 @@ async fn wait_until_ready_to_scan(
         {
             tracing::info!("node recovery encountered node is in catching up; skip recovery");
             break ScanReadiness::CatchingUp;
-        }
-
-        if shard_sync_handler.has_sync_in_progress() {
-            tracing::info!("waiting for ongoing shard syncs before scanning blobs to recover");
-            shard_sync_handler.wait_until_no_sync_in_progress().await;
-            // Loop back to re-check the catch-up status, which may have changed while waiting.
-            continue;
         }
 
         let existing_shards = node.storage.existing_shards().await;

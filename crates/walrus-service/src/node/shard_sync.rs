@@ -508,7 +508,8 @@ impl ShardSyncHandler {
 
             // While the node is recovering, node recovery owns the epoch sync done
             // attestation: it waits for all shard syncs to finish and attests only once
-            // the recovery itself is complete.
+            // the recovery itself is complete (see the recovery task's completion in
+            // node_recovery.rs).
             let node_is_recovering = shard_sync_handler_clone
                 .node
                 .storage
