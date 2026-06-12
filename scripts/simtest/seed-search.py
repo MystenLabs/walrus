@@ -92,7 +92,7 @@ if __name__ == "__main__":
         print(f"run: `$ ls -ltr target/simulator/deps/ | tail` to find recent test binaries");
         sys.exit(1)
 
-    simtest_static_init = os.path.join(repo_root, "scripts/simtest/simtest_initialization")
+    simtest_static_init = os.path.join(repo_root, "contracts/walrus")
 
     commands = []
 
