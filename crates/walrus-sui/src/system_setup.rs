@@ -134,6 +134,11 @@ pub async fn compile_package(
     let package_path_clone = package_path.clone();
     let root_pkg: RootPackage<SuiFlavor> = build_config_clone
         .package_loader(&package_path_clone, &env, wallet.sui_flavor())
+        // Under simtest, `Move.lock`'s `[pinned.testnet]` entries point at git sources.
+        // The default loader fetches each lockfile pin before checking digests, which triggers
+        // a real `git clone` that hangs under msim. Forcing a repin makes the loader re-read
+        // the manifest instead.
+        .force_repin(cfg!(msim))
         .load()
         .await?;
 
