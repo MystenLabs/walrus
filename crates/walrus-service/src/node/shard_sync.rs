@@ -9,7 +9,7 @@ use std::{
 
 use futures::{StreamExt, stream::FuturesUnordered};
 #[cfg(msim)]
-use sui_macros::{fail_point_arg, fail_point_if};
+use sui_macros::{fail_point_arg, fail_point_async, fail_point_if};
 use tokio::{
     sync::{Mutex, Semaphore},
     time::Instant,
@@ -67,46 +67,65 @@ impl ShardSyncHandler {
         }
     }
 
-    /// Starts sync shards. If `recover_metadata` is true, syncs certified blob metadata before
-    /// syncing shards.
+    /// Starts sync shards. If the node status is [`NodeStatus::RecoverMetadata`], syncs certified
+    /// blob metadata before syncing shards.
     pub async fn start_sync_shards(
         &self,
         shards: Vec<ShardIndex>,
-        recover_metadata: bool,
     ) -> Result<(), SyncShardClientError> {
         let mut task_handle = self.task_handle.lock().await;
         let sync_handler = self.clone();
 
         // If there is an existing task, we need to abort it first before starting a new one.
+        // Aborting is safe: the task derives its work from the persisted node status and shard
+        // statuses, so the new task picks up everything the old task has not finished yet,
+        // including blob metadata recovery. Note that aborting the task does not cancel the
+        // individual shard sync tasks it has already started; those are tracked separately in
+        // `shard_sync_in_progress`.
         if let Some(old_task) = task_handle.take() {
             old_task.abort();
         }
 
-        let new_task = tokio::spawn(async move {
-            sync_handler
-                .sync_shards_task(shards, recover_metadata)
-                .await
-        });
+        let new_task = tokio::spawn(async move { sync_handler.sync_shards_task(shards).await });
 
         *task_handle = Some(new_task);
 
         Ok(())
     }
 
-    async fn sync_shards_task(&self, shards: Vec<ShardIndex>, recover_metadata: bool) {
-        if recover_metadata {
-            let node_status = self
-                .node
-                .storage
-                .node_status()
-                .expect("failed to read node status from db");
-            assert_eq!(node_status, NodeStatus::RecoverMetadata);
+    async fn sync_shards_task(&self, shards: Vec<ShardIndex>) {
+        let node_status = self
+            .node
+            .storage
+            .node_status()
+            .expect("failed to read node status from db");
 
+        let shards = if node_status == NodeStatus::RecoverMetadata {
             if let Err(err) = self.sync_certified_blob_metadata().await {
                 tracing::error!(?err, "failed to sync blob metadata; aborting shard sync");
                 return;
             }
-        }
+
+            // While the node is recovering metadata, sync all shards the node currently owns
+            // instead of only the shards passed by the caller: this task may have aborted a
+            // previous sync-shards task (for example, when gaining shards in a subsequent epoch
+            // while metadata recovery is still in progress) before that task could start the
+            // syncs for its own shards. Shards that are already active are skipped in
+            // `start_new_shard_sync`. Stored shards that the node does not own in the current
+            // committee (for example, shards locked for transfer to another node) must not be
+            // synced and are filtered out here.
+            let owned_shards = self.node.owned_shards_at_latest_epoch();
+            self.node
+                .storage
+                .existing_shard_storages()
+                .await
+                .iter()
+                .map(|s| s.id())
+                .filter(|shard| owned_shards.contains(shard))
+                .collect()
+        } else {
+            shards
+        };
 
         // Start sync for each shard
         for shard in shards {
@@ -118,12 +137,8 @@ impl ShardSyncHandler {
 
         // Once we have started the shard sync task, the shard status has been persisted to
         // disk, so we can mark the node as active. Any restart from this point will re-start
-        // the shard sync tasks only without syncing metadata again.
-        let node_status = self
-            .node
-            .storage
-            .node_status()
-            .expect("failed to read node status from db");
+        // the shard sync tasks only without syncing metadata again. Only the task that performed
+        // the metadata recovery (observed `RecoverMetadata` above) may flip the status.
         if node_status == NodeStatus::RecoverMetadata {
             self.node
                 .set_node_status(NodeStatus::Active)
@@ -147,6 +162,7 @@ impl ShardSyncHandler {
         #[cfg(msim)]
         {
             inject_recovery_metadata_failure_before_fetch()?;
+            fail_point_async!("fail_point_shard_sync_recovery_metadata_pause");
         }
 
         let mut futures = FuturesUnordered::new();
@@ -283,24 +299,9 @@ impl ShardSyncHandler {
     pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
         let current_node_status = self.node.storage.node_status()?;
         if current_node_status == NodeStatus::RecoverMetadata {
-            let shards_to_sync = self
-                .node
-                .storage
-                .existing_shard_storages()
-                .await
-                .iter()
-                .map(|s| s.id())
-                .collect::<Vec<_>>();
-
-            let sync_handler_clone = self.clone();
-            self.task_handle
-                .lock()
-                .await
-                .replace(tokio::spawn(async move {
-                    sync_handler_clone
-                        .sync_shards_task(shards_to_sync, true)
-                        .await
-                }));
+            // The task observes the `RecoverMetadata` status and derives the shards to sync from
+            // the existing shard storages.
+            self.start_sync_shards(vec![]).await?;
         } else {
             for shard_storage in self.node.storage.existing_shard_storages().await {
                 let shard_status = shard_storage
