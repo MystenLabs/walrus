@@ -64,7 +64,7 @@ mod tests {
     use walrus_sui::{
         client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient, UpgradeType},
         system_setup::copy_recursively,
-        test_utils::system_setup::{self, development_contract_dir, testnet_contract_dir},
+        test_utils::system_setup::{development_contract_dir, testnet_contract_dir},
         types::{Blob, move_structs::EventBlob},
     };
     use walrus_test_utils::{
@@ -1127,11 +1127,6 @@ mod tests {
                 deploy_dir.path().join(contract).join("Published.toml"),
                 upgrade_dir.path().join(contract).join("Published.toml"),
             )?;
-
-            let package_path = upgrade_dir.path().join(contract);
-            // TODO(WAL-1125): remove once the new sui package management system can pull external
-            // dependencies.
-            system_setup::update_contract_sui_dependency_to_local_copy(package_path)?;
         }
 
         // Change the version in the contracts

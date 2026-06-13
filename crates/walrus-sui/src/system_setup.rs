@@ -37,8 +37,6 @@ use sui_types::{
 use walkdir::WalkDir;
 use walrus_core::{EpochCount, ensure};
 
-#[cfg(any(test, feature = "test-utils"))]
-use crate::test_utils::system_setup;
 use crate::{
     client::retry_client::{
         RetriableSuiClient,
@@ -136,12 +134,10 @@ pub async fn compile_package(
     let package_path_clone = package_path.clone();
     let root_pkg: RootPackage<SuiFlavor> = build_config_clone
         .package_loader(&package_path_clone, &env, wallet.sui_flavor())
-        // TODO(WAL-1125): under simtest the package system can't fetch external git deps, but
-        // `Move.lock`'s `[pinned.testnet]` still points its `std`/`sui` entries at git sources.
-        // The default loader fetches each lockfile pin before checking digests, which triggers a
-        // real `git clone` that hangs under msim. Forcing a repin makes the loader read the
-        // (already-rewritten) manifest with local paths instead. Drop once simtest can pull
-        // external git deps, together with `update_contract_sui_dependency_to_local_copy`.
+        // Under simtest, `Move.lock`'s `[pinned.testnet]` entries point at git sources.
+        // The default loader fetches each lockfile pin before checking digests, which triggers
+        // a real `git clone` that hangs under msim. Forcing a repin makes the loader re-read
+        // the manifest instead.
         .force_repin(cfg!(msim))
         .load()
         .await?;
@@ -283,19 +279,6 @@ pub(crate) async fn publish_package(
     )?;
 
     let chain_id = retry_client.get_chain_identifier().await?;
-
-    if cfg!(msim) {
-        // TODO(WAL-1125): before the new sui package management system introduced in 1.63 can
-        // support external dependencies, in simtest, we have to update all the implicit
-        // dependencies to sui using a local copy of the sui repository.
-        // The local copy should be pointed to by the SUI_REPO environment variable, and it should
-        // match the sui version used by the walrus. The pulling logic is implemented in the
-        // cargo-simtest script.
-        //
-        // Note that this must be done after the localnet environment is added to the Move.toml
-        // file.
-        system_setup::update_contract_sui_dependency_to_local_copy(package_path.clone())?;
-    }
 
     let (compiled_package, final_build_config, mut root_package) =
         compile_package(package_path, build_config, Some(chain_id.clone()), wallet).await?;
