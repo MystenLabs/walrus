@@ -730,9 +730,9 @@ checksum = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
 
 [[package]]
 name = "aws-config"
-version = "1.8.17"
+version = "1.8.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "517aa062d8bd9015ee23d6daa5e1c1372328412fdae4e6c4c1be9b69c6ad37a2"
+checksum = "e33f815b73a3899c03b380d543532e5865f230dce9678d108dc10732a8682275"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -793,9 +793,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ec2"
-version = "1.228.0"
+version = "1.229.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "604bfc560c5ce54ebdfded25e75da00163df080ade22db7afe8a05d5b14034d0"
+checksum = "8bb5dfffc70e73ed387efa49d11fa455ef41dfb19df2ca41abafbbf8bb60c9d1"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -1927,9 +1927,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.44"
+version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
+checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -2205,7 +2205,7 @@ dependencies = [
  "nom",
  "parking_lot 0.12.4",
  "prometheus",
- "prost 0.14.3",
+ "prost 0.14.4",
  "quinn-proto",
  "rand 0.8.5",
  "rustls",
@@ -7262,7 +7262,7 @@ dependencies = [
  "opentelemetry-http",
  "opentelemetry-proto 0.31.0",
  "opentelemetry_sdk 0.31.0",
- "prost 0.14.3",
+ "prost 0.14.4",
  "reqwest",
  "thiserror 2.0.18",
  "tokio",
@@ -7294,7 +7294,7 @@ dependencies = [
  "const-hex",
  "opentelemetry 0.31.0",
  "opentelemetry_sdk 0.31.0",
- "prost 0.14.3",
+ "prost 0.14.4",
  "serde",
  "serde_json",
  "tonic 0.14.6",
@@ -8139,12 +8139,12 @@ dependencies = [
 
 [[package]]
 name = "prost"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2ea70524a2f82d518bce41317d0fae74151505651af45faf1ffbd6fd33f0568"
+checksum = "528ac67416ff8646872a3c02cad9cc4ee5dc9f9540c9b10771855c95cb2e5ae1"
 dependencies = [
  "bytes",
- "prost-derive 0.14.3",
+ "prost-derive 0.14.4",
 ]
 
 [[package]]
@@ -8160,7 +8160,7 @@ dependencies = [
  "once_cell",
  "petgraph 0.7.1",
  "prettyplease",
- "prost 0.14.3",
+ "prost 0.14.4",
  "prost-types 0.14.1",
  "pulldown-cmark",
  "pulldown-cmark-to-cmark",
@@ -8184,9 +8184,9 @@ dependencies = [
 
 [[package]]
 name = "prost-derive"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27c6023962132f4b30eb4c172c91ce92d933da334c59c23cddee82358ddafb0b"
+checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -8203,7 +8203,7 @@ checksum = "89a3ac73ec9a9118131a4594c9d336631a07852220a1d0ae03ee36b04503a063"
 dependencies = [
  "logos 0.15.1",
  "miette",
- "prost 0.14.3",
+ "prost 0.14.4",
  "prost-types 0.14.1",
 ]
 
@@ -8222,7 +8222,7 @@ version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9b4db3d6da204ed77bb26ba83b6122a73aeb2e87e25fbf7ad2e84c4ccbf8f72"
 dependencies = [
- "prost 0.14.3",
+ "prost 0.14.4",
 ]
 
 [[package]]
@@ -8254,7 +8254,7 @@ checksum = "8555716f64c546306ddf3383065dc40d4232609e79e0a4c50e94e87d54f30fb4"
 dependencies = [
  "bytes",
  "miette",
- "prost 0.14.3",
+ "prost 0.14.4",
  "prost-reflect",
  "prost-types 0.14.1",
  "protox-parse",
@@ -9071,9 +9071,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-native-certs"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "612460d5f7bea540c490b2b6395d8e34a953e52b491accd6c86c8164c5932a63"
+checksum = "dab5152771c58876a2146916e53e35057e1a4dfa2b9df0f0305b07f611fdea4d"
 dependencies = [
  "openssl-probe",
  "rustls-pki-types",
@@ -10416,7 +10416,7 @@ dependencies = [
  "parking_lot 0.12.4",
  "pin-project-lite",
  "prometheus",
- "prost 0.14.3",
+ "prost 0.14.4",
  "prost-build",
  "protox",
  "rand 0.8.5",
@@ -11026,7 +11026,7 @@ dependencies = [
  "object_store 0.13.1",
  "once_cell",
  "prometheus",
- "prost 0.14.3",
+ "prost 0.14.4",
  "rand 0.8.5",
  "serde",
  "serde_yaml 0.8.26",
@@ -11238,7 +11238,7 @@ dependencies = [
  "futures",
  "http 1.4.1",
  "http-body 1.0.1",
- "prost 0.14.3",
+ "prost 0.14.4",
  "prost-types 0.14.1",
  "serde",
  "serde_json",
@@ -11271,7 +11271,7 @@ dependencies = [
  "mysten-common",
  "mysten-network",
  "prometheus",
- "prost 0.14.3",
+ "prost 0.14.4",
  "prost-types 0.14.1",
  "protox",
  "rand 0.8.5",
@@ -11449,7 +11449,7 @@ dependencies = [
  "parking_lot 0.12.4",
  "percent-encoding",
  "prometheus",
- "prost 0.14.3",
+ "prost 0.14.4",
  "reqwest",
  "serde",
  "serde_json",
@@ -11646,7 +11646,7 @@ dependencies = [
  "prometheus",
  "proptest",
  "proptest-derive",
- "prost 0.14.3",
+ "prost 0.14.4",
  "prost-types 0.14.1",
  "rand 0.8.5",
  "roaring",
@@ -12447,7 +12447,7 @@ version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fcfab99db777fba2802f0dfa861d1628d1ae916fb199d29819941f139ae85082"
 dependencies = [
- "prost 0.14.3",
+ "prost 0.14.4",
  "tokio",
  "tokio-stream",
  "tonic 0.14.6",
@@ -12461,7 +12461,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50849f68853be452acf590cde0b146665b8d507b3b8af17261df47e02c209ea0"
 dependencies = [
  "bytes",
- "prost 0.14.3",
+ "prost 0.14.4",
  "tonic 0.14.6",
 ]
 
@@ -12487,7 +12487,7 @@ version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "acccd136a4bf19810a1fde9c74edc6129b42a66b44d0c1c8aaa67aeb49a146a7"
 dependencies = [
- "prost 0.14.3",
+ "prost 0.14.4",
  "prost-types 0.14.1",
  "tokio",
  "tokio-stream",
@@ -13386,7 +13386,7 @@ dependencies = [
  "itertools 0.14.0",
  "once_cell",
  "prometheus",
- "prost 0.14.3",
+ "prost 0.14.4",
  "protobuf",
  "rand 0.8.5",
  "reqwest",
@@ -13512,7 +13512,7 @@ dependencies = [
  "pin-project",
  "prettytable",
  "prometheus",
- "prost 0.14.3",
+ "prost 0.14.4",
  "rand 0.8.5",
  "rayon",
  "rcgen 0.14.8",
@@ -13687,7 +13687,7 @@ dependencies = [
  "move-package-alt-compilation",
  "mysten-metrics",
  "prometheus",
- "prost 0.14.3",
+ "prost 0.14.4",
  "rand 0.8.5",
  "regex",
  "reqwest",
