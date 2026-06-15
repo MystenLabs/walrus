@@ -227,6 +227,8 @@ consistency_check:
   enable_blob_info_invariants_check: false
   enable_sliver_data_existence_check: true
   sliver_data_existence_check_sample_rate_percentage: 100
+blob_info_snapshot:
+  enabled: false
 checkpoint_config:
   max_db_checkpoints: 3
   db_checkpoint_interval:
