@@ -22,69 +22,33 @@ const SITE_ROOT = path.resolve(__dirname, "../../");
 const CACHE_DIR = path.join(SITE_ROOT, ".cache-walrus-memory/docs");
 const OUTPUT_DIR = path.resolve(SITE_ROOT, "../walrus-memory-content");
 
-// All known MemWal doc pages (from docs.json + orphans) for link rewriting
-const KNOWN_PAGES = [
-  "getting-started/what-is-walrus-memory",
-  "getting-started/quick-start",
-  "getting-started/choose-your-path",
-  "fundamentals/concepts/memory-space",
-  "fundamentals/concepts/ownership-and-access",
-  "fundamentals/architecture/core-components",
-  "fundamentals/architecture/how-storage-works",
-  "fundamentals/architecture/data-flow-security-model",
-  "sdk/quick-start",
-  "sdk/overview",
-  "sdk/usage",
-  "sdk/usage/memwal",
-  "sdk/usage/memwal-manual",
-  "sdk/usage/with-memwal",
-  "sdk/api-reference",
-  "sdk/changelog",
-  "sdk/advanced-usage",
-  "sdk/ai-integration",
-  "sdk/examples",
-  "sdk/example-map",
-  "sdk/research-app-example",
-  "python-sdk/quick-start",
-  "python-sdk/usage",
-  "python-sdk/usage/memwal",
-  "python-sdk/usage/memwal-manual",
-  "python-sdk/usage/with-memwal",
-  "python-sdk/api-reference",
-  "python-sdk/changelog",
-  "relayer/overview",
-  "relayer/public-relayer",
-  "relayer/self-hosting",
-  "relayer/nautilus-tee",
-  "relayer/observability",
-  "relayer/versioning-and-compatibility",
-  "relayer/api-reference",
-  "relayer/benchmark-ci-setup",
-  "contract/overview",
-  "contract/delegate-key-management",
-  "contract/ownership-and-permissions",
-  "indexer/purpose",
-  "indexer/onchain-events",
-  "indexer/database-sync",
-  "mcp/overview",
-  "mcp/quick-start",
-  "mcp/how-it-works",
-  "mcp/reference",
-  "mcp/changelog",
-  "openclaw/overview",
-  "openclaw/quick-start",
-  "openclaw/how-it-works",
-  "openclaw/reference",
-  "openclaw/changelog",
-  "reference/configuration",
-  "reference/environment-variables",
-  "contributing/run-docs-locally",
-  "contributing/run-repo-locally",
-  "contributing/docs-workflow",
-  "architecture/permanent-registry-design",
-  "security/health-check-unsigned",
-  "examples/example-apps",
-];
+// Known pages and rename mappings, built dynamically from cache files.
+// knownPageSet: all page slugs (post-rename) that exist in the cache.
+// slugRenameMap: original slug → renamed slug for files in RENAME_MAP.
+let knownPageSet = new Set();
+let slugRenameMap = {};
+
+function buildKnownPages(cacheDir) {
+  const files = collectFiles(cacheDir);
+  const skip = new Set([
+    "docs.json", "package.json", "docs.Dockerfile", "llms.txt", "llms-full.txt",
+  ]);
+
+  for (const { relPath } of files) {
+    if (skip.has(path.basename(relPath))) continue;
+    if (relPath.startsWith("src/")) continue;
+
+    const originalSlug = relPath.replace(/\.(mdx?)$/, "");
+    const renamedPath = RENAME_MAP[relPath];
+    if (renamedPath) {
+      const renamedSlug = renamedPath.replace(/\.(mdx?)$/, "");
+      knownPageSet.add(renamedSlug);
+      slugRenameMap[originalSlug] = renamedSlug;
+    } else {
+      knownPageSet.add(originalSlug);
+    }
+  }
+}
 
 // --- File rename map (remote filename → local filename) ---
 const RENAME_MAP = {
@@ -269,15 +233,17 @@ function convertAccordions(content) {
 function rewriteInternalLinks(content) {
   // Rewrite absolute internal links like [text](/sdk/quick-start)
   // to [text](/walrus-memory/sdk/quick-start)
-  // Only rewrite if the path matches a known page
-  const knownSet = new Set(KNOWN_PAGES);
-
+  // Only rewrite if the path matches a known page (or a renamed original)
   return content.replace(
     /(\[([^\]]*)\]\()\/([^)#\s]+)(#[^)\s]*)?\)/g,
     (match, prefix, text, pagePath, anchor) => {
       const cleanPath = pagePath.replace(/\/$/, "");
-      if (knownSet.has(cleanPath)) {
+      if (knownPageSet.has(cleanPath)) {
         return `${prefix}/walrus-memory/${cleanPath}${anchor || ""})`;
+      }
+      const renamed = slugRenameMap[cleanPath];
+      if (renamed) {
+        return `${prefix}/walrus-memory/${renamed}${anchor || ""})`;
       }
       // Not a known page — leave as-is (could be an external docs link)
       return match;
@@ -292,10 +258,13 @@ function rewriteCardHrefs(content) {
   return content.replace(
     /href="\/(?!walrus-memory\/)([^"]+)"/gi,
     (match, p) => {
-      const knownSet = new Set(KNOWN_PAGES);
       const cleanPath = p.replace(/\/$/, "");
-      if (knownSet.has(cleanPath)) {
+      if (knownPageSet.has(cleanPath)) {
         return `href="/walrus-memory/${cleanPath}"`;
+      }
+      const renamed = slugRenameMap[cleanPath];
+      if (renamed) {
+        return `href="/walrus-memory/${renamed}"`;
       }
       return match;
     },
@@ -756,6 +725,10 @@ function main() {
     );
     return;
   }
+
+  // Build the known-pages set from actual cache files so link rewriting
+  // stays in sync automatically when the upstream repo adds or removes pages.
+  buildKnownPages(CACHE_DIR);
 
   // Clean output directory (recreate fresh)
   if (fs.existsSync(OUTPUT_DIR)) {
