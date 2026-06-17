@@ -1,13 +1,14 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use sui_macros::fail_point_async;
 use tokio::sync::Mutex;
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
+use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use super::{
     StorageNodeInner,
@@ -15,6 +16,13 @@ use super::{
     config::NodeRecoveryConfig,
 };
 use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
+
+/// Exponential backoff bounds for re-checking shard creation while node recovery waits for event
+/// processing to create a shard it owns at the latest epoch. The wait starts small so the common
+/// case resumes quickly, and is capped at one minute. The sleep also yields the executor so
+/// event processing can create the shard and self-heal.
+const SHARD_NOT_CREATED_BACKOFF_MIN: Duration = Duration::from_secs(1);
+const SHARD_NOT_CREATED_BACKOFF_MAX: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 pub struct NodeRecoveryHandler {
@@ -83,19 +91,11 @@ impl NodeRecoveryHandler {
             fail_point_async!("start_node_recovery_entry");
 
             loop {
-                // Node can enter recovery catch up mode while recovery is in progress. In this
-                // case, we should skip recovery. Once the node is caught up to the latest epoch,
-                // the recovery task will be restarted.
-                if node
-                    .storage
-                    .node_status()
-                    .expect("reading node status should not fail")
-                    .is_catching_up()
-                {
-                    tracing::info!(
-                        "node recovery encountered node is in catching up; skip recovery"
-                    );
-                    return;
+                // Block until the node is ready to run a recovery scan pass. Stops the recovery
+                // task if the node started catching up.
+                match wait_until_ready_to_scan(&node).await {
+                    ScanReadiness::Ready => {}
+                    ScanReadiness::CatchingUp => return,
                 }
 
                 // Keep track of ongoing blob syncs. Note that the memory usage of this list
@@ -285,4 +285,84 @@ impl NodeRecoveryHandler {
 
         Ok(())
     }
+}
+
+/// Outcome of waiting for the node to become ready to run a recovery scan pass.
+enum ScanReadiness {
+    /// The node has local storage for every shard it owns at the latest committee epoch; the
+    /// caller should run a scan pass.
+    Ready,
+    /// The node started catching up; the recovery task should stop. It is restarted once the node
+    /// has caught up to the latest epoch.
+    CatchingUp,
+}
+
+/// Blocks until the node is ready to run a recovery scan pass ([`ScanReadiness::Ready`]), or
+/// returns [`ScanReadiness::CatchingUp`] if the node started catching up. Both conditions are
+/// re-checked on every backoff iteration, so catch-up that begins while waiting also stops the
+/// task.
+///
+/// A node can own a shard at the latest committee epoch whose local storage does not exist yet: the
+/// committee advanced to a newer epoch, but event processing has not yet handled that epoch's
+/// `EpochChangeStart`, which is what creates the shard. Recovery must not create it here: blob sync
+/// targets `owned_shards_at_epoch(current_event_epoch)`, which still excludes the shard, and shard
+/// creation is part of the ordered epoch transition owned by event processing. If the scan ran in
+/// this state, every blob would read "not stored" on the missing shard, producing futile syncs and
+/// repeated full re-scans (and, on the single-threaded simulator, starving event processing
+/// entirely). So back off and re-check until the shard exists; the sleep also yields the executor.
+async fn wait_until_ready_to_scan(node: &StorageNodeInner) -> ScanReadiness {
+    // Exponential backoff, recreated per stall episode so a fresh stall starts at the small bound.
+    // The seed only feeds the jitter offset; a constant keeps it deterministic under the simulator.
+    let mut backoff = ExponentialBackoff::new_with_seed(
+        SHARD_NOT_CREATED_BACKOFF_MIN,
+        SHARD_NOT_CREATED_BACKOFF_MAX,
+        None,
+        0,
+    );
+    let mut total_wait = Duration::ZERO;
+    let readiness = loop {
+        if node
+            .storage
+            .node_status()
+            .expect("reading node status should not fail")
+            .is_catching_up()
+        {
+            tracing::info!("node recovery encountered node is in catching up; skip recovery");
+            break ScanReadiness::CatchingUp;
+        }
+
+        let existing_shards = node.storage.existing_shards().await;
+        let missing_owned_shards: Vec<_> = node
+            .owned_shards_at_latest_epoch()
+            .into_iter()
+            .filter(|shard| !existing_shards.contains(shard))
+            .collect();
+
+        let Some(first_missing) = missing_owned_shards.first().copied() else {
+            break ScanReadiness::Ready;
+        };
+
+        let delay = backoff
+            .next_delay()
+            .unwrap_or(SHARD_NOT_CREATED_BACKOFF_MAX);
+        total_wait += delay;
+        node.metrics
+            .node_recovery_shard_wait_seconds
+            .set(i64::try_from(total_wait.as_secs()).unwrap_or(i64::MAX));
+        node.metrics
+            .node_recovery_missing_owned_shards
+            .set(i64::try_from(missing_owned_shards.len()).unwrap_or(i64::MAX));
+        tracing::warn!(
+            shard = %first_missing,
+            missing_owned_shards = missing_owned_shards.len(),
+            wait_secs = total_wait.as_secs(),
+            "owned shard storage not created yet; waiting for event processing"
+        );
+        tokio::time::sleep(delay).await;
+    };
+
+    node.metrics.node_recovery_shard_wait_seconds.set(0);
+    node.metrics.node_recovery_missing_owned_shards.set(0);
+
+    readiness
 }

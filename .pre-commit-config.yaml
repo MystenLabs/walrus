@@ -63,6 +63,13 @@ repos:
         types: [shell]
         require_serial: true # shellcheck can detect sourcing this way
         additional_dependencies: ["shellcheck-py==0.11.0.1"]
+      - id: network-reference-docs
+        name: network-reference-docs
+        description: Check the Network Reference page matches its canonical sources
+        entry: python3 scripts/generate_network_reference.py --check
+        language: system
+        pass_filenames: false
+        files: (network-reference\.mdx|client_config\.yaml|Published\.toml|network_reference_data\.yaml|generate_network_reference\.py)$
       - id: cargo-fmt
         name: cargo-fmt
         entry: cargo fmt

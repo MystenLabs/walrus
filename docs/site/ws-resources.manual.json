@@ -1083,6 +1083,10 @@
       "location": "/docs/sites",
       "status_code": 301
     },
+    "/walrus-memory/getting-started/what-is-memwal": {
+      "location": "/walrus-memory/getting-started/what-is-walrus-memory",
+      "status_code": 301
+    },
     "https://docs.walrus.site": {
       "location": "https://docs.wal.app",
       "status_code": 301

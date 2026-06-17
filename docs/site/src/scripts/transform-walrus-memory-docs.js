@@ -24,7 +24,7 @@ const OUTPUT_DIR = path.resolve(SITE_ROOT, "../walrus-memory-content");
 
 // All known MemWal doc pages (from docs.json + orphans) for link rewriting
 const KNOWN_PAGES = [
-  "getting-started/what-is-memwal",
+  "getting-started/what-is-walrus-memory",
   "getting-started/quick-start",
   "getting-started/choose-your-path",
   "fundamentals/concepts/memory-space",
@@ -85,6 +85,11 @@ const KNOWN_PAGES = [
   "security/health-check-unsigned",
   "examples/example-apps",
 ];
+
+// --- File rename map (remote filename → local filename) ---
+const RENAME_MAP = {
+  "getting-started/what-is-memwal.md": "getting-started/what-is-walrus-memory.md",
+};
 
 // --- Mintlify component transforms ---
 
@@ -662,6 +667,26 @@ function fixNumberedHeadingCase(content) {
   );
 }
 
+// --- AgentPrompt injection ---
+
+// Pages that should have an AgentPrompt callout injected after the frontmatter.
+// Each key is a relative file path, and the value is the prompt text.
+const AGENT_PROMPTS = {
+  "getting-started/quick-start.md":
+    "Run `curl -sL https://memory.walrus.xyz/skills/setup` and use the returned instructions to set up Walrus Memory in this AI client.",
+};
+
+function injectAgentPrompt(content, relPath) {
+  const prompt = AGENT_PROMPTS[relPath];
+  if (!prompt) return content;
+
+  // Insert the AgentPrompt component right after the frontmatter closing ---
+  return content.replace(
+    /^(---\n[\s\S]*?\n---\n)/,
+    `$1\n<AgentPrompt\n  prompt="${prompt}"\n/>\n`,
+  );
+}
+
 // --- Main pipeline ---
 
 function transformFile(content) {
@@ -758,10 +783,14 @@ function main() {
     if (relPath.startsWith("src/")) continue;
 
     const content = fs.readFileSync(fullPath, "utf8");
-    const transformed = transformFile(content);
+    let transformed = transformFile(content);
+    transformed = injectAgentPrompt(transformed, relPath);
+
+    // Apply file renames if configured
+    const outputRelPath = RENAME_MAP[relPath] || relPath;
 
     // Preserve directory structure
-    const outPath = path.join(OUTPUT_DIR, relPath);
+    const outPath = path.join(OUTPUT_DIR, outputRelPath);
     const outDir = path.dirname(outPath);
     if (!fs.existsSync(outDir)) {
       fs.mkdirSync(outDir, { recursive: true });
@@ -770,6 +799,50 @@ function main() {
     fs.writeFileSync(outPath, transformed);
     count++;
   }
+
+  // Write landing page (not in upstream repo, maintained here)
+  const landingPage = `---
+title: Walrus Memory
+description: "Portable, verifiable memory for AI agents built on Walrus and Sui."
+slug: /
+---
+
+Walrus Memory gives AI agents persistent, portable memory that works across apps, sessions, and
+workflows. Ownership and access are enforced onchain through Sui smart contracts, and all content is
+encrypted through Seal before reaching Walrus.
+
+<Cards>
+  <Card title="Get Started" href="/walrus-memory/getting-started/what-is-walrus-memory">
+    Learn what Walrus Memory is and get up and running quickly
+  </Card>
+  <Card title="Concepts" href="/walrus-memory/fundamentals/concepts/memory-space">
+    Memory spaces, ownership, delegates, and access control
+  </Card>
+  <Card title="Architecture" href="/walrus-memory/fundamentals/architecture/core-components">
+    Core components, data flow, storage model, and security
+  </Card>
+  <Card title="TypeScript SDK" href="/walrus-memory/sdk/overview">
+    Integrate memory into TypeScript apps with the SDK
+  </Card>
+  <Card title="Python SDK" href="/walrus-memory/python-sdk/quick-start">
+    Use Walrus Memory from Python
+  </Card>
+  <Card title="Relayer" href="/walrus-memory/relayer/overview">
+    Managed relayer, self-hosting, and API reference
+  </Card>
+  <Card title="MCP" href="/walrus-memory/mcp/overview">
+    Model Context Protocol integration for AI tools
+  </Card>
+  <Card title="Smart Contract" href="/walrus-memory/contract/overview">
+    Onchain ownership model, delegate keys, and permissions
+  </Card>
+  <Card title="Indexer" href="/walrus-memory/indexer/purpose">
+    Event indexing, onchain events, and database sync
+  </Card>
+</Cards>
+`;
+  fs.writeFileSync(path.join(OUTPUT_DIR, "index.md"), landingPage);
+  count++;
 
   console.log(
     `✅ walrus-memory: transformed ${count} files → walrus-memory-content/`,

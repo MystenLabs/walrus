@@ -3097,6 +3097,9 @@ impl StorageNodeInner {
     }
 
     /// Returns true if the blob is stored at all shards that are in Active state.
+    // In simulation tests the consistency check uses `is_stored_at_active_shards_snapshot`
+    // instead, leaving this method without a caller under `cfg(msim)`.
+    #[cfg_attr(msim, allow(dead_code))]
     pub(crate) async fn is_stored_at_all_active_shards(
         &self,
         blob_id: &BlobId,
@@ -3113,6 +3116,57 @@ impl StorageNodeInner {
         }
 
         self.is_stored_at_specific_shards(blob_id, &shards).await
+    }
+
+    /// Snapshots the shard storages that are currently in `Active` state.
+    ///
+    /// The background consistency check captures this once, in async context, before entering its
+    /// `spawn_blocking` closure. Acquiring the shard-map read lock from *inside* that closure
+    /// (through `futures::executor::block_on`) deadlocks the single-threaded simulator against a
+    /// pending shard-removal writer, so we resolve the shards up front instead. See
+    /// `is_stored_at_active_shards_snapshot` for the synchronous existence check that consumes the
+    /// snapshot.
+    #[cfg(msim)]
+    pub(crate) async fn active_shard_storages_snapshot(&self) -> Vec<Arc<ShardStorage>> {
+        let mut active = Vec::new();
+        for shard_storage in self.storage.existing_shard_storages().await {
+            if matches!(shard_storage.status().await, Ok(ShardStatus::Active)) {
+                active.push(shard_storage);
+            }
+        }
+        active
+    }
+
+    /// Synchronous, snapshot-based counterpart of `is_stored_at_all_active_shards`.
+    ///
+    /// Used only by the background consistency check in simulation tests so that no shard-map lock
+    /// is acquired inside the `spawn_blocking` closure. The shards in `active_shard_storages` are
+    /// assumed to already be the active ones (see `active_shard_storages_snapshot`).
+    #[cfg(msim)]
+    pub(crate) fn is_stored_at_active_shards_snapshot(
+        &self,
+        blob_id: &BlobId,
+        active_shard_storages: &[Arc<ShardStorage>],
+    ) -> anyhow::Result<bool> {
+        // Mirror `is_stored_at_specific_shards`: run the cheap `may_have_sliver_pair` pre-check
+        // first (only when more than one shard), then the authoritative `is_sliver_pair_stored`.
+        if active_shard_storages.len() > 1 {
+            for shard_storage in active_shard_storages {
+                if !shard_storage.may_have_sliver_pair(blob_id)? {
+                    let shard = shard_storage.id();
+                    tracing::debug!(%blob_id, %shard, "blob not stored at shard");
+                    return Ok(false);
+                }
+            }
+        }
+        for shard_storage in active_shard_storages {
+            if !shard_storage.is_sliver_pair_stored(blob_id)? {
+                let shard = shard_storage.id();
+                tracing::debug!(%blob_id, %shard, "blob not stored at shard");
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     pub(crate) fn storage(&self) -> &Storage {
