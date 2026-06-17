@@ -1,0 +1,112 @@
+/* Copyright (c) Walrus Foundation */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+.cw-container {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  margin-bottom: var(--ifm-leading);
+}
+
+.cw-steps,
+.cw-code-panel {
+  flex: 1 1 50%;
+  min-width: 0;
+}
+
+.cw-step {
+  padding: 1.25rem 1rem;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: border-left-color 0.2s ease, background-color 0.2s ease;
+}
+
+.cw-step--active {
+  border-left-color: var(--ifm-color-primary);
+  background: var(--ifm-color-emphasis-100);
+}
+
+.cw-step-title {
+  margin: 0 0 0.5rem;
+}
+
+.cw-step-content > :last-child {
+  margin-bottom: 0;
+}
+
+.cw-code-sticky {
+  position: sticky;
+  top: 80px;
+  max-height: calc(100vh - 100px);
+  overflow: auto;
+  border-radius: var(--ifm-code-border-radius);
+  border: 1px solid var(--ifm-color-emphasis-200);
+  background: var(--prism-background-color);
+}
+
+.cw-pre {
+  margin: 0;
+  padding: 1rem 0;
+  font-size: var(--ifm-code-font-size);
+  background: transparent !important;
+  overflow: visible;
+}
+
+.cw-line {
+  display: flex;
+  padding: 0 1rem;
+  transition: opacity 0.2s ease, background-color 0.2s ease;
+}
+
+.cw-line--highlighted {
+  background: var(--docusaurus-highlighted-code-line-bg);
+}
+
+.cw-line--dimmed {
+  opacity: 0.3;
+}
+
+.cw-line-number {
+  display: inline-block;
+  width: 2.5rem;
+  flex-shrink: 0;
+  text-align: right;
+  padding-right: 1rem;
+  color: var(--ifm-color-emphasis-400);
+  user-select: none;
+}
+
+.cw-line-content {
+  white-space: pre;
+}
+
+.cw-loading,
+.cw-error {
+  padding: 1rem;
+  color: var(--ifm-color-emphasis-600);
+}
+
+[data-theme="dark"] .cw-line--highlighted {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (max-width: 768px) {
+  .cw-container {
+    flex-direction: column;
+  }
+
+  .cw-steps,
+  .cw-code-panel {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .cw-code-panel {
+    order: -1;
+  }
+
+  .cw-code-sticky {
+    position: static;
+    max-height: 50vh;
+  }
+}

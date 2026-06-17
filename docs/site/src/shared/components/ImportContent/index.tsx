@@ -7,6 +7,7 @@ import { MDXProvider } from "@mdx-js/react";
 import MDXComponents from "@theme/MDXComponents";
 import utils from "./utils";
 import MarkdownIt from "markdown-it";
+import PlayMoveEmbed from "@site/src/shared/components/PlayMoveEmbed";
 
 import { importContentMap } from "../../../.generated/ImportContentMap";
 
@@ -437,6 +438,16 @@ export default function ImportContent({
           className="import-content--nofence mdx-content"
           dangerouslySetInnerHTML={{ __html: html }}
         />
+      </ExportableWrapper>
+    );
+  }
+
+  // Render Move code as an interactive PlayMove editor instead of a static
+  // code block. Other languages keep the standard CodeBlock rendering.
+  if (resolvedLanguage === "move") {
+    return (
+      <ExportableWrapper source={source} mode="code" resolvedText={out}>
+        <PlayMoveEmbed code={out} title={noTitle ? undefined : title} />
       </ExportableWrapper>
     );
   }
