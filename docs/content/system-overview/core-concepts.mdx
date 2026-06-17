@@ -177,3 +177,17 @@ When data is retrieved from Walrus, the following process occurs:
 1. The client verifies the reconstructed data by checking hashes of a subset of primary slivers (at least the first 334) against the metadata.
 
 1. If verification passes, the client returns the blob bytes to the caller. If verification fails or an inconsistency proof exists, the read returns an error or `None`.
+
+## Content addressing and versioning
+
+A blob's ID is derived from its contents, so the same data always produces the same blob ID and different data produces a different ID. Because the identifier comes from the content rather than from a location or a mutable name, a blob is effectively immutable. You cannot change the bytes of a blob without changing its ID, and changing the bytes produces a different blob.
+
+This property gives you immutable versioning without any extra machinery. Every version of a piece of data is its own blob with its own ID, and storing a new version never overwrites an earlier one. The history of a value is an ordered list of blob IDs, from the first version to the most recent. Storing the same content twice produces the same blob ID, so identical data deduplicates automatically and you do not pay to store a second copy.
+
+Because the blob ID commits to the exact bytes, it also serves as tamper-evident proof of content. Anyone who holds a blob ID can read the data and confirm that it matches, and any change to the content is detectable as a different ID. This makes blob IDs a convenient basis for provenance and reproducibility, for example pinning the exact version of a training dataset, model checkpoint, or agent memory that produced a given result.
+
+### Version with a manifest blob
+
+Blob IDs identify content, but they are not human-readable names, and they do not by themselves record which version is current. A common pattern is to keep a small manifest blob that maps your logical names to the blob IDs of their current content. Readers fetch the manifest first, then resolve the names they need to concrete blob IDs.
+
+To update a value, store the new content as a new blob, append an entry to the manifest that points the logical name at the new blob ID, and store the updated manifest as its own blob. The previous manifest and the content it referenced remain available under their own IDs, so each manifest version captures a complete, immutable snapshot of what the names resolved to at that point. Keeping an ordered list of manifest blob IDs gives you the full lineage of your dataset or memory store, and lets you reproduce any earlier state by reading the manifest for that version.
