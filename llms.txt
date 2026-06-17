@@ -494,22 +494,43 @@ Sui smart contract as the on-chain index.
     The indexer keeps the backend in sync with onchain state so the relayer can resolve accounts
     quickly. Without the indexer, every authenticated request would require the relayer to scan the
     onchain AccountRegistry to find which MemWalAccount holds a given delegate key.
+- [Antigravity](https://docs.wal.app/docs/walrus-memory/mcp/antigravity.md):
+    Add Walrus Memory to Antigravity so the agent recalls context and saves durable facts. Install
+    it as a plugin (adds automatic-memory hooks) or as MCP-only (just the tools). [x] Node.js 20+
+    [x] A Walrus Memory account. The first memory tool call opens a browser sign-in (memwallogin).
 - [Changelog](https://docs.wal.app/docs/walrus-memory/mcp/changelog.md):
-    Accept HTTPS dashboard sign-in callbacks to the local 127.0.0.1 MCP listener. Reload
-    credentials after memwallogin so memory tools work without restarting the MCP client. Rebranded
-    package metadata and documentation from Walrus Memory to Walrus Memory.
-- [How It Works](https://docs.wal.app/docs/walrus-memory/mcp/how-it-works.md):
-    This page explains what @mysten-incubation/memwal-mcp actually does on the client machine. The
-    package has two main runtime modes.
+    Automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity. New memwalrememberbulk
+    and memwalhealth tools. Ship the plugin's .mcp.json in the marketplace bundle. A root gitignore
+    rule excluded it, so plugin installs loaded the lifecycle hooks but never registered the MCP
+    server.
+- [Claude Code](https://docs.wal.app/docs/walrus-memory/mcp/claude-code.md):
+    Add Walrus Memory to Claude Code so it recalls context and saves durable facts as you work.
+    Install it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the
+    tools). [x] Node.js 20+ [x] A Walrus Memory account.
+- [Claude Desktop](https://docs.wal.app/docs/walrus-memory/mcp/claude-desktop.md):
+    Add Walrus Memory to Claude Desktop so the agent can save and recall durable facts. Claude
+    Desktop uses the MCP server (the memory tools); the automatic-memory plugin hooks are available
+    on Claude Code, Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
+- [Codex](https://docs.wal.app/docs/walrus-memory/mcp/codex.md):
+    Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
+    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools). [x]
+    Node.js 20+ [x] A Walrus Memory account. The first memory tool call opens a browser sign-in
+    (memwallogin).
+- [Cursor](https://docs.wal.app/docs/walrus-memory/mcp/cursor.md):
+    Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
+    (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
+    lifecycle hooks for extra reinforcement (see Lifecycle hooks). [x] Node.js 20+ [x] A Walrus
+    Memory account.
+- [Opencode](https://docs.wal.app/docs/walrus-memory/mcp/opencode.md):
+    Add Walrus Memory to OpenCode so the agent can save and recall durable facts. OpenCode uses the
+    MCP server (the memory tools); the automatic-memory plugin hooks are available on Claude Code,
+    Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
 - [Overview](https://docs.wal.app/docs/walrus-memory/mcp/overview.md):
-    Walrus Memory exposes a Model Context Protocol (MCP) server so MCP-aware clients can read from
-    and write to your portable agent memory.
-- [Quick Start](https://docs.wal.app/docs/walrus-memory/mcp/quick-start.md):
-    This page gets you from zero to a working Walrus Memory MCP server inside Cursor, Claude
-    Desktop, Claude Code, or Codex.
+    The Walrus Memory MCP server exposes your portable Walrus Memory as Model Context Protocol
+    tools, so an AI agent can decide when to save and recall memories on its own.
 - [Reference](https://docs.wal.app/docs/walrus-memory/mcp/reference.md):
     This page documents every tool, flag, environment variable, and transport route the Walrus
-    Memory MCP package exposes. For a guided walkthrough, start with the Quick Start.
+    Memory MCP package exposes. For per-client setup, start with the MCP overview.
 - [Changelog](https://docs.wal.app/docs/walrus-memory/openclaw/changelog.md)
 - [How It Works](https://docs.wal.app/docs/walrus-memory/openclaw/how-it-works.md):
     The plugin sits between OpenClaw's gateway and the Walrus Memory server. It operates through
@@ -589,6 +610,10 @@ Sui smart contract as the on-chain index.
     A managed relayer is a simpler experience for teams that want to get started without running
     infrastructure. If a managed relayer endpoint is available for your environment, it gives you
     the fastest path to integration.
+- [All SUI coins for an address, largest first:](https://docs.wal.app/docs/walrus-memory/relayer/runbook-gas-pool.md):
+    When to use this: a gas-pool alert fires (the SUI gas pool maintenance alert), or relayer logs
+    show wallet jobs aborting with or Enoki dryrunfailed plus 0x2:balance:split (ENotEnough, abort
+    code 2). The relayer sponsors Walrus register transactions through Enoki.
 - [Self Hosting](https://docs.wal.app/docs/walrus-memory/relayer/self-hosting.md):
     Self-hosting means running your own relayer, either pointing at an existing Walrus Memory
     package ID or deploying an entirely new Walrus Memory instance with your own contract,
@@ -617,6 +642,14 @@ Sui smart contract as the on-chain index.
     overload as deprecated in favor of . Documented restore response fields, default limit,
     pagination behavior, and performance expectations. Added relayer compatibility metadata checks
     before protected requests.
+- [Cloudflare Workers](https://docs.wal.app/docs/walrus-memory/sdk/cloudflare-workers.md):
+    Walrus Memory runs on the Cloudflare Workers runtime, but the edge environment differs from
+    Node.js in a few ways that affect bundling and reliability. This guide covers the configuration
+    and patterns that make it work cleanly.
+- [Cookbook Multi Tenant](https://docs.wal.app/docs/walrus-memory/sdk/cookbook-multi-tenant.md):
+    This is the pattern for SaaS-style apps where one operator runs a server that stores memory on
+    behalf of many end users. For example, a Next.js app on Vercel where users connect a Sui wallet
+    only for sign-in, and the server holds the credentials.
 - [Example Map](https://docs.wal.app/docs/walrus-memory/sdk/example-map.md)
 - [Examples](https://docs.wal.app/docs/walrus-memory/sdk/examples.md):
     The shortest working Walrus Memory example using the default relayer-backed SDK.

@@ -58,6 +58,9 @@ These are not all enforced at boot, but most real deployments need them.
 | `ENOKI_TRANSIENT_MAX_ATTEMPTS` | `2` | Attempts for sidecar-level retries of transient Enoki failures (`429`, `5xx`, network errors) before failing the wallet job |
 | `ENOKI_TRANSIENT_BASE_DELAY_MS` | `5000` | Base delay for transient Enoki retries when the response does not include `Retry-After` or a retry hint |
 | `ENOKI_TRANSIENT_MAX_DELAY_MS` | `30000` | Maximum delay for one transient Enoki retry, including parsed retry hints such as “try again in 30 seconds” |
+| `ENOKI_INVALIDATED_MAX_ATTEMPTS` | `4` | Attempts for rebuildable sponsored transactions invalidated by Enoki `expired` responses or short Sui object visibility lag before failing the wallet job |
+| `ENOKI_INVALIDATED_BASE_DELAY_MS` | `1000` | Base delay for retrying rebuildable sponsored transactions after Enoki invalidation |
+| `ENOKI_INVALIDATED_MAX_DELAY_MS` | `8000` | Maximum delay for one rebuildable sponsored transaction invalidation retry |
 | `MEMWAL_RELAYER_URL` | `http://127.0.0.1:$PORT` | Relayer URL passed from the Rust server to the sidecar for MCP tool calls |
 | `MCP_MAX_TOTAL_SESSIONS` | `1000` | Maximum active MCP sessions across SSE and Streamable HTTP transports |
 | `MCP_MAX_SESSIONS_PER_IP` | `16` | Maximum active MCP sessions from one source IP |
