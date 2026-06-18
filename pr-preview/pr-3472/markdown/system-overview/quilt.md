@@ -49,6 +49,14 @@ The following table demonstrates the potential cost savings in WAL when storing 
 > **Info**
 >
 > The costs shown in this table are for illustrative purposes only and were obtained from test runs on Walrus Testnet. Actual costs can vary due to changes in smart contract parameters, networks, and other factors. The comparison is between storing 600 files as a single quilt versus storing them as individual blobs in batches of 25.
+### Store agent memory
+
+AI agents tend to produce a steady stream of small, independent writes: individual conversation turns, tool call outputs, embedding vectors, and periodic state checkpoints. Each item is small on its own, but an agent can generate them continuously, so the count grows quickly.
+
+Storing each item as its own Walrus blob means every item pays the same fixed overhead regardless of its size: onchain registration on Sui, blob metadata, and the minimum overhead of erasure coding. For tiny blobs, this fixed per-blob cost dominates the cost of the data itself, so writing many small blobs individually means paying that overhead over and over.
+
+Quilt addresses this by batching many small items into a single Walrus blob, so the per-blob overhead is paid once for the batch rather than once for each item. Each item remains individually retrievable by its identifier or `QuiltPatchId`, so the agent can still read back a single turn, output, or checkpoint without reconstructing the whole batch. This makes Quilt a good fit for accumulating agent memory in batches, for example flushing a buffer of recent turns or a group of embeddings as one quilt.
+
 ### Organize collections
 
 Quilt provides a straightforward way to organize and manage collections of small blobs within a single unit. This can simplify data handling and improve operational efficiency when working with related small files, such as NFT image collections.
@@ -58,3 +66,19 @@ Quilt provides a straightforward way to organize and manage collections of small
 Quilt supports immutable, custom metadata stored directly in Walrus, including identifiers and tags. These features facilitate better organization, enable flexible lookup, and assist in managing blobs within each quilt, improving retrieval and management.
 
 For details on how to use the CLI to interact with Quilt, see the [Batch-storing blobs with quilts](/docs/walrus-client/storing-blobs#batch-store) section.
+
+## When to use Quilt
+
+Quilt fits workloads that generate many small blobs you can group and write together. Whether Quilt is the right choice depends on how each item is written, retrieved, and retired.
+
+Use Quilt when:
+
+- You write many small blobs that you can group into batches, such as agent memory or other collections of related small files.
+- The items in a batch share a lifetime, so you can store, extend, and eventually retire them together.
+- You want individual retrieval and Walrus-native metadata (identifiers and tags) without paying per-blob overhead for every item.
+
+Use a regular blob instead when:
+
+- A single item is large on its own. Store data that approaches or exceeds the per-blob size limit as a regular blob. For more information, see [Important considerations](#important-considerations).
+- Items need independent, one-at-a-time lifetimes. The `delete`, `extend`, and `share` operations apply to the whole quilt rather than to individual items within it, so an item you need to delete, extend, or share on its own schedule should be a regular blob.
+- You need each item addressed by a content-derived blob ID. An item inside a quilt is retrieved by its `QuiltPatchId`, which depends on the composition of the whole quilt and is not derived from the item's contents.
