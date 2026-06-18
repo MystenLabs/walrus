@@ -204,10 +204,10 @@ function KapaButton() {
     <button
       type="button"
       onClick={handleClick}
-      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold
-      text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-0 min-[1100px]:mx-1 min-[1300px]:mx-2 shrink-0"
+      className="kapa-trigger-btn flex items-center gap-2 cursor-pointer bg-white text-gray-900 font-semibold
+      text-xs px-3.5 py-1.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-0 min-[1100px]:mx-1 min-[1300px]:mx-2 shrink-0"
     >
-      <img src="/img/logo.svg" alt="" width="25" height="25" />
+      <img src="/img/logo.svg" alt="" width="18" height="18" />
       <span className="kapa-label">Ask Walrus AI</span>
     </button>
   );
@@ -238,13 +238,13 @@ function CustomLogo() {
       <img
         src={logoSrc}
         alt={navbar.logo?.alt || title}
-        style={{ height: "2rem", width: "auto", display: "block", flexShrink: 0 }}
+        style={{ height: "1.6rem", width: "auto", display: "block", flexShrink: 0 }}
       />
       {title && (
         <span
           style={{
             fontWeight: 600,
-            fontSize: "1rem",
+            fontSize: "0.88rem",
             whiteSpace: "nowrap",
             flexShrink: 0,
             overflow: "visible",
