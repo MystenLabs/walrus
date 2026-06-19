@@ -64,18 +64,52 @@ echo "Test filter: $TEST_FILTER"
 echo "================================================"
 date
 
-# This command runs many different tests, so it already uses all CPUs fairly efficiently, and
-# don't need to be done inside of the for loop below.
-# TODO: this logs directly to stdout since it is not being run in parallel. is that ok?
+if [ "$TEST_FILTER" != "simtest" ] && [ "$TEST_NUM" -gt 1 ]; then
+  # A specific test is selected and multiple iterations are requested. MSIM_TEST_NUM runs the
+  # iterations sequentially inside a single test execution, so a single test would only use one
+  # CPU. Instead, run TEST_NUM jobs in parallel, each running the test once with a distinct seed.
 
-TMPDIR="$WALRUS_TMP_DIR" \
-MSIM_TEST_SEED="$SEED" \
-MSIM_TEST_NUM=${TEST_NUM} \
-MSIM_WATCHDOG_TIMEOUT_MS="$WATCHDOG_TIMEOUT_MS" \
-scripts/simtest/cargo-simtest simtest "$TEST_FILTER" \
-  --color never \
-  --test-threads "$NUM_CPUS" \
-  --profile simtestnightly 2>&1 | tee "$LOG_FILE"
+  # Build the test binaries once up front so that the parallel jobs don't race to compile.
+  TMPDIR="$WALRUS_TMP_DIR" \
+  scripts/simtest/cargo-simtest simtest build --tests 2>&1 | tee "$LOG_FILE"
+
+  # Each simtest iteration is single-threaded, so cap the number of concurrent jobs at NUM_CPUS.
+  MAX_PARALLEL_JOBS=${MAX_PARALLEL_JOBS:-$NUM_CPUS}
+  [ "$MAX_PARALLEL_JOBS" -lt 1 ] && MAX_PARALLEL_JOBS=1
+
+  for ((ITER = 0; ITER < TEST_NUM; ITER++)); do
+    # Wait for a free job slot before starting the next iteration.
+    while [ "$(jobs -rp | wc -l)" -ge "$MAX_PARALLEL_JOBS" ]; do
+      sleep 5
+    done
+
+    ITER_SEED=$((SEED + ITER))
+    ITER_LOG_FILE="$LOG_DIR/log-iteration-$ITER"
+    echo "Starting iteration $ITER with seed $ITER_SEED (log: $ITER_LOG_FILE)"
+
+    TMPDIR="$WALRUS_TMP_DIR" \
+    MSIM_TEST_SEED="$ITER_SEED" \
+    MSIM_TEST_NUM=1 \
+    MSIM_WATCHDOG_TIMEOUT_MS="$WATCHDOG_TIMEOUT_MS" \
+    scripts/simtest/cargo-simtest simtest "$TEST_FILTER" \
+      --color never \
+      --test-threads 1 \
+      --profile simtestnightly > "$ITER_LOG_FILE" 2>&1 &
+  done
+else
+  # This command runs many different tests, so it already uses all CPUs fairly efficiently, and
+  # don't need to be done inside of the for loop below.
+  # TODO: this logs directly to stdout since it is not being run in parallel. is that ok?
+
+  TMPDIR="$WALRUS_TMP_DIR" \
+  MSIM_TEST_SEED="$SEED" \
+  MSIM_TEST_NUM=${TEST_NUM} \
+  MSIM_WATCHDOG_TIMEOUT_MS="$WATCHDOG_TIMEOUT_MS" \
+  scripts/simtest/cargo-simtest simtest "$TEST_FILTER" \
+    --color never \
+    --test-threads "$NUM_CPUS" \
+    --profile simtestnightly 2>&1 | tee "$LOG_FILE"
+fi
 
 # wait for all the jobs to end
 wait
