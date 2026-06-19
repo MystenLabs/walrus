@@ -137,8 +137,18 @@ impl ShardSyncHandler {
 
         // Once we have started the shard sync task, the shard status has been persisted to
         // disk, so we can mark the node as active. Any restart from this point will re-start
-        // the shard sync tasks only without syncing metadata again. Only the task that performed
-        // the metadata recovery (observed `RecoverMetadata` above) may flip the status.
+        // the shard sync tasks only without syncing metadata again.
+        //
+        // Re-read the node status from the db instead of reusing the value read at the start of
+        // this task: metadata recovery can run for a long time, during which a concurrent path
+        // (for example, entering recovery or dropping out of the committee at an epoch change)
+        // may have moved the node to another status. We must only flip to `Active` if the node
+        // is still recovering metadata, so that we do not clobber such a transition.
+        let node_status = self
+            .node
+            .storage
+            .node_status()
+            .expect("failed to read node status from db");
         if node_status == NodeStatus::RecoverMetadata {
             self.node
                 .set_node_status(NodeStatus::Active)

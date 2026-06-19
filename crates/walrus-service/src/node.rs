@@ -9195,6 +9195,67 @@ mod tests {
             Ok(())
         }
 
+        // Tests that the sync-shards task does not flip the node to `Active` if the node has
+        // moved out of `RecoverMetadata` while the metadata recovery was in progress. Metadata
+        // recovery can run for a long time, during which a concurrent path (for example,
+        // entering recovery) may change the node status; the task must re-read the status before
+        // the flip rather than reuse the value it read when it started.
+        #[walrus_simtest]
+        async fn sync_shard_recover_metadata_does_not_clobber_concurrent_status_change()
+        -> TestResult {
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            let (cluster, _blob_details, storage_dst, _shard_storage_set) =
+                setup_cluster_for_shard_sync_tests(None, None, false).await?;
+
+            // Pause metadata recovery so we can change the node status while it is in progress.
+            let metadata_sync_entered = Arc::new(Notify::new());
+            let metadata_sync_entered_clone = metadata_sync_entered.clone();
+            let release_metadata_sync = Arc::new(AtomicBool::new(false));
+            let release_metadata_sync_clone = release_metadata_sync.clone();
+            register_fail_point_async("fail_point_shard_sync_recovery_metadata_pause", move || {
+                let entered = metadata_sync_entered_clone.clone();
+                let release = release_metadata_sync_clone.clone();
+                async move {
+                    entered.notify_one();
+                    while !release.load(Ordering::SeqCst) {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }
+            });
+
+            storage_dst.clear_metadata_in_test()?;
+            storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
+
+            let shard_sync_handler = &cluster.nodes[1].storage_node.shard_sync_handler;
+            shard_sync_handler
+                .start_sync_shards(vec![ShardIndex(0)])
+                .await?;
+
+            // Wait until metadata recovery is in progress, parked at the pause fail point.
+            tokio::time::timeout(Duration::from_secs(30), metadata_sync_entered.notified())
+                .await
+                .map_err(|_| anyhow::anyhow!("metadata recovery did not start"))?;
+
+            // Simulate a concurrent path moving the node out of `RecoverMetadata` while the
+            // metadata recovery task is still running.
+            cluster.nodes[1]
+                .storage_node
+                .inner
+                .set_node_status(NodeStatus::RecoveryCatchUp)?;
+
+            // Release the paused metadata recovery and let the task finish.
+            release_metadata_sync.store(true, Ordering::SeqCst);
+            wait_until_no_sync_tasks(shard_sync_handler).await?;
+
+            // The task must not have clobbered the concurrent status change back to `Active`.
+            assert_eq!(storage_dst.node_status()?, NodeStatus::RecoveryCatchUp);
+
+            clear_fail_point("fail_point_shard_sync_recovery_metadata_pause");
+
+            Ok(())
+        }
+
         #[walrus_simtest]
         async fn finish_epoch_change_start_should_not_block_event_processing() -> TestResult {
             walrus_test_utils::init_tracing();
