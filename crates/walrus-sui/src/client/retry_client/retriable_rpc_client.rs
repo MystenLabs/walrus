@@ -13,8 +13,6 @@ use std::{
 
 use rand::{
     Rng as _,
-    RngCore,
-    SeedableRng,
     rngs::{StdRng, ThreadRng},
 };
 use sui_rpc_api::{Client, client::ResponseExt};
@@ -142,13 +140,20 @@ impl LazyClientBuilder<FallibleRpcClient> for LazyFallibleRpcClientBuilder {
                 rpc_url,
                 ensure_experimental_rest_endpoint,
             } => {
+                // Seed the backoff from `ThreadRng` (matching `get_strategy` below) rather than
+                // `StdRng::from_entropy()`. Under mysten-sim, `from_entropy()` has been observed
+                // to produce nondeterministic backoff schedules on Linux CI, which makes the
+                // simulation nondeterministic and causes intermittent failures at a fixed seed.
+                // The seed is bound to a local first because `ThreadRng` is `!Send` and must not
+                // be held across the await below.
+                let backoff_seed: u64 = ThreadRng::default().r#gen();
                 let rpc_client = retry_rpc_errors(
                     ExponentialBackoffConfig::new(
                         CLIENT_BUILD_RETRY_MIN_DELAY,
                         CLIENT_BUILD_RETRY_MAX_DELAY,
                         Some(RPC_MAX_TRIES),
                     )
-                    .get_strategy(StdRng::from_entropy().next_u64()),
+                    .get_strategy(backoff_seed),
                     || async {
                         let rpc_client = FallibleRpcClient::new(rpc_url.to_owned())?;
                         if *ensure_experimental_rest_endpoint {

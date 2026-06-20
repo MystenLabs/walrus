@@ -19,8 +19,6 @@ use futures::{Stream, StreamExt, stream};
 use move_core_types::language_storage::StructTag;
 use rand::{
     Rng as _,
-    RngCore,
-    SeedableRng,
     rngs::{StdRng, ThreadRng},
 };
 use serde::{Serialize, de::DeserializeOwned};
@@ -174,13 +172,20 @@ impl LazyClientBuilder<DualClient> for LazySuiClientBuilder {
             }
         }
 
+        // Seed the backoff from `ThreadRng` (matching `get_strategy` below) rather than
+        // `StdRng::from_entropy()`. Under mysten-sim, `from_entropy()` has been observed to
+        // produce nondeterministic backoff schedules on Linux CI, which makes the simulation
+        // nondeterministic and causes intermittent failures at a fixed seed. The seed is bound to
+        // a local first because `ThreadRng` is `!Send` and must not be held across the await
+        // below.
+        let backoff_seed: u64 = ThreadRng::default().r#gen();
         let dual_client = retry_rpc_errors(
             ExponentialBackoffConfig::new(
                 CLIENT_BUILD_RETRY_MIN_DELAY,
                 CLIENT_BUILD_RETRY_MAX_DELAY,
                 Some(RPC_MAX_TRIES),
             )
-            .get_strategy(StdRng::from_entropy().next_u64()),
+            .get_strategy(backoff_seed),
             || async { DualClient::new(self.rpc_url.as_str(), self.request_timeout).await },
             None,
             "build_sui_client",
