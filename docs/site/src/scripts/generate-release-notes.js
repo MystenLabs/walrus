@@ -355,14 +355,13 @@ sidebar_label: "Release Notes"
 
 Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Walrus Memory](https://github.com/MystenLabs/MemWal/releases), and the [Walrus blog](/blog).
 
----
+<Tabs>
 
 `;
 
-  // ── Section 1: Walrus platform releases ──
+  // ── Tab 1: Walrus platform releases ──
+  mdx += `<TabItem value="walrus" label="Walrus Platform" default>\n\n`;
   if (walrusReleases.length > 0) {
-    mdx += `## Walrus Platform\n\n`;
-
     for (const rel of walrusReleases) {
       const networkBadge =
         rel.network === "Mainnet" ? "Mainnet" : "Testnet";
@@ -370,37 +369,41 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
       const link = `[GitHub](${rel.url})`;
 
       mdx += `### ${rel.title}\n\n`;
-      mdx += `\`WALRUS\` \`${networkBadge}\` ${dateStr} | ${link}\n\n`;
+      mdx += `\`${networkBadge}\` ${dateStr} | ${link}\n\n`;
 
       let body = sanitizeForMDX(rel.body);
       body = bumpHeadings(body);
       body = body.replace(/\n{3,}/g, "\n\n").trim();
       mdx += body + "\n\n---\n\n";
     }
+  } else {
+    mdx += `No Walrus platform releases found.\n\n`;
   }
+  mdx += `</TabItem>\n\n`;
 
-  // ── Section 2: Walrus Memory releases ──
+  // ── Tab 2: Walrus Memory releases ──
+  mdx += `<TabItem value="memory" label="Walrus Memory">\n\n`;
   if (memwalReleases.length > 0) {
-    mdx += `## Walrus Memory\n\n`;
-
     for (const rel of memwalReleases) {
       const dateStr = formatDate(rel.date);
       const link = `[GitHub](${rel.url})`;
 
       mdx += `### ${rel.title}\n\n`;
-      mdx += `\`WALRUS MEMORY\` ${dateStr} | ${link}\n\n`;
+      mdx += `${dateStr} | ${link}\n\n`;
 
       let body = sanitizeForMDX(rel.body);
       body = bumpHeadings(body);
       body = body.replace(/\n{3,}/g, "\n\n").trim();
       mdx += body + "\n\n---\n\n";
     }
+  } else {
+    mdx += `No Walrus Memory releases found.\n\n`;
   }
+  mdx += `</TabItem>\n\n`;
 
-  // ── Section 3: Blog announcements ──
+  // ── Tab 3: Blog announcements ──
+  mdx += `<TabItem value="blog" label="Blog">\n\n`;
   if (blogPosts.length > 0) {
-    mdx += `## Blog Announcements\n\n`;
-
     for (const post of blogPosts) {
       const dateStr = post.date
         ? formatDate(post.date)
@@ -409,7 +412,6 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
         .replace(/\.mdx?$/, "");
 
       mdx += `### ${post.title}\n\n`;
-      mdx += `\`BLOG\` `;
       if (dateStr) mdx += `${dateStr} | `;
       mdx += `[Read full post](/blog/${slug})\n\n`;
 
@@ -423,7 +425,12 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
       mdx += "---\n\n";
     }
+  } else {
+    mdx += `No blog posts found.\n\n`;
   }
+  mdx += `</TabItem>\n\n`;
+
+  mdx += `</Tabs>\n\n`;
 
   // Write output
   const outputDir = path.dirname(OUTPUT_PATH);
