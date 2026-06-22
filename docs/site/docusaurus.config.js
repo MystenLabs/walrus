@@ -28,7 +28,7 @@ async function tailwindPlugin() {
 const config = {
   title: "Walrus Docs",
   tagline: "Where the world's data becomes reliable, valuable, and governable",
-  favicon: "img/favicon.ico",
+  favicon: "img/favicon.png",
   trailingSlash: false,
 
   future: {

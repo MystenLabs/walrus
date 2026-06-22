@@ -918,20 +918,22 @@ border-color: #53575a;
 }
 
 .tabs__item {
-font-size: 0.75rem;
-padding: 0.3rem 0.625rem;
-font-weight: 500;
+font-size: 0.8125rem;
+padding: 0.5rem 1rem;
+font-weight: 600;
 }
 
 .tabs__item--active {
-border-bottom: 2px solid #613dff;
-background: #f4f5f7 !important;
-border-radius: 5px 5px 0 0;
+border-bottom: 3px solid #613dff;
+background: rgba(97,61,255,0.06) !important;
+border-radius: 6px 6px 0 0;
+color: #613dff !important;
 }
 
 [data-theme="dark"] .tabs__item--active {
 border-bottom-color: #98EFDD;
-background: #161b22 !important;
+background: rgba(152,239,221,0.1) !important;
+color: #98EFDD !important;
 }
 
 .tabs__item:hover:not(.tabs__item--active) {
