@@ -1,0 +1,191 @@
+---
+title: Encrypt Before You Store with Seal
+sidebar_label: Seal encryption tutorial
+description: Step-by-step tutorial for end-to-end encryption with Seal and Walrus, with working TypeScript encrypt and decrypt code for storing private data as blobs.
+keywords: ["walrus", "seal", "encryption", "tutorial", "decrypt", "access control", "seal_approve", "SealClient", "SessionKey", "threshold encryption", "private data", "typescript"]
+---
+
+All blobs stored on Walrus are public. Anyone with a blob ID can fetch the raw bytes. To store private data, you encrypt it before upload and decrypt it after download. [Seal](https://seal-docs.wal.app/) is the recommended way to do this on Sui, because it combines threshold encryption with onchain access control: you define who can decrypt with a Move policy, and no single key server can decrypt on its own.
+
+This tutorial walks through the full "encrypt before you store" loop in TypeScript:
+
+1. Encrypt plaintext with Seal under an onchain access policy.
+2. Store the resulting ciphertext as a blob on Walrus.
+3. Read the ciphertext blob back from Walrus.
+4. Decrypt it with Seal after the key servers verify the policy.
+
+Walrus never sees the plaintext. Only the Seal ciphertext is stored, and only addresses that satisfy your onchain policy can decrypt it.
+
+:::info Where each piece runs
+
+Seal handles encryption, key management, and policy enforcement. Walrus handles durable blob storage. Sui hosts the access-control policy as a Move package. This tutorial uses all three on Testnet.
+
+:::
+
+## Prerequisites
+
+Before you start, make sure you have the following:
+
+- Node.js 18 or later.
+- A funded Testnet keypair with SUI for gas and WAL for storage. See [Getting Started](/docs/getting-started) to set up an account and acquire tokens.
+- A deployed Seal access policy. Seal policies are Move packages that define a `seal_approve` function. This tutorial uses the allowlist pattern from the [Seal examples](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/whitelist.move). After you publish it, record the package ID, the shared allowlist (policy) object ID, and confirm your address is on the allowlist.
+
+To learn how access policies work and how to write your own `seal_approve` function, read [Using Seal](https://seal-docs.wal.app/UsingSeal) and the [Seal example patterns](https://seal-docs.wal.app/ExamplePatterns).
+
+## Install dependencies
+
+Install the Walrus and Seal SDKs along with the Sui TypeScript SDK:
+
+```sh
+$ npm install @mysten/walrus @mysten/seal @mysten/sui
+```
+
+## Configure the clients
+
+Create a Sui client, a Walrus client, and a Seal client. Reuse a single `SealClient` instance across operations so it can cache key-server objects and retrieved keys.
+
+```ts
+import { SealClient, SessionKey } from '@mysten/seal';
+import { SuiClient, getFullnodeUrl } from '@mysten/sui/client';
+import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
+import { Transaction } from '@mysten/sui/transactions';
+import { fromHex, toHex } from '@mysten/sui/utils';
+import { WalrusClient } from '@mysten/walrus';
+
+const PACKAGE_ID = '0x...'; // package that defines `seal_approve`
+const ALLOWLIST_ID = '0x...'; // shared allowlist (policy) object
+const MODULE_NAME = 'whitelist';
+
+const suiClient = new SuiClient({ url: getFullnodeUrl('testnet') });
+
+const walrusClient = new WalrusClient({
+  network: 'testnet',
+  suiClient,
+});
+
+const keypair = Ed25519Keypair.fromSecretKey(process.env.SUI_SECRET_KEY!);
+const address = keypair.toSuiAddress();
+
+const sealClient = new SealClient({
+  suiClient,
+  serverConfigs: [
+    { objectId: '0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75', weight: 1 },
+    { objectId: '0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8', weight: 1 },
+  ],
+  verifyKeyServers: false,
+});
+```
+
+The `serverConfigs` list selects which key servers participate in threshold encryption. This example uses a `2-of-2` threshold across two verified Testnet servers. For the current verified key-server object IDs and threshold guidance, see the [Seal key server reference](https://seal-docs.wal.app/Pricing#verified-key-servers) and [Choosing key servers](https://seal-docs.wal.app/UsingSeal#choosing-key-servers).
+
+## Encrypt and store
+
+Encryption binds the ciphertext to an identity. The identity is the allowlist object ID followed by a random nonce. The allowlist prefix ties the ciphertext to your onchain policy, and the nonce keeps each blob unique. After encryption, store the ciphertext on Walrus exactly like any other blob.
+
+```ts
+async function encryptAndStore(plaintext: Uint8Array): Promise<string> {
+  const nonce = crypto.getRandomValues(new Uint8Array(5));
+  const id = toHex(new Uint8Array([...fromHex(ALLOWLIST_ID), ...nonce]));
+
+  const { encryptedObject } = await sealClient.encrypt({
+    threshold: 2,
+    packageId: PACKAGE_ID,
+    id,
+    data: plaintext,
+  });
+
+  const { blobId } = await walrusClient.writeBlob({
+    blob: encryptedObject,
+    deletable: false,
+    epochs: 3,
+    signer: keypair,
+  });
+
+  return blobId;
+}
+```
+
+The `encrypt` call returns the encrypted object bytes and a backup symmetric key. This tutorial ignores the backup key, but you can return it to the user for disaster recovery. For large payloads, encrypt the data with your own symmetric key and use Seal to encrypt only that key. See [envelope encryption](https://seal-docs.wal.app/UsingSeal#optimizing-performance).
+
+:::note Encryption does not hide size
+
+Seal does not conceal the length of the plaintext. If message size is sensitive, pad the data before encrypting.
+
+:::
+
+## Read and decrypt
+
+Decryption requires a `SessionKey`. The user signs a personal message once to grant the app time-limited access to decryption keys for the package. You then build a programmable transaction block (PTB) that calls the policy's `seal_approve` function. The key servers dry-run this transaction to confirm the caller is allowed to decrypt.
+
+```ts
+async function readAndDecrypt(blobId: string): Promise<Uint8Array> {
+  const encryptedBytes = await walrusClient.readBlob({ blobId });
+
+  const sessionKey = await SessionKey.create({
+    address,
+    packageId: PACKAGE_ID,
+    ttlMin: 10,
+    suiClient,
+  });
+  const { signature } = await keypair.signPersonalMessage(sessionKey.getPersonalMessage());
+  sessionKey.setPersonalMessageSignature(signature);
+
+  const tx = new Transaction();
+  tx.moveCall({
+    target: `${PACKAGE_ID}::${MODULE_NAME}::seal_approve`,
+    arguments: [
+      tx.pure.vector('u8', fromHex(ALLOWLIST_ID)),
+      tx.object(ALLOWLIST_ID),
+    ],
+  });
+  tx.setSender(address);
+  const txBytes = await tx.build({ client: suiClient, onlyTransactionKind: true });
+
+  return sealClient.decrypt({
+    data: new Uint8Array(encryptedBytes),
+    sessionKey,
+    txBytes,
+  });
+}
+```
+
+:::warning Set the transaction sender
+
+Call `tx.setSender(address)` before building the PTB you pass to Seal. The key servers evaluate the policy as if the sender sent the transaction, so the sender must match the address that holds decryption access. If the sender is missing or wrong, decryption fails with `Transaction was not signed by the correct sender`.
+
+:::
+
+## Run the full loop
+
+Combine the two steps to encrypt, store, read, and decrypt a message:
+
+```ts
+async function main() {
+  const message = new TextEncoder().encode('private data for the allowlist only');
+
+  const blobId = await encryptAndStore(message);
+  const recovered = await readAndDecrypt(blobId);
+
+  console.log('decrypted:', new TextDecoder().decode(recovered));
+}
+
+main().catch(console.error);
+```
+
+The complete, runnable file is available in the Walrus repository:
+
+<ImportContent source="examples/typescript/seal_walrus_encryption.ts" mode="code" org="MystenLabs" repo="walrus" />
+
+## Troubleshooting
+
+- **`Transaction was not signed by the correct sender`:** Call `tx.setSender(address)` before building the PTB, and make sure the address is the one that holds decryption access under your policy.
+- **`InvalidParameter` from a key server:** A recently created object referenced in the PTB might not be indexed yet by the key server's full node. Wait a few seconds and retry.
+- **Decryption rejected for an address you expect to pass:** Confirm the address is actually granted by the `seal_approve` policy (for the allowlist pattern, that it has been added to the allowlist).
+- **Seal needs network access:** Key servers verify onchain policies over the network. Offline decryption is not supported. Plan for connectivity in your app's threat model.
+
+## Next steps
+
+- [Data Security](/docs/data-security): Walrus security guarantees and the Seal confidentiality model.
+- [Using Seal](https://seal-docs.wal.app/UsingSeal): full Seal SDK guide, including onchain decryption and performance tuning.
+- [Seal example patterns](https://seal-docs.wal.app/ExamplePatterns): allowlist, subscription, time-lock, and other access policies.
+- [Seal security best practices](https://seal-docs.wal.app/SecurityBestPractices): threshold selection, key-server vetting, and envelope encryption.

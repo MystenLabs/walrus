@@ -6,9 +6,9 @@ keywords: ["walrus", "data security", "encryption", "seal", "access control", "a
 
 Walrus provides decentralized storage for application and user data. All data stored on Walrus is public and can be accessed by anyone. While Walrus natively provides some data availability and integrity guarantees, use cases that require data confidentiality should use additional encryption mechanisms such as [Seal](https://seal-docs.wal.app/) and [Nautilus](https://docs.sui.io/concepts/cryptography/nautilus).
 
-:::caution
+:::caution Blobs are public unless encrypted
 
-Blob IDs are not secrets. Anyone with a blob ID can fetch the blob, so encrypt private data before uploading it to Walrus.
+Walrus does not encrypt data by default. Blob IDs are not secrets, and anyone with a blob ID can read the bytes. For private data, encrypt before upload using [Seal](#seal-data-confidentiality-and-access-control) or another encryption layer. This applies doubly to AI agent state and memory: anything an agent writes unencrypted is world-readable.
 
 :::
 
@@ -52,7 +52,29 @@ If the sender is missing or does not match, decryption can fail with `Transactio
 
 :::
 
-To get started, refer to [Seal SDK](https://www.npmjs.com/package/@mysten/seal).
+To get started, follow the [Encrypt before you store with Seal tutorial](/docs/typescript-sdk/seal-encryption-tutorial) for a working end-to-end TypeScript example, or refer to the [Seal SDK](https://www.npmjs.com/package/@mysten/seal) and [Using Seal](https://seal-docs.wal.app/UsingSeal).
+
+### Seal concepts
+
+A few Seal concepts are worth understanding before you integrate it with Walrus:
+
+- **Access policy:** A Move package you deploy that defines one or more `seal_approve` functions. Each function encodes the rule for who can decrypt and aborts when access is denied. Key servers dry-run these functions to decide whether to release decryption keys. See [Using Seal](https://seal-docs.wal.app/UsingSeal#access-control-management).
+- **Allowlist:** A common policy pattern where an onchain object holds the list of addresses permitted to decrypt. Addresses are added or removed using an admin capability. See the [allowlist example](https://github.com/MystenLabs/seal/tree/main/move/patterns/sources/whitelist.move).
+- **Policy (object) ID:** The Sui object ID of the access-control object, such as the allowlist, that your `seal_approve` function reads. The encryption identity is derived from this object ID so the ciphertext is bound to the policy.
+- **Threshold encryption:** Encryption is split across multiple key servers. Decryption requires a threshold number of them (for example, `2-of-3`), so no single key server can decrypt on its own. See [Choosing key servers](https://seal-docs.wal.app/UsingSeal#choosing-key-servers).
+
+:::tip Seal key servers require network access
+
+Seal key servers must be reachable over the network to verify access policies against current onchain state. Offline decryption is not supported in the standard flow. Plan for network access in your app's connectivity assumptions and threat model.
+
+:::
+
+### Troubleshooting Seal
+
+- **`Transaction was not signed by the correct sender`:** The transaction sender does not match the address that holds decryption access. Set the sender with `tx.setSender(address)` before passing the PTB to Seal, and sign with the wallet that owns the access policy object.
+- **Decryption fails for an address you expect to pass:** Confirm the address is actually granted by your `seal_approve` policy. For the allowlist pattern, confirm the address has been added to the allowlist object.
+- **`InvalidParameter` from a key server:** An object referenced in the PTB might have been created too recently for the key server's full node to index. Wait a few seconds and retry.
+- **Can Seal be used offline?** No. Key servers require network access to verify onchain policies, so offline decryption is not supported.
 
 ## Nautilus: Secure and verifiable off-chain computation
 
