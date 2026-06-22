@@ -268,7 +268,7 @@ export default function MultiIndexSearchModal({
                     >
                         <div className="w-9 h-9 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
                             <img
-                                src="/img/logo.svg"
+                                src="/img/walrus-mascot.png"
                                 alt=""
                                 width="22"
                                 height="22"

@@ -26,43 +26,43 @@ const LANDING_CSS = `
 #copy-page-button-container { display: none !important; }
 
 #__docusaurus_skipToContent_fallback {
-  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important;
+  background: #fff !important; padding: 0 !important; margin: 0 !important;
 }
 #__docusaurus_skipToContent_fallback > main,
 #__docusaurus_skipToContent_fallback > main.container,
 #__docusaurus_skipToContent_fallback > main.container--fluid {
-  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
+  background: #fff !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
 }
 #__docusaurus_skipToContent_fallback .margin-vert--lg { margin: 0 !important; }
 #__docusaurus_skipToContent_fallback .row {
-  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important;
+  background: #fff !important; padding: 0 !important; margin: 0 !important;
 }
 #__docusaurus_skipToContent_fallback .col {
-  background: #0d0f12 !important; padding: 0 !important;
+  background: #fff !important; padding: 0 !important;
   max-width: 100% !important; flex: none !important; width: 100% !important;
 }
 #__docusaurus_skipToContent_fallback article {
-  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
+  background: #fff !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
 }
-html, body { background: #0d0f12 !important; }
-[class*="mainWrapper"] { background: #0d0f12 !important; padding-top: 0 !important; }
-[class*="mdxPageWrapper"] { background: #0d0f12 !important; padding: 0 !important; margin: 0 !important; }
+html, body { background: #fff !important; }
+[class*="mainWrapper"] { background: #fff !important; padding-top: 0 !important; }
+[class*="mdxPageWrapper"] { background: #fff !important; padding: 0 !important; margin: 0 !important; }
 
 /* ── Landing root ── */
 .landing-root {
-  --white: #faf8f5;
-  --black: #0d0f12;
-  --purple: #CAB1FF;
-  --purple-dim: rgba(202,177,255,0.1);
-  --purple-hover: rgba(202,177,255,0.16);
-  --violet: #CAB1FF;
-  --mint: #98EFDD;
-  --yellow: #E8FF75;
-  --gray-muted: rgba(255,255,255,0.45);
-  --surface: #1c2228;
-  --surface-hover: #252b31;
-  --border: rgba(255,255,255,0.08);
-  --border-hover: rgba(255,255,255,0.16);
+  --white: #1a1a2e;
+  --black: #ffffff;
+  --purple: #613dff;
+  --purple-dim: rgba(97,61,255,0.06);
+  --purple-hover: rgba(97,61,255,0.1);
+  --violet: #613dff;
+  --mint: #0d9488;
+  --yellow: #b8860b;
+  --gray-muted: rgba(0,0,0,0.5);
+  --surface: #f6f8fa;
+  --surface-hover: #eef1f4;
+  --border: rgba(0,0,0,0.08);
+  --border-hover: rgba(0,0,0,0.16);
   --mono: 'JetBrains Mono', monospace;
   --sans: 'DM Sans', -apple-system, sans-serif;
   --radius: 20px;
@@ -78,60 +78,75 @@ html, body { background: #0d0f12 !important; }
 .landing-root a:hover { color: #98EFDD; }
 .landing-root,
 .landing-root * {
-  --ifm-background-color: #0d0f12 !important;
-  --ifm-background-surface-color: #0d0f12 !important;
+  --ifm-background-color: #fff !important;
+  --ifm-background-surface-color: #fff !important;
 }
 
 .landing-wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
 @media (min-width: 768px) { .landing-wrap { padding: 0 40px; } }
 
-/* ── Topbar ── */
+/* ── Topbar (two-row, matches site navbar) ── */
 .landing-root .topbar {
   position: sticky; top: 0; z-index: 50;
-  background: #ffffff;
-  backdrop-filter: blur(16px) saturate(1.4);
-  border-bottom: 1px solid var(--border);
+  background: #f0f1f3;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
 }
-.landing-root .topbar-inner {
+.landing-root .topbar-row {
   display: flex; align-items: center; justify-content: space-between;
-  height: 56px; max-width: 1120px; margin: 0 auto; padding: 0 24px;
+  height: 2.75rem; padding: 0 1rem;
 }
-@media (min-width: 768px) { .landing-root .topbar-inner { padding: 0 40px; } }
 .landing-root .topbar-logo {
-  display: flex; align-items: center; gap: 10px;
-  font-weight: 500; font-size: 0.95rem; letter-spacing: 0.02em; color: var(--white);
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
 }
 .landing-root .topbar-logo svg {
-  height: 28px; width: auto; margin-bottom: 3px; color: #000;
+  height: 1.6rem; width: auto; color: #000;
 }
-.landing-root .topbar-logo .sep { color: rgba(0,0,0,0.2); font-weight: 300; font-size: 2rem; }
-.landing-root .topbar-logo .docs-label { color: rgba(0,0,0,0.5); font-weight: 700; font-size: 2rem; }
-.landing-root .topbar-links { display: flex; gap: 6px; align-items: center; }
-.landing-root .topbar-links a {
-  font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
-  color: rgba(0,0,0,0.55); transition: all 0.2s;
+.landing-root .topbar-actions { display: flex; gap: 8px; align-items: center; }
+.landing-root .topbar-actions a,
+.landing-root .topbar-actions button {
+  font-size: 0.75rem; padding: 5px 12px; border-radius: 1.25rem;
+  color: rgba(0,0,0,0.5); transition: all 0.15s;
+  text-decoration: none; font-family: var(--sans);
+  background: transparent; border: 1px solid rgba(0,0,0,0.1);
+  cursor: pointer;
 }
-.landing-root .topbar-links a:hover { color: #000; background: rgba(0,0,0,0.04); }
-.landing-root .topbar-links a.primary {
-  color: #000; background: rgba(0,0,0,0.05);
-  border: 1px solid rgba(0,0,0,0.12); font-weight: 500;
+.landing-root .topbar-actions a:hover,
+.landing-root .topbar-actions button:hover {
+  color: #000; border-color: rgba(0,0,0,0.2);
 }
-.landing-root .topbar-links a.primary:hover {
-  background: var(--purple-dim); border-color: var(--purple);
+.landing-root .topbar-actions .kapa-landing-btn {
+  color: var(--mint); border-color: rgba(152,239,221,0.2);
 }
-.landing-root .topbar-links .kapa-landing-btn {
-  font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
-  color: var(--purple); background: var(--purple-dim);
-  border: 1px solid rgba(97,61,255,0.15); font-weight: 500;
-  cursor: pointer; transition: all 0.2s; font-family: var(--sans);
+.landing-root .topbar-actions .kapa-landing-btn:hover {
+  border-color: var(--mint);
 }
-.landing-root .topbar-links .kapa-landing-btn:hover {
-  background: var(--purple-hover); border-color: var(--purple);
+.landing-root .topbar-tabs {
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+  height: 2.25rem; padding: 0 1rem;
+  border-top: 1px solid rgba(255,255,255,0.04);
+  overflow-x: auto;
+  background: var(--black);
+}
+.landing-root .topbar-tabs a {
+  font-size: 0.8125rem; font-weight: 500; padding: 0.25rem 0.625rem;
+  color: var(--gray-muted); text-decoration: none; transition: color 0.15s;
+  white-space: nowrap;
+}
+.landing-root .topbar-tabs a:hover { color: var(--white); }
+
+/* ── Logo ── */
+.landing-root .landing-logo {
+  padding: 2rem 0 0;
+  opacity: 0; animation: landingFadeIn 0.5s ease forwards 0.1s;
+}
+.landing-root .landing-logo svg {
+  height: 2rem; width: auto; color: #000;
 }
 
 /* ── Hero ── */
 .landing-root .hero {
-  position: relative; padding: 80px 0 48px; overflow: hidden;
+  position: relative; padding: 40px 0 32px; overflow: hidden;
   background: var(--black);
 }
 .landing-root .hero-inner {
@@ -247,15 +262,15 @@ html, body { background: #0d0f12 !important; }
   box-shadow: 0 6px 24px rgba(0,0,0,0.25);
 }
 .landing-root .landing-search-btn svg {
-  width: 20px; height: 20px; color: var(--purple); flex-shrink: 0;
+  width: 20px; height: 20px; color: rgba(0,0,0,0.3); flex-shrink: 0;
 }
 .landing-root .landing-search-btn span {
-  font-size: 1rem; color: rgba(255,255,255,0.35); font-weight: 400;
+  font-size: 1rem; color: rgba(0,0,0,0.35); font-weight: 400;
 }
 .landing-root .landing-search-btn kbd {
   margin-left: auto; font-family: var(--sans);
-  font-size: 0.72rem; color: rgba(255,255,255,0.25);
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+  font-size: 0.72rem; color: rgba(0,0,0,0.25);
+  background: rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.08);
   border-radius: 6px; padding: 3px 9px; font-weight: 500;
 }
 
@@ -314,21 +329,21 @@ html, body { background: #0d0f12 !important; }
 
 /* ── Footer ── */
 .landing-root .page-footer {
-  border-top: 1px solid var(--border); margin-top: 80px; padding: 36px 0;
+  border-top: 1px solid rgba(0,0,0,0.08); margin-top: 80px; padding: 36px 0;
   display: flex; align-items: center;
   justify-content: space-between;
   flex-wrap: wrap; gap: 16px;
 }
 .landing-root .footer-left {
-  font-size: 0.75rem; color: rgba(255,255,255,0.3);
+  font-size: 0.75rem; color: rgba(0,0,0,0.3);
 }
 .landing-root .footer-right {
   display: flex; gap: 20px;
 }
 .landing-root .footer-right a {
-  color: var(--purple); font-size: 0.8rem; transition: color 0.2s;
+  color: rgba(0,0,0,0.4); font-size: 0.8rem; transition: color 0.2s;
 }
-.landing-root .footer-right a:hover { color: #4c2ecc; }
+.landing-root .footer-right a:hover { color: #613dff; }
 
 /* ── Animations ── */
 @keyframes landingFadeIn {
@@ -360,8 +375,8 @@ export default function LandingPage() {
     const copyBtn = document.getElementById('copy-page-button-container');
     if (copyBtn) cleanups.push(hideEl(copyBtn));
 
-    cleanups.push(setStyle(document.documentElement, 'background', '#0d0f12'));
-    cleanups.push(setStyle(document.body, 'background', '#0d0f12'));
+    cleanups.push(setStyle(document.documentElement, 'background', '#fff'));
+    cleanups.push(setStyle(document.body, 'background', '#fff'));
 
     const root = document.querySelector(
       '.landing-root',
@@ -373,7 +388,7 @@ export default function LandingPage() {
         cleanups.push(setStyle(el, 'margin', '0'));
         cleanups.push(setStyle(el, 'maxWidth', '100%'));
         cleanups.push(setStyle(el, 'width', '100%'));
-        cleanups.push(setStyle(el, 'background', '#0d0f12'));
+        cleanups.push(setStyle(el, 'background', '#fff'));
         el = el.parentElement;
       }
     }
@@ -435,40 +450,11 @@ export default function LandingPage() {
       </Head>
       <style dangerouslySetInnerHTML={{ __html: LANDING_CSS }} />
 
-      <header className="topbar">
-        <div className="topbar-inner">
-          <div className="topbar-logo">
-            <WalrusLogo />
-          </div>
-          <nav className="topbar-links">
-            <a
-              href="https://github.com/MystenLabs/walrus"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub
-            </a>
-            <a
-              href="https://discord.gg/walrusprotocol"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Discord
-            </a>
-            <button
-              className="kapa-landing-btn"
-              onClick={() => { if ((window as any).Kapa) (window as any).Kapa.open(); }}
-            >
-              Ask Walrus AI
-            </button>
-            <a href="/docs/getting-started" className="primary">
-              Get Started →
-            </a>
-          </nav>
-        </div>
-      </header>
 
       <div className="landing-wrap">
+        <div className="landing-logo">
+          <WalrusLogo />
+        </div>
         <div className="hero-inner">
           <p className="hero-lead">
             A verifiable data platform for high-stakes systems that
@@ -538,7 +524,7 @@ export default function LandingPage() {
             <p>Portable, encrypted memory for AI agents.</p>
             <span className="qs-arrow">Learn more {arrowIcon}</span>
           </a>
-          <a className="qs-card qs-card--yellow" href="/docs/getting-started">
+          <a className="qs-card qs-card--yellow" href="/docs/console">
             <div className="qs-card-top">
               <div className="qs-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -551,16 +537,17 @@ export default function LandingPage() {
             <p>Visual dashboard for the Walrus network.</p>
             <span className="qs-arrow">Coming soon {arrowIcon}</span>
           </a>
-          <a className="qs-card qs-card--purple" href="/docs/getting-started">
+          <a className="qs-card qs-card--purple" href="/docs/marketplace">
             <div className="qs-card-top">
               <div className="qs-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+                  <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
+                  <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
                 </svg>
               </div>
-              <h3>Walrus Skills</h3>
+              <h3>Walrus Marketplace</h3>
             </div>
-            <p>Composable capabilities for building on Walrus.</p>
+            <p>Buy, sell, and trade data and storage on Walrus.</p>
             <span className="qs-arrow">Coming soon {arrowIcon}</span>
           </a>
         </div>

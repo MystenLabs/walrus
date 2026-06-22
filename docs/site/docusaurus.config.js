@@ -332,21 +332,21 @@ const config = {
         items: [
           {
             type: "docSidebar",
+            sidebarId: "consoleSidebar",
+            position: "right",
+            label: "Walrus Console",
+          },
+          {
+            type: "docSidebar",
+            sidebarId: "marketplaceSidebar",
+            position: "right",
+            label: "Walrus Marketplace",
+          },
+          {
+            type: "docSidebar",
             sidebarId: "docsSidebar",
             position: "right",
             label: "Data Storage",
-          },
-          {
-            type: "docSidebar",
-            sidebarId: "sitesSidebar",
-            label: "Walrus Sites",
-            position: "right",
-          },
-          {
-            type: "docSidebar",
-            sidebarId: "operatorSidebar",
-            label: "Service Providers",
-            position: "right",
           },
           { to: "/blog", label: "Blog", position: "right" },
           {
