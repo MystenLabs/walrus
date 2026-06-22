@@ -364,13 +364,13 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
     mdx += `## Walrus Platform\n\n`;
 
     for (const rel of walrusReleases) {
-      const badge =
-        rel.network === "Mainnet" ? "**Mainnet**" : "**Testnet**";
+      const networkBadge =
+        rel.network === "Mainnet" ? "Mainnet" : "Testnet";
       const dateStr = formatDate(rel.date);
       const link = `[GitHub](${rel.url})`;
 
       mdx += `### ${rel.title}\n\n`;
-      mdx += `${badge} | ${dateStr} | ${link}\n\n`;
+      mdx += `\`WALRUS\` \`${networkBadge}\` ${dateStr} | ${link}\n\n`;
 
       let body = sanitizeForMDX(rel.body);
       body = bumpHeadings(body);
@@ -388,7 +388,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
       const link = `[GitHub](${rel.url})`;
 
       mdx += `### ${rel.title}\n\n`;
-      mdx += `${dateStr} | ${link}\n\n`;
+      mdx += `\`WALRUS MEMORY\` ${dateStr} | ${link}\n\n`;
 
       let body = sanitizeForMDX(rel.body);
       body = bumpHeadings(body);
@@ -409,6 +409,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
         .replace(/\.mdx?$/, "");
 
       mdx += `### ${post.title}\n\n`;
+      mdx += `\`BLOG\` `;
       if (dateStr) mdx += `${dateStr} | `;
       mdx += `[Read full post](/blog/${slug})\n\n`;
 
