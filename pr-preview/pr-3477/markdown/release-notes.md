@@ -10,7 +10,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.50.0
 
-**Testnet** | June 3, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.50.0)
+`WALRUS` `Testnet` June 3, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.50.0)
 
 ---
 #### Full Log: https://github.com/MystenLabs/walrus/commits/testnet-v1.50.0
@@ -19,7 +19,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.49.1
 
-**Mainnet** | May 27, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.49.1)
+`WALRUS` `Mainnet` May 27, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.49.1)
 
 ---
 #### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.49.1
@@ -28,7 +28,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.48.1
 
-**Mainnet** | May 13, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.48.1)
+`WALRUS` `Mainnet` May 13, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.48.1)
 
 ---
 #### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.48.1
@@ -37,7 +37,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.47.1
 
-**Mainnet** | April 29, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.47.1)
+`WALRUS` `Mainnet` April 29, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.47.1)
 
 #### Storage node
 
@@ -63,7 +63,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.47.0
 
-**Testnet** | April 22, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.47.0)
+`WALRUS` `Testnet` April 22, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.47.0)
 
 #### Storage node
 
@@ -89,7 +89,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.46.1
 
-**Mainnet** | April 15, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.46.1)
+`WALRUS` `Mainnet` April 15, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.46.1)
 
 #### Publisher
 
@@ -102,7 +102,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.45.2
 
-**Mainnet** | April 1, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.45.2)
+`WALRUS` `Mainnet` April 1, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.45.2)
 
 #### Storage node
 
@@ -125,7 +125,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.45.1
 
-**Testnet** | March 25, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.45.1)
+`WALRUS` `Testnet` March 25, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.45.1)
 
 #### Storage node
 
@@ -148,7 +148,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.44.3
 
-**Mainnet** | March 19, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.44.3)
+`WALRUS` `Mainnet` March 19, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.44.3)
 
 #### Storage node
 
@@ -165,7 +165,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.44.2
 
-**Mainnet** | March 19, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.44.2)
+`WALRUS` `Mainnet` March 19, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.44.2)
 
 #### Storage node
 
@@ -178,7 +178,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.44.1
 
-**Testnet** | March 11, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.44.1)
+`WALRUS` `Testnet` March 11, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.44.1)
 
 #### Storage node
 
@@ -191,7 +191,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.43.1
 
-**Mainnet** | March 4, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.43.1)
+`WALRUS` `Mainnet` March 4, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.43.1)
 
 #### Storage node
 
@@ -204,7 +204,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.42.1
 
-**Mainnet** | February 18, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.42.1)
+`WALRUS` `Mainnet` February 18, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.42.1)
 
 ---
 #### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.42.1
@@ -213,7 +213,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.41.1
 
-**Mainnet** | February 5, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.41.1)
+`WALRUS` `Mainnet` February 5, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.41.1)
 
 #### Storage node
 
@@ -230,7 +230,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.41.0
 
-**Testnet** | January 28, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.41.0)
+`WALRUS` `Testnet` January 28, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.41.0)
 
 #### Storage node
 
@@ -247,7 +247,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.40.3
 
-**Mainnet** | January 21, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.40.3)
+`WALRUS` `Mainnet` January 21, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.40.3)
 
 #### Storage node
 
@@ -269,7 +269,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
 ### Walrus v1.39.1
 
-**Mainnet** | January 7, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.39.1)
+`WALRUS` `Mainnet` January 7, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.39.1)
 
 #### Storage node
 
@@ -283,7 +283,7 @@ Storage nodes will need to remove the `use_legacy_event_provider` flag from thei
 
 ### Walrus v1.38.3
 
-**Mainnet** | December 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.38.3)
+`WALRUS` `Mainnet` December 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.38.3)
 
 #### Storage node
 
@@ -327,7 +327,7 @@ Reduce number of Sui RPC requests and decrease latency when storing blobs.
 
 ### Walrus v1.38.2
 
-**Testnet** | December 9, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.38.2)
+`WALRUS` `Testnet` December 9, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.38.2)
 
 #### Storage node
 
@@ -371,7 +371,7 @@ Reduce number of Sui RPC requests and decrease latency when storing blobs.
 
 ### Walrus v1.38.1
 
-**Testnet** | December 3, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.38.1)
+`WALRUS` `Testnet` December 3, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.38.1)
 
 #### Storage node
 
@@ -415,7 +415,7 @@ Reduce number of Sui RPC requests and decrease latency when storing blobs.
 
 ### Walrus v1.37.0
 
-**Mainnet** | November 19, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.37.0)
+`WALRUS` `Mainnet` November 19, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.37.0)
 
 #### Aggregator
 
@@ -434,7 +434,7 @@ Reduce number of Sui RPC requests and decrease latency when storing blobs.
 
 ### Walrus v1.36.1
 
-**Mainnet** | November 7, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.36.1)
+`WALRUS` `Mainnet` November 7, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.36.1)
 
 #### Storage node
 
@@ -466,7 +466,7 @@ Add a new CLI option `--skip-consistency-check`.  to skip blob consistency check
 
 ### Walrus v1.35.2
 
-**Mainnet** | October 29, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.35.2)
+`WALRUS` `Mainnet` October 29, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.35.2)
 
 #### Storage node
 
@@ -498,7 +498,7 @@ Add a new CLI option `--skip-consistency-check`.  to skip blob consistency check
 
 ### Walrus v1.35.1
 
-**Mainnet** | October 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.35.1)
+`WALRUS` `Mainnet` October 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.35.1)
 
 #### Aggregator
 
@@ -526,7 +526,7 @@ Added range of slivers for store-quilt command in the output.
 
 ### Walrus v1.35.0
 
-**Testnet** | October 16, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.35.0)
+`WALRUS` `Testnet` October 16, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.35.0)
 
 #### Aggregator
 
@@ -554,7 +554,7 @@ Added range of slivers for store-quilt command in the output.
 
 ### Walrus v1.34.2
 
-**Mainnet** | October 9, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.34.2)
+`WALRUS` `Mainnet` October 9, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.34.2)
 
 #### Aggregator
 
@@ -578,7 +578,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.34.1
 
-**Testnet** | October 1, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.34.1)
+`WALRUS` `Testnet` October 1, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.34.1)
 
 #### Aggregator
 
@@ -602,7 +602,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.33.3
 
-**Mainnet** | September 29, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.33.3)
+`WALRUS` `Mainnet` September 29, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.33.3)
 
 #### Aggregator
 
@@ -620,7 +620,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.33.2
 
-**Testnet** | September 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.33.2)
+`WALRUS` `Testnet` September 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.33.2)
 
 #### Publisher
 
@@ -637,7 +637,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.33.1
 
-**Testnet** | September 17, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.33.1)
+`WALRUS` `Testnet` September 17, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.33.1)
 
 #### Publisher
 
@@ -656,7 +656,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.32.0
 
-**Mainnet** | September 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.32.0)
+`WALRUS` `Mainnet` September 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.32.0)
 
 #### Aggregator
 
@@ -673,7 +673,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.31.1
 
-**Mainnet** | August 28, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.31.1)
+`WALRUS` `Mainnet` August 28, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.31.1)
 
 #### Publisher & CLI
 
@@ -687,7 +687,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.30.1
 
-**Mainnet** | August 14, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.30.1)
+`WALRUS` `Mainnet` August 14, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.30.1)
 
 #### Storage node
 
@@ -700,7 +700,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.30.0
 
-**Testnet** | August 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.30.0)
+`WALRUS` `Testnet` August 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.30.0)
 
 #### Storage node
 
@@ -713,7 +713,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.29.2
 
-**Mainnet** | July 31, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.29.2)
+`WALRUS` `Mainnet` July 31, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.29.2)
 
 #### Storage node
 
@@ -755,7 +755,7 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 ### Walrus v1.29.1
 
-**Testnet** | July 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.29.1)
+`WALRUS` `Testnet` July 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.29.1)
 
 📣📣📣
 As part of this release we are introducing Quilt - a batch storage solution with an intuitive API, designed to make storing and accessing large numbers of small files on Walrus both incredibly convenient, efficient, and cost-effective. For more details please see https://www.walrus.xyz/blog/introducing-quilt.
@@ -798,7 +798,7 @@ As part of this release we are introducing Quilt - a batch storage solution with
 
 ### Walrus v1.28.4
 
-**Mainnet** | July 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.28.4)
+`WALRUS` `Mainnet` July 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.28.4)
 
 #### Aggregator
 
@@ -817,7 +817,7 @@ Fixes an issue where a blob was sometimes reported as non-existing immediately a
 
 ### Walrus v1.28.3
 
-**Testnet** | July 11, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.28.3)
+`WALRUS` `Testnet` July 11, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.28.3)
 
 #### Aggregator and CLI
 
@@ -830,7 +830,7 @@ Fixes an issue where a blob was sometimes reported as non-existing immediately a
 
 ### Walrus v1.28.2
 
-**Testnet** | July 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.28.2)
+`WALRUS` `Testnet` July 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.28.2)
 
 #### Aggregator
 
@@ -844,7 +844,7 @@ Fixes an issue where a blob was sometimes reported as non-existing immediately a
 
 ### Walrus v1.28.1
 
-**Testnet** | July 2, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.28.1)
+`WALRUS` `Testnet` July 2, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.28.1)
 
 #### Storage node
 
@@ -880,7 +880,7 @@ Fixes an issue where a blob was sometimes reported as non-existing immediately a
 
 ### Walrus v1.27.2
 
-**Mainnet** | June 26, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.27.2)
+`WALRUS` `Mainnet` June 26, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.27.2)
 
 #### Storage node
 
@@ -909,7 +909,7 @@ Adds node-admin command to compute package digest
 
 ### Walrus v1.27.1
 
-**Testnet** | June 18, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.27.1)
+`WALRUS` `Testnet` June 18, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.27.1)
 
 #### Storage node
 
@@ -938,7 +938,7 @@ Adds node-admin command to compute package digest
 
 ### Walrus v1.26.4
 
-**Mainnet** | June 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.26.4)
+`WALRUS` `Mainnet` June 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.26.4)
 
 #### Storage node
 
@@ -979,7 +979,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.26.3
 
-**Mainnet** | June 5, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.26.3)
+`WALRUS` `Mainnet` June 5, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.26.3)
 
 #### Storage node
 
@@ -1012,7 +1012,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.26.2
 
-**Testnet** | May 28, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.26.2)
+`WALRUS` `Testnet` May 28, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.26.2)
 
 #### Storage node
 
@@ -1050,7 +1050,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.25.1
 
-**Mainnet** | May 22, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.25.1)
+`WALRUS` `Mainnet` May 22, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.25.1)
 
 #### Bug Fix
 
@@ -1063,7 +1063,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.25.0
 
-**Mainnet** | May 22, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.25.0)
+`WALRUS` `Mainnet` May 22, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.25.0)
 
 #### CLI
 
@@ -1076,7 +1076,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.24.2
 
-**Mainnet** | May 12, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.24.2)
+`WALRUS` `Mainnet` May 12, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.24.2)
 
 #### Aggregator
 
@@ -1099,7 +1099,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.24.1
 
-**Testnet** | May 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.24.1)
+`WALRUS` `Testnet` May 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.24.1)
 
 #### Aggregator
 
@@ -1122,7 +1122,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.22.1
 
-**Mainnet** | April 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.22.1)
+`WALRUS` `Mainnet` April 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.22.1)
 
 #### Storage node
 
@@ -1143,7 +1143,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.21.2
 
-**Mainnet** | April 17, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.21.2)
+`WALRUS` `Mainnet` April 17, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.21.2)
 
 #### Storage node
 
@@ -1156,7 +1156,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.21.1
 
-**Testnet** | April 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.21.1)
+`WALRUS` `Testnet` April 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.21.1)
 
 #### Storage node
 
@@ -1169,7 +1169,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.20.2
 
-**Mainnet** | April 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.20.2)
+`WALRUS` `Mainnet` April 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.20.2)
 
 #### CLI
 
@@ -1182,7 +1182,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.18.2
 
-**Mainnet** | March 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.18.2)
+`WALRUS` `Mainnet` March 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.18.2)
 
 #### Storage node
 
@@ -1203,7 +1203,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.18.1
 
-**Testnet** | March 20, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.18.1)
+`WALRUS` `Testnet` March 20, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.18.1)
 
 #### Storage node
 
@@ -1222,7 +1222,7 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 ### Walrus v1.17.2
 
-**Testnet** | March 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.17.2)
+`WALRUS` `Testnet` March 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.17.2)
 
 #### Storage node
 
@@ -1236,7 +1236,7 @@ Added optional `--network-key-path` and `--certificate-path` options to the `set
 
 ### Walrus v1.17.1
 
-**Testnet** | March 12, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.17.1)
+`WALRUS` `Testnet` March 12, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.17.1)
 
 #### CLI
 
@@ -1249,7 +1249,7 @@ Added optional `--network-key-path` and `--certificate-path` options to the `set
 
 ### Walrus v1.16.1
 
-**Testnet** | March 5, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.16.1)
+`WALRUS` `Testnet` March 5, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.16.1)
 
 #### Storage node
 
@@ -1341,7 +1341,7 @@ default_context: testnet
 
 ### Walrus v1.15.4
 
-**Testnet** | February 28, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.15.4)
+`WALRUS` `Testnet` February 28, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.15.4)
 
 #### Storage node
 
@@ -1360,7 +1360,7 @@ Use the correct encoding type by default.
 
 ### Walrus v1.15.3
 
-**Testnet** | February 27, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.15.3)
+`WALRUS` `Testnet` February 27, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.15.3)
 
 #### Storage node
 
@@ -1400,7 +1400,7 @@ Use the correct encoding type by default.
 
 ### Walrus v1.14.0
 
-**Testnet** | February 19, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.14.0)
+`WALRUS` `Testnet` February 19, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.14.0)
 
 #### Storage node
 
@@ -1423,7 +1423,7 @@ Use the correct encoding type by default.
 
 ### Walrus v1.13.2
 
-**Testnet** | February 13, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.13.2)
+`WALRUS` `Testnet` February 13, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.13.2)
 
 [#1576](https://github.com/MystenLabs/walrus/pull/1576): fix: Update blob certified metric only if it is event blob
 
@@ -1436,7 +1436,7 @@ Use the correct encoding type by default.
 
 ### Walrus v1.13.1
 
-**Testnet** | February 12, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.13.1)
+`WALRUS` `Testnet` February 12, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.13.1)
 
 #### Storage node
 
@@ -1458,7 +1458,7 @@ introduces the `--ignore-resources` flag.
 
 ### Walrus v1.12.0
 
-**Testnet** | February 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.12.0)
+`WALRUS` `Testnet` February 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.12.0)
 
 #### CLI
 
@@ -1472,7 +1472,7 @@ Adds the ability to provide a list of node IDs or URLs for the `walrus health` c
 
 ### Walrus v1.11.0
 
-**Testnet** | January 29, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.11.0)
+`WALRUS` `Testnet` January 29, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.11.0)
 
 #### Storage node
 
@@ -1509,7 +1509,7 @@ Allow specifying 'global' options like `--json` anywhere in the command, for exa
 
 ### Walrus v1.10.0
 
-**Testnet** | January 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.10.0)
+`WALRUS` `Testnet` January 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.10.0)
 
 #### Storage node
 
@@ -1550,7 +1550,7 @@ Allow specifying 'global' options like `--json` anywhere in the command, for exa
 
 ### Walrus Memory SDK v0.0.5
 
-June 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.5)
+`WALRUS MEMORY` June 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.5)
 
 #### 0.0.5
 
@@ -1568,7 +1568,7 @@ June 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40my
 
 ### Walrus Memory MCP v0.0.5
 
-June 12, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.5)
+`WALRUS MEMORY` June 12, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.5)
 
 #### 0.0.5
 
@@ -1594,7 +1594,7 @@ June 12, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40my
 
 ### Walrus Memory MCP v0.0.4
 
-June 5, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.4)
+`WALRUS MEMORY` June 5, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.4)
 
 #### 0.0.4
 
@@ -1607,7 +1607,7 @@ June 5, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory MCP v0.0.3
 
-June 4, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.3)
+`WALRUS MEMORY` June 4, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.3)
 
 #### 0.0.3
 
@@ -1619,7 +1619,7 @@ June 4, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory SDK v0.0.4
 
-June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.4)
+`WALRUS MEMORY` June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.4)
 
 #### 0.0.4
 
@@ -1643,7 +1643,7 @@ June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory python v0.1.4
 
-June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.4)
+`WALRUS MEMORY` June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.4)
 
 Release memwal Python SDK v0.1.4
 
@@ -1651,7 +1651,7 @@ Release memwal Python SDK v0.1.4
 
 ### Walrus Memory TypeScript SDK v0.0.7
 
-June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.7)
+`WALRUS MEMORY` June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.7)
 
 #### 0.0.7
 
@@ -1669,7 +1669,7 @@ June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory TypeScript SDK v0.0.6
 
-May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.6)
+`WALRUS MEMORY` May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.6)
 
 #### 0.0.6
 
@@ -1686,7 +1686,7 @@ May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory python v0.1.3
 
-May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.3)
+`WALRUS MEMORY` May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.3)
 
 Release memwal Python SDK v0.1.3
 
@@ -1694,7 +1694,7 @@ Release memwal Python SDK v0.1.3
 
 ### Walrus Memory SDK v0.0.3
 
-May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.3)
+`WALRUS MEMORY` May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.3)
 
 #### 0.0.3
 
@@ -1706,7 +1706,7 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory MCP v0.0.2
 
-May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.2)
+`WALRUS MEMORY` May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.2)
 
 #### 0.0.2
 
@@ -1722,7 +1722,7 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory TypeScript SDK v0.0.5
 
-May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.5)
+`WALRUS MEMORY` May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.5)
 
 #### 0.0.5
 
@@ -1746,7 +1746,7 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory python v0.1.2
 
-May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.2)
+`WALRUS MEMORY` May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.2)
 
 Release memwal Python SDK v0.1.2
 
@@ -1754,7 +1754,7 @@ Release memwal Python SDK v0.1.2
 
 ### Walrus Memory python v0.1.0
 
-May 21, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.0)
+`WALRUS MEMORY` May 21, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.0)
 
 Release memwal Python SDK v0.1.0
 
@@ -1762,7 +1762,7 @@ Release memwal Python SDK v0.1.0
 
 ### Walrus Memory TypeScript SDK v0.0.4
 
-May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.4)
+`WALRUS MEMORY` May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.4)
 
 #### 0.0.4
 
@@ -1780,7 +1780,7 @@ May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory MCP v0.0.1
 
-May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.1)
+`WALRUS MEMORY` May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.1)
 
 #### 0.0.1
 
@@ -1795,7 +1795,7 @@ May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ### Walrus Memory TypeScript SDK v0.0.3
 
-May 8, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.3)
+`WALRUS MEMORY` May 8, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.3)
 
 #### 0.0.3
 
@@ -1815,7 +1815,7 @@ May 8, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40myst
 
 ### Walrus Memory SDK v0.0.2
 
-April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.2)
+`WALRUS MEMORY` April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.2)
 
 #### 0.0.1
 
@@ -1832,7 +1832,7 @@ April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40m
 
 ### Walrus Memory TypeScript SDK v0.0.2
 
-April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.2)
+`WALRUS MEMORY` April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.2)
 
 #### 0.0.2
 
@@ -1849,7 +1849,7 @@ April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40m
 
 ### Announcing Mainnet
 
-March 27, 2025 | [Read full post](/blog/06_mainnet)
+`BLOG` March 27, 2025 | [Read full post](/blog/06_mainnet)
 
 The production Walrus Mainnet is now live, and operated by
 a decentralized network of over 100 storage nodes. Epoch 1 begun on March 25, 2025. The
@@ -1866,7 +1866,7 @@ the needs of real applications.
 
 ### Announcing Testnet v2
 
-January 16, 2025 | [Read full post](/blog/05_testnet_redeployment)
+`BLOG` January 16, 2025 | [Read full post](/blog/05_testnet_redeployment)
 
 We are today redeploying the Walrus Testnet to incorporate various improvements, including some
 backwards-incompatible changes. Make sure to get the latest binary and configuration as described
@@ -1876,7 +1876,7 @@ in the [setup section](/docs/getting-started/advanced-setup).
 
 ### Announcing Testnet
 
-October 17, 2024 | [Read full post](/blog/04_testnet_update)
+`BLOG` October 17, 2024 | [Read full post](/blog/04_testnet_update)
 
 Today, a community of operators launches the first public Walrus Testnet.
 This is an important milestone in validating the operation of Walrus as a decentralized blob store,
@@ -1888,7 +1888,7 @@ epochs, and blob deletion.
 
 ### Announcing the Official Walrus Whitepaper
 
-September 17, 2024 | [Read full post](/blog/03_whitepaper)
+`BLOG` September 17, 2024 | [Read full post](/blog/03_whitepaper)
 
 In June, Mysten Labs announced Walrus, a new decentralized secure blob store design, and introduced
 a developer preview that currently stores over [12TiB](https://capacity.walrus.site/) of data.
@@ -1899,7 +1899,7 @@ leveraging decentralized storage.
 
 ### Devnet Update
 
-August 12, 2024 | [Read full post](/blog/02_devnet_update)
+`BLOG` August 12, 2024 | [Read full post](/blog/02_devnet_update)
 
 We have redeployed the Walrus Devnet to incorporate various improvements to the Walrus storage nodes
 and clients. In this process, all blobs stored on Walrus were wiped. Note that this may happen again
@@ -1909,7 +1909,7 @@ on Devnet and Testnet, but obviously *not on the future Mainnet*.
 
 ### Announcing Walrus: A Decentralized Storage and Data Availability Protocol
 
-November 1, 2024 | [Read full post](/blog/01_announcing_walrus)
+`BLOG` November 1, 2024 | [Read full post](/blog/01_announcing_walrus)
 
 Walrus is an innovative decentralized storage network for blockchain apps and autonomous agents. The
 Walrus storage system is being released today as a developer preview for Sui builders in order to
