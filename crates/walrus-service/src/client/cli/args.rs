@@ -783,6 +783,15 @@ pub struct InfoCommitteeArgs {
     #[arg(long)]
     #[serde(default)]
     pub hide_details: bool,
+    /// List the commission receiver of every node in the previous, current, and next
+    /// committees, reading everything from the staking object.
+    ///
+    /// The output is only produced in CSV format, with three sections (current, previous, and
+    /// next committee), each labeled with its epoch number. The `--sort` and `--hide-details`
+    /// options have no effect on this output.
+    #[arg(long)]
+    #[serde(default)]
+    pub commission_receivers: bool,
 }
 
 /// Subcommands for the `node-admin` command.
