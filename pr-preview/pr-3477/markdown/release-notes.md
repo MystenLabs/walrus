@@ -1542,24 +1542,6 @@ Allow specifying 'global' options like `--json` anywhere in the command, for exa
 
 ---
 
-### Walrus Memory SDK v0.0.5
-
-June 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.5)
-
-#### 0.0.5
-
-#### Patch Changes
-
-- Fix unresolvable `workspace:*` dependency in the published package. The release
-  workflow used `npm publish`, which ships `package.json` verbatim and cannot
-  rewrite the `workspace:` protocol, so the published artifact carried
-  `"@mysten-incubation/memwal": "workspace:*"` and failed to install outside the
-  monorepo (`Unsupported URL Type 'workspace:'`). Switched the release workflows
-  to `pnpm publish`, which rewrites `workspace:*` to the concrete dependency
-  version at pack time.
-
----
-
 ### Walrus Memory MCP v0.0.5
 
 June 12, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.5)
@@ -1611,35 +1593,34 @@ June 4, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ---
 
-### Walrus Memory SDK v0.0.4
+### Walrus Memory MCP v0.0.2
 
-June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.4)
+May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.2)
 
-#### 0.0.4
+#### 0.0.2
 
-#### Patch Changes
+#### Added
 
-- [#218](https://github.com/MystenLabs/MemWal/pull/218) [`333d327`](https://github.com/MystenLabs/MemWal/commit/333d3279f59c2a033225bc99238b7586474333fb) Thanks [@hungtranphamminh](https://github.com/hungtranphamminh)! - Wire temporal anchoring through the agent-side memory tools.
+- Added relayer compatibility metadata checks before opening the MCP bridge.
 
-  ### Added
+#### Changed
 
-  - `memory_store` tool now accepts an optional `occurredAt` argument (RFC-3339 / ISO-8601 string) so agents can anchor recounted past events to the date they actually occurred. Description tells the LLM to omit it when unknown rather than guess.
-
-  ### Changed
-
-  - Auto-capture hook (`agent_end`) now passes `new Date()` as `occurredAt` to `analyze()`. Every captured conversation now gets temporal anchoring automatically — the server extractor resolves in-turn relative references ("yesterday", "last Friday") into absolute dates inside the stored fact text. Facts captured by this version now carry resolved dates.
-  - SDK dependency bumped from published `^0.0.2` to `workspace:*` to consume the new `AnalyzeOptions` signature.
-
-- Updated dependencies [[`333d327`](https://github.com/MystenLabs/MemWal/commit/333d3279f59c2a033225bc99238b7586474333fb)]:
-  - @mysten-incubation/memwal@0.0.7
+- Rebranded package metadata and documentation from MemWal to Walrus Memory.
 
 ---
 
-### Walrus Memory python v0.1.4
+### Walrus Memory MCP v0.0.1
 
-June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.4)
+May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.1)
 
-Release memwal Python SDK v0.1.4
+#### 0.0.1
+
+#### Initial Release
+
+- Stdio MCP server for MemWal with browser-based wallet login.
+- Inline `memwal_login` and `memwal_logout` session tools.
+- Memory tools for remember, recall, analyze, and restore through the MemWal relayer.
+- Environment presets for production, dev, staging, and local relayers.
 
 ---
 
@@ -1678,42 +1659,6 @@ May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ---
 
-### Walrus Memory python v0.1.3
-
-May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.3)
-
-Release memwal Python SDK v0.1.3
-
----
-
-### Walrus Memory SDK v0.0.3
-
-May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.3)
-
-#### 0.0.3
-
-#### Patch Changes
-
-- Rebrand package metadata and documentation from MemWal to Walrus Memory.
-
----
-
-### Walrus Memory MCP v0.0.2
-
-May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.2)
-
-#### 0.0.2
-
-#### Added
-
-- Added relayer compatibility metadata checks before opening the MCP bridge.
-
-#### Changed
-
-- Rebranded package metadata and documentation from MemWal to Walrus Memory.
-
----
-
 ### Walrus Memory TypeScript SDK v0.0.5
 
 May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.5)
@@ -1738,22 +1683,6 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 ---
 
-### Walrus Memory python v0.1.2
-
-May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.2)
-
-Release memwal Python SDK v0.1.2
-
----
-
-### Walrus Memory python v0.1.0
-
-May 21, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.0)
-
-Release memwal Python SDK v0.1.0
-
----
-
 ### Walrus Memory TypeScript SDK v0.0.4
 
 May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.4)
@@ -1769,21 +1698,6 @@ May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 - Manual mode now normalizes full SEAL server configs, validates optional API key pairs, and caps the default threshold to configured server weight.
 - Manual mode keeps testnet defaults on the legacy independent key servers for compatibility with hosted testnet relayer data.
-
----
-
-### Walrus Memory MCP v0.0.1
-
-May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.1)
-
-#### 0.0.1
-
-#### Initial Release
-
-- Stdio MCP server for MemWal with browser-based wallet login.
-- Inline `memwal_login` and `memwal_logout` session tools.
-- Memory tools for remember, recall, analyze, and restore through the MemWal relayer.
-- Environment presets for production, dev, staging, and local relayers.
 
 ---
 
@@ -1807,6 +1721,107 @@ May 8, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40myst
 
 ---
 
+### Walrus Memory TypeScript SDK v0.0.2
+
+April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.2)
+
+#### 0.0.2
+
+#### Security
+
+- Added per-request `x-nonce` signing to block replay within the timestamp window.
+- Added `x-account-id` to the canonical signed message so account hints cannot be rebound in transit.
+- Replaced relayer-mode `x-delegate-key` transport with ephemeral `x-seal-session`; manual-mode requests no longer send delegate private key material.
+- SDK versions that do not send `x-nonce` are no longer supported by the server and receive `426 Upgrade Required`.
+
+---
+
+### Walrus Memory python v0.1.4
+
+June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.4)
+
+Release memwal Python SDK v0.1.4
+
+---
+
+### Walrus Memory python v0.1.3
+
+May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.3)
+
+Release memwal Python SDK v0.1.3
+
+---
+
+### Walrus Memory python v0.1.2
+
+May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.2)
+
+Release memwal Python SDK v0.1.2
+
+---
+
+### Walrus Memory python v0.1.0
+
+May 21, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.0)
+
+Release memwal Python SDK v0.1.0
+
+---
+
+### Walrus Memory SDK v0.0.5
+
+June 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.5)
+
+#### 0.0.5
+
+#### Patch Changes
+
+- Fix unresolvable `workspace:*` dependency in the published package. The release
+  workflow used `npm publish`, which ships `package.json` verbatim and cannot
+  rewrite the `workspace:` protocol, so the published artifact carried
+  `"@mysten-incubation/memwal": "workspace:*"` and failed to install outside the
+  monorepo (`Unsupported URL Type 'workspace:'`). Switched the release workflows
+  to `pnpm publish`, which rewrites `workspace:*` to the concrete dependency
+  version at pack time.
+
+---
+
+### Walrus Memory SDK v0.0.4
+
+June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.4)
+
+#### 0.0.4
+
+#### Patch Changes
+
+- [#218](https://github.com/MystenLabs/MemWal/pull/218) [`333d327`](https://github.com/MystenLabs/MemWal/commit/333d3279f59c2a033225bc99238b7586474333fb) Thanks [@hungtranphamminh](https://github.com/hungtranphamminh)! - Wire temporal anchoring through the agent-side memory tools.
+
+  ### Added
+
+  - `memory_store` tool now accepts an optional `occurredAt` argument (RFC-3339 / ISO-8601 string) so agents can anchor recounted past events to the date they actually occurred. Description tells the LLM to omit it when unknown rather than guess.
+
+  ### Changed
+
+  - Auto-capture hook (`agent_end`) now passes `new Date()` as `occurredAt` to `analyze()`. Every captured conversation now gets temporal anchoring automatically — the server extractor resolves in-turn relative references ("yesterday", "last Friday") into absolute dates inside the stored fact text. Facts captured by this version now carry resolved dates.
+  - SDK dependency bumped from published `^0.0.2` to `workspace:*` to consume the new `AnalyzeOptions` signature.
+
+- Updated dependencies [[`333d327`](https://github.com/MystenLabs/MemWal/commit/333d3279f59c2a033225bc99238b7586474333fb)]:
+  - @mysten-incubation/memwal@0.0.7
+
+---
+
+### Walrus Memory SDK v0.0.3
+
+May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.3)
+
+#### 0.0.3
+
+#### Patch Changes
+
+- Rebrand package metadata and documentation from MemWal to Walrus Memory.
+
+---
+
 ### Walrus Memory SDK v0.0.2
 
 April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.2)
@@ -1821,21 +1836,6 @@ April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40m
 - Session summary on `before_reset` hook
 - CLI commands: `openclaw memwal stats`, `openclaw memwal search`
 - LLM tools: `memory_search`, `memory_store`
-
----
-
-### Walrus Memory TypeScript SDK v0.0.2
-
-April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.2)
-
-#### 0.0.2
-
-#### Security
-
-- Added per-request `x-nonce` signing to block replay within the timestamp window.
-- Added `x-account-id` to the canonical signed message so account hints cannot be rebound in transit.
-- Replaced relayer-mode `x-delegate-key` transport with ephemeral `x-seal-session`; manual-mode requests no longer send delegate private key material.
-- SDK versions that do not send `x-nonce` are no longer supported by the server and receive `426 Upgrade Required`.
 
 ---
 

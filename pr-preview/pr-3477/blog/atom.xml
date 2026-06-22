@@ -6,7 +6,7 @@
     <generator>https://github.com/jpmonette/feed</generator>
     <link rel="alternate" href="https://docs.wal.app/walrus/pr-preview/pr-3477/blog"/>
     <subtitle>Walrus Docs Blog</subtitle>
-    <icon>https://docs.wal.app/walrus/pr-preview/pr-3477/img/favicon.ico</icon>
+    <icon>https://docs.wal.app/walrus/pr-preview/pr-3477/img/favicon.png</icon>
     <entry>
         <title type="html"><![CDATA[Announcing Mainnet]]></title>
         <id>https://docs.wal.app/walrus/pr-preview/pr-3477/blog/06_mainnet</id>
