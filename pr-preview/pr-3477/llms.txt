@@ -471,6 +471,11 @@ Sui smart contract as the on-chain index.
     Walrus: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and
     staking object IDs, token units, and configuration snippets.
 
+## Release Notes
+
+- [Release Notes](https://docs.wal.app/docs/release-notes.md):
+    Release notes from Walrus, Walrus Memory, and the Walrus blog.
+
 ## Walrus Memory
 
 - [Permanent Registry Design Intent](https://docs.wal.app/docs/walrus-memory/architecture/permanent-registry-design.md):
