@@ -348,7 +348,8 @@ async function main() {
   let mdx = `---
 title: "Release Notes"
 description: "Release notes for Walrus, Walrus Memory, and related tools."
-sidebar_label: "Release Notes"
+displayed_sidebar: null
+hide_table_of_contents: true
 ---
 
 # Release Notes
