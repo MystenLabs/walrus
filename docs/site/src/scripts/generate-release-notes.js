@@ -381,21 +381,61 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
   }
   mdx += `</TabItem>\n\n`;
 
-  // ── Tab 2: Walrus Memory releases ──
+  // ── Tab 2: Walrus Memory releases (with sub-tabs) ──
   mdx += `<TabItem value="memory" label="Walrus Memory">\n\n`;
   if (memwalReleases.length > 0) {
+    // Group by package category
+    const categories = {
+      mcp: { label: "MCP", releases: [] },
+      sdk: { label: "TypeScript SDK", releases: [] },
+      python: { label: "Python SDK", releases: [] },
+      openclaw: { label: "OpenClaw", releases: [] },
+      other: { label: "Other", releases: [] },
+    };
+
     for (const rel of memwalReleases) {
-      const dateStr = formatDate(rel.date);
-      const link = `[GitHub](${rel.url})`;
-
-      mdx += `### ${rel.title}\n\n`;
-      mdx += `${dateStr} | ${link}\n\n`;
-
-      let body = sanitizeForMDX(rel.body);
-      body = bumpHeadings(body);
-      body = body.replace(/\n{3,}/g, "\n\n").trim();
-      mdx += body + "\n\n---\n\n";
+      const pkg = (rel.package || "").toLowerCase();
+      if (pkg.includes("mcp")) {
+        categories.mcp.releases.push(rel);
+      } else if (pkg.includes("python")) {
+        categories.python.releases.push(rel);
+      } else if (pkg.includes("oc-") || pkg.includes("openclaw")) {
+        categories.openclaw.releases.push(rel);
+      } else if (pkg.includes("memwal")) {
+        categories.sdk.releases.push(rel);
+      } else {
+        categories.other.releases.push(rel);
+      }
     }
+
+    // Only show categories that have releases
+    const activeCats = Object.entries(categories).filter(
+      ([, cat]) => cat.releases.length > 0,
+    );
+
+    mdx += `<Tabs groupId="memory-sub">\n\n`;
+
+    for (const [key, cat] of activeCats) {
+      const isFirst = key === activeCats[0][0];
+      mdx += `<TabItem value="${key}" label="${cat.label}"${isFirst ? " default" : ""}>\n\n`;
+
+      for (const rel of cat.releases) {
+        const dateStr = formatDate(rel.date);
+        const link = `[GitHub](${rel.url})`;
+
+        mdx += `### ${rel.title}\n\n`;
+        mdx += `${dateStr} | ${link}\n\n`;
+
+        let body = sanitizeForMDX(rel.body);
+        body = bumpHeadings(body);
+        body = body.replace(/\n{3,}/g, "\n\n").trim();
+        mdx += body + "\n\n---\n\n";
+      }
+
+      mdx += `</TabItem>\n\n`;
+    }
+
+    mdx += `</Tabs>\n\n`;
   } else {
     mdx += `No Walrus Memory releases found.\n\n`;
   }

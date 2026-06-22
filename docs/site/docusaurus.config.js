@@ -348,7 +348,7 @@ const config = {
             position: "right",
             label: "Data Storage",
           },
-          { to: "/blog", label: "Blog", position: "right" },
+          { to: "/docs/release-notes", label: "Release Notes", position: "right" },
           {
             href: "https://github.com/MystenLabs/walrus",
             position: "right",

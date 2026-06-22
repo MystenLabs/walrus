@@ -293,12 +293,12 @@ export default function NavbarContent() {
   const [leftItems, rightItems] = splitNavbarItems(items);
   const searchBarItem = items.find((item) => item.type === "search");
 
-  // Separate nav links (for tab row) from other items (blog, github)
+  // Separate nav links (for tab row) from action items (github icon)
   const sectionLinks = rightItems.filter(
-    (item) => item.type === "docSidebar" || item.docsPluginId
+    (item) => item.type === "docSidebar" || item.docsPluginId || item.to
   );
   const otherLinks = rightItems.filter(
-    (item) => item.type !== "docSidebar" && !item.docsPluginId
+    (item) => !item.type && !item.docsPluginId && !item.to
   );
 
   // Build the full tab list including Walrus Memory
