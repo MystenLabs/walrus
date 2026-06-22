@@ -295,10 +295,10 @@ export default function NavbarContent() {
 
   // Separate nav links (for tab row) from action items (github icon)
   const sectionLinks = rightItems.filter(
-    (item) => item.type === "docSidebar" || item.docsPluginId || item.to
+    (item) => item.type === "docSidebar" || item.docsPluginId
   );
   const otherLinks = rightItems.filter(
-    (item) => !item.type && !item.docsPluginId && !item.to
+    (item) => item.type !== "docSidebar" && !item.docsPluginId
   );
 
   // Build the full tab list including Walrus Memory

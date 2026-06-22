@@ -348,7 +348,12 @@ const config = {
             position: "right",
             label: "Data Storage",
           },
-          { to: "/docs/release-notes", label: "Release Notes", position: "right" },
+          {
+            type: "docSidebar",
+            sidebarId: "releaseNotesSidebar",
+            position: "right",
+            label: "Release Notes",
+          },
           {
             href: "https://github.com/MystenLabs/walrus",
             position: "right",

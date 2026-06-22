@@ -314,7 +314,15 @@ const sidebars = {
       ],
     },
     "tusky-migration-guide",
-    "release-notes",
+  ],
+
+  // ── Release Notes (standalone, no sidebar clutter) ───────────────
+  releaseNotesSidebar: [
+    {
+      type: "doc",
+      id: "release-notes",
+      label: "Release Notes",
+    },
   ],
 };
 
