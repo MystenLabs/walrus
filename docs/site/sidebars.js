@@ -314,6 +314,7 @@ const sidebars = {
       ],
     },
     "tusky-migration-guide",
+    "release-notes",
   ],
 };
 
