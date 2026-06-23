@@ -49,9 +49,9 @@ collectable = "0.0.2"
 colored = "3.1.1"
 const-str = "0.6.4"
 criterion = "0.8.2"
-diesel = { version = "2.2", features = ["chrono", "postgres", "serde_json", "uuid"] }
-diesel-async = { version = "0.6", features = ["postgres"] }
-diesel_migrations = { version = "2.2.0", features = ["postgres"] }
+diesel = { version = "2.3", features = ["chrono", "postgres", "serde_json", "uuid"] }
+diesel-async = { version = "0.9", features = ["postgres"] }
+diesel_migrations = { version = "2.3.0", features = ["postgres"] }
 enum_dispatch = "0.3"
 eyre = "0.6.12"
 fastcrypto = { git = "https://github.com/MystenLabs/fastcrypto", rev = "4db0e90c732bbf7420ca20de808b698883148d9c" }
@@ -130,10 +130,10 @@ sui-package-alt = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1
 sui-package-management = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.74.0" }
 sui-package-resolver = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.74.0" }
 sui-protocol-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.74.0" }
-sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "5b41bc701525f1b94f1fe63008d4841bc6fb1065" }
+sui-rpc = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "43c5bc13202ae398b1519a3eead1f40df8ca277b" }
 sui-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.74.0" }
 sui-sdk = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.74.0" }
-sui-sdk-types = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "5b41bc701525f1b94f1fe63008d4841bc6fb1065", features = [
+sui-sdk-types = { git = "https://github.com/MystenLabs/sui-rust-sdk.git", rev = "43c5bc13202ae398b1519a3eead1f40df8ca277b", features = [
   "hash",
   "serde",
 ] }
