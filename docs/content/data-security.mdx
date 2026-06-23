@@ -39,6 +39,28 @@ Seal integrates seamlessly with Walrus and is recommended for any use cases invo
 - Sensitive off-chain content, for example, user documents, game assets, or private messages
 - Time-locked or token-gated data
 - Data shared between trusted parties or roles
+- Agent state and memory that an autonomous agent persists between runs
+
+:::tip Walk through it end to end
+
+The [Encrypting data with Seal](/docs/seal-encryption-tutorial) tutorial has working TypeScript that encrypts a message, stores the ciphertext on Walrus, reads it back, and decrypts it.
+
+:::
+
+### Encrypting agent state
+
+A common pattern for AI agents is to keep working memory or accumulated state durable across runs by storing it on Walrus. Because Walrus blobs are public, encrypt that state with Seal before storing it, and gate decryption with a `seal_approve` policy that only the agent's identity (or its operator) satisfies. The agent encrypts and uploads at the end of a run, then reads and decrypts at the start of the next one, keeping the state confidential while it lives on Walrus.
+
+### Seal concepts
+
+A few terms appear throughout the Seal documentation and the tutorial:
+
+- **Access policy.** A Move function named `seal_approve` (or `seal_approve_*`) that decides who may decrypt. Seal key servers evaluate it against current onchain state before releasing decryption shares.
+- **Allowlist.** A common policy where a shared object holds a list of authorized addresses. It suits private documents and invitational sharing. Other patterns include token gating and time locks.
+- **Policy ID (identity).** The byte string a piece of data is encrypted under. It must begin with the policy's namespace (for an allowlist, the allowlist object's ID) so the policy's prefix check passes.
+- **Key servers and threshold.** Seal splits the decryption key across key servers; the threshold is how many must each return a share to decrypt. No single server can decrypt on its own.
+
+These are summarized here only as orientation. For the authoritative definitions, the full API, and the security model, see [Using Seal](https://seal-docs.wal.app/UsingSeal).
 
 :::tip Seal transactions need an explicit sender
 
@@ -52,7 +74,13 @@ If the sender is missing or does not match, decryption can fail with `Transactio
 
 :::
 
-To get started, refer to [Seal SDK](https://www.npmjs.com/package/@mysten/seal).
+### Troubleshooting
+
+- **Decryption needs to be online.** Decryption is not an offline operation: the client must reach the Seal key servers and the relevant Sui network so the policy can be evaluated and shares retrieved. Plan for network access wherever you decrypt.
+- **`Requested package is not supported`.** The key servers do not recognize your package on the network they serve. Confirm the package is published on the same network as the key servers, and that decryption targets that same network. Seal key servers are network-specific: a Testnet key server does not serve keys for a Mainnet package, and vice versa.
+- **`Transaction was not signed by the correct sender`.** Set the PTB sender with `tx.setSender()` and ensure it matches the address requesting access (see the tip above).
+
+To get started, follow the [Encrypting data with Seal](/docs/seal-encryption-tutorial) tutorial or refer to the [Seal SDK](https://www.npmjs.com/package/@mysten/seal).
 
 ## Nautilus: Secure and verifiable off-chain computation
 

@@ -1,0 +1,20 @@
+{
+  "name": "walrus-seal-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end encrypt/decrypt example using Seal and Walrus.",
+  "scripts": {
+    "encrypt": "tsx encrypt-and-store.ts",
+    "decrypt": "tsx read-and-decrypt.ts"
+  },
+  "dependencies": {
+    "@mysten/seal": "^1.2.1",
+    "@mysten/sui": "^2.19.0",
+    "@mysten/walrus": "^1.2.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
