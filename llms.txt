@@ -96,7 +96,8 @@ Sui smart contract as the on-chain index.
     output that indicates whether the specified blob is stored and its availability period.
 - [Storing Blobs](https://docs.wal.app/docs/walrus-client/storing-blobs.md):
     All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use
-    Seal or Nautilus to encrypt the data before storing it on Walrus.
+    Seal or Nautilus to encrypt the data before storing it on Walrus. For a worked example, see
+    Encrypting data with Seal.
 - [Walrus CLI](https://docs.wal.app/docs/walrus-client/walrus-cli.md):
     Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available
     by installing the walrus binary.
@@ -417,6 +418,12 @@ Sui smart contract as the on-chain index.
     This page is the single canonical reference for the volatile values you need to integrate with
     Walrus: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and
     staking object IDs, token units, and configuration snippets.
+
+## Seal Encryption Tutorial
+
+- [Seal Encryption Tutorial](https://docs.wal.app/docs/seal-encryption-tutorial.md):
+    Walrus stores blobs publicly: anyone with a blob ID can read the bytes. To keep data
+    confidential, encrypt it before you store it.
 
 ## Walrus Memory
 

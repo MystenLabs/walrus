@@ -8,7 +8,7 @@ The SDK bundles the package and object IDs for each network, so selecting a netw
 
 The Walrus core team is actively working on a Rust SDK for Walrus.
 
-For data security, use the [TypeScript SDK](https://www.npmjs.com/package/@mysten/seal) for Seal. It provides threshold encryption and onchain access control for decentralized data protection. Also, refer to [data security](/docs/data-security) for details.
+For data security, use the [TypeScript SDK](https://www.npmjs.com/package/@mysten/seal) for Seal. It provides threshold encryption and onchain access control for decentralized data protection. See the [Encrypting data with Seal](/docs/seal-encryption-tutorial) tutorial for a worked example, and [data security](/docs/data-security) for details.
 
 ## Community-maintained SDKs
 
