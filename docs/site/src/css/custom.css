@@ -1428,3 +1428,81 @@ padding-right: 0.3rem !important;
   opacity: 1 !important;
   transition: none !important;
 }
+
+/* ── Mermaid diagrams — Walrus palette, per-mode contrast ──────────────────
+   Node fill/text come from the Mermaid themeVariables (Purple #613DFF + Tusk
+   #FAF8F5). Edges, arrowheads, and subgraph backgrounds must contrast with the
+   page background, so they are set per color mode here. Labels render as SVG
+   <text> (htmlLabels: false), so colors are applied with `fill`/`stroke`.
+   Selectors are scoped to .docusaurus-mermaid-container and use !important to
+   override the color baked into the generated SVG's <style>. */
+
+/* Rounded corners for nodes and subgraphs, matching the brand cards. */
+.docusaurus-mermaid-container .node rect,
+.docusaurus-mermaid-container .cluster rect {
+  rx: 8px;
+  ry: 8px;
+}
+
+/* Light mode: vibrant Mint subgraph with high-contrast Midnight edges. */
+[data-theme="light"] .docusaurus-mermaid-container .flowchart-link {
+  stroke: #000000 !important;
+}
+[data-theme="light"] .docusaurus-mermaid-container marker path {
+  fill: #000000 !important;
+  stroke: #000000 !important;
+}
+[data-theme="light"] .docusaurus-mermaid-container .cluster rect {
+  fill: #98EFDD !important;
+  stroke: #613DFF !important;
+}
+[data-theme="light"] .docusaurus-mermaid-container .cluster-label text,
+[data-theme="light"] .docusaurus-mermaid-container .cluster-label tspan {
+  fill: #000000 !important;
+}
+
+/* Dark mode: subtle dark-violet subgraph with light Tusk edges. */
+[data-theme="dark"] .docusaurus-mermaid-container .flowchart-link {
+  stroke: #FAF8F5 !important;
+}
+[data-theme="dark"] .docusaurus-mermaid-container marker path {
+  fill: #FAF8F5 !important;
+  stroke: #FAF8F5 !important;
+}
+[data-theme="dark"] .docusaurus-mermaid-container .cluster rect {
+  fill: #1A1726 !important;
+  stroke: #613DFF !important;
+}
+[data-theme="dark"] .docusaurus-mermaid-container .cluster-label text,
+[data-theme="dark"] .docusaurus-mermaid-container .cluster-label tspan {
+  fill: #FAF8F5 !important;
+}
+
+/* Sequence diagrams: message text and message lines also need per-mode
+   contrast (they use signalText/signalColor, set light for dark mode). Actor
+   boxes keep the Purple fill + white text from themeVariables. */
+[data-theme="light"] .docusaurus-mermaid-container .messageText,
+[data-theme="light"] .docusaurus-mermaid-container .loopText,
+[data-theme="light"] .docusaurus-mermaid-container .loopText tspan,
+[data-theme="light"] .docusaurus-mermaid-container .labelText,
+[data-theme="light"] .docusaurus-mermaid-container .labelText tspan,
+[data-theme="light"] .docusaurus-mermaid-container .sequenceNumber {
+  fill: #000000 !important;
+}
+[data-theme="light"] .docusaurus-mermaid-container .messageLine0,
+[data-theme="light"] .docusaurus-mermaid-container .messageLine1 {
+  stroke: #000000 !important;
+}
+
+[data-theme="dark"] .docusaurus-mermaid-container .messageText,
+[data-theme="dark"] .docusaurus-mermaid-container .loopText,
+[data-theme="dark"] .docusaurus-mermaid-container .loopText tspan,
+[data-theme="dark"] .docusaurus-mermaid-container .labelText,
+[data-theme="dark"] .docusaurus-mermaid-container .labelText tspan,
+[data-theme="dark"] .docusaurus-mermaid-container .sequenceNumber {
+  fill: #FAF8F5 !important;
+}
+[data-theme="dark"] .docusaurus-mermaid-container .messageLine0,
+[data-theme="dark"] .docusaurus-mermaid-container .messageLine1 {
+  stroke: #FAF8F5 !important;
+}
