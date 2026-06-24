@@ -221,13 +221,14 @@ fn resolve_git_rev(git_url: &str, rev: &str) -> Result<String> {
 fn pin_framework_revs(package_path: &Path) -> Result<()> {
     use std::collections::{HashMap, HashSet};
 
-    static GIT_DEP: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    // Compile the regexes as plain locals rather than process-global `LazyLock` statics: a static
+    // is initialized exactly once for the whole process, so under a determinism test (same test run
+    // twice in one process) the first run pays the initialization while the second skips it, making
+    // the two runs diverge. Locals are rebuilt identically on every call, so both runs match.
+    let git_dep =
         regex::Regex::new(r#"git\s*=\s*"(?P<url>[^"]+)"[^\n]*?rev\s*=\s*"(?P<rev>[^"]+)""#)
-            .expect("static regex compiles")
-    });
-    static LOCAL_DEP: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        regex::Regex::new(r#"local\s*=\s*"(?P<path>[^"]+)""#).expect("static regex compiles")
-    });
+            .expect("regex compiles");
+    let local_dep = regex::Regex::new(r#"local\s*=\s*"(?P<path>[^"]+)""#).expect("regex compiles");
 
     fn inner(
         package_path: &Path,
@@ -287,7 +288,7 @@ fn pin_framework_revs(package_path: &Path) -> Result<()> {
         Ok(())
     }
 
-    inner(package_path, &mut HashSet::new(), &GIT_DEP, &LOCAL_DEP)
+    inner(package_path, &mut HashSet::new(), &git_dep, &local_dep)
 }
 
 /// Synchronous method to compile the package. Should only be called from an async context
