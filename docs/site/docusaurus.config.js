@@ -332,6 +332,12 @@ const config = {
         items: [
           {
             type: "docSidebar",
+            sidebarId: "docsSidebar",
+            position: "right",
+            label: "Data Storage",
+          },
+          {
+            type: "docSidebar",
             sidebarId: "consoleSidebar",
             position: "right",
             label: "Walrus Console",
@@ -341,12 +347,6 @@ const config = {
             sidebarId: "marketplaceSidebar",
             position: "right",
             label: "Walrus Marketplace",
-          },
-          {
-            type: "docSidebar",
-            sidebarId: "docsSidebar",
-            position: "right",
-            label: "Data Storage",
           },
           {
             to: "/docs/release-notes",

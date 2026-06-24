@@ -310,9 +310,9 @@ export default function NavbarContent() {
     position: "right",
   };
 
-  // Insert Walrus Memory after Walrus Console
+  // Insert Walrus Memory after Data Storage
   const insertAfter = sectionLinks.findIndex(
-    (item) => item.sidebarId === "consoleSidebar" || item.label === "Walrus Console"
+    (item) => item.sidebarId === "docsSidebar" || item.label === "Data Storage"
   );
   const tabItems = [
     ...sectionLinks.slice(0, insertAfter + 1),

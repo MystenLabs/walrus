@@ -14,8 +14,6 @@
 /** @type {import('@docusaurus/plugin-content-docs').SidebarsConfig} */
 const sidebars = {
   walrusMemorySidebar: [
-    { type: "doc", id: "index", label: "Walrus Memory" },
-
     // ── 1. Get Started ───────────────────────────────────────────
     {
       type: "category",
@@ -82,13 +80,11 @@ const sidebars = {
             "sdk/usage/with-memwal",
           ],
         },
-        "sdk/ai-integration",
         "sdk/examples",
-        "sdk/cookbook-multi-tenant",
-        "sdk/cloudflare-workers",
+        { type: "doc", id: "sdk/ai-integration", label: "AI SDK Integration" },
+        { type: "doc", id: "sdk/cookbook-multi-tenant", label: "Multi-Tenant Apps" },
+        { type: "doc", id: "sdk/cloudflare-workers", label: "Cloudflare Workers" },
         "sdk/advanced-usage",
-        "sdk/research-app-example",
-        "sdk/example-map",
         "sdk/api-reference",
       ],
     },
