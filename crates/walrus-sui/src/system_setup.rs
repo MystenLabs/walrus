@@ -162,35 +162,21 @@ pub async fn compile_package(
     .await?
 }
 
-/// Process-global cache mapping `(git_url, rev)` to the resolved 40-character commit SHA.
+/// Resolves a git `rev` (branch or tag) to a full commit SHA via `git ls-remote`. Returns `rev`
+/// unchanged if it is already a 40-character hex SHA.
 ///
-/// Under simtest, `compile_package` repins framework dependencies straight from the manifests on
-/// every call (see `force_repin`), and each unresolved `rev` (a branch or tag) makes the Move
-/// package loader shell out to `git ls-remote`. Every Walrus contract pins the same Sui framework
-/// tag, so across the many `compile_package` calls in a test (publish, upgrade, per-node digest
-/// votes) those lookups are massively redundant and slow enough to time the test out. Resolving
-/// each `(url, rev)` once and rewriting the staged manifests to use the resulting SHA lets the
-/// loader short-circuit (`find_sha` returns immediately for a full SHA) with no further network.
-#[cfg(msim)]
-static RESOLVED_GIT_REVS: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<(String, String), String>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-
-/// Resolves a git `rev` (branch or tag) to a full commit SHA via `git ls-remote`, memoized per
-/// process. Returns `rev` unchanged if it is already a 40-character hex SHA.
+/// Deliberately holds no cross-call state: under simtest, `compile_package` repins framework
+/// dependencies straight from the manifests on every call (see `force_repin`), and each unresolved
+/// `rev` (a branch or tag) makes the Move package loader shell out to `git ls-remote`. Those
+/// lookups are deduplicated by the on-disk manifest rewrite in [`pin_framework_revs`] — once a
+/// staged manifest carries a full SHA, the loader (and a re-run of this code) short-circuits — so
+/// the only memoization is per staged tree, which is scoped to a single test run. A process-global
+/// cache would instead leak across the two runs of a determinism test (run 1 resolves and shells
+/// out, run 2 hits the cache), making them diverge.
 #[cfg(msim)]
 fn resolve_git_rev(git_url: &str, rev: &str) -> Result<String> {
     if rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Ok(rev.to_string());
-    }
-
-    let key = (git_url.to_string(), rev.to_string());
-    if let Some(sha) = RESOLVED_GIT_REVS
-        .lock()
-        .expect("lock not poisoned")
-        .get(&key)
-    {
-        return Ok(sha.clone());
     }
 
     // Mirror the Move loader: a single `ls-remote` for the tag and branch refs. For annotated
@@ -224,13 +210,7 @@ fn resolve_git_rev(git_url: &str, rev: &str) -> Result<String> {
         }
         resolved.get_or_insert_with(|| sha.to_string());
     }
-    let sha = resolved.ok_or_else(|| anyhow!("`git ls-remote` returned no ref for `{rev}`"))?;
-
-    RESOLVED_GIT_REVS
-        .lock()
-        .expect("lock not poisoned")
-        .insert(key, sha.clone());
-    Ok(sha)
+    resolved.ok_or_else(|| anyhow!("`git ls-remote` returned no ref for `{rev}`"))
 }
 
 /// Rewrites git `rev` fields in the manifest at `package_path` (and, recursively, those of its
@@ -293,7 +273,10 @@ fn pin_framework_revs(package_path: &Path) -> Result<()> {
             let tmp_path = manifest_path.with_extension("toml.tmp");
             std::fs::write(&tmp_path, rewritten.as_ref())?;
             std::fs::rename(&tmp_path, &manifest_path)?;
-            tracing::debug!(?manifest_path, "pinned framework git revs to shas for simtest");
+            tracing::debug!(
+                ?manifest_path,
+                "pinned framework git revs to shas for simtest"
+            );
         }
 
         // Follow local dependencies (siblings within the staged tree).
