@@ -607,7 +607,8 @@ impl InfoCommissionReceiversOutput {
 
         // Resolve the owner address of every distinct object commission receiver. Owners that do
         // not resolve to an address (shared, immutable, or object-owned) are simply left out of
-        // the map and reported as `None`.
+        // the map and reported as `None`. RPC errors, on the other hand, are propagated so the
+        // command fails rather than silently reporting an empty owner.
         let object_receiver_ids = staking_pools
             .values()
             .filter_map(|pool| match &pool.commission_receiver {
@@ -616,14 +617,13 @@ impl InfoCommissionReceiversOutput {
             })
             .unique();
         let receiver_owners: HashMap<ObjectID, SuiAddress> =
-            futures::future::join_all(object_receiver_ids.map(|object_id| async move {
+            futures::future::try_join_all(object_receiver_ids.map(|object_id| async move {
                 retriable_sui_client
                     .get_object_owner_address(object_id)
                     .await
-                    .ok()
-                    .map(|owner| (object_id, owner))
+                    .map(|owner| owner.map(|owner| (object_id, owner)))
             }))
-            .await
+            .await?
             .into_iter()
             .flatten()
             .collect();
