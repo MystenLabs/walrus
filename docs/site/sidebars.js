@@ -66,6 +66,7 @@ const sidebars = {
         'walrus-client/storing-blobs',
         'walrus-client/reading-blobs',
         'walrus-client/managing-blobs',
+        'walrus-client/verifying-availability',
         'walrus-client/json-mode',
         'walrus-client/quilts',
       ],
