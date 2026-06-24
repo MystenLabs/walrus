@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Head from '@docusaurus/Head';
+import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import WalrusLogo from '@site/static/img/Walrus_Docs.svg';
 import SearchModal from '@site/src/components/Search/SearchModal';
@@ -424,12 +425,6 @@ export default function LandingPage() {
     };
   }, []);
 
-  // Resolve internal paths through baseUrl so links work on preview deploys
-  const storageUrl = useBaseUrl('/docs/getting-started');
-  const memoryUrl = useBaseUrl('/walrus-memory/getting-started/what-is-walrus-memory');
-  const consoleUrl = useBaseUrl('/docs/console');
-  const marketplaceUrl = useBaseUrl('/docs/marketplace');
-
   const arrowIcon = (
     <svg viewBox="0 0 13 13" fill="none">
       <path
@@ -504,7 +499,7 @@ export default function LandingPage() {
         </div>
 
         <div className="quickstart">
-          <a className="qs-card qs-card--purple" href={storageUrl}>
+          <Link className="qs-card qs-card--purple" to="/docs/getting-started">
             <div className="qs-card-top">
               <div className="qs-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -517,8 +512,8 @@ export default function LandingPage() {
             </div>
             <p>Verifiable storage, erasure coding, and programmable access.</p>
             <span className="qs-arrow">Get started {arrowIcon}</span>
-          </a>
-          <a className="qs-card qs-card--mint" href={memoryUrl}>
+          </Link>
+          <Link className="qs-card qs-card--mint" to="/walrus-memory/getting-started/what-is-walrus-memory">
             <div className="qs-card-top">
               <div className="qs-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -530,8 +525,8 @@ export default function LandingPage() {
             </div>
             <p>Portable, encrypted memory for AI agents.</p>
             <span className="qs-arrow">Learn more {arrowIcon}</span>
-          </a>
-          <a className="qs-card qs-card--yellow" href={consoleUrl}>
+          </Link>
+          <Link className="qs-card qs-card--yellow" to="/docs/console">
             <div className="qs-card-top">
               <div className="qs-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -543,8 +538,8 @@ export default function LandingPage() {
             </div>
             <p>Visual dashboard for the Walrus network.</p>
             <span className="qs-arrow">Coming soon {arrowIcon}</span>
-          </a>
-          <a className="qs-card qs-card--purple" href={marketplaceUrl}>
+          </Link>
+          <Link className="qs-card qs-card--purple" to="/docs/marketplace">
             <div className="qs-card-top">
               <div className="qs-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -556,7 +551,7 @@ export default function LandingPage() {
             </div>
             <p>Buy, sell, and trade data and storage on Walrus.</p>
             <span className="qs-arrow">Coming soon {arrowIcon}</span>
-          </a>
+          </Link>
         </div>
 
         <footer className="page-footer">
