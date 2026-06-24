@@ -96,7 +96,8 @@ Sui smart contract as the on-chain index.
     output that indicates whether the specified blob is stored and its availability period.
 - [Storing Blobs](https://docs.wal.app/docs/walrus-client/storing-blobs.md):
     All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use
-    Seal or Nautilus to encrypt the data before storing it on Walrus.
+    Seal or Nautilus to encrypt the data before storing it on Walrus. For a worked example, see
+    Encrypting data with Seal.
 - [Walrus CLI](https://docs.wal.app/docs/walrus-client/walrus-cli.md):
     Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available
     by installing the walrus binary.
@@ -405,7 +406,33 @@ Sui smart contract as the on-chain index.
 
 ## Console
 
+- [API Keys](https://docs.wal.app/docs/console/api/api-keys.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [API Reference](https://docs.wal.app/docs/console/api/api-reference.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [MCP Server Setup](https://docs.wal.app/docs/console/api/mcp-server.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Free Tier](https://docs.wal.app/docs/console/billing/free-tier.md):
+    > Info > > This page is under development. Check back soon for updates.
 - [Plans and Pricing](https://docs.wal.app/docs/console/billing/plans-pricing.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Usage-Based Pricing](https://docs.wal.app/docs/console/billing/usage-pricing.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Access Models](https://docs.wal.app/docs/console/datasets/access-models.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [List on Marketplace](https://docs.wal.app/docs/console/datasets/list-on-marketplace.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Upload a Dataset](https://docs.wal.app/docs/console/datasets/upload-dataset.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [What Are Datasets](https://docs.wal.app/docs/console/datasets/what-are-datasets.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Epoch Renewal](https://docs.wal.app/docs/console/files/epoch-renewal.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Manage Files](https://docs.wal.app/docs/console/files/manage-files.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Storage Limits](https://docs.wal.app/docs/console/files/storage-limits.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Upload and Browse](https://docs.wal.app/docs/console/files/upload-browse.md):
     > Info > > This page is under development. Check back soon for updates.
 - [Create an Account](https://docs.wal.app/docs/console/get-started/create-account.md):
     > Info > > This page is under development. Check back soon for updates.
@@ -413,13 +440,25 @@ Sui smart contract as the on-chain index.
     > Info > > This page is under development. Check back soon for updates.
 - [Your First Upload](https://docs.wal.app/docs/console/get-started/first-upload.md):
     > Info > > This page is under development. Check back soon for updates.
+- [What Is Walrus Console](https://docs.wal.app/docs/console/get-started/what-is-console.md):
+    > Info > > This page is under development. Check back soon for updates.
 - [Walrus Console](https://docs.wal.app/docs/console.md):
     > Info > > This page is under development. Check back soon for updates.
-- [Manage Access](https://docs.wal.app/docs/console/manage-storage/manage-access.md):
+- [Browse Memory Objects](https://docs.wal.app/docs/console/memory/browse-objects.md):
     > Info > > This page is under development. Check back soon for updates.
-- [Monitor Usage](https://docs.wal.app/docs/console/manage-storage/monitor-usage.md):
+- [Epoch Renewal for Memory](https://docs.wal.app/docs/console/memory/epoch-renewal.md):
     > Info > > This page is under development. Check back soon for updates.
-- [Upload and Browse](https://docs.wal.app/docs/console/manage-storage/upload-browse.md):
+- [Memory Namespaces](https://docs.wal.app/docs/console/memory/namespaces.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Authentication](https://docs.wal.app/docs/console/security/authentication.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Security Audit](https://docs.wal.app/docs/console/security/security-audit.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Create a Team Space](https://docs.wal.app/docs/console/teams/create-team.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Invite Members](https://docs.wal.app/docs/console/teams/invite-members.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Shared API Keys](https://docs.wal.app/docs/console/teams/shared-api-keys.md):
     > Info > > This page is under development. Check back soon for updates.
 
 ## Costs
@@ -445,9 +484,17 @@ Sui smart contract as the on-chain index.
 
 - [Marketplace API Reference](https://docs.wal.app/docs/marketplace/build-integrations/api-reference.md):
     > Info > > This page is under development. Check back soon for updates.
+- [Console to Marketplace Sync](https://docs.wal.app/docs/marketplace/build-integrations/console-sync.md):
+    > Info > > This page is under development. Check back soon for updates.
 - [Embed Marketplace Widgets](https://docs.wal.app/docs/marketplace/build-integrations/embed-widgets.md):
     > Info > > This page is under development. Check back soon for updates.
 - [Webhooks and Events](https://docs.wal.app/docs/marketplace/build-integrations/webhooks-events.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Access Licensed Data](https://docs.wal.app/docs/marketplace/consumers/access-licensed-data.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [License a Dataset](https://docs.wal.app/docs/marketplace/consumers/license-dataset.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Renewals and Cancellations](https://docs.wal.app/docs/marketplace/consumers/renewals.md):
     > Info > > This page is under development. Check back soon for updates.
 - [Browse Listings](https://docs.wal.app/docs/marketplace/get-started/browse-listings.md):
     > Info > > This page is under development. Check back soon for updates.
@@ -463,6 +510,16 @@ Sui smart contract as the on-chain index.
     > Info > > This page is under development. Check back soon for updates.
 - [Pricing and Royalties](https://docs.wal.app/docs/marketplace/list-and-sell/pricing-royalties.md):
     > Info > > This page is under development. Check back soon for updates.
+- [Access Control](https://docs.wal.app/docs/marketplace/publishers/access-control.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Analytics](https://docs.wal.app/docs/marketplace/publishers/analytics.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Create a Listing](https://docs.wal.app/docs/marketplace/publishers/create-listing.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Managing Your Listings](https://docs.wal.app/docs/marketplace/publishers/manage-listings.md):
+    > Info > > This page is under development. Check back soon for updates.
+- [Pricing and Royalties](https://docs.wal.app/docs/marketplace/publishers/pricing-royalties.md):
+    > Info > > This page is under development. Check back soon for updates.
 
 ## Network Reference
 
@@ -475,6 +532,12 @@ Sui smart contract as the on-chain index.
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
     Release notes from Walrus, Walrus Memory, and the Walrus blog.
+
+## Seal Encryption Tutorial
+
+- [Seal Encryption Tutorial](https://docs.wal.app/docs/seal-encryption-tutorial.md):
+    Walrus stores blobs publicly: anyone with a blob ID can read the bytes. To keep data
+    confidential, encrypt it before you store it.
 
 ## Walrus Memory
 
