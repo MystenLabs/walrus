@@ -11,6 +11,7 @@ import Tabs from "@theme/Tabs";
 import TabItem from "@theme/TabItem";
 import {Card, Cards} from "../../shared/components/Cards";
 import AgentPrompt from "../../shared/components/AgentPrompt";
+import CodeWalkthrough, { Step } from "@site/src/shared/components/CodeWalkthrough";
 
 export default function MDXContent({ children }) {
     const suiComponents = {
@@ -22,7 +23,9 @@ export default function MDXContent({ children }) {
         TabItem,
         Cards,
         Card,
-        AgentPrompt
+        AgentPrompt,
+        CodeWalkthrough,
+        Step
     };
     return <MDXProvider components={suiComponents}>{children}</MDXProvider>;
 }
