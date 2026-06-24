@@ -368,6 +368,12 @@ const config = {
           dark: "base",
         },
         options: {
+          // Render node labels as native SVG <text> instead of HTML in
+          // <foreignObject>. Docusaurus scales the diagram down to the content
+          // column width (width:100%), and Chrome incorrectly rasterizes scaled
+          // foreignObject HTML, clipping the label text. SVG text scales cleanly.
+          htmlLabels: false,
+          flowchart: { htmlLabels: false },
           themeVariables: {
             background: "#000000",
             primaryColor: "#613DFF",
@@ -379,9 +385,9 @@ const config = {
             secondBkg: "#1E1A33",
             tertiaryColor: "#98EFDD",
             tertiaryTextColor: "#000000",
-            lineColor: "#98EFDD",
-            signalColor: "#98EFDD",
-            signalTextColor: "#98EFDD",
+            lineColor: "#FAF8F5",
+            signalColor: "#FAF8F5",
+            signalTextColor: "#FAF8F5",
             noteBkgColor: "#1E1A33",
             noteTextColor: "#FAF8F5",
             noteBorderColor: "#98EFDD",
@@ -392,7 +398,7 @@ const config = {
             labelTextColor: "#FAF8F5",
             loopTextColor: "#FAF8F5",
             fontSize: "14px",
-            fontFamily: "Inter, sans-serif",
+            fontFamily: "\"DM Sans\", -apple-system, BlinkMacSystemFont, sans-serif",
           },
         },
       },
