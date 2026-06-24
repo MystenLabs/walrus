@@ -85,7 +85,7 @@ $ walrus blob-status --blob-id <BLOB_ID>
 
 This reports whether the blob is stored and its availability period. When the blob is available, it also returns the `BlobCertified` Sui event ID, a transaction ID and a sequence number, whose existence certifies availability. Read the current epoch with `walrus info`.
 
-To check programmatically, read the `Blob` object from Sui and assert the fields. If your agent just wrote the blob, the write result already includes the blob object, so re-read it from Sui by its object ID to confirm current on-chain state before depending on it:
+To check programmatically, read the `Blob` object from Sui and assert the fields. If your agent just wrote the blob, the write result already includes the blob object, so re-read it from Sui by its object ID to confirm current onchain state before depending on it:
 
 ```ts
 const res = await suiClient.getObject({
