@@ -370,7 +370,7 @@ const config = {
         options: {
           // Render node labels as native SVG <text> instead of HTML in
           // <foreignObject>. Docusaurus scales the diagram down to the content
-          // column width (width:100%), and Chrome mis-rasterizes scaled
+          // column width (width:100%), and Chrome incorrectly rasterizes scaled
           // foreignObject HTML, clipping the label text. SVG text scales cleanly.
           htmlLabels: false,
           flowchart: { htmlLabels: false },

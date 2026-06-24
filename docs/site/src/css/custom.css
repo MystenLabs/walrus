@@ -1429,13 +1429,13 @@ padding-right: 0.3rem !important;
   transition: none !important;
 }
 
-/* ── Mermaid diagrams — Walrus palette, per-mode contrast ──────────────────
-   Node fill/text come from the Mermaid themeVariables (Purple #613DFF + Tusk
-   #FAF8F5). Edges, arrowheads, and subgraph backgrounds must contrast with the
-   page background, so they are set per color mode here. Labels render as SVG
-   <text> (htmlLabels: false), so colors are applied with `fill`/`stroke`.
-   Selectors are scoped to .docusaurus-mermaid-container and use !important to
-   override the color baked into the generated SVG's <style>. */
+/* Mermaid diagrams - Walrus palette, per-mode contrast.
+  Node fill/text come from the Mermaid themeVariables (Purple #613DFF + Tusk
+  #FAF8F5). Edges, arrowheads, and subgraph backgrounds must contrast with the
+  page background, so they are set per color mode here. Labels render as SVG
+  <text> (htmlLabels: false), so colors are applied with fill/stroke. Selectors
+  are scoped to .docusaurus-mermaid-container and use !important to override the
+  color baked into the generated SVG <style>. */
 
 /* Rounded corners for nodes and subgraphs, matching the brand cards. */
 .docusaurus-mermaid-container .node rect,
@@ -1479,8 +1479,8 @@ padding-right: 0.3rem !important;
 }
 
 /* Sequence diagrams: message text and message lines also need per-mode
-   contrast (they use signalText/signalColor, set light for dark mode). Actor
-   boxes keep the Purple fill + white text from themeVariables. */
+  contrast (they use signalText/signalColor, set light for dark mode). Actor
+  boxes keep the Purple fill + white text from themeVariables. */
 [data-theme="light"] .docusaurus-mermaid-container .messageText,
 [data-theme="light"] .docusaurus-mermaid-container .loopText,
 [data-theme="light"] .docusaurus-mermaid-container .loopText tspan,
