@@ -11,7 +11,7 @@
  */
 
 const sidebars = {
-  // ── Walrus Console (placeholder) ─────────────────────────────────
+  // ── Walrus Console ────────────────────────────────────────────────
   consoleSidebar: [
     {
       type: "category",
@@ -19,6 +19,7 @@ const sidebars = {
       collapsed: false,
       link: { type: "doc", id: "console/index" },
       items: [
+        "console/get-started/what-is-console",
         "console/get-started/create-account",
         "console/get-started/dashboard-tour",
         "console/get-started/first-upload",
@@ -26,23 +27,78 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "Manage Storage",
+      label: "Files and Storage",
       collapsed: true,
       items: [
-        "console/manage-storage/upload-browse",
-        "console/manage-storage/monitor-usage",
-        "console/manage-storage/manage-access",
+        "console/files/upload-browse",
+        "console/files/manage-files",
+        "console/files/epoch-renewal",
+        "console/files/storage-limits",
+      ],
+    },
+    {
+      type: "category",
+      label: "Walrus Memory",
+      collapsed: true,
+      items: [
+        "console/memory/namespaces",
+        "console/memory/browse-objects",
+        "console/memory/epoch-renewal",
+      ],
+    },
+    {
+      type: "category",
+      label: "Datasets",
+      collapsed: true,
+      items: [
+        "console/datasets/what-are-datasets",
+        "console/datasets/upload-dataset",
+        "console/datasets/access-models",
+        "console/datasets/list-on-marketplace",
+      ],
+    },
+    {
+      type: "category",
+      label: "API and MCP",
+      collapsed: true,
+      items: [
+        "console/api/api-keys",
+        "console/api/mcp-server",
+        "console/api/api-reference",
+      ],
+    },
+    {
+      type: "category",
+      label: "Team Spaces",
+      collapsed: true,
+      items: [
+        "console/teams/create-team",
+        "console/teams/invite-members",
+        "console/teams/shared-api-keys",
       ],
     },
     {
       type: "category",
       label: "Billing",
       collapsed: true,
-      items: ["console/billing/plans-pricing"],
+      items: [
+        "console/billing/free-tier",
+        "console/billing/usage-pricing",
+        "console/billing/plans-pricing",
+      ],
+    },
+    {
+      type: "category",
+      label: "Security",
+      collapsed: true,
+      items: [
+        "console/security/authentication",
+        "console/security/security-audit",
+      ],
     },
   ],
 
-  // ── Walrus Marketplace (placeholder) ─────────────────────────────
+  // ── Walrus Marketplace ──────────────────────────────────────────
   marketplaceSidebar: [
     {
       type: "category",
@@ -57,12 +113,24 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "List and Sell",
+      label: "For Publishers",
       collapsed: true,
       items: [
-        "marketplace/list-and-sell/create-listing",
-        "marketplace/list-and-sell/pricing-royalties",
-        "marketplace/list-and-sell/manage-listings",
+        "marketplace/publishers/create-listing",
+        "marketplace/publishers/pricing-royalties",
+        "marketplace/publishers/access-control",
+        "marketplace/publishers/manage-listings",
+        "marketplace/publishers/analytics",
+      ],
+    },
+    {
+      type: "category",
+      label: "For Consumers",
+      collapsed: true,
+      items: [
+        "marketplace/consumers/license-dataset",
+        "marketplace/consumers/access-licensed-data",
+        "marketplace/consumers/renewals",
       ],
     },
     {
@@ -73,6 +141,7 @@ const sidebars = {
         "marketplace/build-integrations/api-reference",
         "marketplace/build-integrations/embed-widgets",
         "marketplace/build-integrations/webhooks-events",
+        "marketplace/build-integrations/console-sync",
       ],
     },
   ],
