@@ -1490,6 +1490,8 @@ html.kapa-sidebar-open .col[class*="docItemCol"] {
   html.kapa-sidebar-open .navbar--fixed-top {
     right: 0 !important;
   }
+}
+
 /* Mermaid diagrams - Walrus palette, per-mode contrast.
   Node fill/text come from the Mermaid themeVariables (Purple #613DFF + Tusk
   #FAF8F5). Edges, arrowheads, and subgraph backgrounds must contrast with the
