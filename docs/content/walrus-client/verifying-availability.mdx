@@ -9,7 +9,7 @@ When an agent stores data on Walrus, or receives a blob ID and plans to build on
 
 ## What durable storage means on Walrus
 
-Walrus represents each stored blob as a Sui object of type `Blob`, paired with a `Storage` object that reserves space for a fixed period. A blob moves through 2 states: registered, where storage nodes expect its slivers, and certified, where enough slivers are stored to guarantee availability. A blob is safe to depend on only after it is certified, and only until its storage period ends.
+In the standard store path, Walrus represents each stored blob as a Sui object of type `Blob`, paired with a `Storage` object that reserves space for a fixed period. A blob moves through two states: registered, where storage nodes expect its slivers, and certified, where enough slivers are stored to guarantee availability. A blob is safe to depend on only after it is certified, and only until its storage period ends.
 
 Both objects expose fields you can read from Sui:
 
