@@ -92,10 +92,18 @@ const res = await suiClient.getObject({
   id: blobObjectId, // blobObject.id from the write result
   options: { showContent: true },
 });
-const fields = res.data?.content?.fields;
+if (res.data?.content?.dataType !== "moveObject") {
+  throw new Error("Blob object was not found on Sui");
+}
 
-const certified = fields.certified_epoch != null;
-const endEpoch = Number(fields.storage.fields.end_epoch);
+const fields = res.data.content.fields as Record<string, any>;
+const storageFields = fields.storage?.fields;
+
+// The parsed Move Option<u32> is Some(epoch) when vec contains one value.
+const certifiedEpoch = fields.certified_epoch?.fields?.vec?.[0] ?? null;
+
+const certified = certifiedEpoch != null;
+const endEpoch = Number(storageFields.end_epoch);
 const deletable = fields.deletable === true;
 
 const durable = certified && currentEpoch < endEpoch && !deletable;
