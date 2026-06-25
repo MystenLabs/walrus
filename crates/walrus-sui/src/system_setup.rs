@@ -123,11 +123,10 @@ pub(crate) async fn publish_package_with_default_build_config(
 /// take this fallback; that is acceptable because they publish to throwaway local networks.
 fn select_environment(
     package_path: &Path,
-    chain_id: Option<String>,
+    chain_id: String,
     wallet: &Wallet,
 ) -> Result<Environment> {
     let alias = wallet.get_active_env().alias.clone();
-    let chain_id = chain_id.unwrap_or_default();
     let manifest_envs: Vec<(EnvironmentName, EnvironmentID)> =
         RootPackage::<SuiFlavor>::environments(package_path, &wallet.sui_flavor())
             .context("failed to read the package environments from the manifest")?
@@ -173,7 +172,7 @@ fn resolve_environment(
 pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
-    chain_id: Option<String>,
+    chain_id: String,
     wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
     // Under simtest, pre-resolve framework `rev`s in the staged manifests to commit SHAs so the
@@ -344,7 +343,7 @@ fn pin_framework_revs(package_path: &Path) -> Result<()> {
 fn compile_package_inner_blocking(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
-    chain_id: Option<String>,
+    chain_id: String,
     root_pkg: RootPackage<SuiFlavor>,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
     let mut stdout = std::io::stdout();
@@ -467,7 +466,7 @@ pub(crate) async fn publish_package(
     let chain_id = retry_client.get_chain_identifier().await?;
 
     let (compiled_package, final_build_config, mut root_package) =
-        compile_package(package_path, build_config, Some(chain_id.clone()), wallet).await?;
+        compile_package(package_path, build_config, chain_id.clone(), wallet).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
     let transaction_kind = {
