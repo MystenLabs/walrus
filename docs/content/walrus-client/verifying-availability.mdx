@@ -58,7 +58,7 @@ Before you depend on a blob, confirm all three conditions. If you have the `Blob
 - **Within its storage period:** the current epoch is less than `storage.end_epoch`. Require enough epochs of margin for how long you need the data.
 - **Not deletable, when you need persistence:** `deletable` is `false`, so the owner cannot remove the blob before it expires.
 
-A certified blob object looks like this when read as JSON:
+A certified, non-deletable `Blob` object looks like this when read as JSON:
 
 ```json
 {
