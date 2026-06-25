@@ -348,6 +348,7 @@ const config = {
             label: "Service Providers",
             position: "right",
           },
+          { to: "/skills", label: "Skills", position: "right" },
           { to: "/blog", label: "Blog", position: "right" },
           {
             href: "https://github.com/MystenLabs/walrus",
