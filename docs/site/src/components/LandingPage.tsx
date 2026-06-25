@@ -131,103 +131,90 @@ html, body { background: #0d0f12 !important; }
 
 /* ── Hero ── */
 .landing-root .hero {
-  position: relative; padding: 80px 0 48px; overflow: hidden;
+  position: relative; padding: 48px 0 24px; overflow: hidden;
   background: var(--black);
 }
 .landing-root .hero-inner {
-  position: relative; z-index: 5; max-width: 1500px;
-  margin-bottom: 36px; padding-top: 20px;
-}
-.landing-root .hero-badge {
-  display: inline-block;
-  font-family: var(--mono); font-size: 0.72rem; font-weight: 500;
-  letter-spacing: 0.08em; text-transform: uppercase;
-  color: var(--purple); margin-bottom: 16px;
+  position: relative; z-index: 5;
+  margin-bottom: 0; padding-top: 0;
+  text-align: center;
   opacity: 0; animation: landingFadeIn 0.5s ease forwards 0.1s;
 }
-.landing-root .hero h1 {
-  font-size: clamp(2rem, 5vw, 3rem);
-  font-weight: 500; line-height: 1.08; letter-spacing: -0.025em;
-  margin-bottom: 14px; color: var(--white);
-  opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.2s;
+.landing-root .hero-title {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  font-weight: 600; line-height: 1.15; letter-spacing: -0.03em;
+  margin: 0 0 12px; color: var(--white);
 }
-.landing-root .hero p {
-  font-size: 1rem; color: var(--white); line-height: 1.6;
-  max-width: 1500px;
-  opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.35s;
+.landing-root .hero-sub {
+  font-size: 1rem; color: var(--white); opacity: 0.55;
+  line-height: 1.55; max-width: 560px; margin: 0 auto;
 }
 
-/* ── Product cards ── */
-.landing-root .quickstart {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
-  padding-bottom: 0;
-  opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.65s;
+/* ── Product card grid (Mem0-inspired) ── */
+.landing-root .product-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;
+  padding: 32px 0 0;
+  opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.3s;
 }
 @media (max-width: 640px) {
-  .landing-root .quickstart { grid-template-columns: 1fr; }
+  .landing-root .product-grid { grid-template-columns: 1fr; }
 }
-.landing-root .qs-card {
-  position: relative; overflow: hidden;
+
+.landing-root .product-card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 24px 22px 20px;
-  transition: all 0.25s ease; cursor: pointer;
-  display: flex; flex-direction: column; gap: 8px;
+  border-radius: 14px; padding: 0;
+  transition: all 0.2s ease; cursor: pointer;
+  display: flex; flex-direction: column;
+  text-decoration: none !important;
+  overflow: hidden;
 }
-.landing-root .qs-card::before {
-  content: ''; position: absolute; inset: 0; opacity: 0;
-  transition: opacity 0.3s ease; border-radius: inherit; z-index: 0;
-}
-.landing-root .qs-card:hover {
-  border-color: rgba(255,255,255,0.18); background: var(--surface-hover);
+.landing-root .product-card:hover {
+  border-color: rgba(255,255,255,0.18);
   transform: translateY(-2px);
-  box-shadow: 0 10px 32px rgba(0,0,0,0.35);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.25);
 }
-.landing-root .qs-card:hover::before { opacity: 1; }
-.landing-root .qs-card--purple::before {
-  background: radial-gradient(ellipse at top right, rgba(202,177,255,0.07) 0%, transparent 60%);
-}
-.landing-root .qs-card--mint::before {
-  background: radial-gradient(ellipse at top right, rgba(152,239,221,0.07) 0%, transparent 60%);
-}
-.landing-root .qs-card--yellow::before {
-  background: radial-gradient(ellipse at top right, rgba(232,255,117,0.07) 0%, transparent 60%);
-}
-.landing-root .qs-card .qs-card-top {
-  position: relative; z-index: 1;
-  display: flex; align-items: center; gap: 12px;
-}
-.landing-root .qs-card .qs-icon {
-  width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+
+.landing-root .product-card-thumb {
+  height: 120px;
+  background: linear-gradient(135deg, rgba(202,177,255,0.06) 0%, rgba(152,239,221,0.04) 100%);
   display: flex; align-items: center; justify-content: center;
+  border-bottom: 1px solid var(--border);
 }
-.landing-root .qs-card--purple .qs-icon { background: rgba(202,177,255,0.12); }
-.landing-root .qs-card--mint .qs-icon { background: rgba(152,239,221,0.12); }
-.landing-root .qs-card--yellow .qs-icon { background: rgba(232,255,117,0.12); }
-.landing-root .qs-card .qs-icon svg { width: 19px; height: 19px; }
-.landing-root .qs-card--purple .qs-icon svg { color: var(--purple); }
-.landing-root .qs-card--mint .qs-icon svg { color: var(--mint); }
-.landing-root .qs-card--yellow .qs-icon svg { color: var(--yellow); }
-.landing-root .qs-card h3 {
-  position: relative; z-index: 1;
-  font-size: 1.05rem; font-weight: 600;
-  line-height: 1.3; margin: 0; color: var(--white);
+.landing-root .product-card-thumb svg {
+  width: 48px; height: 48px; color: var(--purple); opacity: 0.5;
 }
-.landing-root .qs-card p {
-  position: relative; z-index: 1;
-  font-size: 0.85rem; color: var(--white); opacity: 0.5;
+.landing-root .product-card-thumb--muted {
+  background: linear-gradient(135deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.01) 100%);
+}
+.landing-root .product-card-thumb--muted svg {
+  color: var(--gray-muted); opacity: 0.3;
+}
+
+.landing-root .product-card h3 {
+  font-size: 0.95rem; font-weight: 700;
+  line-height: 1.3; margin: 0;
+  color: var(--white);
+  padding: 16px 18px 0;
+}
+.landing-root .product-card p {
+  font-size: 0.82rem; color: var(--white); opacity: 0.5;
   line-height: 1.5; margin: 0;
+  padding: 6px 18px 0;
+  flex: 1;
 }
-.landing-root .qs-card .qs-arrow {
-  position: relative; z-index: 1;
-  font-size: 0.78rem; font-weight: 500;
-  display: flex; align-items: center; gap: 5px; margin-top: 4px;
-  transition: gap 0.2s ease;
+.landing-root .product-card .under-hood {
+  font-style: italic; opacity: 0.6;
 }
-.landing-root .qs-card--purple .qs-arrow { color: var(--purple); }
-.landing-root .qs-card--mint .qs-arrow { color: var(--mint); }
-.landing-root .qs-card--yellow .qs-arrow { color: var(--yellow); }
-.landing-root .qs-card:hover .qs-arrow { gap: 9px; }
-.landing-root .qs-card .qs-arrow svg { width: 11px; height: 11px; }
+.landing-root .product-card .product-arrow {
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 12px 18px;
+  color: var(--purple); opacity: 0.4;
+  transition: opacity 0.2s ease;
+}
+.landing-root .product-card:hover .product-arrow { opacity: 1; }
+.landing-root .product-card .product-arrow svg { width: 12px; height: 12px; }
+.landing-root .product-card--muted { opacity: 0.7; }
+.landing-root .product-card--muted:hover { opacity: 1; }
 
 /* ── Landing search bar ── */
 .landing-root .landing-search {
@@ -270,47 +257,6 @@ html, body { background: #0d0f12 !important; }
   border: none; border-top: 1px solid var(--border); margin: 0;
 }
 
-.landing-root .hero-lead {
-  font-size: 1.1rem;
-  line-height: 1.5;
-  margin-bottom: 1px;
-  color: var(--white);
-}
-
-.landing-root .hero-body {
-  font-size: 0.9rem;
-  line-height: 1.6;
-  margin-bottom: 1px;
-  color: var(--white);
-  opacity: 0.6;
-}
-
-.landing-root .hero-features {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  gap: 24px;
-  flex-wrap: wrap;
-}
-
-.landing-root .hero-features li {
-  font-size: 0.85rem;
-  font-weight: 500;
-  color: var(--white);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.landing-root .hero-features li::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--purple);
-  flex-shrink: 0;
-}
 
 /* ── Footer ── */
 .landing-root .page-footer {
@@ -470,23 +416,59 @@ export default function LandingPage() {
 
       <div className="landing-wrap">
         <div className="hero-inner">
-          <p className="hero-lead">
-            A verifiable data platform for high-stakes systems that
-            require provable, programmable, always-available data
-            with no performance tradeoffs.
+          <h1 className="hero-title">Build with Walrus</h1>
+          <p className="hero-sub">
+            Keep critical data persistent, portable, and under your control
+            across apps, providers, and agents.
           </p>
-          <p className="hero-body">
-            Modern financial systems and AI agents depend on fast,
-            reliable, and verifiable data. Traditional storage assumes
-            integrity and pushes trust outside the data layer. Walrus
-            embeds availability, integrity, and programmability
-            directly into storage itself.
-          </p>
-          <ul className="hero-features">
-            <li>Highly available</li>
-            <li>Cryptographically verifiable</li>
-            <li>Programmable through smart contracts</li>
-          </ul>
+        </div>
+
+        <div className="product-grid">
+          <a className="product-card" href="/walrus-memory/getting-started/what-is-walrus-memory">
+            <div className="product-card-thumb">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="24" cy="16" r="10" />
+                <path d="M24 26v4M18 38h12M20 26c0 2.5 1.8 4 4 4s4-1.5 4-4" />
+              </svg>
+            </div>
+            <h3>Walrus Memory</h3>
+            <p>Portable memory layer that gives AI agents persistent context across apps and sessions.</p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
+          <a className="product-card" href="/docs/getting-started">
+            <div className="product-card-thumb">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="8" y="8" width="32" height="32" rx="4" />
+                <path d="M8 18h32M18 48V18" />
+              </svg>
+            </div>
+            <h3>Walrus Console</h3>
+            <p>Unified control plane for managing files, datasets, memory, and other assets on Walrus.</p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
+          <a className="product-card" href="/docs/getting-started">
+            <div className="product-card-thumb">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="18" cy="38" r="3" /><circle cx="36" cy="38" r="3" />
+                <path d="M4 4h8l5.36 26.78a4 4 0 004 3.22h15.28a4 4 0 004-3.22L44 14H12" />
+              </svg>
+            </div>
+            <h3>Walrus Marketplace</h3>
+            <p>Open marketplace where developers and AI agents discover, license, and access data.</p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
+          <a className="product-card product-card--muted" href="/docs/getting-started">
+            <div className="product-card-thumb product-card-thumb--muted">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M42 32V16a4 4 0 00-2-3.46l-14-8a4 4 0 00-4 0l-14 8A4 4 0 006 16v16a4 4 0 002 3.46l14 8a4 4 0 004 0l14-8A4 4 0 0042 32z" />
+                <polyline points="6.54 13.92 24 24.02 41.46 13.92" />
+                <line x1="24" y1="44.16" x2="24" y2="24" />
+              </svg>
+            </div>
+            <h3>Walrus Protocol</h3>
+            <p>Open source, decentralized data storage. <span className="under-hood">Under the hood.</span></p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
         </div>
 
         <div className="landing-search">
@@ -508,61 +490,6 @@ export default function LandingPage() {
             <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />,
             document.body,
           )}
-        </div>
-
-        <div className="quickstart">
-          <a className="qs-card qs-card--purple" href="/docs/getting-started">
-            <div className="qs-card-top">
-              <div className="qs-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
-                  <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                  <line x1="12" y1="22.08" x2="12" y2="12" />
-                </svg>
-              </div>
-              <h3>Data Storage</h3>
-            </div>
-            <p>Verifiable storage, erasure coding, and programmable access.</p>
-            <span className="qs-arrow">Get started {arrowIcon}</span>
-          </a>
-          <a className="qs-card qs-card--mint" href="/walrus-memory/getting-started/what-is-walrus-memory">
-            <div className="qs-card-top">
-              <div className="qs-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M12 2a7 7 0 017 7c0 3.87-3.13 7-7 7s-7-3.13-7-7a7 7 0 017-7z" />
-                  <path d="M12 16v2M8 22h8M9 16c0 1.5 1.34 2 3 2s3-.5 3-2" />
-                </svg>
-              </div>
-              <h3>Walrus Memory</h3>
-            </div>
-            <p>Portable, encrypted memory for AI agents.</p>
-            <span className="qs-arrow">Learn more {arrowIcon}</span>
-          </a>
-          <a className="qs-card qs-card--yellow" href="/docs/getting-started">
-            <div className="qs-card-top">
-              <div className="qs-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <path d="M3 9h18M9 21V9" />
-                </svg>
-              </div>
-              <h3>Walrus Console</h3>
-            </div>
-            <p>Visual dashboard for the Walrus network.</p>
-            <span className="qs-arrow">Coming soon {arrowIcon}</span>
-          </a>
-          <a className="qs-card qs-card--purple" href="/docs/getting-started">
-            <div className="qs-card-top">
-              <div className="qs-icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                </svg>
-              </div>
-              <h3>Walrus Skills</h3>
-            </div>
-            <p>Composable capabilities for building on Walrus.</p>
-            <span className="qs-arrow">Coming soon {arrowIcon}</span>
-          </a>
         </div>
 
         <footer className="page-footer">
