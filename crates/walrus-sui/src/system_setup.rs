@@ -127,6 +127,15 @@ pub async fn compile_package(
     chain_id: Option<String>,
     wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
+    // Under simtest, pre-resolve framework `rev`s in the staged manifests to commit SHAs so the
+    // `force_repin` load below pins them without repeated `git ls-remote` calls (which otherwise
+    // pile up across publish/upgrade/digest compiles and time the test out).
+    #[cfg(msim)]
+    {
+        let package_path = package_path.clone();
+        tokio::task::spawn_blocking(move || pin_framework_revs(&package_path)).await??;
+    }
+
     let env_name = compile_env_name_for_alias(&wallet.get_active_env().alias);
     let env = Environment::new(env_name.to_string(), chain_id.clone().unwrap_or_default());
 
@@ -151,6 +160,135 @@ pub async fn compile_package(
         ))
     })
     .await?
+}
+
+/// Resolves a git `rev` (branch or tag) to a full commit SHA via `git ls-remote`. Returns `rev`
+/// unchanged if it is already a 40-character hex SHA.
+///
+/// Deliberately holds no cross-call state: under simtest, `compile_package` repins framework
+/// dependencies straight from the manifests on every call (see `force_repin`), and each unresolved
+/// `rev` (a branch or tag) makes the Move package loader shell out to `git ls-remote`. Those
+/// lookups are deduplicated by the on-disk manifest rewrite in [`pin_framework_revs`] — once a
+/// staged manifest carries a full SHA, the loader (and a re-run of this code) short-circuits — so
+/// the only memoization is per staged tree, which is scoped to a single test run. A process-global
+/// cache would instead leak across the two runs of a determinism test (run 1 resolves and shells
+/// out, run 2 hits the cache), making them diverge.
+#[cfg(msim)]
+fn resolve_git_rev(git_url: &str, rev: &str) -> Result<String> {
+    if rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Ok(rev.to_string());
+    }
+
+    // Mirror the Move loader: a single `ls-remote` for the tag and branch refs. For annotated
+    // tags, prefer the peeled `^{}` entry, which is the commit the tag points at.
+    let output = std::process::Command::new("git")
+        .args([
+            "ls-remote",
+            git_url,
+            &format!("refs/tags/{rev}"),
+            &format!("refs/tags/{rev}^{{}}"),
+            &format!("refs/heads/{rev}"),
+        ])
+        .env("GIT_CONFIG_GLOBAL", "")
+        .output()
+        .context("failed to run `git ls-remote`")?;
+    ensure!(
+        output.status.success(),
+        "`git ls-remote {git_url} {rev}` failed: {}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let stdout = String::from_utf8(output.stdout).context("`git ls-remote` output not utf-8")?;
+
+    let mut resolved: Option<String> = None;
+    for line in stdout.lines() {
+        let Some((sha, reference)) = line.split_once('\t') else {
+            continue;
+        };
+        if reference.ends_with("^{}") {
+            resolved = Some(sha.to_string()); // peeled commit wins
+            break;
+        }
+        resolved.get_or_insert_with(|| sha.to_string());
+    }
+    resolved.ok_or_else(|| anyhow!("`git ls-remote` returned no ref for `{rev}`"))
+}
+
+/// Rewrites git `rev` fields in the manifest at `package_path` (and, recursively, those of its
+/// `local` dependencies) to the resolved commit SHA, so the package loader can pin them without
+/// shelling out to `git ls-remote`. Simtest-only; mutates the already-copied staged contract tree
+/// in place and is idempotent (a second run sees full SHAs and does nothing).
+#[cfg(msim)]
+fn pin_framework_revs(package_path: &Path) -> Result<()> {
+    use std::collections::{HashMap, HashSet};
+
+    // Compile the regexes as plain locals rather than process-global `LazyLock` statics: a static
+    // is initialized exactly once for the whole process, so under a determinism test (same test run
+    // twice in one process) the first run pays the initialization while the second skips it, making
+    // the two runs diverge. Locals are rebuilt identically on every call, so both runs match.
+    let git_dep =
+        regex::Regex::new(r#"git\s*=\s*"(?P<url>[^"]+)"[^\n]*?rev\s*=\s*"(?P<rev>[^"]+)""#)
+            .expect("regex compiles");
+    let local_dep = regex::Regex::new(r#"local\s*=\s*"(?P<path>[^"]+)""#).expect("regex compiles");
+
+    fn inner(
+        package_path: &Path,
+        visited: &mut HashSet<PathBuf>,
+        git_dep: &regex::Regex,
+        local_dep: &regex::Regex,
+    ) -> Result<()> {
+        let canonical = package_path
+            .canonicalize()
+            .unwrap_or_else(|_| package_path.to_path_buf());
+        if !visited.insert(canonical) {
+            return Ok(());
+        }
+
+        let manifest_path = package_path.join("Move.toml");
+        let Ok(contents) = std::fs::read_to_string(&manifest_path) else {
+            return Ok(());
+        };
+
+        // Resolve every distinct rev first so errors propagate cleanly out of `replace_all`.
+        let mut sha_for_rev: HashMap<String, String> = HashMap::new();
+        for caps in git_dep.captures_iter(&contents) {
+            let rev = caps["rev"].to_string();
+            if !sha_for_rev.contains_key(&rev) {
+                let sha = resolve_git_rev(&caps["url"], &rev)?;
+                sha_for_rev.insert(rev, sha);
+            }
+        }
+
+        let rewritten = git_dep.replace_all(&contents, |caps: &regex::Captures| {
+            let whole = &caps[0];
+            let rev = &caps["rev"];
+            match sha_for_rev.get(rev) {
+                Some(sha) if sha != rev => {
+                    whole.replace(&format!("\"{rev}\""), &format!("\"{sha}\""))
+                }
+                _ => whole.to_string(),
+            }
+        });
+
+        if rewritten.as_ref() != contents.as_str() {
+            // Write atomically so a concurrent reader never sees a torn manifest.
+            let tmp_path = manifest_path.with_extension("toml.tmp");
+            std::fs::write(&tmp_path, rewritten.as_ref())?;
+            std::fs::rename(&tmp_path, &manifest_path)?;
+            tracing::debug!(
+                ?manifest_path,
+                "pinned framework git revs to shas for simtest"
+            );
+        }
+
+        // Follow local dependencies (siblings within the staged tree).
+        for caps in local_dep.captures_iter(&contents) {
+            let dep_path = package_path.join(&caps["path"]);
+            inner(&dep_path, visited, git_dep, local_dep)?;
+        }
+        Ok(())
+    }
+
+    inner(package_path, &mut HashSet::new(), &git_dep, &local_dep)
 }
 
 /// Synchronous method to compile the package. Should only be called from an async context
