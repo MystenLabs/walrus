@@ -46,7 +46,7 @@ Depending on a blob without reading the chain risks building on data that is not
 
 :::caution
 
-Do not treat an immediate aggregator 404 as proof the blob is missing. Right after certification, a cache in front of the aggregator might still serve a stale 404. Confirm against the Sui object, or retry the read with backoff.
+Do not treat an immediate aggregator 404 as proof the blob is missing. Right after certification, a cache in front of the aggregator might still serve a stale 404. Confirm against Sui state, or retry the read with backoff.
 
 :::
 
