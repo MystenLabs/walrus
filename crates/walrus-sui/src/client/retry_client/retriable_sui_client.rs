@@ -2285,25 +2285,25 @@ impl RetriableSuiClient {
     }
 
     /// Returns the owner address of the given object.
+    ///
+    /// Returns `Ok(None)` when the object resolves successfully but is not owned by an address
+    /// (for example, shared, immutable, or object-owned). RPC errors are propagated as `Err` so
+    /// callers can distinguish a transient failure from a genuine non-address owner.
     #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn get_object_owner_address(
         &self,
         object_id: ObjectID,
-    ) -> SuiClientResult<SuiAddress> {
+    ) -> SuiClientResult<Option<SuiAddress>> {
         if self.grpc_migration_level >= GRPC_MIGRATION_LEVEL_GET_OBJECT {
             let object: sui_types::object::Object = self.get_object_by_grpc(object_id).await?;
-            Ok(object
-                .owner()
-                .get_owner_address()
-                .context("no object owner address returned from rpc")?)
+            Ok(object.owner().get_owner_address().ok())
         } else {
             let object: SuiObjectResponse = self
                 .get_object_with_json_rpc(object_id, SuiObjectDataOptions::default().with_owner())
                 .await?;
             Ok(object
                 .owner()
-                .context("no object owner returned from rpc")?
-                .get_owner_address()?)
+                .and_then(|owner| owner.get_owner_address().ok()))
         }
     }
 
