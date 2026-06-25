@@ -59,7 +59,7 @@ use walrus_storage_node_client::{
     NodeError,
     api::{BlobStatus, ServiceHealthInfo},
 };
-use walrus_sui::types::move_structs::{StakingPool, VotingParams};
+use walrus_sui::types::move_structs::{Authorized, StakingPool, VotingParams};
 
 use super::cli::{BlobIdDecimal, BlobIdentity, HumanReadableBytes};
 use crate::client::cli::{HealthSortBy, HumanReadableFrost, NodeSortBy, SortBy};
@@ -517,6 +517,163 @@ impl InfoCommitteeOutput {
             current_storage_nodes,
             next_storage_nodes,
             print_details,
+        })
+    }
+}
+
+/// Whether a commission receiver is a plain Sui address or a Sui object.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum CommissionReceiverType {
+    /// The receiver is a Sui address.
+    Address,
+    /// The receiver is a Sui object.
+    Object,
+}
+
+impl CommissionReceiverType {
+    /// Returns the lowercase string representation used in CSV output.
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Address => "address",
+            Self::Object => "object",
+        }
+    }
+}
+
+/// The commission receiver of a single node, as read from its staking pool.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CommissionReceiverInfo {
+    /// The node ID (the staking pool object ID).
+    pub(crate) node_id: ObjectID,
+    /// The on-chain name of the node.
+    pub(crate) node_name: String,
+    /// Whether the commission receiver is an address or an object.
+    pub(crate) receiver_type: CommissionReceiverType,
+    /// The commission receiver address or object ID.
+    pub(crate) receiver: String,
+    /// When the receiver is an object, the address that owns it (the party that can collect the
+    /// commission). `None` for address receivers, or when the owner could not be resolved to an
+    /// address (for example, a shared, immutable, or object-owned receiver).
+    pub(crate) receiver_owner: Option<String>,
+}
+
+/// The commission receivers of every node in a single committee.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct CommitteeCommissionReceivers {
+    /// The epoch number of this committee.
+    pub(crate) epoch: Epoch,
+    /// Whether this committee has been determined on chain. Always `true` except for the next
+    /// committee, which is not selected until partway through the current epoch.
+    pub(crate) determined: bool,
+    /// The per-node commission receivers.
+    pub(crate) nodes: Vec<CommissionReceiverInfo>,
+}
+
+/// The output of the `info committee --commission-receivers` command.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InfoCommissionReceiversOutput {
+    /// The current committee.
+    pub(crate) current: CommitteeCommissionReceivers,
+    /// The previous committee.
+    pub(crate) previous: CommitteeCommissionReceivers,
+    /// The next committee, which may not yet be determined.
+    pub(crate) next: CommitteeCommissionReceivers,
+}
+
+impl InfoCommissionReceiversOutput {
+    pub async fn get_commission_receivers(
+        sui_read_client: &impl ReadClient,
+    ) -> anyhow::Result<Self> {
+        let staking_object = sui_read_client.read_client().get_staking_object().await?;
+        let current_epoch = staking_object.epoch();
+
+        let current_assignment = staking_object.current_committee_shard_assignment();
+        let previous_assignment = staking_object.previous_committee_shard_assignment();
+        let next_assignment = staking_object.next_committee_shard_assignment();
+
+        let all_node_ids = current_assignment
+            .iter()
+            .chain(previous_assignment.iter())
+            .chain(next_assignment.into_iter().flatten())
+            .map(|(node_id, _)| *node_id)
+            .unique();
+
+        let retriable_sui_client = sui_read_client.read_client().retriable_sui_client();
+        let staking_pools = retriable_sui_client.get_node_objects(all_node_ids).await?;
+
+        // Resolve the owner address of every distinct object commission receiver. Owners that do
+        // not resolve to an address (shared, immutable, or object-owned) are simply left out of
+        // the map and reported as `None`. RPC errors, on the other hand, are propagated so the
+        // command fails rather than silently reporting an empty owner.
+        let object_receiver_ids = staking_pools
+            .values()
+            .filter_map(|pool| match &pool.commission_receiver {
+                Authorized::Object(object_id) => Some(*object_id),
+                Authorized::Address(_) => None,
+            })
+            .unique();
+        let receiver_owners: HashMap<ObjectID, SuiAddress> =
+            futures::future::try_join_all(object_receiver_ids.map(|object_id| async move {
+                retriable_sui_client
+                    .get_object_owner_address(object_id)
+                    .await
+                    .map(|owner| owner.map(|owner| (object_id, owner)))
+            }))
+            .await?
+            .into_iter()
+            .flatten()
+            .collect();
+
+        let build_section = |assignment: &[(ObjectID, Vec<u16>)]| -> Vec<CommissionReceiverInfo> {
+            assignment
+                .iter()
+                .filter_map(|(node_id, _)| {
+                    staking_pools.get(node_id).map(|pool| {
+                        let (receiver_type, receiver, receiver_owner) = match &pool
+                            .commission_receiver
+                        {
+                            Authorized::Address(address) => {
+                                (CommissionReceiverType::Address, address.to_string(), None)
+                            }
+                            Authorized::Object(object_id) => {
+                                let owner = receiver_owners.get(object_id).map(ToString::to_string);
+                                (CommissionReceiverType::Object, object_id.to_string(), owner)
+                            }
+                        };
+                        CommissionReceiverInfo {
+                            node_id: *node_id,
+                            node_name: pool.node_info.name.clone(),
+                            receiver_type,
+                            receiver,
+                            receiver_owner,
+                        }
+                    })
+                })
+                .collect()
+        };
+
+        Ok(Self {
+            current: CommitteeCommissionReceivers {
+                epoch: current_epoch,
+                determined: true,
+                nodes: build_section(current_assignment),
+            },
+            previous: CommitteeCommissionReceivers {
+                epoch: current_epoch.saturating_sub(1),
+                determined: true,
+                nodes: build_section(previous_assignment),
+            },
+            next: CommitteeCommissionReceivers {
+                epoch: current_epoch.saturating_add(1),
+                determined: next_assignment.is_some(),
+                nodes: next_assignment
+                    .map(|a| build_section(a))
+                    .unwrap_or_default(),
+            },
         })
     }
 }

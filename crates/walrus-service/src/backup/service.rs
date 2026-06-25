@@ -12,16 +12,12 @@ use diesel::{
     result::{DatabaseErrorKind, Error},
     sql_types::{Bytea, Int4, Int8, Text},
 };
-use diesel_async::{
-    AsyncConnection as _,
-    AsyncPgConnection,
-    RunQueryDsl as _,
-    scoped_futures::ScopedFutureExt,
-};
+use diesel_async::{AsyncConnection as _, AsyncPgConnection, RunQueryDsl as _};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use futures::{StreamExt, stream};
 use object_store::{ObjectStore, gcp::GoogleCloudStorageBuilder, local::LocalFileSystem};
 use prometheus::core::{AtomicU64, GenericCounter};
+use scoped_futures::ScopedFutureExt;
 use sha2::Digest;
 use sui_types::event::EventID;
 use tokio_util::sync::CancellationToken;
@@ -1216,6 +1212,7 @@ where
     F: for<'r> FnMut(
             &'r mut AsyncPgConnection,
         ) -> scoped_futures::ScopedBoxFuture<'b, 'r, Result<T, Error>>
+        + for<'r> AsyncFnOnce(&'r mut AsyncPgConnection) -> Result<T, Error>
         + Send
         + Clone
         + 'a,

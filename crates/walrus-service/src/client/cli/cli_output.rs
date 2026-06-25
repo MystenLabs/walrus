@@ -45,6 +45,7 @@ use crate::client::{
         BlobIdConversionOutput,
         BlobIdOutput,
         BlobStatusOutput,
+        CommitteeCommissionReceivers,
         DeleteOutput,
         DryRunOutput,
         EncodingDependentPriceInfo,
@@ -56,6 +57,7 @@ use crate::client::{
         GetBlobAttributeOutput,
         InfoBftOutput,
         InfoCoinOutput,
+        InfoCommissionReceiversOutput,
         InfoCommitteeOutput,
         InfoEpochOutput,
         InfoOutput,
@@ -666,6 +668,51 @@ impl CliOutput for InfoCommitteeOutput {
         print_storage_node_info(n_shards, next_storage_nodes, *print_details);
 
         print_committee_changes(current_storage_nodes, next_storage_nodes);
+    }
+}
+
+impl CliOutput for InfoCommissionReceiversOutput {
+    fn print_cli_output(&self) {
+        print_commission_receiver_section("current", &self.current);
+        println!();
+        print_commission_receiver_section("previous", &self.previous);
+        println!();
+        print_commission_receiver_section("next", &self.next);
+    }
+}
+
+/// Prints one committee's commission receivers as a labeled CSV section.
+fn print_commission_receiver_section(committee: &str, section: &CommitteeCommissionReceivers) {
+    if section.determined {
+        println!("# {committee} committee (epoch {})", section.epoch);
+    } else {
+        println!(
+            "# {committee} committee (epoch {}, not yet determined)",
+            section.epoch
+        );
+    }
+    println!("committee,epoch,node_id,node_name,receiver_type,receiver,receiver_owner");
+    for node in &section.nodes {
+        println!(
+            "{},{},{},{},{},{},{}",
+            csv_escape(committee),
+            section.epoch,
+            csv_escape(&node.node_id.to_string()),
+            csv_escape(&node.node_name),
+            node.receiver_type.as_str(),
+            csv_escape(&node.receiver),
+            csv_escape(node.receiver_owner.as_deref().unwrap_or("")),
+        );
+    }
+}
+
+/// Escapes a single CSV field per RFC 4180: when the value contains a comma, double quote, or
+/// line break, it is wrapped in double quotes and any embedded quotes are doubled.
+fn csv_escape(field: &str) -> String {
+    if field.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", field.replace('"', "\"\""))
+    } else {
+        field.to_string()
     }
 }
 
@@ -1497,4 +1544,27 @@ fn print_list<T: ToString>(items: &[T]) -> String {
 /// Returns "s" if the number of items is not 1, otherwise an empty string.
 fn plural_ending<T>(items: &[T]) -> &'static str {
     if items.len() == 1 { "" } else { "s" }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::csv_escape;
+
+    #[test]
+    fn csv_escape_leaves_plain_fields_unchanged() {
+        assert_eq!(csv_escape("Blockscope.net"), "Blockscope.net");
+        assert_eq!(csv_escape("0xabc123"), "0xabc123");
+        assert_eq!(csv_escape(""), "");
+    }
+
+    #[test]
+    fn csv_escape_quotes_fields_with_special_characters() {
+        // A comma forces quoting.
+        assert_eq!(csv_escape("Coinage, DAIC"), "\"Coinage, DAIC\"");
+        // An embedded quote is doubled and the field is quoted.
+        assert_eq!(csv_escape("Node \"A\""), "\"Node \"\"A\"\"\"");
+        // Line breaks force quoting.
+        assert_eq!(csv_escape("line1\nline2"), "\"line1\nline2\"");
+        assert_eq!(csv_escape("line1\r\nline2"), "\"line1\r\nline2\"");
+    }
 }
