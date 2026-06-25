@@ -205,6 +205,13 @@ html, body { background: #0d0f12 !important; }
 .landing-root .product-card .under-hood {
   font-style: italic; opacity: 0.6;
 }
+.landing-root .coming-soon-badge {
+  font-size: 0.6rem; font-weight: 500; letter-spacing: 0.03em;
+  text-transform: uppercase; opacity: 0.5;
+  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px; padding: 2px 6px; margin-left: 8px;
+  vertical-align: middle;
+}
 .landing-root .product-card .product-arrow {
   display: flex; align-items: center; justify-content: flex-end;
   padding: 12px 18px;
@@ -218,9 +225,9 @@ html, body { background: #0d0f12 !important; }
 
 /* ── Landing search bar ── */
 .landing-root .landing-search {
-  max-width: 760px; margin: 0 auto;
-  padding: 0 0 28px;
-  opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.5s;
+  max-width: 560px; margin: 0 auto;
+  padding: 20px 0 0;
+  opacity: 0; animation: landingFadeIn 0.5s ease forwards 0.2s;
 }
 .landing-root .landing-search-btn {
   width: 100%; display: flex; align-items: center; gap: 14px;
@@ -381,39 +388,6 @@ export default function LandingPage() {
       </Head>
       <style dangerouslySetInnerHTML={{ __html: LANDING_CSS }} />
 
-      <header className="topbar">
-        <div className="topbar-inner">
-          <div className="topbar-logo">
-            <WalrusLogo />
-          </div>
-          <nav className="topbar-links">
-            <a
-              href="https://github.com/MystenLabs/walrus"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub
-            </a>
-            <a
-              href="https://discord.gg/walrusprotocol"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Discord
-            </a>
-            <button
-              className="kapa-landing-btn"
-              onClick={() => { if ((window as any).Kapa) (window as any).Kapa.open(); }}
-            >
-              Ask Walrus AI
-            </button>
-            <a href="/docs/getting-started" className="primary">
-              Get Started →
-            </a>
-          </nav>
-        </div>
-      </header>
-
       <div className="landing-wrap">
         <div className="hero-inner">
           <h1 className="hero-title">Build with Walrus</h1>
@@ -421,54 +395,6 @@ export default function LandingPage() {
             Keep critical data persistent, portable, and under your control
             across apps, providers, and agents.
           </p>
-        </div>
-
-        <div className="product-grid">
-          <a className="product-card" href="/walrus-memory/getting-started/what-is-walrus-memory">
-            <div className="product-card-thumb">
-              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="24" cy="16" r="10" />
-                <path d="M24 26v4M18 38h12M20 26c0 2.5 1.8 4 4 4s4-1.5 4-4" />
-              </svg>
-            </div>
-            <h3>Walrus Memory</h3>
-            <p>Portable memory layer that gives AI agents persistent context across apps and sessions.</p>
-            <span className="product-arrow">{arrowIcon}</span>
-          </a>
-          <a className="product-card" href="/docs/getting-started">
-            <div className="product-card-thumb">
-              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <rect x="8" y="8" width="32" height="32" rx="4" />
-                <path d="M8 18h32M18 48V18" />
-              </svg>
-            </div>
-            <h3>Walrus Console</h3>
-            <p>Unified control plane for managing files, datasets, memory, and other assets on Walrus.</p>
-            <span className="product-arrow">{arrowIcon}</span>
-          </a>
-          <a className="product-card" href="/docs/getting-started">
-            <div className="product-card-thumb">
-              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="18" cy="38" r="3" /><circle cx="36" cy="38" r="3" />
-                <path d="M4 4h8l5.36 26.78a4 4 0 004 3.22h15.28a4 4 0 004-3.22L44 14H12" />
-              </svg>
-            </div>
-            <h3>Walrus Marketplace</h3>
-            <p>Open marketplace where developers and AI agents discover, license, and access data.</p>
-            <span className="product-arrow">{arrowIcon}</span>
-          </a>
-          <a className="product-card product-card--muted" href="/docs/getting-started">
-            <div className="product-card-thumb product-card-thumb--muted">
-              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M42 32V16a4 4 0 00-2-3.46l-14-8a4 4 0 00-4 0l-14 8A4 4 0 006 16v16a4 4 0 002 3.46l14 8a4 4 0 004 0l14-8A4 4 0 0042 32z" />
-                <polyline points="6.54 13.92 24 24.02 41.46 13.92" />
-                <line x1="24" y1="44.16" x2="24" y2="24" />
-              </svg>
-            </div>
-            <h3>Walrus Protocol</h3>
-            <p>Open source, decentralized data storage. <span className="under-hood">Under the hood.</span></p>
-            <span className="product-arrow">{arrowIcon}</span>
-          </a>
         </div>
 
         <div className="landing-search">
@@ -490,6 +416,54 @@ export default function LandingPage() {
             <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />,
             document.body,
           )}
+        </div>
+
+        <div className="product-grid">
+          <a className="product-card" href="/walrus-memory/getting-started/what-is-walrus-memory">
+            <div className="product-card-thumb">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="24" cy="16" r="10" />
+                <path d="M24 26v4M18 38h12M20 26c0 2.5 1.8 4 4 4s4-1.5 4-4" />
+              </svg>
+            </div>
+            <h3>Walrus Memory</h3>
+            <p>Portable memory layer that gives AI agents persistent context across apps and sessions.</p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
+          <a className="product-card product-card--muted" href="/docs/getting-started">
+            <div className="product-card-thumb">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="8" y="8" width="32" height="32" rx="4" />
+                <path d="M8 18h32M18 48V18" />
+              </svg>
+            </div>
+            <h3>Walrus Console <span className="coming-soon-badge">Coming soon</span></h3>
+            <p>Unified control plane for managing files, datasets, memory, and other assets on Walrus.</p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
+          <a className="product-card product-card--muted" href="/docs/getting-started">
+            <div className="product-card-thumb">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="18" cy="38" r="3" /><circle cx="36" cy="38" r="3" />
+                <path d="M4 4h8l5.36 26.78a4 4 0 004 3.22h15.28a4 4 0 004-3.22L44 14H12" />
+              </svg>
+            </div>
+            <h3>Walrus Marketplace <span className="coming-soon-badge">Coming soon</span></h3>
+            <p>Open marketplace where developers and AI agents discover, license, and access data.</p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
+          <a className="product-card" href="/docs/getting-started">
+            <div className="product-card-thumb">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M42 32V16a4 4 0 00-2-3.46l-14-8a4 4 0 00-4 0l-14 8A4 4 0 006 16v16a4 4 0 002 3.46l14 8a4 4 0 004 0l14-8A4 4 0 0042 32z" />
+                <polyline points="6.54 13.92 24 24.02 41.46 13.92" />
+                <line x1="24" y1="44.16" x2="24" y2="24" />
+              </svg>
+            </div>
+            <h3>Walrus Protocol</h3>
+            <p>Open source, decentralized data storage. <span className="under-hood">Under the hood.</span></p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
         </div>
 
         <footer className="page-footer">
