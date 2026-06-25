@@ -117,5 +117,5 @@ For trustless or offline checks, authenticate the `BlobCertified` event or the `
 ## Caveats
 
 - Mainnet epochs last 2 weeks, so `end_epoch` gives a concrete time horizon for how long the data is guaranteed.
-- A blob ID is derived from content, so identical content always produces the same blob ID, and multiple `Blob` objects can certify it. Verifying by blob ID confirms that some non-expired certificate exists, not that your specific object is the one keeping it alive.
+- A blob ID is derived from content, so identical content always produces the same blob ID, and multiple `Blob` objects can certify it. Verifying by blob ID confirms that some non-expired certificate exists, not that your specific object is the one keeping it alive. If you need ownership or accounting guarantees, verify the specific object ID too.
 - Walrus blobs are public. Encrypt sensitive data, for example with Seal, before you store it.
