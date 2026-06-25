@@ -52,7 +52,7 @@ Do not treat an immediate aggregator 404 as proof the blob is missing. Right aft
 
 ## The check
 
-Before you depend on a blob, read its `Blob` object and confirm all 3 conditions:
+Before you depend on a blob, confirm all three conditions. If you have the `Blob` object ID, read that object directly from Sui:
 
 - **Certified:** `certified_epoch` is set, so the blob reached the certified state.
 - **Within its storage period:** the current epoch is less than `storage.end_epoch`. Require enough epochs of margin for how long you need the data.
