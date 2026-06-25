@@ -112,7 +112,7 @@ if (!durable) {
 }
 ```
 
-For trustless or offline checks, authenticate the `BlobCertified` event or the `Blob` object through the Sui light client, which returns signed evidence usable as a portable proof of availability. A Sui smart contract can run the same certified, before-expiry, and not-deletable check by reading the `Blob` object directly. See the `blob` and `storage_resource` Move modules for the field accessors.
+For trustless or offline checks, authenticate the `BlobCertified` event or the `Blob` object through the Sui client, which returns signed evidence usable as a portable proof of availability. A Sui smart contract can run the same certified, before-expiry, and not-deletable check when the `Blob` object is passed as an input. See the `blob` and `storage_resource` Move modules for the field accessors.
 
 ## Caveats
 
