@@ -168,33 +168,46 @@ function loadBlogPosts() {
 // ── Editorial summaries (docs/editorial/*.md) ──────────────────
 
 function loadEditorialSummaries() {
-  const summaries = new Map();
-  if (!fs.existsSync(EDITORIAL_DIR)) return summaries;
+  const walrus = new Map();
+  const memwal = new Map();
+  if (!fs.existsSync(EDITORIAL_DIR)) return { walrus, memwal };
 
   const files = fs
     .readdirSync(EDITORIAL_DIR)
     .filter((f) => f.endsWith(".md"));
 
   for (const file of files) {
-    // Extract version from filename: walrus-v1.47.1.md → 1.47.1
-    const match = file.match(/walrus-v(\d+\.\d+\.\d+)\.md$/);
-    if (!match) continue;
-
     const raw = fs.readFileSync(path.join(EDITORIAL_DIR, file), "utf8");
     // Strip frontmatter
     const bodyMatch = raw.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
     if (!bodyMatch) continue;
 
     let body = bodyMatch[1].trim();
-    // Remove the leading "**Network** | Date" line — we already render that
-    body = body.replace(/^\*\*\w+\*\*\s*\|.*\n\n?/, "").trim();
+    // Remove the leading "**Network** | Date" or "**Date**" line
+    body = body.replace(/^\*\*[^*]+\*\*(\s*\|.*)?(\n\n?|\n)/, "").trim();
+    if (!body) continue;
 
-    if (body) {
-      summaries.set(match[1], body);
+    // Walrus platform: walrus-v1.47.1.md → 1.47.1
+    const walrusMatch = file.match(/^walrus-v(\d+\.\d+\.\d+)\.md$/);
+    if (walrusMatch) {
+      walrus.set(walrusMatch[1], body);
+      continue;
+    }
+
+    // MemWal packages: memwal-sdk-v0.0.7.md → sdk|0.0.7
+    // memwal-mcp-v0.0.5.md → mcp|0.0.5
+    // memwal-python-v0.1.4.md → python|0.1.4
+    // memwal-openclaw-v0.0.5.md → openclaw|0.0.5
+    const memwalMatch = file.match(
+      /^memwal-(sdk|mcp|python|openclaw)-v(\d+\.\d+\.\d+)\.md$/,
+    );
+    if (memwalMatch) {
+      const key = `${memwalMatch[1]}|${memwalMatch[2]}`;
+      memwal.set(key, body);
     }
   }
 
-  return summaries;
+  return { walrus, memwal };
 }
 
 // ── Source 2: Walrus GitHub releases ───────────────────────────────
@@ -355,11 +368,9 @@ async function main() {
   console.log("Generating release notes...\n");
 
   // Load all sources
-  const editorialSummaries = loadEditorialSummaries();
-  console.log(`  Found ${editorialSummaries.size} editorial summaries`);
-
-  const blogPosts = loadBlogPosts();
-  console.log(`  Found ${blogPosts.length} blog posts`);
+  const editorial = loadEditorialSummaries();
+  console.log(`  Found ${editorial.walrus.size} Walrus editorial summaries`);
+  console.log(`  Found ${editorial.memwal.size} Walrus Memory editorial summaries`);
 
   let walrusReleases = [];
   let memwalReleases = [];
@@ -390,7 +401,7 @@ hide_table_of_contents: true
 
 # Release Notes
 
-Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Walrus Memory](https://github.com/MystenLabs/MemWal/releases), and the [Walrus blog](/blog).
+Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [Walrus Memory](https://github.com/MystenLabs/MemWal/releases).
 
 <Tabs>
 
@@ -410,9 +421,9 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
       // Prepend editorial summary if available
       const vKey = `${rel.version.major}.${rel.version.minor}.${rel.version.patch}`;
-      const editorial = editorialSummaries.get(vKey);
-      if (editorial) {
-        mdx += `> ${editorial.replace(/\n/g, "\n> ")}\n\n`;
+      const walrusEditorial = editorial.walrus.get(vKey);
+      if (walrusEditorial) {
+        mdx += `> ${walrusEditorial.replace(/\n/g, "\n> ")}\n\n`;
       }
 
       let body = sanitizeForMDX(rel.body);
@@ -470,6 +481,14 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
         mdx += `### ${rel.title}\n\n`;
         mdx += `${dateStr} | ${link}\n\n`;
 
+        // Prepend editorial summary if available
+        const memwalEditorial = editorial.memwal.get(
+          `${key}|${rel.version}`,
+        );
+        if (memwalEditorial) {
+          mdx += `> ${memwalEditorial.replace(/\n/g, "\n> ")}\n\n`;
+        }
+
         let body = sanitizeForMDX(rel.body);
         body = bumpHeadings(body);
         body = body.replace(/\n{3,}/g, "\n\n").trim();
@@ -485,35 +504,6 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
   }
   mdx += `</TabItem>\n\n`;
 
-  // ── Tab 3: Blog announcements ──
-  mdx += `<TabItem value="blog" label="Blog">\n\n`;
-  if (blogPosts.length > 0) {
-    for (const post of blogPosts) {
-      const dateStr = post.date
-        ? formatDate(post.date)
-        : "";
-      const slug = post.file
-        .replace(/\.mdx?$/, "");
-
-      mdx += `### ${post.title}\n\n`;
-      if (dateStr) mdx += `${dateStr} | `;
-      mdx += `[Read full post](/blog/${slug})\n\n`;
-
-      // Include first paragraph as summary
-      const firstPara = post.body
-        .split("\n\n")
-        .find((p) => p.trim() && !p.startsWith("#") && !p.startsWith("<") && !p.startsWith("import"));
-      if (firstPara) {
-        mdx += firstPara.trim() + "\n\n";
-      }
-
-      mdx += "---\n\n";
-    }
-  } else {
-    mdx += `No blog posts found.\n\n`;
-  }
-  mdx += `</TabItem>\n\n`;
-
   mdx += `</Tabs>\n\n`;
 
   // Write output
@@ -525,7 +515,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
   fs.writeFileSync(OUTPUT_PATH, mdx, "utf8");
   console.log(`\nWrote ${OUTPUT_PATH}`);
   console.log(
-    `  ${walrusReleases.length} Walrus releases + ${memwalReleases.length} Memory releases + ${blogPosts.length} blog posts`,
+    `  ${walrusReleases.length} Walrus releases + ${memwalReleases.length} Memory releases`,
   );
 }
 
