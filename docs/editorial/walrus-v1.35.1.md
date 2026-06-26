@@ -6,4 +6,5 @@ keywords: ["walrus", "release notes", "changelog", "mainnet", "quilt", "consiste
 
 **Mainnet** | October 23, 2025
 
-Delivers a major reduction in memory usage when reading large blobs and adds the sliver range to `store-quilt` output. Note the warning that the default consistency check will change in v1.37.
+Delivers a major reduction in memory usage when reading large blobs and adds the sliver range to
+`store-quilt` output. Note the warning that the default consistency check will change in v1.37.

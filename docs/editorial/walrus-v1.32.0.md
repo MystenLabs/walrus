@@ -6,4 +6,5 @@ keywords: ["walrus", "release notes", "changelog", "mainnet", "aggregator", "qui
 
 **Mainnet** | September 15, 2025
 
-Adds an aggregator endpoint, `/quilts/<quilt-id>/patches`, that lists all patches contained in a quilt.
+Adds an aggregator endpoint, `/quilts/<quilt-id>/patches`, that lists all patches contained in a
+quilt.

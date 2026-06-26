@@ -6,4 +6,5 @@ keywords: ["walrus", "release notes", "changelog", "mainnet"]
 
 **Mainnet** | May 22, 2025
 
-A bug fix adding options to tune compaction write throttling and setting a high write-stalling threshold on the metadata table.
+A bug fix adding options to tune compaction write throttling and setting a high write-stalling
+threshold on the metadata table.
