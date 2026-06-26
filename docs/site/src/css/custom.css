@@ -1166,6 +1166,37 @@ border-top-color: rgba(255, 255, 255, 0.06);
 }
 
 /* ══════════════════════════════════════════════
+Release notes — editorial summary callout
+══════════════════════════════════════════════ */
+
+.release-editorial {
+background: linear-gradient(135deg, rgba(97,61,255,0.04) 0%, rgba(152,239,221,0.04) 100%);
+border: 1px solid rgba(97,61,255,0.12);
+border-left: 4px solid #613dff;
+border-radius: 0 10px 10px 0;
+padding: 1.25rem 1.5rem;
+margin: 0.5rem 0 1.5rem;
+}
+
+.release-editorial p {
+font-size: 1rem !important;
+line-height: 1.65 !important;
+color: #24292f;
+margin: 0 !important;
+font-weight: 400;
+}
+
+[data-theme="dark"] .release-editorial {
+background: linear-gradient(135deg, rgba(152,239,221,0.04) 0%, rgba(202,177,255,0.04) 100%);
+border-color: rgba(152,239,221,0.15);
+border-left-color: #98EFDD;
+}
+
+[data-theme="dark"] .release-editorial p {
+color: #e6edf3;
+}
+
+/* ══════════════════════════════════════════════
 Blockquotes
 ══════════════════════════════════════════════ */
 

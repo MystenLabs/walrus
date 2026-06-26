@@ -423,7 +423,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
       const vKey = `${rel.version.major}.${rel.version.minor}.${rel.version.patch}`;
       const walrusEditorial = editorial.walrus.get(vKey);
       if (walrusEditorial) {
-        mdx += `> ${walrusEditorial.replace(/\n/g, "\n> ")}\n\n`;
+        mdx += `<div className="release-editorial">\n\n${walrusEditorial}\n\n</div>\n\n`;
       }
 
       let body = sanitizeForMDX(rel.body);
@@ -486,7 +486,7 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
           `${key}|${rel.version}`,
         );
         if (memwalEditorial) {
-          mdx += `> ${memwalEditorial.replace(/\n/g, "\n> ")}\n\n`;
+          mdx += `<div className="release-editorial">\n\n${memwalEditorial}\n\n</div>\n\n`;
         }
 
         let body = sanitizeForMDX(rel.body);
