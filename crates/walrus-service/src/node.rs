@@ -7,6 +7,7 @@ use std::{
     collections::{BTreeMap, hash_map::Entry},
     future::Future,
     num::{NonZero, NonZeroU16, NonZeroUsize},
+    path::PathBuf,
     pin::Pin,
     sync::{
         Arc,
@@ -213,6 +214,7 @@ pub mod server;
 pub mod system_events;
 
 pub(crate) mod blob_event_processor;
+pub(crate) mod blob_info_snapshot_writer;
 pub(crate) mod consistency_check;
 pub(crate) mod db_checkpoint;
 pub(crate) mod errors;
@@ -691,6 +693,8 @@ pub struct StorageNodeInner {
     // Sender for updating the latest event epoch.
     latest_event_epoch_sender: watch::Sender<Option<Epoch>>,
     consistency_check_config: StorageNodeConsistencyCheckConfig,
+    blob_info_snapshot_config: blob_info_snapshot_writer::BlobInfoSnapshotWriterConfig,
+    blob_info_snapshot_dir: PathBuf,
     checkpoint_manager: Option<Arc<DbCheckpointManager>>,
     garbage_collection_config: GarbageCollectionConfig,
     // Server-side cap on the `sliver_count` a sync-shard request may ask for; `None` disables it.
@@ -893,6 +897,10 @@ impl StorageNode {
             latest_event_epoch_sender,
             latest_event_epoch_watcher,
             consistency_check_config: config.consistency_check.clone(),
+            blob_info_snapshot_config: config.blob_info_snapshot.clone(),
+            blob_info_snapshot_dir: blob_info_snapshot_writer::snapshot_base_dir(
+                &config.storage_path,
+            ),
             checkpoint_manager,
             garbage_collection_config: config.garbage_collection,
             max_sliver_count_per_sync_request: config
@@ -1945,9 +1953,40 @@ impl StorageNode {
         // phase 1's disk traffic on the same RocksDB instance.
         self.start_garbage_collection_task(event.epoch).await?;
 
-        // Capture the event index before the handle is moved into `execute_epoch_change` so
-        // we can later detect whether this event is being reprocessed.
+        // Compute this before the handle is moved into `execute_epoch_change`, whose finisher marks
+        // the event complete in the background: checking afterwards could misclassify first-time
+        // processing as reprocessing.
         let event_index = event_handle.index();
+        let node_is_reprocessing_events =
+            self.inner.storage.get_latest_handled_event_index()? >= event_index;
+
+        // Serialize only when enabled, not reprocessing, and not catching up (a catching-up node's
+        // blob info tables are not at the clean cross-node boundary). The node-status DB lookup
+        // runs only after the other two checks short-circuit.
+        let should_serialize = self.inner.blob_info_snapshot_config.enabled
+            && !node_is_reprocessing_events
+            && !self.inner.storage.node_status()?.is_catching_up();
+
+        // Serialize after GC phase 1 has settled the tables and before `execute_epoch_change`
+        // spawns the finisher that marks the event complete (so a crash before completion replays
+        // and re-creates it). Errors are logged and counted, never failing epoch processing.
+        if should_serialize
+            && let Err(error) = blob_info_snapshot_writer::serialize_snapshot_at_epoch_boundary(
+                self.inner.clone(),
+                event.epoch,
+                // Mirror what the node persists after completing this event: the
+                // `EpochChangeStart`'s id, and its index + 1 as the next index to process.
+                EventStreamCursor::new(Some(event_handle.event_id()), event_index + 1),
+            )
+            .await
+        {
+            self.inner.metrics.blob_info_snapshot_error_total.inc();
+            tracing::warn!(
+                ?error,
+                walrus.epoch = event.epoch,
+                "failed to serialize the blob info snapshot in-process at the epoch boundary"
+            );
+        }
 
         // During epoch change, we need to lock the read access to shard map until all the new
         // shards are created.
@@ -1981,8 +2020,6 @@ impl StorageNode {
         // - consistency check is disabled
         // - node is reprocessing events (blob info table should not be affected by future
         //   events)
-        let node_is_reprocessing_events =
-            self.inner.storage.get_latest_handled_event_index()? >= event_index;
         if self.inner.consistency_check_config.enable_consistency_check
             && !node_is_reprocessing_events
             && let Err(err) = consistency_check::schedule_background_consistency_check(
