@@ -1,0 +1,113 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+When an agent stores data on Walrus, or receives a blob ID and plans to build on it, it needs to confirm the data is durably stored before depending on it. The authoritative signal is Walrus state recorded on Sui: a certified, unexpired, non-deletable `Blob` object, or a verified blob-status result backed by the onchain certification event. A write call returning or an aggregator read succeeding is not enough. This page describes the verify-before-act pattern and the checks to run.
+
+## What durable storage means on Walrus
+
+In the standard store path, Walrus represents each stored blob as a Sui object of type `Blob`, paired with a `Storage` object that reserves space for a fixed period. A blob moves through two states: registered, where storage nodes expect its slivers, and certified, where enough slivers are stored to guarantee availability. A blob is safe to depend on only after it is certified, and only until its storage period ends.
+
+The `Blob` and `Storage` objects expose fields you can read from Sui:
+
+```move
+/// Reservation for storage for a given period, inclusive start, exclusive end.
+public struct Storage has key, store {
+    id: UID,
+    start_epoch: u32,
+    end_epoch: u32,
+    storage_size: u64,
+}
+
+public struct Blob has key, store {
+    id: UID,
+    registered_epoch: u32,
+    blob_id: u256,
+    size: u64,
+    encoding_type: u8,
+    certified_epoch: option::Option<u32>, // set to the epoch first certified, if any
+    storage: Storage,
+    deletable: bool, // whether the owner can delete the blob before expiry
+}
+```
+
+## Why verify before acting
+
+Several signals look like confirmation but do not prove durability:
+
+- A write call returning, or an HTTP 200 from a publisher, reports that a request was accepted, not that the blob is certified and remains available.
+- An aggregator read can return a stale cached 404 right after certification, or succeed only because another copy exists that you do not control.
+- A blob expires at the end of its storage period, and a deletable blob can be removed by its owner before then.
+
+Depending on a blob without reading the chain risks building on data that is not yet certified, has expired, or can disappear.
+
+> **Caution**
+>
+> Do not treat an immediate aggregator 404 as proof the blob is missing. Right after certification, a cache in front of the aggregator might still serve a stale 404. Confirm against Sui state, or retry the read with backoff.
+## The check
+
+Before you depend on a blob, confirm all three conditions. If you have the `Blob` object ID, read that object directly from Sui:
+
+- **Certified:** `certified_epoch` is set, so the blob reached the certified state.
+- **Within its storage period:** the current epoch is less than `storage.end_epoch`. Require enough epochs of margin for how long you need the data.
+- **Not deletable, when you need persistence:** `deletable` is `false`, so the owner cannot remove the blob before it expires.
+
+A certified, non-deletable `Blob` object looks like this when read as JSON:
+
+```json
+{
+  "id": "0xe91eee8c5b6f35b9a250cfc29e30f0d9e5463a21fd8d1ddb0fc22d44db4eac50",
+  "registeredEpoch": 34,
+  "blobId": "M4hsZGQ1oCktdzegB6HnI6Mi28S2nqOPHxK-W7_4BUk",
+  "size": 17,
+  "encodingType": "RS2",
+  "certifiedEpoch": 34,
+  "storage": { "startEpoch": 34, "endEpoch": 35, "storageSize": 66034000 },
+  "deletable": false
+}
+```
+
+Here `certifiedEpoch` is set, `endEpoch` is 35, and `deletable` is `false`, so the blob is safe to depend on while the current epoch is below 35.
+
+## Tooling
+
+Check a blob by its ID with the CLI:
+
+```
+$ walrus blob-status --blob-id <BLOB_ID>
+```
+
+This reports whether the blob is stored and its availability period. When it reports a certified permanent blob, it also returns the related Sui event ID, a transaction ID and a sequence number. Read the current epoch with `walrus info`.
+
+To check programmatically after writing a blob, use the `Blob` object ID from the write result and re-read that object from Sui before depending on it:
+
+```ts
+const res = await suiClient.getObject({
+  id: blobObjectId, // blobObject.id from the write result
+  options: { showContent: true },
+});
+if (res.data?.content?.dataType !== "moveObject") {
+  throw new Error("Blob object was not found on Sui");
+}
+
+const fields = res.data.content.fields as Record<string, any>;
+const storageFields = fields.storage?.fields;
+
+// The parsed Move Option<u32> is Some(epoch) when vec contains one value.
+const certifiedEpoch = fields.certified_epoch?.fields?.vec?.[0] ?? null;
+
+const certified = certifiedEpoch != null;
+const endEpoch = Number(storageFields.end_epoch);
+const deletable = fields.deletable === true;
+
+const durable = certified && currentEpoch < endEpoch && !deletable;
+if (!durable) {
+  throw new Error("Blob is not durably available yet; do not depend on it");
+}
+```
+
+For trustless or offline checks, authenticate the `BlobCertified` event or the `Blob` object through the Sui client, which returns signed evidence usable as a portable proof of availability. A Sui smart contract can run the same certified, before-expiry, and not-deletable check when the `Blob` object is passed as an input. See the `blob` and `storage_resource` Move modules for the field accessors.
+
+## Caveats
+
+- Mainnet epochs last 2 weeks, so `end_epoch` gives a concrete time horizon for how long the data is guaranteed.
+- A blob ID is derived from content, so identical content always produces the same blob ID, and multiple `Blob` objects can certify it. Verifying by blob ID confirms that some non-expired certificate exists, not that your specific object is the one keeping it alive. If you need ownership or accounting guarantees, verify the specific object ID too.
+- Walrus blobs are public. Encrypt sensitive data, for example with Seal, before you store it.

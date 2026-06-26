@@ -98,6 +98,9 @@ Sui smart contract as the on-chain index.
     All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use
     Seal or Nautilus to encrypt the data before storing it on Walrus. For a worked example, see
     Encrypting data with Seal.
+- [Verifying Availability](https://docs.wal.app/docs/walrus-client/verifying-availability.md):
+    When an agent stores data on Walrus, or receives a blob ID and plans to build on it, it needs
+    to confirm the data is durably stored before depending on it.
 - [Walrus CLI](https://docs.wal.app/docs/walrus-client/walrus-cli.md):
     Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available
     by installing the walrus binary.
@@ -531,7 +534,9 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Release notes from Walrus, Walrus Memory, and the Walrus blog.
+    Release notes from Walrus, Walrus Memory, and the Walrus blog. Mainnet June 24, 2026 | GitHub >
+    A maintenance release on Testnet with no user-facing changes documented in the release notes;
+    see > the full commit log for internal updates.
 
 ## Seal Encryption Tutorial
 
@@ -801,6 +806,9 @@ Sui smart contract as the on-chain index.
     GET /health and GET /version The health and version endpoints are intentionally left
     unauthenticated and unsigned. They do not require a valid Ed25519 signature in headers like the
     rest of the API.
+- [Overview](https://docs.wal.app/docs/walrus-memory/troubleshooting/overview.md):
+    This page collects the support questions that come up most often and the fastest way to resolve
+    each one. Every entry lists the symptom you observe, the cause behind it, and the fix to apply.
 
 ## Optional
 

@@ -14,7 +14,7 @@
 ## Step 1, clone and install
 
 ```bash
-$ git clone https://github.com/CommandOSSLabs/MemWal.git
+$ git clone https://github.com/MystenLabs/MemWal.git
 $ cd MemWal
 $ pnpm install
 ```
