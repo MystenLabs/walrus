@@ -1231,7 +1231,7 @@ impl WalrusPtbBuilder {
                     .get_object_owner_address(receiver)
                     .await?;
                 ensure!(
-                    owner_address == self.sender_address,
+                    owner_address == Some(self.sender_address),
                     SuiClientError::NotAuthorizedForPool(node_id)
                 );
                 self.authenticate_with_object(receiver).await

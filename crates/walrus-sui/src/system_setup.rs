@@ -14,7 +14,15 @@ use anyhow::{Context, Result, anyhow, bail};
 use move_core_types::language_storage::StructTag;
 use move_package_alt::{
     RootPackage,
-    schema::{Environment, OriginalID, Publication, PublishAddresses, PublishedID},
+    schema::{
+        Environment,
+        EnvironmentID,
+        EnvironmentName,
+        OriginalID,
+        Publication,
+        PublishAddresses,
+        PublishedID,
+    },
 };
 use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
 use sui_move_build::{CompiledPackage, PackageDependencies};
@@ -96,39 +104,87 @@ pub(crate) async fn publish_package_with_default_build_config(
     publish_package(wallet, package_path, Default::default(), gas_budget).await
 }
 
-/// Maps the wallet's active env alias to the env name used to load the package.
+/// Selects the package-system environment to compile and publish under.
 ///
-/// We don't pass the wallet's alias directly to `PackageLoader` because our `Move.toml`s only
-/// declare the two env names that come from `SuiFlavor`'s defaults — `mainnet` and `testnet` —
-/// and an unknown name (notably the test cluster's `localnet`) would fail dep-package validation.
-/// `mainnet` passes through (so production mainnet upgrades read each dep's
-/// `[published.mainnet]` entry). Everything else — `testnet`, `localnet`, custom aliases — maps
-/// to `testnet`, which is the env name our `testnet-contracts/` `Published.toml` files key on
-/// and the env name we write for fresh publishes during tests.
-fn compile_env_name_for_alias(alias: &str) -> &'static str {
-    match alias {
-        "mainnet" => "mainnet",
-        _ => "testnet",
+/// Mirrors `sui_package_alt::find_environment`: it prefers an environment the package manifest
+/// declares (the `[environments]` table plus `SuiFlavor`'s `testnet`/`mainnet` defaults) whose
+/// chain id matches the wallet's active chain id. When such an environment exists, the env *name*
+/// and the chain id are consistent, so the env name and chain id agree and each dependency's
+/// published addresses resolve under the matching `[published.<env>]` key. Two scenarios reach
+/// this honest path:
+///  - production `testnet`/`mainnet`, where the wallet alias and chain id match a default env;
+///  - a custom or local network the operator has registered by adding an
+///    `[environments] <alias> = "<chain id>"` entry to each package's `Move.toml`.
+///
+/// When no declared environment matches the wallet's chain id, it falls back to `testnet`:
+/// addresses are written and read under the `testnet` env key. This is the only case that pairs an
+/// env name with a possibly-different chain id. Automated test clusters mint a fresh chain id per
+/// run that no manifest declares, so they take this fallback; that is acceptable because they
+/// publish to throwaway local networks.
+fn select_environment(
+    package_path: &Path,
+    chain_id: String,
+    wallet: &Wallet,
+) -> Result<Environment> {
+    let alias = wallet.get_active_env().alias.clone();
+    let manifest_envs: Vec<(EnvironmentName, EnvironmentID)> =
+        RootPackage::<SuiFlavor>::environments(package_path, &wallet.sui_flavor())
+            .context("failed to read the package environments from the manifest")?
+            .into_iter()
+            .collect();
+    Ok(resolve_environment(&manifest_envs, alias, chain_id))
+}
+
+/// Pure environment-selection logic for `select_environment`; see its docs for the rationale.
+fn resolve_environment(
+    manifest_envs: &[(EnvironmentName, EnvironmentID)],
+    alias: String,
+    chain_id: String,
+) -> Environment {
+    // 1. Exact match: the manifest declares the active alias with the active chain id.
+    if manifest_envs
+        .iter()
+        .any(|(name, id)| *name == alias && *id == chain_id)
+    {
+        return Environment::new(alias, chain_id);
     }
+
+    // 2. Unique match by chain id: exactly one declared environment uses this chain id.
+    let mut by_chain_id = manifest_envs.iter().filter(|(_, id)| id == &chain_id);
+    if let Some((name, id)) = by_chain_id.next()
+        && by_chain_id.next().is_none()
+    {
+        return Environment::new(name.clone(), id.clone());
+    }
+
+    // 3. Fall back to `testnet` for an unregistered network.
+    Environment::new("testnet".to_string(), chain_id)
 }
 
 /// Compiles a package and returns the compiled package, and build config.
 ///
-/// Loads the root package in persistent mode. The env name is chosen from the wallet's active
-/// alias via `compile_env_name_for_alias` so that production mainnet upgrades read
-/// `[published.mainnet]` from each dep's `Published.toml` while everything else (including
-/// `testnet-contracts/` and test-cluster fresh publishes) goes through `[published.testnet]`.
-/// The wallet's actual `chain_id` is bound to that env name so the resulting publish transaction
-/// still reaches the correct chain. Package addresses propagate between sibling packages via
-/// each one's per-directory `Published.toml`.
+/// Loads the root package in persistent mode under the environment chosen by `select_environment`
+/// from the wallet's active alias and chain id. Production `testnet`/`mainnet` resolve to a default
+/// environment whose name and chain id agree; an unregistered network (such as a test cluster's
+/// `localnet`) falls back to the `testnet` env name. The selected env name keys the
+/// `[published.<env>]` lookups, so package addresses propagate between sibling packages via each
+/// one's per-directory `Published.toml`.
 pub async fn compile_package(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
-    chain_id: Option<String>,
+    chain_id: String,
     wallet: &Wallet,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
-    let env_name = compile_env_name_for_alias(&wallet.get_active_env().alias);
-    let env = Environment::new(env_name.to_string(), chain_id.clone().unwrap_or_default());
+    // Under simtest, pre-resolve framework `rev`s in the staged manifests to commit SHAs so the
+    // `force_repin` load below pins them without repeated `git ls-remote` calls (which otherwise
+    // pile up across publish/upgrade/digest compiles and time the test out).
+    #[cfg(msim)]
+    {
+        let package_path = package_path.clone();
+        tokio::task::spawn_blocking(move || pin_framework_revs(&package_path)).await??;
+    }
+
+    let env = select_environment(&package_path, chain_id.clone(), wallet)?;
 
     let build_config_clone = build_config.clone();
     let package_path_clone = package_path.clone();
@@ -153,12 +209,141 @@ pub async fn compile_package(
     .await?
 }
 
+/// Resolves a git `rev` (branch or tag) to a full commit SHA via `git ls-remote`. Returns `rev`
+/// unchanged if it is already a 40-character hex SHA.
+///
+/// Deliberately holds no cross-call state: under simtest, `compile_package` repins framework
+/// dependencies straight from the manifests on every call (see `force_repin`), and each unresolved
+/// `rev` (a branch or tag) makes the Move package loader shell out to `git ls-remote`. Those
+/// lookups are deduplicated by the on-disk manifest rewrite in [`pin_framework_revs`] — once a
+/// staged manifest carries a full SHA, the loader (and a re-run of this code) short-circuits — so
+/// the only memoization is per staged tree, which is scoped to a single test run. A process-global
+/// cache would instead leak across the two runs of a determinism test (run 1 resolves and shells
+/// out, run 2 hits the cache), making them diverge.
+#[cfg(msim)]
+fn resolve_git_rev(git_url: &str, rev: &str) -> Result<String> {
+    if rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Ok(rev.to_string());
+    }
+
+    // Mirror the Move loader: a single `ls-remote` for the tag and branch refs. For annotated
+    // tags, prefer the peeled `^{}` entry, which is the commit the tag points at.
+    let output = std::process::Command::new("git")
+        .args([
+            "ls-remote",
+            git_url,
+            &format!("refs/tags/{rev}"),
+            &format!("refs/tags/{rev}^{{}}"),
+            &format!("refs/heads/{rev}"),
+        ])
+        .env("GIT_CONFIG_GLOBAL", "")
+        .output()
+        .context("failed to run `git ls-remote`")?;
+    ensure!(
+        output.status.success(),
+        "`git ls-remote {git_url} {rev}` failed: {}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let stdout = String::from_utf8(output.stdout).context("`git ls-remote` output not utf-8")?;
+
+    let mut resolved: Option<String> = None;
+    for line in stdout.lines() {
+        let Some((sha, reference)) = line.split_once('\t') else {
+            continue;
+        };
+        if reference.ends_with("^{}") {
+            resolved = Some(sha.to_string()); // peeled commit wins
+            break;
+        }
+        resolved.get_or_insert_with(|| sha.to_string());
+    }
+    resolved.ok_or_else(|| anyhow!("`git ls-remote` returned no ref for `{rev}`"))
+}
+
+/// Rewrites git `rev` fields in the manifest at `package_path` (and, recursively, those of its
+/// `local` dependencies) to the resolved commit SHA, so the package loader can pin them without
+/// shelling out to `git ls-remote`. Simtest-only; mutates the already-copied staged contract tree
+/// in place and is idempotent (a second run sees full SHAs and does nothing).
+#[cfg(msim)]
+fn pin_framework_revs(package_path: &Path) -> Result<()> {
+    use std::collections::{HashMap, HashSet};
+
+    // Compile the regexes as plain locals rather than process-global `LazyLock` statics: a static
+    // is initialized exactly once for the whole process, so under a determinism test (same test run
+    // twice in one process) the first run pays the initialization while the second skips it, making
+    // the two runs diverge. Locals are rebuilt identically on every call, so both runs match.
+    let git_dep =
+        regex::Regex::new(r#"git\s*=\s*"(?P<url>[^"]+)"[^\n]*?rev\s*=\s*"(?P<rev>[^"]+)""#)
+            .expect("regex compiles");
+    let local_dep = regex::Regex::new(r#"local\s*=\s*"(?P<path>[^"]+)""#).expect("regex compiles");
+
+    fn inner(
+        package_path: &Path,
+        visited: &mut HashSet<PathBuf>,
+        git_dep: &regex::Regex,
+        local_dep: &regex::Regex,
+    ) -> Result<()> {
+        let canonical = package_path
+            .canonicalize()
+            .unwrap_or_else(|_| package_path.to_path_buf());
+        if !visited.insert(canonical) {
+            return Ok(());
+        }
+
+        let manifest_path = package_path.join("Move.toml");
+        let Ok(contents) = std::fs::read_to_string(&manifest_path) else {
+            return Ok(());
+        };
+
+        // Resolve every distinct rev first so errors propagate cleanly out of `replace_all`.
+        let mut sha_for_rev: HashMap<String, String> = HashMap::new();
+        for caps in git_dep.captures_iter(&contents) {
+            let rev = caps["rev"].to_string();
+            if !sha_for_rev.contains_key(&rev) {
+                let sha = resolve_git_rev(&caps["url"], &rev)?;
+                sha_for_rev.insert(rev, sha);
+            }
+        }
+
+        let rewritten = git_dep.replace_all(&contents, |caps: &regex::Captures| {
+            let whole = &caps[0];
+            let rev = &caps["rev"];
+            match sha_for_rev.get(rev) {
+                Some(sha) if sha != rev => {
+                    whole.replace(&format!("\"{rev}\""), &format!("\"{sha}\""))
+                }
+                _ => whole.to_string(),
+            }
+        });
+
+        if rewritten.as_ref() != contents.as_str() {
+            // Write atomically so a concurrent reader never sees a torn manifest.
+            let tmp_path = manifest_path.with_extension("toml.tmp");
+            std::fs::write(&tmp_path, rewritten.as_ref())?;
+            std::fs::rename(&tmp_path, &manifest_path)?;
+            tracing::debug!(
+                ?manifest_path,
+                "pinned framework git revs to shas for simtest"
+            );
+        }
+
+        // Follow local dependencies (siblings within the staged tree).
+        for caps in local_dep.captures_iter(&contents) {
+            let dep_path = package_path.join(&caps["path"]);
+            inner(&dep_path, visited, git_dep, local_dep)?;
+        }
+        Ok(())
+    }
+
+    inner(package_path, &mut HashSet::new(), &git_dep, &local_dep)
+}
+
 /// Synchronous method to compile the package. Should only be called from an async context
 /// using `tokio::task::spawn_blocking` or similar methods.
 fn compile_package_inner_blocking(
     package_path: PathBuf,
     build_config: MoveBuildConfig,
-    chain_id: Option<String>,
+    chain_id: String,
     root_pkg: RootPackage<SuiFlavor>,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
     let mut stdout = std::io::stdout();
@@ -281,7 +466,7 @@ pub(crate) async fn publish_package(
     let chain_id = retry_client.get_chain_identifier().await?;
 
     let (compiled_package, final_build_config, mut root_package) =
-        compile_package(package_path, build_config, Some(chain_id.clone()), wallet).await?;
+        compile_package(package_path, build_config, chain_id.clone(), wallet).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
     let transaction_kind = {
@@ -713,39 +898,60 @@ pub async fn create_system_and_staking_objects(
 
 #[cfg(test)]
 mod tests {
-    use super::compile_env_name_for_alias;
+    use super::resolve_environment;
 
-    #[test]
-    fn mainnet_alias_passes_through() {
-        // Mainnet upgrades must read `[published.mainnet]` from each dep's `Published.toml`
-        // (notably `mainnet-contracts/wal/Published.toml` only has that block); reading a
-        // `[published.testnet]` entry — or none — would either silently link against the wrong
-        // dep address or fail the unpublished-dependency assertion.
-        assert_eq!(compile_env_name_for_alias("mainnet"), "mainnet");
+    /// `SuiFlavor`'s default environments, as they appear in `manifest_envs` when a package
+    /// declares no `[environments]` table of its own.
+    fn defaults() -> Vec<(String, String)> {
+        vec![
+            ("testnet".to_string(), "4c78adac".to_string()),
+            ("mainnet".to_string(), "35834a8a".to_string()),
+        ]
     }
 
     #[test]
-    fn testnet_alias_uses_testnet_env() {
-        assert_eq!(compile_env_name_for_alias("testnet"), "testnet");
+    fn production_env_matches_by_alias_and_chain_id() {
+        // testnet/mainnet wallets hit the exact-match path: the alias is a declared env and the
+        // chain id agrees, so the env name and chain id stay consistent.
+        let env = resolve_environment(&defaults(), "testnet".to_string(), "4c78adac".to_string());
+        assert_eq!(env.name(), "testnet");
+        assert_eq!(env.id(), "4c78adac");
+
+        let env = resolve_environment(&defaults(), "mainnet".to_string(), "35834a8a".to_string());
+        assert_eq!(env.name(), "mainnet");
+        assert_eq!(env.id(), "35834a8a");
     }
 
     #[test]
-    fn localnet_alias_falls_back_to_testnet() {
-        // The Sui test cluster's wallet alias is `localnet`, but our contract source trees only
-        // record publications under `mainnet` / `testnet` env names, and fresh test-cluster
-        // publishes write `[published.testnet]` entries to match the lockfile's `[pinned.testnet]`
-        // block. Mapping `localnet` to `testnet` lets the test cluster publish + read addresses
-        // through the same env key.
-        assert_eq!(compile_env_name_for_alias("localnet"), "testnet");
+    fn registered_localnet_is_selected_honestly() {
+        // When an operator registers `[environments] localnet = "<chain id>"`, the wallet alias and
+        // chain id match it exactly, so we build under `localnet` rather than masquerading as
+        // `testnet`.
+        let mut envs = defaults();
+        envs.push(("localnet".to_string(), "deadbeef".to_string()));
+        let env = resolve_environment(&envs, "localnet".to_string(), "deadbeef".to_string());
+        assert_eq!(env.name(), "localnet");
+        assert_eq!(env.id(), "deadbeef");
     }
 
     #[test]
-    fn unknown_alias_falls_back_to_testnet() {
-        // Any custom wallet alias a user might set (e.g. a self-hosted devnet) lands on the
-        // testnet env name so publish writes a `[published.testnet]` entry and subsequent
-        // compiles can read it back. The actual chain id is still bound separately.
-        assert_eq!(compile_env_name_for_alias("custom"), "testnet");
-        assert_eq!(compile_env_name_for_alias("devnet"), "testnet");
-        assert_eq!(compile_env_name_for_alias(""), "testnet");
+    fn registered_env_matches_by_chain_id_when_alias_differs() {
+        // A declared env whose chain id matches is picked even when the wallet alias differs, as
+        // long as the match is unique.
+        let mut envs = defaults();
+        envs.push(("localnet".to_string(), "deadbeef".to_string()));
+        let env = resolve_environment(&envs, "custom-alias".to_string(), "deadbeef".to_string());
+        assert_eq!(env.name(), "localnet");
+        assert_eq!(env.id(), "deadbeef");
+    }
+
+    #[test]
+    fn unregistered_network_falls_back_to_testnet() {
+        // A fresh local network whose chain id isn't declared falls back to the `testnet` env key,
+        // preserving the previous behavior. This is the only case where the env name and chain id
+        // can disagree.
+        let env = resolve_environment(&defaults(), "localnet".to_string(), "deadbeef".to_string());
+        assert_eq!(env.name(), "testnet");
+        assert_eq!(env.id(), "deadbeef");
     }
 }

@@ -147,6 +147,7 @@ use crate::{
             GetBlobAttributeOutput,
             InfoBftOutput,
             InfoCoinOutput,
+            InfoCommissionReceiversOutput,
             InfoCommitteeOutput,
             InfoEpochOutput,
             InfoOutput,
@@ -1608,13 +1609,23 @@ impl ClientCommandRunner {
                     .await?
                     .print_output(self.json)
             }
-            Some(InfoCommands::Committee(args)) => InfoCommitteeOutput::get_committee_info(
-                &sui_read_client,
-                args.sort,
-                !args.hide_details,
-            )
-            .await?
-            .print_output(self.json),
+            Some(InfoCommands::Committee(args)) => {
+                if args.commission_receivers {
+                    // This output is only produced in CSV format, regardless of `--json`.
+                    InfoCommissionReceiversOutput::get_commission_receivers(&sui_read_client)
+                        .await?
+                        .print_cli_output();
+                    Ok(())
+                } else {
+                    InfoCommitteeOutput::get_committee_info(
+                        &sui_read_client,
+                        args.sort,
+                        !args.hide_details,
+                    )
+                    .await?
+                    .print_output(self.json)
+                }
+            }
             Some(InfoCommands::Bft) => InfoBftOutput::get_bft_info(&sui_read_client)
                 .await?
                 .print_output(self.json),
