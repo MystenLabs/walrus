@@ -786,11 +786,11 @@ impl SuiContractClient {
         package_path: PathBuf,
         build_config: MoveBuildConfig,
     ) -> SuiClientResult<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
-        let chain_id = self
-            .retriable_sui_client()
-            .get_chain_identifier()
-            .await
-            .ok();
+        // Propagate a failure to fetch the chain id rather than swallowing it into `None`: a
+        // missing chain id makes `select_environment` fall back to `testnet`, which on mainnet
+        // would compute the digest (used for upgrade votes) against the wrong `[published.<env>]`
+        // addresses.
+        let chain_id = self.retriable_sui_client().get_chain_identifier().await?;
         Ok(system_setup::compile_package(
             package_path,
             build_config,
@@ -1506,11 +1506,11 @@ impl SuiContractClientInner {
         // published address from `Published.toml`): Sui's upgrade transaction substitutes those
         // 0x0 placeholders with the new package id when it runs. `sui_package_management`'s
         // `upgrade_command` sets the same flag for the same reason.
-        let chain_id = self
-            .retriable_sui_client()
-            .get_chain_identifier()
-            .await
-            .ok();
+        //
+        // Propagate a chain-id fetch failure rather than swallowing it into `None`: a missing chain
+        // id makes `select_environment` fall back to `testnet`, which on mainnet would compile the
+        // upgrade against the wrong `[published.<env>]` addresses.
+        let chain_id = self.retriable_sui_client().get_chain_identifier().await?;
         let build_config = MoveBuildConfig {
             root_as_zero: true,
             ..Default::default()
