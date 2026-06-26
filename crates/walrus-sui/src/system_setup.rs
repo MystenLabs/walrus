@@ -116,11 +116,11 @@ pub(crate) async fn publish_package_with_default_build_config(
 ///  - a custom or local network the operator has registered by adding an
 ///    `[environments] <alias> = "<chain id>"` entry to each package's `Move.toml`.
 ///
-/// When no declared environment matches the wallet's chain id, it falls back to `testnet`. This
-/// keeps the previous behavior for unregistered networks — addresses are written and read under the
-/// `testnet` env key — and is the only case that pairs an env name with a possibly-different chain
-/// id. Automated test clusters mint a fresh chain id per run that no manifest declares, so they
-/// take this fallback; that is acceptable because they publish to throwaway local networks.
+/// When no declared environment matches the wallet's chain id, it falls back to `testnet`:
+/// addresses are written and read under the `testnet` env key. This is the only case that pairs an
+/// env name with a possibly-different chain id. Automated test clusters mint a fresh chain id per
+/// run that no manifest declares, so they take this fallback; that is acceptable because they
+/// publish to throwaway local networks.
 fn select_environment(
     package_path: &Path,
     chain_id: String,
