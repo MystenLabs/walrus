@@ -534,8 +534,8 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Release notes from Walrus and Walrus Memory. Mainnet June 24, 2026 | GitHub > A maintenance
-    release on Testnet with no user-facing changes documented in the release notes; see > the full
+    Release notes from Walrus and Walrus Memory. Mainnet June 24, 2026 | GitHub A maintenance
+    release on Testnet with no user-facing changes documented in the release notes; see the full
     commit log for internal updates.
 
 ## Seal Encryption Tutorial

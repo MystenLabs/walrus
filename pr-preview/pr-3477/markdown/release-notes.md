@@ -8,8 +8,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` June 24, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.50.0)
 
-> A maintenance release on Testnet with no user-facing changes documented in the release notes; see
-> the full commit log for internal updates.
+A maintenance release on Testnet with no user-facing changes documented in the release notes; see
+the full commit log for internal updates.
 
 ---
 #### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.50.0
@@ -20,8 +20,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` May 27, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.49.1)
 
-> A maintenance release on Mainnet with no user-facing changes documented in the release notes; see
-> the full commit log for internal updates.
+A maintenance release on Mainnet with no user-facing changes documented in the release notes; see
+the full commit log for internal updates.
 
 ---
 #### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.49.1
@@ -32,8 +32,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` May 13, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.48.1)
 
-> A maintenance release on Mainnet with no user-facing changes documented in the release notes; see
-> the full commit log for internal updates.
+A maintenance release on Mainnet with no user-facing changes documented in the release notes; see
+the full commit log for internal updates.
 
 ---
 #### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.48.1
@@ -44,10 +44,10 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` April 29, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.47.1)
 
-> Enables storage pool support in the storage node and makes the aggregator return a retryable HTTP
-> 503 `BLOB_UNAVAILABLE` (instead of 500) when a blob is only temporarily unretrievable. Blob
-> attribute headers such as `Content-Type` are now correctly included on range requests when reading
-> by object ID.
+Enables storage pool support in the storage node and makes the aggregator return a retryable HTTP
+503 `BLOB_UNAVAILABLE` (instead of 500) when a blob is only temporarily unretrievable. Blob
+attribute headers such as `Content-Type` are now correctly included on range requests when reading
+by object ID.
 
 #### Storage node
 
@@ -75,9 +75,9 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Testnet` April 22, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.47.0)
 
-> The Testnet preview of storage pool support in the storage node, plus the aggregator's new retryable
-> HTTP 503 `BLOB_UNAVAILABLE` response for temporarily unretrievable blobs. Range requests by object
-> ID now return blob attribute headers such as `Content-Type` correctly.
+The Testnet preview of storage pool support in the storage node, plus the aggregator's new retryable
+HTTP 503 `BLOB_UNAVAILABLE` response for temporarily unretrievable blobs. Range requests by object
+ID now return blob attribute headers such as `Content-Type` correctly.
 
 #### Storage node
 
@@ -105,8 +105,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` April 15, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.46.1)
 
-> Adds a `reuse_resources` query parameter so the publisher and daemon can resume an existing,
-> unfinished upload pipeline instead of starting over.
+Adds a `reuse_resources` query parameter so the publisher and daemon can resume an existing,
+unfinished upload pipeline instead of starting over.
 
 #### Publisher
 
@@ -121,10 +121,10 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` April 1, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.45.2)
 
-> Raises the storage node's RocksDB background threads from 2 to 16 and adds the opt-in
-> `garbage_collection.enable_immediate_data_deletion` parameter. Also fixes a combined-daemon body
-> size limit that was silently rejecting uploads with 413 errors and adds a `walrus info coin` CLI
-> subcommand.
+Raises the storage node's RocksDB background threads from 2 to 16 and adds the opt-in
+`garbage_collection.enable_immediate_data_deletion` parameter. Also fixes a combined-daemon body
+size limit that was silently rejecting uploads with 413 errors and adds a `walrus info coin` CLI
+subcommand.
 
 #### Storage node
 
@@ -149,9 +149,9 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Testnet` March 25, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.45.1)
 
-> The Testnet preview that raises RocksDB background threads from 2 to 16 and adds the opt-in
-> `garbage_collection.enable_immediate_data_deletion` parameter. Includes the combined-daemon 413
-> upload fix and the new `walrus info coin` CLI subcommand.
+The Testnet preview that raises RocksDB background threads from 2 to 16 and adds the opt-in
+`garbage_collection.enable_immediate_data_deletion` parameter. Includes the combined-daemon 413
+upload fix and the new `walrus info coin` CLI subcommand.
 
 #### Storage node
 
@@ -176,8 +176,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` March 19, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.44.3)
 
-> Fixes a storage node crash caused by outdated epoch state, raises RocksDB background threads from 2
-> to 16, and adds the opt-in `garbage_collection.enable_immediate_data_deletion` parameter.
+Fixes a storage node crash caused by outdated epoch state, raises RocksDB background threads from 2
+to 16, and adds the opt-in `garbage_collection.enable_immediate_data_deletion` parameter.
 
 #### Storage node
 
@@ -222,8 +222,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` March 4, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.43.1)
 
-> Allows storage nodes to vote on pricing denominated in USD, a capability that becomes usable once
-> the contract adds support for it.
+Allows storage nodes to vote on pricing denominated in USD, a capability that becomes usable once
+the contract adds support for it.
 
 #### Storage node
 
@@ -238,8 +238,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` February 18, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.42.1)
 
-> A maintenance release on Mainnet with no user-facing changes documented in the release notes; see
-> the full commit log for internal updates.
+A maintenance release on Mainnet with no user-facing changes documented in the release notes; see
+the full commit log for internal updates.
 
 ---
 #### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.42.1
@@ -250,8 +250,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` February 5, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.41.1)
 
-> Enables garbage collection by default on Mainnet and adds an alpha `/v1alpha/blobs/{blob_id}/stream`
-> endpoint designed to lower time to first byte when streaming blob data.
+Enables garbage collection by default on Mainnet and adds an alpha `/v1alpha/blobs/{blob_id}/stream`
+endpoint designed to lower time to first byte when streaming blob data.
 
 #### Storage node
 
@@ -270,8 +270,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Testnet` January 28, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.41.0)
 
-> The Testnet preview enabling garbage collection by default and introducing the alpha
-> `/v1alpha/blobs/{blob_id}/stream` endpoint for lower-latency blob streaming.
+The Testnet preview enabling garbage collection by default and introducing the alpha
+`/v1alpha/blobs/{blob_id}/stream` endpoint for lower-latency blob streaming.
 
 #### Storage node
 
@@ -290,9 +290,9 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` January 21, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.40.3)
 
-> Enables database transactions and garbage collection by default on Testnet, both of which can be
-> turned off in the node configuration; operators using `experimental_use_optimistic_transaction_db`
-> should remove that flag.
+Enables database transactions and garbage collection by default on Testnet, both of which can be
+turned off in the node configuration; operators using `experimental_use_optimistic_transaction_db`
+should remove that flag.
 
 #### Storage node
 
@@ -316,8 +316,8 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 `Mainnet` January 7, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.39.1)
 
-> Storage node operators must remove the obsolete `use_legacy_event_provider` flag from their
-> configuration if it is still present.
+Storage node operators must remove the obsolete `use_legacy_event_provider` flag from their
+configuration if it is still present.
 
 #### Storage node
 
@@ -333,9 +333,9 @@ Storage nodes will need to remove the `use_legacy_event_provider` flag from thei
 
 `Mainnet` December 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.38.3)
 
-> Delivers significant memory-usage reductions across the aggregator, publisher, and CLI, plus lower
-> upload latency from fewer Sui RPC requests. Adds a new byte-range read API and an alpha
-> `/v1alpha/blobs/concat` endpoint, and removes the long-unused `get_recovery_symbol` endpoint.
+Delivers significant memory-usage reductions across the aggregator, publisher, and CLI, plus lower
+upload latency from fewer Sui RPC requests. Adds a new byte-range read API and an alpha
+`/v1alpha/blobs/concat` endpoint, and removes the long-unused `get_recovery_symbol` endpoint.
 
 #### Storage node
 
@@ -381,9 +381,9 @@ Reduce number of Sui RPC requests and decrease latency when storing blobs.
 
 `Testnet` December 9, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.38.2)
 
-> The Testnet build with major memory-usage reductions across the aggregator, publisher, and CLI and
-> reduced upload latency. Adds a byte-range read API and the alpha `/v1alpha/blobs/concat` endpoint
-> while removing the deprecated `get_recovery_symbol` endpoint.
+The Testnet build with major memory-usage reductions across the aggregator, publisher, and CLI and
+reduced upload latency. Adds a byte-range read API and the alpha `/v1alpha/blobs/concat` endpoint
+while removing the deprecated `get_recovery_symbol` endpoint.
 
 #### Storage node
 
@@ -429,9 +429,9 @@ Reduce number of Sui RPC requests and decrease latency when storing blobs.
 
 `Testnet` December 3, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.38.1)
 
-> An earlier Testnet build of the memory-usage and latency improvements across the aggregator,
-> publisher, and CLI, alongside the new byte-range read API and alpha `/v1alpha/blobs/concat`
-> endpoint.
+An earlier Testnet build of the memory-usage and latency improvements across the aggregator,
+publisher, and CLI, alongside the new byte-range read API and alpha `/v1alpha/blobs/concat`
+endpoint.
 
 #### Storage node
 
@@ -477,8 +477,8 @@ Reduce number of Sui RPC requests and decrease latency when storing blobs.
 
 `Mainnet` November 19, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.37.0)
 
-> Changes the default consistency check on reads; the previous strict behavior can be restored with
-> the `strict_consistency_check=true` query option or the `--strict-consistency-check` CLI flag.
+Changes the default consistency check on reads; the previous strict behavior can be restored with
+the `strict_consistency_check=true` query option or the `--strict-consistency-check` CLI flag.
 
 #### Aggregator
 
@@ -499,9 +499,9 @@ Reduce number of Sui RPC requests and decrease latency when storing blobs.
 
 `Mainnet` November 7, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.36.1)
 
-> Adds a `skip_consistency_check` option (and `--skip-consistency-check` CLI flag) for use only with
-> trusted writers, and trims `server_address` and `server_port` labels from request-duration metrics
-> for fast, successful responses.
+Adds a `skip_consistency_check` option (and `--skip-consistency-check` CLI flag) for use only with
+trusted writers, and trims `server_address` and `server_port` labels from request-duration metrics
+for fast, successful responses.
 
 #### Storage node
 
@@ -535,9 +535,9 @@ Add a new CLI option `--skip-consistency-check`.  to skip blob consistency check
 
 `Mainnet` October 29, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.35.2)
 
-> Brings the trusted-writer `skip_consistency_check` option and `--skip-consistency-check` CLI flag to
-> Mainnet, and removes `server_address` and `server_port` labels from metrics for fast, successful
-> responses.
+Brings the trusted-writer `skip_consistency_check` option and `--skip-consistency-check` CLI flag to
+Mainnet, and removes `server_address` and `server_port` labels from metrics for fast, successful
+responses.
 
 #### Storage node
 
@@ -571,8 +571,8 @@ Add a new CLI option `--skip-consistency-check`.  to skip blob consistency check
 
 `Mainnet` October 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.35.1)
 
-> Delivers a major reduction in memory usage when reading large blobs and adds the sliver range to
-> `store-quilt` output. Note the warning that the default consistency check will change in v1.37.
+Delivers a major reduction in memory usage when reading large blobs and adds the sliver range to
+`store-quilt` output. Note the warning that the default consistency check will change in v1.37.
 
 #### Aggregator
 
@@ -602,9 +602,9 @@ Added range of slivers for store-quilt command in the output.
 
 `Testnet` October 16, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.35.0)
 
-> The Testnet preview with a major reduction in memory usage for large blobs and sliver-range
-> information in `store-quilt` output, plus advance notice that the default consistency check changes
-> in v1.37.
+The Testnet preview with a major reduction in memory usage for large blobs and sliver-range
+information in `store-quilt` output, plus advance notice that the default consistency check changes
+in v1.37.
 
 #### Aggregator
 
@@ -634,9 +634,9 @@ Added range of slivers for store-quilt command in the output.
 
 `Mainnet` October 9, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.34.2)
 
-> Adds an aggregator `--max-blob-size` option to cap the size of requestable blobs. Note the warning
-> that blobs are stored as deletable by default starting in v1.33; pass `permanent=true` to keep the
-> old behavior.
+Adds an aggregator `--max-blob-size` option to cap the size of requestable blobs. Note the warning
+that blobs are stored as deletable by default starting in v1.33; pass `permanent=true` to keep the
+old behavior.
 
 #### Aggregator
 
@@ -662,8 +662,8 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Testnet` October 1, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.34.1)
 
-> The Testnet build adding the aggregator `--max-blob-size` option, with a reminder that blobs become
-> deletable by default in v1.33 unless `permanent=true` is set.
+The Testnet build adding the aggregator `--max-blob-size` option, with a reminder that blobs become
+deletable by default in v1.33 unless `permanent=true` is set.
 
 #### Aggregator
 
@@ -689,8 +689,8 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Mainnet` September 29, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.33.3)
 
-> Adds the aggregator `--max-blob-size` option and marks the switch to deletable-by-default blobs;
-> pass `permanent=true` (or `--permanent`) to retain permanent storage.
+Adds the aggregator `--max-blob-size` option and marks the switch to deletable-by-default blobs;
+pass `permanent=true` (or `--permanent`) to retain permanent storage.
 
 #### Aggregator
 
@@ -710,8 +710,8 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Testnet` September 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.33.2)
 
-> Marks the Testnet switch to deletable-by-default blob storage; add `permanent=true` or the
-> `--permanent` CLI option to keep blobs permanent.
+Marks the Testnet switch to deletable-by-default blob storage; add `permanent=true` or the
+`--permanent` CLI option to keep blobs permanent.
 
 #### Publisher
 
@@ -730,8 +730,8 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Testnet` September 17, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.33.1)
 
-> An earlier Testnet build introducing deletable-by-default blob storage, with `permanent=true` or
-> `--permanent` available to preserve the previous behavior.
+An earlier Testnet build introducing deletable-by-default blob storage, with `permanent=true` or
+`--permanent` available to preserve the previous behavior.
 
 #### Publisher
 
@@ -752,8 +752,8 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Mainnet` September 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.32.0)
 
-> Adds an aggregator endpoint, `/quilts/<quilt-id>/patches`, that lists all patches contained in a
-> quilt.
+Adds an aggregator endpoint, `/quilts/<quilt-id>/patches`, that lists all patches contained in a
+quilt.
 
 #### Aggregator
 
@@ -772,8 +772,8 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Mainnet` August 28, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.31.1)
 
-> An advance warning that blobs become deletable by default in v1.33; operators who want to keep
-> permanent storage should begin adding the `permanent=true` query parameter now.
+An advance warning that blobs become deletable by default in v1.33; operators who want to keep
+permanent storage should begin adding the `permanent=true` query parameter now.
 
 #### Publisher & CLI
 
@@ -789,9 +789,9 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Mainnet` August 14, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.30.1)
 
-> Storage nodes now restart on a TLS certificate update only when the certificate is near expiry or
-> its subject or extensions have changed, and they emit warning and error logs for nearly expired
-> certificates.
+Storage nodes now restart on a TLS certificate update only when the certificate is near expiry or
+its subject or extensions have changed, and they emit warning and error logs for nearly expired
+certificates.
 
 #### Storage node
 
@@ -806,8 +806,8 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Testnet` August 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.30.0)
 
-> The Testnet preview of smarter TLS certificate handling, where a node restarts only on meaningful
-> certificate changes and logs warnings for nearly expired certificates.
+The Testnet preview of smarter TLS certificate handling, where a node restarts only on meaningful
+certificate changes and logs warnings for nearly expired certificates.
 
 #### Storage node
 
@@ -822,9 +822,9 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Mainnet` July 31, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.29.2)
 
-> Brings Quilt batch storage to Mainnet with new publisher, aggregator, and CLI support for storing
-> and reading quilts, plus an `--upload-relay` option. Also fixes startup issues with deleted event
-> databases and lets new nodes start beyond `MAX_EPOCHS_AHEAD`.
+Brings Quilt batch storage to Mainnet with new publisher, aggregator, and CLI support for storing
+and reading quilts, plus an `--upload-relay` option. Also fixes startup issues with deleted event
+databases and lets new nodes start beyond `MAX_EPOCHS_AHEAD`.
 
 #### Storage node
 
@@ -868,10 +868,10 @@ Adds a `--max-blob-size` option to limit the size of blobs that can be requested
 
 `Testnet` July 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.29.1)
 
-> Introduces Quilt, a batch storage solution for storing and accessing many small files efficiently,
-> with new `store-quilt`, `read-quilt`, and quilt read endpoints across the CLI, publisher, and
-> aggregator. Also fixes deleted-event-database startup issues and relaxes the `MAX_EPOCHS_AHEAD`
-> constraint for new nodes.
+Introduces Quilt, a batch storage solution for storing and accessing many small files efficiently,
+with new `store-quilt`, `read-quilt`, and quilt read endpoints across the CLI, publisher, and
+aggregator. Also fixes deleted-event-database startup issues and relaxes the `MAX_EPOCHS_AHEAD`
+constraint for new nodes.
 
 📣📣📣
 As part of this release we are introducing Quilt - a batch storage solution with an intuitive API, designed to make storing and accessing large numbers of small files on Walrus both incredibly convenient, efficient, and cost-effective. For more details please see https://www.walrus.xyz/blog/introducing-quilt.
@@ -916,8 +916,8 @@ As part of this release we are introducing Quilt - a batch storage solution with
 
 `Mainnet` July 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.28.4)
 
-> Fixes an issue where a blob could be reported as non-existent immediately after certification,
-> affecting both the aggregator and the CLI.
+Fixes an issue where a blob could be reported as non-existent immediately after certification,
+affecting both the aggregator and the CLI.
 
 #### Aggregator
 
@@ -965,8 +965,8 @@ Fixes an issue where a blob was sometimes reported as non-existing immediately a
 
 `Testnet` July 2, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.28.1)
 
-> Fixes a storage node startup problem with deleted `events` and `event_blob_writer` databases, along
-> with the post-certification blob existence reporting fix.
+Fixes a storage node startup problem with deleted `events` and `event_blob_writer` databases, along
+with the post-certification blob existence reporting fix.
 
 #### Storage node
 
@@ -1004,9 +1004,9 @@ Fixes an issue where a blob was sometimes reported as non-existing immediately a
 
 `Mainnet` June 26, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.27.2)
 
-> Adds a `CheckpointManager` and a node admin socket for direct operator interaction with a running
-> node, and fixes a crash affecting recovering nodes after restart as well as a checkpoint-lag
-> miscalculation.
+Adds a `CheckpointManager` and a node admin socket for direct operator interaction with a running
+node, and fixes a crash affecting recovering nodes after restart as well as a checkpoint-lag
+miscalculation.
 
 #### Storage node
 
@@ -1037,8 +1037,8 @@ Adds node-admin command to compute package digest
 
 `Testnet` June 18, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.27.1)
 
-> The Testnet preview adding the `CheckpointManager` component and node admin socket, plus fixes for
-> recovering-node restart crashes and inflated checkpoint-lag values.
+The Testnet preview adding the `CheckpointManager` component and node admin socket, plus fixes for
+recovering-node restart crashes and inflated checkpoint-lag values.
 
 #### Storage node
 
@@ -1069,9 +1069,9 @@ Adds node-admin command to compute package digest
 
 `Mainnet` June 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.26.4)
 
-> Adds multi-URL Sui RPC configuration via `rpc_urls` and removes the implicit fallback to the public
-> Testnet full node. Note the breaking change where metrics and REST API endpoints now bind to the
-> configured address rather than always to `0.0.0.0`.
+Adds multi-URL Sui RPC configuration via `rpc_urls` and removes the implicit fallback to the public
+Testnet full node. Note the breaking change where metrics and REST API endpoints now bind to the
+configured address rather than always to `0.0.0.0`.
 
 #### Storage node
 
@@ -1114,9 +1114,9 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Mainnet` June 5, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.26.3)
 
-> Rate-limits concurrent blob recovery during node recovery and adds multi-URL Sui RPC configuration.
-> Includes the breaking change where services bind to the configured address instead of always to
-> `0.0.0.0`.
+Rate-limits concurrent blob recovery during node recovery and adds multi-URL Sui RPC configuration.
+Includes the breaking change where services bind to the configured address instead of always to
+`0.0.0.0`.
 
 #### Storage node
 
@@ -1151,8 +1151,8 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Testnet` May 28, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.26.2)
 
-> The Testnet build introducing multi-URL Sui RPC configuration and the breaking change where metrics
-> and REST API endpoints bind to the configured address rather than always to `0.0.0.0`.
+The Testnet build introducing multi-URL Sui RPC configuration and the breaking change where metrics
+and REST API endpoints bind to the configured address rather than always to `0.0.0.0`.
 
 #### Storage node
 
@@ -1192,8 +1192,8 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Mainnet` May 22, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.25.1)
 
-> A bug fix adding options to tune compaction write throttling and setting a high write-stalling
-> threshold on the metadata table.
+A bug fix adding options to tune compaction write throttling and setting a high write-stalling
+threshold on the metadata table.
 
 #### Bug Fix
 
@@ -1208,8 +1208,8 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Mainnet` May 22, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.25.0)
 
-> Speeds up batch blob operations by optimizing storage selection, with no change to the user
-> workflow.
+Speeds up batch blob operations by optimizing storage selection, with no change to the user
+workflow.
 
 #### CLI
 
@@ -1224,8 +1224,8 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Mainnet` May 12, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.24.2)
 
-> Adds a publisher `force` store option and a CLI `completion` command, and substantially reduces SUI
-> gas costs when registering multiple blobs at once.
+Adds a publisher `force` store option and a CLI `completion` command, and substantially reduces SUI
+gas costs when registering multiple blobs at once.
 
 #### Aggregator
 
@@ -1250,8 +1250,8 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Testnet` May 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.24.1)
 
-> The Testnet preview adding a publisher `force` store option and CLI `completion` command, with a
-> major SUI gas reduction for registering multiple blobs simultaneously.
+The Testnet preview adding a publisher `force` store option and CLI `completion` command, with a
+major SUI gas reduction for registering multiple blobs simultaneously.
 
 #### Aggregator
 
@@ -1276,9 +1276,9 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Mainnet` April 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.22.1)
 
-> Reduces SUI gas costs for simultaneous blob registration, surfaces storage node checkpoint progress
-> in the `health` command, and fixes default-location Sui wallet creation. Operators must remove the
-> `experimental_batch_symbol_recovery` config field.
+Reduces SUI gas costs for simultaneous blob registration, surfaces storage node checkpoint progress
+in the `health` command, and fixes default-location Sui wallet creation. Operators must remove the
+`experimental_batch_symbol_recovery` config field.
 
 #### Storage node
 
@@ -1327,8 +1327,8 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Mainnet` April 10, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.20.2)
 
-> Adds the latest checkpoint sequence number and an estimated checkpoint lag to the CLI `health`
-> output.
+Adds the latest checkpoint sequence number and an estimated checkpoint lag to the CLI `health`
+output.
 
 #### CLI
 
@@ -1343,9 +1343,9 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Mainnet` March 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.18.2)
 
-> Adds TLS certificate monitoring with automatic reboot, new `--network-key-path` and
-> `--certificate-path` setup options, and a configurable checkpoint request timeout. The publisher's
-> JWT token now includes a `size` field.
+Adds TLS certificate monitoring with automatic reboot, new `--network-key-path` and
+`--certificate-path` setup options, and a configurable checkpoint request timeout. The publisher's
+JWT token now includes a `size` field.
 
 #### Storage node
 
@@ -1368,8 +1368,8 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Testnet` March 20, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.18.1)
 
-> The Testnet preview of TLS certificate monitoring with automatic reboot and the new key and
-> certificate setup options, plus the publisher JWT token `size` field.
+The Testnet preview of TLS certificate monitoring with automatic reboot and the new key and
+certificate setup options, plus the publisher JWT token `size` field.
 
 #### Storage node
 
@@ -1390,8 +1390,8 @@ Add a new `rpc_urls` field to the client config, which allows setting multiple S
 
 `Testnet` March 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.17.2)
 
-> Adds `--network-key-path` and `--certificate-path` options to the `setup` command, removes legacy
-> event-provider flags, and adjusts default storage prices and commission rates.
+Adds `--network-key-path` and `--certificate-path` options to the `setup` command, removes legacy
+event-provider flags, and adjusts default storage prices and commission rates.
 
 #### Storage node
 
@@ -1420,9 +1420,9 @@ Added optional `--network-key-path` and `--certificate-path` options to the `set
 
 `Testnet` March 5, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.16.1)
 
-> Lets the CLI `delete` command accept multiple files, blob IDs, or object IDs (a breaking change to
-> the delete JSON API) and adds multi-context configuration with a `--context` override. The publisher
-> now keeps created `Blob` objects by default, replacing `--keep` with `--burn-after-store`.
+Lets the CLI `delete` command accept multiple files, blob IDs, or object IDs (a breaking change to
+the delete JSON API) and adds multi-context configuration with a `--context` override. The publisher
+now keeps created `Blob` objects by default, replacing `--keep` with `--burn-after-store`.
 
 #### Storage node
 
@@ -1516,8 +1516,8 @@ default_context: testnet
 
 `Testnet` February 28, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.15.4)
 
-> Fixes an issue where keys were not loaded into memory when on-chain config parameters were updated,
-> and makes the publisher use the correct default encoding type.
+Fixes an issue where keys were not loaded into memory when on-chain config parameters were updated,
+and makes the publisher use the correct default encoding type.
 
 #### Storage node
 
@@ -1538,10 +1538,10 @@ Use the correct encoding type by default.
 
 `Testnet` February 27, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.15.3)
 
-> Adds support for multiple encoding types across the storage node, publisher, and CLI, and lets the
-> aggregator return allow-listed blob attributes as response headers. Storage nodes can now
-> auto-reload configuration changes from disk, and the CLI gains `--sort-by` and `--desc` options for
-> `health` and `info`.
+Adds support for multiple encoding types across the storage node, publisher, and CLI, and lets the
+aggregator return allow-listed blob attributes as response headers. Storage nodes can now
+auto-reload configuration changes from disk, and the CLI gains `--sort-by` and `--desc` options for
+`health` and `info`.
 
 #### Storage node
 
@@ -1583,9 +1583,9 @@ Use the correct encoding type by default.
 
 `Testnet` February 19, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.14.0)
 
-> Enables batch symbol recovery by default and adds CLI commands to set, get, and remove blob
-> attributes. The `walrus store` command now extends the lifetime of matching owned blobs instead of
-> re-registering them.
+Enables batch symbol recovery by default and adds CLI commands to set, get, and remove blob
+attributes. The `walrus store` command now extends the lifetime of matching owned blobs instead of
+re-registering them.
 
 #### Storage node
 
@@ -1610,8 +1610,8 @@ Use the correct encoding type by default.
 
 `Testnet` February 13, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.13.2)
 
-> Fixes the blob-certified metric so it updates only for event blobs and makes the publisher retry
-> when a refresh fails.
+Fixes the blob-certified metric so it updates only for event blobs and makes the publisher retry
+when a refresh fails.
 
 [#1576](https://github.com/MystenLabs/walrus/pull/1576): fix: Update blob certified metric only if it is event blob
 
@@ -1626,9 +1626,9 @@ Use the correct encoding type by default.
 
 `Testnet` February 12, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.13.1)
 
-> Reworks TLS configuration by removing the `tls.pem_files` block in favor of `tls.certificate_path`
-> and `network_key_pair.path`, and enables automatic rotation of the protocol key pair. Adds a CLI
-> `--ignore-resources` flag.
+Reworks TLS configuration by removing the `tls.pem_files` block in favor of `tls.certificate_path`
+and `network_key_pair.path`, and enables automatic rotation of the protocol key pair. Adds a CLI
+`--ignore-resources` flag.
 
 #### Storage node
 
@@ -1652,8 +1652,8 @@ introduces the `--ignore-resources` flag.
 
 `Testnet` February 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.12.0)
 
-> Lets the `walrus health` command accept a list of node IDs or URLs; this is a breaking change for
-> JSON mode, where `nodeId` and `nodeUrl` become `nodeIds` and `nodeUrls`.
+Lets the `walrus health` command accept a list of node IDs or URLs; this is a breaking change for
+JSON mode, where `nodeId` and `nodeUrl` become `nodeIds` and `nodeUrls`.
 
 #### CLI
 
@@ -1669,9 +1669,9 @@ Adds the ability to provide a list of node IDs or URLs for the `walrus health` c
 
 `Testnet` January 29, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.11.0)
 
-> Adds a CLI `health` command and the ability to extend owned blobs with WAL, and lets storage node
-> operators change several config parameters by editing the local file and restarting. Deprecates the
-> recovery symbol endpoint in favor of a new one.
+Adds a CLI `health` command and the ability to extend owned blobs with WAL, and lets storage node
+operators change several config parameters by editing the local file and restarting. Deprecates the
+recovery symbol endpoint in favor of a new one.
 
 #### Storage node
 
@@ -1710,10 +1710,10 @@ Allow specifying 'global' options like `--json` anywhere in the command, for exa
 
 `Testnet` January 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.10.0)
 
-> Makes storage node error responses machine-readable, adds error statuses and richer OpenAPI schemas
-> to the aggregator and publisher, and introduces an optional JWT auth layer for the publisher. Also
-> adds a `walrus-backup` entrypoint and several CLI fixes and options, including staking with multiple
-> nodes.
+Makes storage node error responses machine-readable, adds error statuses and richer OpenAPI schemas
+to the aggregator and publisher, and introduces an optional JWT auth layer for the publisher. Also
+adds a `walrus-backup` entrypoint and several CLI fixes and options, including staking with multiple
+nodes.
 
 #### Storage node
 
@@ -1754,9 +1754,9 @@ Allow specifying 'global' options like `--json` anywhere in the command, for exa
 
 June 12, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.5)
 
-> Adds the automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity, along with new
-> `memwal_remember_bulk` and `memwal_health` tools and proactive memory behavior. Also fixes the
-> plugin bundle so it ships `.mcp.json` correctly.
+Adds the automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity, along with new
+`memwal_remember_bulk` and `memwal_health` tools and proactive memory behavior. Also fixes the
+plugin bundle so it ships `.mcp.json` correctly.
 
 #### 0.0.5
 
@@ -1784,8 +1784,8 @@ June 12, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40my
 
 June 5, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.4)
 
-> Fixes HTTPS dashboard sign-in callbacks and credential reload after login so tools work without
-> restarting the MCP client.
+Fixes HTTPS dashboard sign-in callbacks and credential reload after login so tools work without
+restarting the MCP client.
 
 #### 0.0.4
 
@@ -1800,7 +1800,7 @@ June 5, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 June 4, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.3)
 
-> Rebrands package metadata from MemWal to Walrus Memory throughout the MCP server.
+Rebrands package metadata from MemWal to Walrus Memory throughout the MCP server.
 
 #### 0.0.3
 
@@ -1814,8 +1814,8 @@ June 4, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.2)
 
-> Adds relayer compatibility checks and rebrands from MemWal to Walrus Memory across the MCP server
-> package.
+Adds relayer compatibility checks and rebrands from MemWal to Walrus Memory across the MCP server
+package.
 
 #### 0.0.2
 
@@ -1833,8 +1833,8 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.1)
 
-> Initial release of the MCP server with stdio transport, browser wallet login, and inline session
-> tools. Includes memory tools for remember, recall, analyze, and restore.
+Initial release of the MCP server with stdio transport, browser wallet login, and inline session
+tools. Includes memory tools for remember, recall, analyze, and restore.
 
 #### 0.0.1
 
@@ -1851,8 +1851,8 @@ May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.7)
 
-> Adds an optional `occurredAt` parameter to `analyze()` for temporal anchoring of extracted facts.
-> Relative date references are now resolved into absolute dates.
+Adds an optional `occurredAt` parameter to `analyze()` for temporal anchoring of extracted facts.
+Relative date references are now resolved into absolute dates.
 
 #### 0.0.7
 
@@ -1872,8 +1872,8 @@ June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.6)
 
-> Adds `RecallParams` for object-style recall calls and deprecates the positional recall overload.
-> Also documents `restore()` response fields.
+Adds `RecallParams` for object-style recall calls and deprecates the positional recall overload.
+Also documents `restore()` response fields.
 
 #### 0.0.6
 
@@ -1892,8 +1892,8 @@ May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.5)
 
-> Adds relayer compatibility checks, `RecallOptions` for `topK`/`namespace`/`maxDistance` filtering,
-> and prefers Sui gRPC for SEAL sessions. This release also rebrands from MemWal to Walrus Memory.
+Adds relayer compatibility checks, `RecallOptions` for `topK`/`namespace`/`maxDistance` filtering,
+and prefers Sui gRPC for SEAL sessions. This release also rebrands from MemWal to Walrus Memory.
 
 #### 0.0.5
 
@@ -1919,8 +1919,8 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.4)
 
-> Adds `getRememberStatus` for polling async job state and `SealServerConfig` for manual SEAL
-> configuration. Manual mode validates API key pairs.
+Adds `getRememberStatus` for polling async job state and `SealServerConfig` for manual SEAL
+configuration. Manual mode validates API key pairs.
 
 #### 0.0.4
 
@@ -1940,9 +1940,9 @@ May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 8, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.3)
 
-> Updates `remember()` for the async relayer flow and introduces `rememberAsync`,
-> `waitForRememberJob`, `rememberAndWait`, and bulk remember helpers. Also adds async analysis with
-> `analyzeAndWait`.
+Updates `remember()` for the async relayer flow and introduces `rememberAsync`,
+`waitForRememberJob`, `rememberAndWait`, and bulk remember helpers. Also adds async analysis with
+`analyzeAndWait`.
 
 #### 0.0.3
 
@@ -1964,8 +1964,8 @@ May 8, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40myst
 
 April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.2)
 
-> Adds per-request nonce signing to block replay attacks and replaces delegate key transport with
-> ephemeral SEAL sessions. SDK versions that do not include a nonce are rejected with HTTP 426.
+Adds per-request nonce signing to block replay attacks and replaces delegate key transport with
+ephemeral SEAL sessions. SDK versions that do not include a nonce are rejected with HTTP 426.
 
 #### 0.0.2
 
@@ -1982,7 +1982,7 @@ April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40m
 
 June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.4)
 
-> A patch release for the Walrus Memory Python SDK.
+A patch release for the Walrus Memory Python SDK.
 
 Release memwal Python SDK v0.1.4
 
@@ -1992,7 +1992,7 @@ Release memwal Python SDK v0.1.4
 
 May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.3)
 
-> A patch release for the Walrus Memory Python SDK.
+A patch release for the Walrus Memory Python SDK.
 
 Release memwal Python SDK v0.1.3
 
@@ -2002,7 +2002,7 @@ Release memwal Python SDK v0.1.3
 
 May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.2)
 
-> A patch release for the Walrus Memory Python SDK.
+A patch release for the Walrus Memory Python SDK.
 
 Release memwal Python SDK v0.1.2
 
@@ -2012,7 +2012,7 @@ Release memwal Python SDK v0.1.2
 
 May 21, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.0)
 
-> Initial release of the Walrus Memory Python SDK.
+Initial release of the Walrus Memory Python SDK.
 
 Release memwal Python SDK v0.1.0
 
@@ -2022,8 +2022,8 @@ Release memwal Python SDK v0.1.0
 
 June 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.5)
 
-> Fixes a workspace dependency that broke npm installs outside the monorepo and switches the release
-> workflow to pnpm publish.
+Fixes a workspace dependency that broke npm installs outside the monorepo and switches the release
+workflow to pnpm publish.
 
 #### 0.0.5
 
@@ -2043,8 +2043,8 @@ June 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40my
 
 June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.4)
 
-> Adds temporal anchoring through `occurredAt` to the `memory_store` tool. The auto-capture hook now
-> passes the current timestamp, and the SDK is bumped for the new `AnalyzeOptions`.
+Adds temporal anchoring through `occurredAt` to the `memory_store` tool. The auto-capture hook now
+passes the current timestamp, and the SDK is bumped for the new `AnalyzeOptions`.
 
 #### 0.0.4
 
@@ -2070,7 +2070,7 @@ June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.3)
 
-> Rebrands from MemWal to Walrus Memory across the OpenClaw memory plugin.
+Rebrands from MemWal to Walrus Memory across the OpenClaw memory plugin.
 
 #### 0.0.3
 
@@ -2084,8 +2084,8 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.2)
 
-> Initial release of the OpenClaw memory plugin with automatic recall and capture hooks, session
-> summary, CLI commands, and LLM tools.
+Initial release of the OpenClaw memory plugin with automatic recall and capture hooks, session
+summary, CLI commands, and LLM tools.
 
 #### 0.0.1
 
