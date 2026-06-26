@@ -2,7 +2,7 @@
 
 # Release Notes
 
-Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Walrus Memory](https://github.com/MystenLabs/MemWal/releases), and the [Walrus blog](/blog).
+Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [Walrus Memory](https://github.com/MystenLabs/MemWal/releases).
 
 ### Walrus v1.50.0
 
@@ -1754,6 +1754,10 @@ Allow specifying 'global' options like `--json` anywhere in the command, for exa
 
 June 12, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.5)
 
+> Adds the automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity, along with new
+> `memwal_remember_bulk` and `memwal_health` tools and proactive memory behavior. Also fixes the
+> plugin bundle so it ships `.mcp.json` correctly.
+
 #### 0.0.5
 
 #### Added
@@ -1780,6 +1784,9 @@ June 12, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40my
 
 June 5, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.4)
 
+> Fixes HTTPS dashboard sign-in callbacks and credential reload after login so tools work without
+> restarting the MCP client.
+
 #### 0.0.4
 
 #### Fixed
@@ -1793,6 +1800,8 @@ June 5, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 June 4, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.3)
 
+> Rebrands package metadata from MemWal to Walrus Memory throughout the MCP server.
+
 #### 0.0.3
 
 #### Changed
@@ -1804,6 +1813,9 @@ June 4, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 ### Walrus Memory MCP v0.0.2
 
 May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.2)
+
+> Adds relayer compatibility checks and rebrands from MemWal to Walrus Memory across the MCP server
+> package.
 
 #### 0.0.2
 
@@ -1821,6 +1833,9 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.1)
 
+> Initial release of the MCP server with stdio transport, browser wallet login, and inline session
+> tools. Includes memory tools for remember, recall, analyze, and restore.
+
 #### 0.0.1
 
 #### Initial Release
@@ -1835,6 +1850,9 @@ May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 ### Walrus Memory TypeScript SDK v0.0.7
 
 June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.7)
+
+> Adds an optional `occurredAt` parameter to `analyze()` for temporal anchoring of extracted facts.
+> Relative date references are now resolved into absolute dates.
 
 #### 0.0.7
 
@@ -1854,6 +1872,9 @@ June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.6)
 
+> Adds `RecallParams` for object-style recall calls and deprecates the positional recall overload.
+> Also documents `restore()` response fields.
+
 #### 0.0.6
 
 #### Added
@@ -1870,6 +1891,9 @@ May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 ### Walrus Memory TypeScript SDK v0.0.5
 
 May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.5)
+
+> Adds relayer compatibility checks, `RecallOptions` for `topK`/`namespace`/`maxDistance` filtering,
+> and prefers Sui gRPC for SEAL sessions. This release also rebrands from MemWal to Walrus Memory.
 
 #### 0.0.5
 
@@ -1895,6 +1919,9 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.4)
 
+> Adds `getRememberStatus` for polling async job state and `SealServerConfig` for manual SEAL
+> configuration. Manual mode validates API key pairs.
+
 #### 0.0.4
 
 #### Added
@@ -1912,6 +1939,10 @@ May 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 ### Walrus Memory TypeScript SDK v0.0.3
 
 May 8, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.3)
+
+> Updates `remember()` for the async relayer flow and introduces `rememberAsync`,
+> `waitForRememberJob`, `rememberAndWait`, and bulk remember helpers. Also adds async analysis with
+> `analyzeAndWait`.
 
 #### 0.0.3
 
@@ -1933,6 +1964,9 @@ May 8, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40myst
 
 April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.0.2)
 
+> Adds per-request nonce signing to block replay attacks and replaces delegate key transport with
+> ephemeral SEAL sessions. SDK versions that do not include a nonce are rejected with HTTP 426.
+
 #### 0.0.2
 
 #### Security
@@ -1948,6 +1982,8 @@ April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40m
 
 June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.4)
 
+> A patch release for the Walrus Memory Python SDK.
+
 Release memwal Python SDK v0.1.4
 
 ---
@@ -1955,6 +1991,8 @@ Release memwal Python SDK v0.1.4
 ### Walrus Memory python v0.1.3
 
 May 28, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.3)
+
+> A patch release for the Walrus Memory Python SDK.
 
 Release memwal Python SDK v0.1.3
 
@@ -1964,6 +2002,8 @@ Release memwal Python SDK v0.1.3
 
 May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.2)
 
+> A patch release for the Walrus Memory Python SDK.
+
 Release memwal Python SDK v0.1.2
 
 ---
@@ -1972,6 +2012,8 @@ Release memwal Python SDK v0.1.2
 
 May 21, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.0)
 
+> Initial release of the Walrus Memory Python SDK.
+
 Release memwal Python SDK v0.1.0
 
 ---
@@ -1979,6 +2021,9 @@ Release memwal Python SDK v0.1.0
 ### Walrus Memory SDK v0.0.5
 
 June 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.5)
+
+> Fixes a workspace dependency that broke npm installs outside the monorepo and switches the release
+> workflow to pnpm publish.
 
 #### 0.0.5
 
@@ -1997,6 +2042,9 @@ June 15, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40my
 ### Walrus Memory SDK v0.0.4
 
 June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.4)
+
+> Adds temporal anchoring through `occurredAt` to the `memory_store` tool. The auto-capture hook now
+> passes the current timestamp, and the SDK is bumped for the new `AnalyzeOptions`.
 
 #### 0.0.4
 
@@ -2022,6 +2070,8 @@ June 2, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.3)
 
+> Rebrands from MemWal to Walrus Memory across the OpenClaw memory plugin.
+
 #### 0.0.3
 
 #### Patch Changes
@@ -2034,6 +2084,9 @@ May 25, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mys
 
 April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.2)
 
+> Initial release of the OpenClaw memory plugin with automatic recall and capture hooks, session
+> summary, CLI commands, and LLM tools.
+
 #### 0.0.1
 
 #### Initial Release
@@ -2044,75 +2097,5 @@ April 30, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40m
 - Session summary on `before_reset` hook
 - CLI commands: `openclaw memwal stats`, `openclaw memwal search`
 - LLM tools: `memory_search`, `memory_store`
-
----
-
-### Announcing Mainnet
-
-March 27, 2025 | [Read full post](/blog/06_mainnet)
-
-The production Walrus Mainnet is now live, and operated by
-a decentralized network of over 100 storage nodes. Epoch 1 begun on March 25, 2025. The
-network can now be used to
-[publish and retrieve blobs](/docs/walrus-client/storing-blobs),
-[upload and browse Walrus Sites](/docs/sites/getting-started/publishing-your-first-site), as
-well as [stake and unstake](https://stake-wal.wal.app/) to determine future committees using the
-live
-[Mainnet WAL token](https://www.walrus.xyz/wal-token).
-On Mainnet, the Walrus security properties hold. And Walrus is now ready to satisfy
-the needs of real applications.
-
----
-
-### Announcing Testnet v2
-
-January 16, 2025 | [Read full post](/blog/05_testnet_redeployment)
-
-We are today redeploying the Walrus Testnet to incorporate various improvements, including some
-backwards-incompatible changes. Make sure to get the latest binary and configuration as described
-in the [setup section](/docs/getting-started/advanced-setup).
-
----
-
-### Announcing Testnet
-
-October 17, 2024 | [Read full post](/blog/04_testnet_update)
-
-Today, a community of operators launches the first public Walrus Testnet.
-This is an important milestone in validating the operation of Walrus as a decentralized blob store,
-by operating it on a set of independent storage nodes, that change over time through a delegated
-proof of stake mechanism. The Testnet also brings functionality updates relating to governance,
-epochs, and blob deletion.
-
----
-
-### Announcing the Official Walrus Whitepaper
-
-September 17, 2024 | [Read full post](/blog/03_whitepaper)
-
-In June, Mysten Labs announced Walrus, a new decentralized secure blob store design, and introduced
-a developer preview that currently stores over [12TiB](https://capacity.walrus.site/) of data.
-[Breaking the Ice](https://info.breakingtheice.sui.io/) gathered over 200 developers to build apps
-leveraging decentralized storage.
-
----
-
-### Devnet Update
-
-August 12, 2024 | [Read full post](/blog/02_devnet_update)
-
-We have redeployed the Walrus Devnet to incorporate various improvements to the Walrus storage nodes
-and clients. In this process, all blobs stored on Walrus were wiped. Note that this may happen again
-on Devnet and Testnet, but obviously *not on the future Mainnet*.
-
----
-
-### Announcing Walrus: A Decentralized Storage and Data Availability Protocol
-
-November 1, 2024 | [Read full post](/blog/01_announcing_walrus)
-
-Walrus is an innovative decentralized storage network for blockchain apps and autonomous agents. The
-Walrus storage system is being released today as a developer preview for Sui builders in order to
-gather feedback. We expect a broad rollout to other web3 communities very soon!
 
 ---
