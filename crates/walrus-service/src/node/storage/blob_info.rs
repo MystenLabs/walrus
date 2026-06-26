@@ -75,6 +75,12 @@ pub type PerObjectBlobInfoIterator<'a> = BlobInfoIter<
     dyn Iterator<Item = Result<(ObjectID, PerObjectBlobInfo), TypedStoreError>> + Send + 'a,
 >;
 
+pub type PerObjectPooledBlobInfoIterator<'a> = BlobInfoIter<
+    ObjectID,
+    PerObjectPooledBlobInfo,
+    dyn Iterator<Item = Result<(ObjectID, PerObjectPooledBlobInfo), TypedStoreError>> + Send + 'a,
+>;
+
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
     aggregate_blob_info: DBMap<BlobId, BlobInfo>,
@@ -512,6 +518,24 @@ impl BlobInfoTable {
                 self.per_object_blob_info
                     .safe_range_iter((starting_object_id_bound, Unbounded))
                     .expect("per_object_blob_info cf must always exist in storage node"),
+            ),
+            before_epoch,
+        )
+    }
+
+    /// Returns an iterator over all pooled blob objects that were certified before the specified
+    /// epoch in the per-object pooled blob info table starting with the `starting_object_id` bound.
+    #[tracing::instrument(skip_all)]
+    pub fn certified_per_object_pooled_blob_info_iter_before_epoch(
+        &self,
+        before_epoch: Epoch,
+        starting_object_id_bound: Bound<ObjectID>,
+    ) -> PerObjectPooledBlobInfoIterator<'_> {
+        BlobInfoIter::new(
+            Box::new(
+                self.per_object_pooled_blob_info
+                    .safe_range_iter((starting_object_id_bound, Unbounded))
+                    .expect("per_object_pooled_blob_info cf must always exist in storage node"),
             ),
             before_epoch,
         )

@@ -358,6 +358,8 @@ pub mod simtest_utils {
         certified_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
         // Per epoch, the per object blob digest of all nodes.
         per_object_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
+        // Per epoch, the per object pooled blob digest of all nodes.
+        per_object_pooled_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
         // Per epoch, the existence check of all nodes.
         blob_existence_check_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, f64>>>>,
         checked: Arc<AtomicBool>,
@@ -372,6 +374,8 @@ pub mod simtest_utils {
             let certified_blob_digest_map_clone = certified_blob_digest_map.clone();
             let per_object_blob_digest_map = Arc::new(Mutex::new(HashMap::new()));
             let per_object_blob_digest_map_clone = per_object_blob_digest_map.clone();
+            let per_object_pooled_blob_digest_map = Arc::new(Mutex::new(HashMap::new()));
+            let per_object_pooled_blob_digest_map_clone = per_object_pooled_blob_digest_map.clone();
             let blob_existence_check_map = Arc::new(Mutex::new(HashMap::new()));
             let blob_existence_check_map_clone = blob_existence_check_map.clone();
 
@@ -397,6 +401,13 @@ pub mod simtest_utils {
             );
 
             sui_macros::register_fail_point_arg(
+                "storage_node_certified_pooled_blob_object_digest",
+                move || -> Option<Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>> {
+                    Some(per_object_pooled_blob_digest_map_clone.clone())
+                },
+            );
+
+            sui_macros::register_fail_point_arg(
                 "storage_node_certified_blob_existence_check",
                 move || -> Option<Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, f64>>>>> {
                     Some(blob_existence_check_map_clone.clone())
@@ -407,6 +418,7 @@ pub mod simtest_utils {
                 event_source_map,
                 certified_blob_digest_map,
                 per_object_blob_digest_map,
+                per_object_pooled_blob_digest_map,
                 blob_existence_check_map,
                 checked: Arc::new(AtomicBool::new(false)),
             }
@@ -443,6 +455,7 @@ pub mod simtest_utils {
 
             self.check_certified_blob_digest(min_epoch);
             self.check_per_object_blob_digest(min_epoch);
+            self.check_per_object_pooled_blob_digest(min_epoch);
             self.check_blob_existence(min_epoch);
         }
 
@@ -469,6 +482,25 @@ pub mod simtest_utils {
                 "checking per object blob digest consistency starting with epoch {min_epoch}"
             );
             let digest_map = self.per_object_blob_digest_map.lock().unwrap();
+            for (epoch, node_digest_map) in digest_map.iter().sorted_by_key(|(epoch, _)| *epoch) {
+                if *epoch < min_epoch {
+                    tracing::info!(
+                        "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
+                    );
+                    continue;
+                }
+                Self::check_digests_are_equal(*epoch, node_digest_map);
+            }
+        }
+
+        /// Ensures that for all epochs, all nodes have the same per object pooled blob digest.
+        #[tracing::instrument(skip(self))]
+        fn check_per_object_pooled_blob_digest(&self, min_epoch: Epoch) {
+            tracing::info!(
+                "checking per object pooled blob digest consistency starting with epoch \
+                {min_epoch}"
+            );
+            let digest_map = self.per_object_pooled_blob_digest_map.lock().unwrap();
             for (epoch, node_digest_map) in digest_map.iter().sorted_by_key(|(epoch, _)| *epoch) {
                 if *epoch < min_epoch {
                     tracing::info!(
@@ -532,6 +564,7 @@ pub mod simtest_utils {
             sui_macros::clear_fail_point("storage_node_event_index_source");
             sui_macros::clear_fail_point("storage_node_certified_blob_digest");
             sui_macros::clear_fail_point("storage_node_certified_blob_object_digest");
+            sui_macros::clear_fail_point("storage_node_certified_pooled_blob_object_digest");
             sui_macros::clear_fail_point("storage_node_certified_blob_existence_check");
         }
     }
