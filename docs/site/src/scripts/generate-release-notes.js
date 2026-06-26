@@ -16,6 +16,7 @@ const path = require("path");
 const https = require("https");
 
 const BLOG_DIR = path.resolve(__dirname, "../../../blog");
+const EDITORIAL_DIR = path.resolve(__dirname, "../../../editorial");
 const OUTPUT_PATH = path.resolve(
   __dirname,
   "../../../content/release-notes.mdx",
@@ -162,6 +163,38 @@ function loadBlogPosts() {
 
     return { title, date, body, source: "blog", file };
   }).filter(Boolean);
+}
+
+// ── Editorial summaries (docs/editorial/*.md) ──────────────────
+
+function loadEditorialSummaries() {
+  const summaries = new Map();
+  if (!fs.existsSync(EDITORIAL_DIR)) return summaries;
+
+  const files = fs
+    .readdirSync(EDITORIAL_DIR)
+    .filter((f) => f.endsWith(".md"));
+
+  for (const file of files) {
+    // Extract version from filename: walrus-v1.47.1.md → 1.47.1
+    const match = file.match(/walrus-v(\d+\.\d+\.\d+)\.md$/);
+    if (!match) continue;
+
+    const raw = fs.readFileSync(path.join(EDITORIAL_DIR, file), "utf8");
+    // Strip frontmatter
+    const bodyMatch = raw.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
+    if (!bodyMatch) continue;
+
+    let body = bodyMatch[1].trim();
+    // Remove the leading "**Network** | Date" line — we already render that
+    body = body.replace(/^\*\*\w+\*\*\s*\|.*\n\n?/, "").trim();
+
+    if (body) {
+      summaries.set(match[1], body);
+    }
+  }
+
+  return summaries;
 }
 
 // ── Source 2: Walrus GitHub releases ───────────────────────────────
@@ -322,6 +355,9 @@ async function main() {
   console.log("Generating release notes...\n");
 
   // Load all sources
+  const editorialSummaries = loadEditorialSummaries();
+  console.log(`  Found ${editorialSummaries.size} editorial summaries`);
+
   const blogPosts = loadBlogPosts();
   console.log(`  Found ${blogPosts.length} blog posts`);
 
@@ -371,6 +407,13 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases), [Wal
 
       mdx += `### ${rel.title}\n\n`;
       mdx += `\`${networkBadge}\` ${dateStr} | ${link}\n\n`;
+
+      // Prepend editorial summary if available
+      const vKey = `${rel.version.major}.${rel.version.minor}.${rel.version.patch}`;
+      const editorial = editorialSummaries.get(vKey);
+      if (editorial) {
+        mdx += `> ${editorial.replace(/\n/g, "\n> ")}\n\n`;
+      }
 
       let body = sanitizeForMDX(rel.body);
       body = bumpHeadings(body);
