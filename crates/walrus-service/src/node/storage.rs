@@ -66,6 +66,7 @@ use super::{
 use crate::utils::{self, BatchProcessingResult};
 
 pub(crate) mod blob_info;
+pub(crate) mod blob_info_snapshot;
 pub(crate) mod constants;
 
 mod database_config;
@@ -473,6 +474,12 @@ impl Storage {
 
     pub(crate) fn clear_blob_info_table(&self) -> Result<(), TypedStoreError> {
         self.blob_info.clear()
+    }
+
+    /// Creates a RocksDB checkpoint of the entire database at `path`; see
+    /// [`blob_info::BlobInfoTable::checkpoint_database`].
+    pub(crate) fn checkpoint_database(&self, path: &Path) -> Result<(), TypedStoreError> {
+        self.blob_info.checkpoint_database(path)
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.

@@ -155,6 +155,25 @@ impl From<PerObjectPooledBlobInfoV1> for PerObjectPooledBlobInfo {
     }
 }
 
+impl PerObjectPooledBlobInfo {
+    #[cfg(test)]
+    pub(crate) fn new_for_testing(
+        blob_id: BlobId,
+        registered_epoch: Epoch,
+        certified_epoch: Option<Epoch>,
+        storage_pool_id: ObjectID,
+        event: EventID,
+    ) -> Self {
+        Self::V1(PerObjectPooledBlobInfoV1 {
+            blob_id,
+            registered_epoch,
+            certified_epoch,
+            storage_pool_id,
+            event,
+        })
+    }
+}
+
 impl ToBytes for PerObjectPooledBlobInfo {}
 
 impl Mergeable for PerObjectPooledBlobInfo {

@@ -194,6 +194,13 @@ walrus_utils::metrics::define_metric_set! {
         blob info table."]
         per_object_blob_info_consistency_check_error: IntCounter[],
 
+        #[help = "The duration of creating the epoch-boundary database checkpoint for the blob \
+        info snapshot, in seconds."]
+        blob_info_snapshot_checkpoint_duration_seconds: Gauge[],
+
+        #[help = "The number of errors while creating blob info snapshot checkpoints."]
+        blob_info_snapshot_error_total: IntCounter[],
+
         #[help = "The number of certified per-object blobs scanned during the per-object blob info \
         consistency check."]
         per_object_blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
