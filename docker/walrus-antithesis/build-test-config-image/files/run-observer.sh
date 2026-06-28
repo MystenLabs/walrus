@@ -11,6 +11,7 @@
 # Hard invariants (crash on first confirmed violation):
 #   - walrus_blob_info_consistency_check           — same digest per epoch across all nodes
 #   - walrus_per_object_blob_info_consistency_check — same digest per epoch across all nodes
+#   - walrus_per_object_pooled_blob_info_consistency_check — same digest per epoch across all nodes
 #   - walrus_periodic_event_source_for_deterministic_events — same per bucket across all nodes
 #
 # Soft invariants (crash after persistent violation):
@@ -59,6 +60,7 @@ mkdir -p "$WORK_DIR"
 # Short aliases for long metric names (used in checks and log messages).
 BLOB_INFO="walrus_blob_info_consistency_check"
 PER_OBJECT_INFO="walrus_per_object_blob_info_consistency_check"
+PER_OBJECT_POOLED_INFO="walrus_per_object_pooled_blob_info_consistency_check"
 EVENT_SOURCE="walrus_periodic_event_source_for_deterministic_events"
 FULLY_STORED_RATIO="walrus_node_blob_data_fully_stored_ratio"
 
@@ -279,6 +281,7 @@ log "Max epoch buckets: ${MAX_EPOCH_BUCKETS}, max digest buckets: ${MAX_DIGEST_B
 fully_stored_streak=0
 blob_info_no_data_streak=0
 per_object_no_data_streak=0
+per_object_pooled_no_data_streak=0
 event_source_no_data_streak=0
 round=0
 
@@ -373,7 +376,37 @@ while true; do
     fi
 
     # ------------------------------------------------------------------
-    # Hard invariant 3: event source must match across nodes.
+    # Hard invariant 3: per-object pooled blob digest must match across nodes.
+    # Same epoch bucket design as invariant 1; see comment above.
+    # ------------------------------------------------------------------
+    v=$(check_cross_node_metric \
+        "$PER_OBJECT_POOLED_INFO" "epoch" \
+        "$WORK_DIR/details_per_object_pooled.txt" "$MAX_EPOCH_BUCKETS")
+    if [ "$v" -eq -2 ]; then
+        log "WARNING: ${PER_OBJECT_POOLED_INFO}: epoch bucket capacity reached" \
+            "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
+        print_metric_values "$PER_OBJECT_POOLED_INFO" "epoch"
+    elif [ "$v" -eq -1 ]; then
+        per_object_pooled_no_data_streak=$((per_object_pooled_no_data_streak + 1))
+        log "${PER_OBJECT_POOLED_INFO}: no common data across nodes" \
+            "(streak: ${per_object_pooled_no_data_streak}/${NO_DATA_PATIENCE})"
+        print_metric_values "$PER_OBJECT_POOLED_INFO" "epoch"
+        if [ "$per_object_pooled_no_data_streak" -ge "$NO_DATA_PATIENCE" ]; then
+            die "${PER_OBJECT_POOLED_INFO}: no common data for ${NO_DATA_PATIENCE} consecutive rounds — likely silent regression"
+        fi
+    elif [ "$v" -gt 0 ]; then
+        log "INVARIANT VIOLATION — ${PER_OBJECT_POOLED_INFO} (${v} epoch(s)):"
+        cat "$WORK_DIR/details_per_object_pooled.txt"
+        print_metric_values "$PER_OBJECT_POOLED_INFO" "epoch"
+        die "${PER_OBJECT_POOLED_INFO}: mismatched digests across nodes"
+    else
+        per_object_pooled_no_data_streak=0
+        log "${PER_OBJECT_POOLED_INFO}: OK"
+        print_metric_values "$PER_OBJECT_POOLED_INFO" "epoch"
+    fi
+
+    # ------------------------------------------------------------------
+    # Hard invariant 4: event source must match across nodes.
     # The metric is recorded every NUM_EVENTS_PER_DIGEST_RECORDING events
     # and stored under `bucket = (event_index / N_PER_RECORDING) %
     # NUM_DIGEST_BUCKETS`. Within a single bucket generation, either a
