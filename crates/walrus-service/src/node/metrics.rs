@@ -198,6 +198,18 @@ walrus_utils::metrics::define_metric_set! {
         consistency check."]
         per_object_blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
 
+        #[help = "The hash of the list of certified per-object pooled blobs at the beginning of \
+        the epoch. Note that the label is epoch % EPOCH_BUCKET_COUNT (see consistency_check.rs)."]
+        per_object_pooled_blob_info_consistency_check: IntGaugeVec["epoch"],
+
+        #[help = "The number of errors occurred when checking the consistency of the per-object \
+        pooled blob info table."]
+        per_object_pooled_blob_info_consistency_check_error: IntCounter[],
+
+        #[help = "The number of certified per-object pooled blobs scanned during the per-object \
+        pooled blob info consistency check."]
+        per_object_pooled_blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
+
         #[help = "The ratio of fully stored blobs during the blob info consistency check."]
         node_blob_data_fully_stored_ratio: GaugeVec["epoch"],
 
