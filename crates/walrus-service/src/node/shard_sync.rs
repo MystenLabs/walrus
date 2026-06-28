@@ -93,6 +93,16 @@ impl ShardSyncHandler {
         Ok(())
     }
 
+    /// Restarts blob metadata recovery, and the subsequent syncs of the shards the node owns.
+    ///
+    /// The caller must ensure the persisted node status is [`NodeStatus::RecoverMetadata`]; the
+    /// spawned task re-reads the status and only performs metadata recovery in that state,
+    /// otherwise it is a no-op (an empty shard list is passed because the task derives the real
+    /// shards from the owned shard storages itself).
+    async fn restart_metadata_sync(&self) -> Result<(), SyncShardClientError> {
+        self.start_sync_shards(Vec::new()).await
+    }
+
     async fn sync_shards_task(&self, shards: Vec<ShardIndex>) {
         let node_status = self
             .node
@@ -311,7 +321,7 @@ impl ShardSyncHandler {
         if current_node_status == NodeStatus::RecoverMetadata {
             // The task observes the `RecoverMetadata` status and derives the shards to sync from
             // the existing shard storages.
-            self.start_sync_shards(vec![]).await?;
+            self.restart_metadata_sync().await?;
         } else {
             for shard_storage in self.node.storage.existing_shard_storages().await {
                 let shard_status = shard_storage
