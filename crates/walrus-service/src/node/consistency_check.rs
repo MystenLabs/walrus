@@ -27,7 +27,9 @@ use super::{
     blob_sync::BlobSyncHandler,
     storage::blob_info::{
         BlobInfoIterator,
+        PerObjectBlobInfo,
         PerObjectBlobInfoIterator,
+        PerObjectPooledBlobInfo,
         PerObjectPooledBlobInfoIterator,
     },
 };
@@ -478,16 +480,16 @@ fn certified_blob_consistency_check(
 /// Compose the digest of the object list returned by the iterator.
 ///
 /// Works for any per-object table keyed by `ObjectID` (the regular and the pooled per-object blob
-/// info tables). In addition to the key, the bytes returned by `extra_hash_input` for each value
-/// are folded into the digest; this lets callers include value fields (such as the storage pool
-/// ID for pooled blobs) that must also be consistent across nodes. Callers that only need the key
-/// to be consistent return an empty slice. `scan_counter` keeps track of the number of objects
+/// info tables). When `extra_hash_input` is `Some`, the bytes it returns for each value are folded
+/// into the digest in addition to the key; this lets callers include value fields (such as the
+/// storage pool ID for pooled blobs) that must also be consistent across nodes. Callers that only
+/// need the key to be consistent pass `None`. `scan_counter` keeps track of the number of objects
 /// scanned.
 fn compose_blob_object_list_digest<B, T, E, F, I>(
     blob_info_iter: I,
     epoch: Epoch,
     scan_counter: &IntCounterVec,
-    extra_hash_input: F,
+    extra_hash_input: Option<F>,
 ) -> Result<u64, TypedStoreError>
 where
     B: AsRef<[u8]>,
@@ -504,7 +506,9 @@ where
         match item {
             Ok(blob_info) => {
                 hasher.write(blob_info.0.as_ref());
-                hasher.write(extra_hash_input(&blob_info.1).as_ref());
+                if let Some(extra_hash_input) = &extra_hash_input {
+                    hasher.write(extra_hash_input(&blob_info.1).as_ref());
+                }
                 walrus_utils::with_label!(scan_counter, epoch_bucket).inc();
             }
             Err(error) => {
@@ -535,8 +539,11 @@ fn compose_certified_object_blob_list_digest(
         &node
             .metrics
             .per_object_blob_info_consistency_check_certified_scanned,
-        // The regular per-object table only needs the object key to be consistent across nodes.
-        |_| [0u8; 0],
+        // The regular per-object table only needs the object key to be consistent across nodes,
+        // so no extra per-value bytes are folded into the digest. This keeps the digest identical
+        // to before this function was generalized, preserving cross-node compatibility with nodes
+        // running the pre-generalization code.
+        None::<fn(&PerObjectBlobInfo) -> [u8; 0]>,
     ) {
         Ok(value) => value,
         Err(error) => {
@@ -593,7 +600,7 @@ fn compose_certified_pooled_object_blob_list_digest(
             .per_object_pooled_blob_info_consistency_check_certified_scanned,
         // Pooled blobs additionally fold the storage pool ID into the digest so that a node
         // disagreeing on which pool a blob object belongs to is detected as an inconsistency.
-        |info| info.storage_pool_id(),
+        Some(|info: &PerObjectPooledBlobInfo| info.storage_pool_id()),
     ) {
         Ok(value) => value,
         Err(error) => {
@@ -657,65 +664,36 @@ mod tests {
             entries.into_iter().map(Ok::<_, TypedStoreError>),
             epoch,
             &counter,
-            |info: &PerObjectPooledBlobInfo| info.storage_pool_id(),
+            Some(|info: &PerObjectPooledBlobInfo| info.storage_pool_id()),
         )
         .expect("digest computation should succeed")
     }
 
-    /// The pooled digest must change when only the storage pool ID of an entry differs, so that a
-    /// node disagreeing on a blob object's pool is detected as a cross-node inconsistency.
+    /// Two entries with the same object key but different storage pool IDs must produce different
+    /// digests, so that a node disagreeing on a blob object's pool is detected as a cross-node
+    /// inconsistency. Reusing the same pool ID reproduces the same digest.
     #[test]
-    fn pooled_digest_detects_storage_pool_id_inconsistency() {
+    fn pooled_digest_folds_in_storage_pool_id() {
         let object_id = ObjectID::new([7; 32]);
         let blob_id = walrus_core::test_utils::blob_id_from_u64(1);
         let epoch: Epoch = 5;
+        let entry = |pool_id| {
+            vec![(
+                object_id,
+                PerObjectPooledBlobInfo::new_for_test(blob_id, 2, pool_id),
+            )]
+        };
 
-        let digest_pool_a = pooled_digest(
-            vec![(
-                object_id,
-                PerObjectPooledBlobInfo::new_for_test(blob_id, 2, ObjectID::new([1; 32])),
-            )],
-            epoch,
-        );
-        let digest_pool_b = pooled_digest(
-            vec![(
-                object_id,
-                PerObjectPooledBlobInfo::new_for_test(blob_id, 2, ObjectID::new([2; 32])),
-            )],
-            epoch,
-        );
+        let digest_pool_a = pooled_digest(entry(ObjectID::new([1; 32])), epoch);
+        let digest_pool_b = pooled_digest(entry(ObjectID::new([2; 32])), epoch);
 
         assert_ne!(
             digest_pool_a, digest_pool_b,
             "digest must differ when an entry's storage pool ID differs"
         );
-    }
-
-    /// Identical entries (same object key and same storage pool ID) must produce the same digest.
-    #[test]
-    fn pooled_digest_matches_for_identical_entries() {
-        let object_id = ObjectID::new([7; 32]);
-        let blob_id = walrus_core::test_utils::blob_id_from_u64(1);
-        let pool_id = ObjectID::new([1; 32]);
-        let epoch: Epoch = 5;
-
-        let digest_a = pooled_digest(
-            vec![(
-                object_id,
-                PerObjectPooledBlobInfo::new_for_test(blob_id, 2, pool_id),
-            )],
-            epoch,
-        );
-        let digest_b = pooled_digest(
-            vec![(
-                object_id,
-                PerObjectPooledBlobInfo::new_for_test(blob_id, 2, pool_id),
-            )],
-            epoch,
-        );
-
         assert_eq!(
-            digest_a, digest_b,
+            digest_pool_a,
+            pooled_digest(entry(ObjectID::new([1; 32])), epoch),
             "digest must match for identical object key and storage pool ID"
         );
     }
