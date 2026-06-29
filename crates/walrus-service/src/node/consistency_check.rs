@@ -25,7 +25,11 @@ use super::{
     NodeStatus,
     StorageNodeInner,
     blob_sync::BlobSyncHandler,
-    storage::blob_info::{BlobInfoIterator, PerObjectBlobInfoIterator},
+    storage::blob_info::{
+        BlobInfoIterator,
+        PerObjectBlobInfoIterator,
+        PerObjectPooledBlobInfoIterator,
+    },
 };
 
 /// Configuration for the consistency check.
@@ -135,6 +139,12 @@ pub(super) async fn schedule_background_consistency_check(
             .storage
             .certified_per_object_blob_info_iter_before_epoch(epoch);
 
+        // Create a per-object pooled blob info iterator that takes the current blob info table as
+        // the snapshot.
+        let per_object_pooled_blob_info_iterator = node
+            .storage
+            .certified_per_object_pooled_blob_info_iter_before_epoch(epoch);
+
         // Unblock event processing.
         let _ = tx.send(());
 
@@ -157,6 +167,12 @@ pub(super) async fn schedule_background_consistency_check(
         compose_certified_object_blob_list_digest(
             node.clone(),
             per_object_blob_info_iterator,
+            epoch,
+        );
+
+        compose_certified_pooled_object_blob_list_digest(
+            node.clone(),
+            per_object_pooled_blob_info_iterator,
             epoch,
         );
 
@@ -459,13 +475,19 @@ fn certified_blob_consistency_check(
     };
 }
 
-/// Compose the digest of the blob list returned by the iterator.
-/// `scan_counter` keeps track of the number of blobs scanned.
-fn compose_blob_object_list_digest(
-    blob_info_iter: PerObjectBlobInfoIterator,
+/// Compose the digest of the object list returned by the iterator.
+///
+/// Works for any per-object table keyed by `ObjectID` (the regular and the pooled per-object blob
+/// info tables). `scan_counter` keeps track of the number of objects scanned.
+fn compose_blob_object_list_digest<B, T, I>(
+    blob_info_iter: I,
     epoch: Epoch,
     scan_counter: &IntCounterVec,
-) -> Result<u64, TypedStoreError> {
+) -> Result<u64, TypedStoreError>
+where
+    B: AsRef<[u8]>,
+    I: Iterator<Item = Result<(B, T), TypedStoreError>>,
+{
     let epoch_bucket = get_epoch_bucket(epoch);
 
     // xxhash is not a cryptographic hash function, but it is fast, has good collision
@@ -531,6 +553,60 @@ fn compose_certified_object_blob_list_digest(
     // No-op out side of simtest.
     sui_macros::fail_point_arg!(
         "storage_node_certified_blob_object_digest",
+        |digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>| {
+            digest_map
+                .lock()
+                .expect("failed to lock the digest map")
+                .entry(epoch)
+                .or_insert_with(|| HashMap::new())
+                .insert(node.node_capability, blob_object_list_digest);
+        }
+    );
+}
+
+/// Compose the digest of the certified pooled object blob list.
+fn compose_certified_pooled_object_blob_list_digest(
+    node: Arc<StorageNodeInner>,
+    per_object_pooled_blob_info_iter: PerObjectPooledBlobInfoIterator,
+    epoch: Epoch,
+) {
+    let _scope = monitored_scope::monitored_scope(
+        "EpochChange::background_certified_pooled_blob_object_info_consistency_check",
+    );
+    let epoch_bucket = get_epoch_bucket(epoch);
+
+    let blob_object_list_digest = match compose_blob_object_list_digest(
+        per_object_pooled_blob_info_iter,
+        epoch,
+        &node
+            .metrics
+            .per_object_pooled_blob_info_consistency_check_certified_scanned,
+    ) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(?error, "error when processing per object pooled blob info");
+            node.metrics
+                .per_object_pooled_blob_info_consistency_check_error
+                .inc();
+            return;
+        }
+    };
+
+    tracing::info!(
+        epoch,
+        certified_blob_hash = blob_object_list_digest,
+        "background per-object pooled blob info consistency check finished"
+    );
+    #[allow(clippy::cast_possible_wrap)] // wrapping is fine here
+    walrus_utils::with_label!(
+        node.metrics.per_object_pooled_blob_info_consistency_check,
+        epoch_bucket
+    )
+    .set(blob_object_list_digest as i64);
+
+    // No-op out side of simtest.
+    sui_macros::fail_point_arg!(
+        "storage_node_certified_pooled_blob_object_digest",
         |digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>| {
             digest_map
                 .lock()

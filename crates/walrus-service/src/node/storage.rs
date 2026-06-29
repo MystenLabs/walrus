@@ -43,6 +43,7 @@ use self::{
         PerObjectBlobInfo,
         PerObjectBlobInfoIterator,
         PerObjectPooledBlobInfo,
+        PerObjectPooledBlobInfoIterator,
     },
     blob_info_snapshot::{SnapshotError, SnapshotHeader, SnapshotStats},
     constants::{
@@ -1318,6 +1319,19 @@ impl Storage {
     ) -> PerObjectBlobInfoIterator<'_> {
         self.blob_info
             .certified_per_object_blob_info_iter_before_epoch(epoch, std::ops::Bound::Unbounded)
+    }
+
+    /// Returns an iterator over the certified per-object pooled blob info before the specified
+    /// epoch.
+    pub(crate) fn certified_per_object_pooled_blob_info_iter_before_epoch(
+        &self,
+        epoch: Epoch,
+    ) -> PerObjectPooledBlobInfoIterator<'_> {
+        self.blob_info
+            .certified_per_object_pooled_blob_info_iter_before_epoch(
+                epoch,
+                std::ops::Bound::Unbounded,
+            )
     }
 
     /// Checks internal invariants of the blob info table.

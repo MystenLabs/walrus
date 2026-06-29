@@ -11,6 +11,7 @@ use walrus_core::{BlobId, Epoch};
 
 use super::{
     BlobStatusChangeType,
+    CertifiedBlobInfoApi,
     Mergeable,
     PooledBlobChangeInfo,
     PooledChangeTypeAndInfo,
@@ -171,6 +172,34 @@ impl PerObjectPooledBlobInfo {
             storage_pool_id,
             event,
         })
+    }
+}
+
+impl CertifiedBlobInfoApi for PerObjectPooledBlobInfoV1 {
+    fn is_certified(&self, current_epoch: Epoch) -> bool {
+        // A pooled blob object is removed from the table on deletion (the pool manages its
+        // lifetime), so an entry that is still present and has a certified epoch at or before
+        // `current_epoch` is certified.
+        self.certified_epoch
+            .is_some_and(|epoch| epoch <= current_epoch)
+    }
+
+    fn initial_certified_epoch(&self) -> Option<Epoch> {
+        self.certified_epoch
+    }
+}
+
+impl CertifiedBlobInfoApi for PerObjectPooledBlobInfo {
+    fn is_certified(&self, current_epoch: Epoch) -> bool {
+        match self {
+            Self::V1(value) => value.is_certified(current_epoch),
+        }
+    }
+
+    fn initial_certified_epoch(&self) -> Option<Epoch> {
+        match self {
+            Self::V1(value) => value.initial_certified_epoch(),
+        }
     }
 }
 
