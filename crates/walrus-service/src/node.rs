@@ -1970,6 +1970,10 @@ impl StorageNode {
         // Serialize after GC phase 1 has settled the tables and before `execute_epoch_change`
         // spawns the finisher that marks the event complete (so a crash before completion replays
         // and re-creates it). Errors are logged and counted, never failing epoch processing.
+        //
+        // TODO(WAL-1250): this only writes the snapshot to local disk. Publishing and certifying it
+        // on-chain (encode, store the node's own slivers, attest, track to certified) is future
+        // work.
         if should_serialize
             && let Err(error) = blob_info_snapshot_writer::serialize_snapshot_at_epoch_boundary(
                 self.inner.clone(),

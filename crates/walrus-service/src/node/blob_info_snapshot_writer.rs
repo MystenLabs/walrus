@@ -106,6 +106,10 @@ pub(super) async fn serialize_snapshot_at_epoch_boundary(
     if final_path.exists() {
         // Already created, e.g., because the epoch change event is being reprocessed after a
         // restart. Still drop any older snapshots so that at most one remains.
+        //
+        // TODO(WAL-1252): once snapshots are published and certified, a present file no longer
+        // means the work is done. This early return should consider both the on-disk write and the
+        // publish/certify state, and resume publishing rather than returning early.
         tracing::debug!(walrus.epoch = epoch, "blob info snapshot already exists");
         remove_snapshot_files_matching(&base_dir, |snapshot_epoch| snapshot_epoch != epoch);
         return Ok(());
