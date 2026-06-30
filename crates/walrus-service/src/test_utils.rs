@@ -3289,6 +3289,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
     WithTempDir {
         inner: StorageNodeConfig {
             name: "node".to_string(),
+            storage_write: Default::default(),
             protocol_key_pair: walrus_core::test_utils::protocol_key_pair().into(),
             next_protocol_key_pair: None,
             network_key_pair: walrus_core::test_utils::network_key_pair().into(),
