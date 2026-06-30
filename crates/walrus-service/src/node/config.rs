@@ -228,6 +228,9 @@ pub struct StorageNodeConfig {
     /// Configuration for deferring recovery while uploads are in progress.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub live_upload_deferral: LiveUploadDeferralConfig,
+    /// Configuration governing storage write timeouts and disk-full handling.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub storage_write: StorageWriteConfig,
     /// Key pair used in Walrus protocol messages.
     // Important: this name should be in-sync with the name used in `rotate_protocol_key_pair()`
     #[serde_as(as = "PathOrInPlace<Base64>")]
@@ -526,6 +529,7 @@ impl Default for StorageNodeConfig {
                 max_total_defer: Duration::from_secs(120),
                 max_checkpoint_lag: 1500,
             },
+            storage_write: Default::default(),
             disable_event_blob_writer: Default::default(),
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParamsConfig {
@@ -1291,6 +1295,36 @@ pub struct SizeDeferralEntry {
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "defer_secs")]
     pub defer: Duration,
+}
+
+/// Configuration governing storage writes, ensuring a full disk surfaces as a clear client error
+/// instead of an indefinite hang.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct StorageWriteConfig {
+    /// Maximum time to wait for a metadata or sliver write to the database to complete.
+    ///
+    /// If the write does not complete within this duration (for example because RocksDB has stalled
+    /// on a full disk), the request returns an error instead of blocking indefinitely.
+    #[serde_as(as = "DurationSeconds<u64>")]
+    #[serde(rename = "write_timeout_secs")]
+    pub write_timeout: Duration,
+    /// Minimum free disk space, in bytes, below which the node considers itself out of space.
+    ///
+    /// When a write fails or times out and the available disk space is below this threshold, the
+    /// node returns a dedicated out-of-space error so clients get a clear signal that the node is
+    /// full.
+    pub min_available_disk_space: u64,
+}
+
+impl Default for StorageWriteConfig {
+    fn default() -> Self {
+        Self {
+            write_timeout: Duration::from_secs(60),
+            min_available_disk_space: 1 << 30, // 1 GiB
+        }
+    }
 }
 
 /// Configuration that controls deferring recovery when a live client upload is likely.

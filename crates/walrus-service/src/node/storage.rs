@@ -6,7 +6,7 @@ use std::{
     collections::HashMap,
     fmt::Debug,
     ops::Bound::{self, Excluded, Included},
-    path::Path,
+    path::{Path, PathBuf},
     sync::Arc,
     time::Instant,
 };
@@ -182,6 +182,8 @@ impl Display for NodeStatus {
 /// [`shard_storage()`][Self::shard_storage] can be used to retrieve shard-specific storage.
 #[derive(Debug, Clone)]
 pub struct Storage {
+    /// Filesystem path of the database root, used for disk-space checks.
+    path: PathBuf,
     database: Arc<RocksDB>,
     node_status: DBMap<(), NodeStatus>,
     metadata: DBMap<BlobId, BlobMetadata>,
@@ -225,6 +227,46 @@ impl StorageShardLock {
                 .or_insert(shard_storage);
         }
     }
+}
+
+/// Returns the number of bytes of free disk space available to an unprivileged user on the
+/// filesystem containing `path`.
+#[cfg(unix)]
+fn available_disk_space(path: &Path) -> std::io::Result<u64> {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "database path contains an interior null byte",
+        )
+    })?;
+
+    // SAFETY: `stat` is a valid, zero-initialized `statvfs` and `c_path` is a valid, NUL-terminated
+    // C string that outlives the call.
+    let stat = unsafe {
+        let mut stat = std::mem::zeroed::<libc::statvfs>();
+        if libc::statvfs(c_path.as_ptr(), &mut stat) != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        stat
+    };
+
+    // `f_bavail` counts the blocks (of `f_frsize` bytes) available to unprivileged users.
+    // `f_frsize`/`f_bavail` are `c_ulong`/`fsblkcnt_t`, whose widths are platform-dependent, so the
+    // conversions are needed for portability even where they are identity conversions.
+    #[allow(clippy::useless_conversion)]
+    let fragment_size = u64::from(stat.f_frsize);
+    #[allow(clippy::useless_conversion)]
+    let blocks_available = u64::from(stat.f_bavail);
+    Ok(fragment_size.saturating_mul(blocks_available))
+}
+
+/// Fallback for non-Unix platforms, where free-space detection is not implemented; reports the
+/// maximum so the disk is never treated as full.
+#[cfg(not(unix))]
+fn available_disk_space(_path: &Path) -> std::io::Result<u64> {
+    Ok(u64::MAX)
 }
 
 impl Storage {
@@ -383,6 +425,7 @@ impl Storage {
         ));
 
         let storage = Self {
+            path: path.to_path_buf(),
             database,
             node_status,
             metadata,
@@ -399,6 +442,12 @@ impl Storage {
         storage.enable_auto_compactions(true)?;
 
         Ok(storage)
+    }
+
+    /// Returns the number of bytes of free disk space available on the filesystem
+    /// backing the database.
+    pub(crate) fn available_disk_space(&self) -> std::io::Result<u64> {
+        available_disk_space(&self.path)
     }
 
     /// Returns a reference to the database.
@@ -1473,6 +1522,16 @@ pub(crate) mod tests {
     pub(crate) async fn empty_storage() -> WithTempDir<Storage> {
         typed_store::metrics::DBMetrics::init(&prometheus::Registry::default());
         empty_storage_with_shards(&[SHARD_INDEX]).await
+    }
+
+    #[tokio::test]
+    async fn reports_available_disk_space() {
+        let storage = empty_storage().await;
+        let available = storage
+            .as_ref()
+            .available_disk_space()
+            .expect("querying available disk space should succeed");
+        assert!(available > 0, "temp dir should report non-zero free space");
     }
 
     pub(crate) fn get_typed_sliver<E: EncodingAxis>(seed: u8) -> SliverData<E> {
