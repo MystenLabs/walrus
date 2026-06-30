@@ -1,9 +1,13 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Head from '@docusaurus/Head';
+import Link from '@docusaurus/Link';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import WalrusLogo from '@site/static/img/Walrus_Docs.svg';
+import SearchModal from '@site/src/components/Search/SearchModal';
 
 function hideEl(el: HTMLElement): () => void {
   const prev = el.style.display;
@@ -24,43 +28,43 @@ const LANDING_CSS = `
 #copy-page-button-container { display: none !important; }
 
 #__docusaurus_skipToContent_fallback {
-  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important;
+  background: #fff !important; padding: 0 !important; margin: 0 !important;
 }
 #__docusaurus_skipToContent_fallback > main,
 #__docusaurus_skipToContent_fallback > main.container,
 #__docusaurus_skipToContent_fallback > main.container--fluid {
-  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
+  background: #fff !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
 }
 #__docusaurus_skipToContent_fallback .margin-vert--lg { margin: 0 !important; }
 #__docusaurus_skipToContent_fallback .row {
-  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important;
+  background: #fff !important; padding: 0 !important; margin: 0 !important;
 }
 #__docusaurus_skipToContent_fallback .col {
-  background: #0d0f12 !important; padding: 0 !important;
+  background: #fff !important; padding: 0 !important;
   max-width: 100% !important; flex: none !important; width: 100% !important;
 }
 #__docusaurus_skipToContent_fallback article {
-  background: #0d0f12 !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
+  background: #fff !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
 }
-html, body { background: #0d0f12 !important; }
-[class*="mainWrapper"] { background: #0d0f12 !important; padding-top: 0 !important; }
-[class*="mdxPageWrapper"] { background: #0d0f12 !important; padding: 0 !important; margin: 0 !important; }
+html, body { background: #fff !important; }
+[class*="mainWrapper"] { background: #fff !important; padding-top: 0 !important; }
+[class*="mdxPageWrapper"] { background: #fff !important; padding: 0 !important; margin: 0 !important; }
 
 /* ── Landing root ── */
 .landing-root {
-  --white: #faf8f5;
-  --black: #0d0f12;
-  --purple: #CAB1FF;
-  --purple-dim: rgba(202,177,255,0.1);
-  --purple-hover: rgba(202,177,255,0.16);
-  --violet: #CAB1FF;
-  --mint: #98EFDD;
-  --yellow: #E8FF75;
-  --gray-muted: rgba(255,255,255,0.45);
-  --surface: #1c2228;
-  --surface-hover: #252b31;
-  --border: rgba(255,255,255,0.08);
-  --border-hover: rgba(255,255,255,0.16);
+  --white: #1a1a2e;
+  --black: #ffffff;
+  --purple: #613dff;
+  --purple-dim: rgba(97,61,255,0.06);
+  --purple-hover: rgba(97,61,255,0.1);
+  --violet: #613dff;
+  --mint: #0d9488;
+  --yellow: #b8860b;
+  --gray-muted: rgba(0,0,0,0.5);
+  --surface: #f6f8fa;
+  --surface-hover: #eef1f4;
+  --border: rgba(0,0,0,0.08);
+  --border-hover: rgba(0,0,0,0.16);
   --mono: 'JetBrains Mono', monospace;
   --sans: 'DM Sans', -apple-system, sans-serif;
   --radius: 20px;
@@ -76,65 +80,80 @@ html, body { background: #0d0f12 !important; }
 .landing-root a:hover { color: #98EFDD; }
 .landing-root,
 .landing-root * {
-  --ifm-background-color: #0d0f12 !important;
-  --ifm-background-surface-color: #0d0f12 !important;
+  --ifm-background-color: #fff !important;
+  --ifm-background-surface-color: #fff !important;
 }
 
 .landing-wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
 @media (min-width: 768px) { .landing-wrap { padding: 0 40px; } }
 
-/* ── Topbar ── */
+/* ── Topbar (two-row, matches site navbar) ── */
 .landing-root .topbar {
   position: sticky; top: 0; z-index: 50;
-  background: #ffffff;
-  backdrop-filter: blur(16px) saturate(1.4);
-  border-bottom: 1px solid var(--border);
+  background: #f0f1f3;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
 }
-.landing-root .topbar-inner {
+.landing-root .topbar-row {
   display: flex; align-items: center; justify-content: space-between;
-  height: 56px; max-width: 1120px; margin: 0 auto; padding: 0 24px;
+  height: 2.75rem; padding: 0 1rem;
 }
-@media (min-width: 768px) { .landing-root .topbar-inner { padding: 0 40px; } }
 .landing-root .topbar-logo {
-  display: flex; align-items: center; gap: 10px;
-  font-weight: 500; font-size: 0.95rem; letter-spacing: 0.02em; color: var(--white);
+  display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0;
 }
 .landing-root .topbar-logo svg {
-  height: 28px; width: auto; margin-bottom: 3px; color: #000;
+  height: 1.6rem; width: auto; color: #000;
 }
-.landing-root .topbar-logo .sep { color: rgba(0,0,0,0.2); font-weight: 300; font-size: 2rem; }
-.landing-root .topbar-logo .docs-label { color: rgba(0,0,0,0.5); font-weight: 700; font-size: 2rem; }
-.landing-root .topbar-links { display: flex; gap: 6px; align-items: center; }
-.landing-root .topbar-links a {
-  font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
-  color: rgba(0,0,0,0.55); transition: all 0.2s;
+.landing-root .topbar-actions { display: flex; gap: 8px; align-items: center; }
+.landing-root .topbar-actions a,
+.landing-root .topbar-actions button {
+  font-size: 0.75rem; padding: 5px 12px; border-radius: 1.25rem;
+  color: rgba(0,0,0,0.5); transition: all 0.15s;
+  text-decoration: none; font-family: var(--sans);
+  background: transparent; border: 1px solid rgba(0,0,0,0.1);
+  cursor: pointer;
 }
-.landing-root .topbar-links a:hover { color: #000; background: rgba(0,0,0,0.04); }
-.landing-root .topbar-links a.primary {
-  color: #000; background: rgba(0,0,0,0.05);
-  border: 1px solid rgba(0,0,0,0.12); font-weight: 500;
+.landing-root .topbar-actions a:hover,
+.landing-root .topbar-actions button:hover {
+  color: #000; border-color: rgba(0,0,0,0.2);
 }
-.landing-root .topbar-links a.primary:hover {
-  background: var(--purple-dim); border-color: var(--purple);
+.landing-root .topbar-actions .kapa-landing-btn {
+  color: var(--mint); border-color: rgba(152,239,221,0.2);
 }
-.landing-root .topbar-links .kapa-landing-btn {
-  font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
-  color: var(--purple); background: var(--purple-dim);
-  border: 1px solid rgba(97,61,255,0.15); font-weight: 500;
-  cursor: pointer; transition: all 0.2s; font-family: var(--sans);
+.landing-root .topbar-actions .kapa-landing-btn:hover {
+  border-color: var(--mint);
 }
-.landing-root .topbar-links .kapa-landing-btn:hover {
-  background: var(--purple-hover); border-color: var(--purple);
+.landing-root .topbar-tabs {
+  display: flex; align-items: center; justify-content: center; gap: 2px;
+  height: 2.25rem; padding: 0 1rem;
+  border-top: 1px solid rgba(255,255,255,0.04);
+  overflow-x: auto;
+  background: var(--black);
+}
+.landing-root .topbar-tabs a {
+  font-size: 0.8125rem; font-weight: 500; padding: 0.25rem 0.625rem;
+  color: var(--gray-muted); text-decoration: none; transition: color 0.15s;
+  white-space: nowrap;
+}
+.landing-root .topbar-tabs a:hover { color: var(--white); }
+
+/* ── Logo ── */
+.landing-root .landing-logo {
+  padding: 2rem 0 0;
+  opacity: 0; animation: landingFadeIn 0.5s ease forwards 0.1s;
+}
+.landing-root .landing-logo svg {
+  height: 2rem; width: auto; color: #000;
 }
 
 /* ── Hero ── */
 .landing-root .hero {
-  position: relative; padding: 72px 0 56px; overflow: hidden;
+  position: relative; padding: 40px 0 32px; overflow: hidden;
   background: var(--black);
 }
 .landing-root .hero-inner {
   position: relative; z-index: 5; max-width: 1500px;
-  margin-bottom: 28px; padding-top: 20px;
+  margin-bottom: 36px; padding-top: 20px;
 }
 .landing-root .hero-badge {
   display: inline-block;
@@ -155,143 +174,117 @@ html, body { background: #0d0f12 !important; }
   opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.35s;
 }
 
-/* ── Quick-start cards ── */
+/* ── Product cards ── */
 .landing-root .quickstart {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
-  padding-bottom: 15px;
-  opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.5s;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px;
+  padding-bottom: 0;
+  opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.65s;
 }
-@media (max-width: 900px) {
-  .landing-root .quickstart { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 520px) {
+@media (max-width: 640px) {
   .landing-root .quickstart { grid-template-columns: 1fr; }
 }
 .landing-root .qs-card {
+  position: relative; overflow: hidden;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 22px 18px;
+  border-radius: var(--radius); padding: 24px 22px 20px;
   transition: all 0.25s ease; cursor: pointer;
   display: flex; flex-direction: column; gap: 8px;
 }
+.landing-root .qs-card::before {
+  content: ''; position: absolute; inset: 0; opacity: 0;
+  transition: opacity 0.3s ease; border-radius: inherit; z-index: 0;
+}
 .landing-root .qs-card:hover {
-  border-color: var(--purple); background: var(--surface-hover);
+  border-color: rgba(255,255,255,0.18); background: var(--surface-hover);
   transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  box-shadow: 0 10px 32px rgba(0,0,0,0.35);
+}
+.landing-root .qs-card:hover::before { opacity: 1; }
+.landing-root .qs-card--purple::before {
+  background: radial-gradient(ellipse at top right, rgba(202,177,255,0.07) 0%, transparent 60%);
+}
+.landing-root .qs-card--mint::before {
+  background: radial-gradient(ellipse at top right, rgba(152,239,221,0.07) 0%, transparent 60%);
+}
+.landing-root .qs-card--yellow::before {
+  background: radial-gradient(ellipse at top right, rgba(232,255,117,0.07) 0%, transparent 60%);
+}
+.landing-root .qs-card .qs-card-top {
+  position: relative; z-index: 1;
+  display: flex; align-items: center; gap: 12px;
 }
 .landing-root .qs-card .qs-icon {
-  width: 34px; height: 34px; border-radius: 9px;
-  background: var(--purple-dim);
+  width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
 }
-.landing-root .qs-card .qs-icon svg {
-  width: 17px; height: 17px; color: var(--purple);
-}
+.landing-root .qs-card--purple .qs-icon { background: rgba(202,177,255,0.12); }
+.landing-root .qs-card--mint .qs-icon { background: rgba(152,239,221,0.12); }
+.landing-root .qs-card--yellow .qs-icon { background: rgba(232,255,117,0.12); }
+.landing-root .qs-card .qs-icon svg { width: 19px; height: 19px; }
+.landing-root .qs-card--purple .qs-icon svg { color: var(--purple); }
+.landing-root .qs-card--mint .qs-icon svg { color: var(--mint); }
+.landing-root .qs-card--yellow .qs-icon svg { color: var(--yellow); }
 .landing-root .qs-card h3 {
-  font-size: 0.9rem; font-weight: 600;
+  position: relative; z-index: 1;
+  font-size: 1.05rem; font-weight: 600;
   line-height: 1.3; margin: 0; color: var(--white);
 }
 .landing-root .qs-card p {
-  font-size: 0.8rem; color: var(--white);
-  line-height: 1.45; flex: 1; margin: 0;
+  position: relative; z-index: 1;
+  font-size: 0.85rem; color: var(--white); opacity: 0.5;
+  line-height: 1.5; margin: 0;
 }
 .landing-root .qs-card .qs-arrow {
-  font-size: 0.75rem; color: var(--purple); font-weight: 500;
-  display: flex; align-items: center; gap: 4px; margin-top: 2px;
+  position: relative; z-index: 1;
+  font-size: 0.78rem; font-weight: 500;
+  display: flex; align-items: center; gap: 5px; margin-top: 4px;
+  transition: gap 0.2s ease;
 }
-.landing-root .qs-card .qs-arrow svg { width: 10px; height: 10px; }
+.landing-root .qs-card--purple .qs-arrow { color: var(--purple); }
+.landing-root .qs-card--mint .qs-arrow { color: var(--mint); }
+.landing-root .qs-card--yellow .qs-arrow { color: var(--yellow); }
+.landing-root .qs-card:hover .qs-arrow { gap: 9px; }
+.landing-root .qs-card .qs-arrow svg { width: 11px; height: 11px; }
+
+/* ── Landing search bar ── */
+.landing-root .landing-search {
+  max-width: 760px; margin: 0 auto;
+  padding: 0 0 28px;
+  opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.5s;
+}
+.landing-root .landing-search-btn {
+  width: 100%; display: flex; align-items: center; gap: 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 24px;
+  cursor: pointer; transition: all 0.2s ease;
+  font-family: var(--sans);
+}
+.landing-root .landing-search-btn:hover {
+  border-color: rgba(255,255,255,0.16); background: var(--surface-hover);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+}
+.landing-root .landing-search-btn svg {
+  width: 20px; height: 20px; color: rgba(0,0,0,0.3); flex-shrink: 0;
+}
+.landing-root .landing-search-btn span {
+  font-size: 1rem; color: rgba(0,0,0,0.35); font-weight: 400;
+}
+.landing-root .landing-search-btn kbd {
+  margin-left: auto; font-family: var(--sans);
+  font-size: 0.72rem; color: rgba(0,0,0,0.25);
+  background: rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 6px; padding: 3px 9px; font-weight: 500;
+}
+
+/* ── Search modal z-index fix ── */
+.landing-root .fixed.inset-0,
+.landing-root [class*="z-500"] {
+  z-index: 9999 !important;
+}
 
 /* ── Divider ── */
 .landing-root .divider {
   border: none; border-top: 1px solid var(--border); margin: 0;
-}
-
-/* ── Section heading ── */
-.landing-root .section-head {
-  padding: 20px 0 10px;
-  display: flex; align-items: baseline; gap: 12px;
-}
-.landing-root .section-head .mono-label {
-  font-family: var(--mono); font-size: 1.5rem; font-weight: 500;
-  letter-spacing: 0.1em; text-transform: uppercase;
-  color: var(--purple); flex-shrink: 0;
-}
-.landing-root .section-head h2 {
-  font-size: 1.4rem; font-weight: 500;
-  letter-spacing: -0.015em; margin: 0; color: var(--white);
-}
-
-/* ── Capabilities ── */
-.landing-root .cap-grid {
-  display: grid; grid-template-columns: 1fr 1fr;
-  gap: 10px; padding-bottom: 15px;
-}
-@media (max-width: 700px) {
-  .landing-root .cap-grid { grid-template-columns: 1fr; }
-}
-.landing-root .cap-card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 24px 22px;
-  transition: border-color 0.2s, background 0.2s;
-}
-.landing-root .cap-card:hover {
-  border-color: var(--border-hover);
-  background: var(--surface-hover);
-}
-.landing-root .cap-card h3 {
-  font-size: 0.9rem; font-weight: 600;
-  margin: 0 0 6px 0; color: var(--white);
-  display: flex; align-items: center; gap: 8px;
-}
-.landing-root .cap-card h3 .tag {
-  font-family: var(--mono); font-size: 0.62rem; font-weight: 500;
-  color: var(--purple); background: var(--purple-dim);
-  padding: 2px 7px; border-radius: 4px; letter-spacing: 0.03em;
-}
-.landing-root .cap-card p {
-  font-size: 0.85rem; color: var(--white);
-  line-height: 1.55; margin: 0;
-}
-.landing-root .cap-card .cap-detail {
-  margin-top: 10px; padding-top: 10px;
-  border-top: 1px solid var(--border);
-  font-family: var(--mono); font-size: 0.72rem;
-  color: var(--white); line-height: 1.6; opacity: 0.5;
-}
-
-/* ── Use-case rows ── */
-.landing-root .usecase-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  gap: 10px; padding-bottom: 15px;
-}
-@media (max-width: 900px) {
-  .landing-root .usecase-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 520px) {
-  .landing-root .usecase-grid { grid-template-columns: 1fr; }
-}
-.landing-root .uc-card {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 22px 18px;
-  transition: border-color 0.2s;
-}
-.landing-root .uc-card:hover {
-  border-color: var(--border-hover);
-}
-.landing-root .uc-card h4 {
-  font-size: 0.85rem; font-weight: 600;
-  margin: 0 0 8px 0; color: var(--white);
-}
-.landing-root .uc-card ul {
-  list-style: none; padding: 0; margin: 0;
-}
-.landing-root .uc-card li {
-  font-size: 0.78rem; color: var(--white); line-height: 1.5;
-  padding: 2px 0 2px 14px; position: relative; opacity: 0.7;
-}
-.landing-root .uc-card li::before {
-  content: ''; position: absolute; left: 0; top: 9px;
-  width: 4px; height: 4px; border-radius: 50%;
-  background: var(--purple); opacity: 0.6;
 }
 
 .landing-root .hero-lead {
@@ -336,32 +329,23 @@ html, body { background: #0d0f12 !important; }
   flex-shrink: 0;
 }
 
-/* ── Not-for ── */
-.landing-root .notfor { padding-bottom: 64px; }
-.landing-root .notfor-row { display: flex; gap: 8px; flex-wrap: wrap; }
-.landing-root .notfor-chip {
-  font-size: 0.8rem; color: var(--white); opacity: 0.7;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 10px; padding: 9px 16px;
-}
-
 /* ── Footer ── */
 .landing-root .page-footer {
-  border-top: 1px solid var(--border); padding: 36px 0;
+  border-top: 1px solid rgba(0,0,0,0.08); margin-top: 80px; padding: 36px 0;
   display: flex; align-items: center;
   justify-content: space-between;
   flex-wrap: wrap; gap: 16px;
 }
 .landing-root .footer-left {
-  font-size: 0.75rem; color: rgba(255,255,255,0.3);
+  font-size: 0.75rem; color: rgba(0,0,0,0.3);
 }
 .landing-root .footer-right {
   display: flex; gap: 20px;
 }
 .landing-root .footer-right a {
-  color: var(--purple); font-size: 0.8rem; transition: color 0.2s;
+  color: rgba(0,0,0,0.4); font-size: 0.8rem; transition: color 0.2s;
 }
-.landing-root .footer-right a:hover { color: #4c2ecc; }
+.landing-root .footer-right a:hover { color: #613dff; }
 
 /* ── Animations ── */
 @keyframes landingFadeIn {
@@ -378,6 +362,13 @@ html, body { background: #0d0f12 !important; }
 `;
 
 export default function LandingPage() {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const { siteConfig } = useDocusaurusContext();
+  const baseUrl = siteConfig.baseUrl;
+
+  // Prepend baseUrl to internal paths for correct preview deploy links
+  const u = (path: string) => `${baseUrl}${path.replace(/^\//, '')}`;
+
   useEffect(() => {
     const cleanups: Array<() => void> = [];
 
@@ -391,8 +382,8 @@ export default function LandingPage() {
     const copyBtn = document.getElementById('copy-page-button-container');
     if (copyBtn) cleanups.push(hideEl(copyBtn));
 
-    cleanups.push(setStyle(document.documentElement, 'background', '#0d0f12'));
-    cleanups.push(setStyle(document.body, 'background', '#0d0f12'));
+    cleanups.push(setStyle(document.documentElement, 'background', '#fff'));
+    cleanups.push(setStyle(document.body, 'background', '#fff'));
 
     const root = document.querySelector(
       '.landing-root',
@@ -404,7 +395,7 @@ export default function LandingPage() {
         cleanups.push(setStyle(el, 'margin', '0'));
         cleanups.push(setStyle(el, 'maxWidth', '100%'));
         cleanups.push(setStyle(el, 'width', '100%'));
-        cleanups.push(setStyle(el, 'background', '#0d0f12'));
+        cleanups.push(setStyle(el, 'background', '#fff'));
         el = el.parentElement;
       }
     }
@@ -421,9 +412,21 @@ export default function LandingPage() {
       .querySelectorAll('.landing-root .scroll-reveal')
       .forEach((el) => obs.observe(el));
 
+    // "/" key opens the search bar
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey
+          && !(e.target instanceof HTMLInputElement)
+          && !(e.target instanceof HTMLTextAreaElement)) {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    document.addEventListener('keydown', handleKey);
+
     return () => {
       cleanups.forEach((fn) => fn());
       obs.disconnect();
+      document.removeEventListener('keydown', handleKey);
     };
   }, []);
 
@@ -454,40 +457,11 @@ export default function LandingPage() {
       </Head>
       <style dangerouslySetInnerHTML={{ __html: LANDING_CSS }} />
 
-      <header className="topbar">
-        <div className="topbar-inner">
-          <div className="topbar-logo">
-            <WalrusLogo />
-          </div>
-          <nav className="topbar-links">
-            <a
-              href="https://github.com/MystenLabs/walrus"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub
-            </a>
-            <a
-              href="https://discord.gg/walrusprotocol"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Discord
-            </a>
-            <button
-              className="kapa-landing-btn"
-              onClick={() => { if ((window as any).Kapa) (window as any).Kapa.open(); }}
-            >
-              Ask Walrus AI
-            </button>
-            <a href="/docs/getting-started" className="primary">
-              Get Started →
-            </a>
-          </nav>
-        </div>
-      </header>
 
       <div className="landing-wrap">
+        <div className="landing-logo">
+          <WalrusLogo />
+        </div>
         <div className="hero-inner">
           <p className="hero-lead">
             A verifiable data platform for high-stakes systems that
@@ -508,291 +482,82 @@ export default function LandingPage() {
           </ul>
         </div>
 
+        <div className="landing-search">
+          <button
+            type="button"
+            className="landing-search-btn"
+            onClick={() => setSearchOpen(true)}
+          >
+            <svg viewBox="0 0 20 20" fill="none">
+              <path
+                d="M14.386 14.386l4.088 4.088-4.088-4.088c-2.942 2.942-7.711 2.942-10.653 0-2.942-2.942-2.942-7.711 0-10.653 2.942-2.942 7.711-2.942 10.653 0 2.942 2.942 2.942 7.711 0 10.653z"
+                stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+              />
+            </svg>
+            <span>Search docs or ask Walrus AI...</span>
+            <kbd>/</kbd>
+          </button>
+          {searchOpen && createPortal(
+            <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />,
+            document.body,
+          )}
+        </div>
+
         <div className="quickstart">
-          <a className="qs-card" href="/docs/getting-started">
-            <div className="qs-icon">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
+          <a className="qs-card qs-card--purple" href={u('/docs/getting-started')}>
+            <div className="qs-card-top">
+              <div className="qs-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
+                  <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                  <line x1="12" y1="22.08" x2="12" y2="12" />
+                </svg>
+              </div>
+              <h3>Data Storage</h3>
             </div>
-            <h3>Data Storage</h3>
-            <p>
-              CLI tools, environment setup, and core storage
-              operations for developers.
-            </p>
-            <span className="qs-arrow">
-              Get started {arrowIcon}
-            </span>
+            <p>Verifiable storage, erasure coding, and programmable access.</p>
+            <span className="qs-arrow">Get started {arrowIcon}</span>
           </a>
-          <a
-            className="qs-card"
-            href="/docs/sites/introduction/components"
-          >
-            <div className="qs-icon">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <rect x="2" y="3" width="20" height="14" rx="2" />
-                <path d="M8 21h8M12 17v4" />
-              </svg>
+          <a className="qs-card qs-card--mint" href={u('/walrus-memory/getting-started/what-is-walrus-memory')}>
+            <div className="qs-card-top">
+              <div className="qs-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M12 2a7 7 0 017 7c0 3.87-3.13 7-7 7s-7-3.13-7-7a7 7 0 017-7z" />
+                  <path d="M12 16v2M8 22h8M9 16c0 1.5 1.34 2 3 2s3-.5 3-2" />
+                </svg>
+              </div>
+              <h3>Walrus Memory</h3>
             </div>
-            <h3>Walrus Sites</h3>
-            <p>
-              Deploy decentralized static websites with true
-              decentralization.
-            </p>
-            <span className="qs-arrow">
-              Learn more {arrowIcon}
-            </span>
+            <p>Portable, encrypted memory for AI agents.</p>
+            <span className="qs-arrow">Learn more {arrowIcon}</span>
           </a>
-          <a className="qs-card" href="/docs/operator-guide">
-            <div className="qs-icon">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path
-                  d={
-                    'M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83'
-                    + ' 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0'
-                    + ' 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009'
-                    + ' 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0'
-                    + ' 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65'
-                    + ' 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0'
-                    + ' 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0'
-                    + ' 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65'
-                    + ' 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0'
-                    + ' 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0'
-                    + ' 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65'
-                    + ' 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65'
-                    + ' 0 00-1.51 1z'
-                  }
-                />
-              </svg>
+          <a className="qs-card qs-card--yellow" href={u('/docs/console')}>
+            <div className="qs-card-top">
+              <div className="qs-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M3 9h18M9 21V9" />
+                </svg>
+              </div>
+              <h3>Walrus Console</h3>
             </div>
-            <h3>Service Providers</h3>
-            <p>
-              Operate storage nodes, aggregators, and publishers
-              on the network.
-            </p>
-            <span className="qs-arrow">
-              View guide {arrowIcon}
-            </span>
+            <p>Visual dashboard for the Walrus network.</p>
+            <span className="qs-arrow">Coming soon {arrowIcon}</span>
           </a>
-          <a
-            className="qs-card"
-            href="/docs/examples/checkpoint-data"
-          >
-            <div className="qs-icon">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              >
-                <path
-                  d={
-                    'M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0'
-                    + ' 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91'
-                    + ' 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0'
-                    + ' 017.94-7.94l-3.76 3.76z'
-                  }
-                />
-              </svg>
+          <a className="qs-card qs-card--purple" href={u('/docs/marketplace')}>
+            <div className="qs-card-top">
+              <div className="qs-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="9" cy="21" r="1" /><circle cx="20" cy="21" r="1" />
+                  <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+                </svg>
+              </div>
+              <h3>Walrus Marketplace</h3>
             </div>
-            <h3>Examples</h3>
-            <p>
-              Reference applications and integration patterns
-              using Walrus.
-            </p>
-            <span className="qs-arrow">
-              Explore {arrowIcon}
-            </span>
+            <p>Buy, sell, and trade data and storage on Walrus.</p>
+            <span className="qs-arrow">Coming soon {arrowIcon}</span>
           </a>
         </div>
-
-        <hr className="divider" />
-        <div className="section-head scroll-reveal">
-          <span className="mono-label">01</span>
-          <h2>Core capabilities</h2>
-        </div>
-        <div className="cap-grid">
-          <div className="cap-card scroll-reveal">
-            <h3>Storage &amp; retrieval</h3>
-            <p>
-              Walrus supports writing and reading large blobs of
-              unstructured data. Data is content-addressed. Any change
-              to the data produces a new identifier. This makes
-              integrity tamper-evident and enables independent
-              verification of stored content. Walrus also enables
-              anyone to prove that a blob has been stored and remains
-              available for retrieval.
-            </p>
-          </div>
-          <div className="cap-card scroll-reveal">
-            <h3>Data availability and fault tolerance</h3>
-            <p>
-              Walrus uses erasure coding and high redundancy (~4.5x)
-              to maintain availability even under partial node
-              failure.
-            </p>
-            <ul className="cap-stats">
-              <li>
-                Reads remain available with up to 2/3 responsive
-                nodes.
-              </li>
-              <li>
-                Writes tolerate up to 1/3 unavailable nodes.
-              </li>
-            </ul>
-            <p>
-              This model is more robust than partial-replication
-              systems and more cost-efficient than full replication.
-            </p>
-          </div>
-          <div className="cap-card scroll-reveal">
-            <h3>Cost efficiency</h3>
-            <p>
-              Through erasure coding, Walrus maintains storage
-              overhead at approximately 5x the size of stored data
-              while delivering strong durability and Byzantine fault
-              tolerance. This enables production-grade availability
-              without full replication costs.
-            </p>
-          </div>
-          <div className="cap-card scroll-reveal">
-            <h3>Integration with Sui</h3>
-            <p>
-              Walrus leverages Sui for coordination, attesting
-              availability, and payments. Storage space is represented
-              as a resource on Sui, which can be owned, split, merged,
-              and transferred. Stored blobs are also represented by
-              objects on Sui, which means that smart contracts can
-              check whether a blob is available and for how long,
-              extend its lifetime, or optionally delete it.
-            </p>
-          </div>
-          <div className="cap-card scroll-reveal">
-            <h3>Epochs &amp; WAL</h3>
-            <p>
-              Walrus is operated by a committee of storage nodes that
-              evolve between epochs. A native token, WAL (and its
-              subdivision FROST, where 1 WAL is equal to 1 billion
-              FROST), is used to delegate stake to storage nodes, and
-              those with high stake become part of the epoch committee.
-              The WAL token is also used for payments for storage. At
-              the end of each epoch, rewards for selecting storage
-              nodes, storing, and serving blobs are distributed to
-              storage nodes and those that stake with them. All these
-              processes are mediated by smart contracts on the Sui
-              platform.
-            </p>
-          </div>
-          <div className="cap-card scroll-reveal">
-            <h3>Flexible access</h3>
-            <p>
-              You can interact with Walrus through a command-line
-              interface (CLI), software development kits (SDKs), and
-              Web2 HTTP technologies. Walrus is designed to work well
-              with traditional caches and content distribution
-              networks (CDNs), while ensuring all operations can also
-              be run using local tools to maximize decentralization.
-            </p>
-            <div className="cap-detail">
-              Interfaces: CLI · SDK · HTTP API
-            </div>
-          </div>
-        </div>
-
-        <hr className="divider" />
-        <div className="section-head scroll-reveal">
-          <span className="mono-label">02</span>
-          <h2>When to use Walrus</h2>
-        </div>
-        <div className="usecase-grid">
-          <div className="uc-card scroll-reveal">
-            <h4>Independently verifiable</h4>
-            <p>
-              You need to prove where data came from, confirm it has
-              not been altered, or anchor workflows to specific
-              dataset versions.
-            </p>
-            <ul>
-              <li>AI model artifacts &amp; agent memory</li>
-              <li>Execution logs for exchanges</li>
-              <li>Onchain governance data</li>
-              <li>Audit trails for financial systems</li>
-            </ul>
-          </div>
-          <div className="uc-card scroll-reveal">
-            <h4>Highly available under failure</h4>
-            <p>
-              Your system cannot tolerate downtime, partial node
-              failure, or data loss.
-            </p>
-            <ul>
-              <li>Market infrastructure</li>
-              <li>Autonomous agents coordinating state</li>
-              <li>Financial protocols with real risk</li>
-            </ul>
-          </div>
-          <div className="uc-card scroll-reveal">
-            <h4>Programmable at the data layer</h4>
-            <p>
-              You need smart contracts to manage, verify, or automate
-              around stored data.
-            </p>
-            <ul>
-              <li>Versioned datasets in AI workflows</li>
-              <li>Contract-controlled storage lifetimes</li>
-              <li>Onchain verification of offchain artifacts</li>
-            </ul>
-          </div>
-          <div className="uc-card scroll-reveal">
-            <h4>Cost-efficient at scale</h4>
-            <p>
-              You require strong durability and Byzantine fault
-              tolerance without full-replication overhead.
-            </p>
-          </div>
-        </div>
-
-        <hr className="divider" />
-        <div className="section-head scroll-reveal">
-          <span className="mono-label">03</span>
-          <h2>When not to use Walrus</h2>
-        </div>
-        <p>Walrus is not optimized for:</p>
-        <ul>
-          <li>
-            Small, ephemeral application state better suited for
-            direct onchain storage
-          </li>
-          <li>Ultra-low-latency in-memory databases</li>
-          <li>
-            Pure archival storage without verification requirements
-          </li>
-        </ul>
-        <p>
-          Walrus is designed for high-stakes systems where
-          availability, integrity, and programmability are structural
-          requirements, not optional features.
-        </p>
 
         <footer className="page-footer">
           <div className="footer-left">

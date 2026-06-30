@@ -28,7 +28,7 @@ async function tailwindPlugin() {
 const config = {
   title: "Walrus Docs",
   tagline: "Where the world's data becomes reliable, valuable, and governable",
-  favicon: "img/favicon.ico",
+  favicon: "img/favicon.png",
   trailingSlash: false,
 
   future: {
@@ -93,6 +93,7 @@ const config = {
 
   clientModules: [
     "./src/client/webmcp.js",
+    "./src/client/kapa-sidebar.js",
   ],
 
   onBrokenLinks: "throw",
@@ -297,6 +298,9 @@ const config = {
       "data-project-name": "Walrus Knowledge",
       "data-project-color": "#37c3b0ff",
       "data-button-hide": "true",
+      "data-view-mode": "sidebar",
+      "data-modal-overlay-hidden": "true",
+      "data-modal-lock-scroll": "false",
       "data-modal-title": "Ask Walrus AI",
       "data-modal-ask-ai-input-placeholder": "Ask me anything about Walrus!",
       "data-modal-example-questions":
@@ -334,17 +338,21 @@ const config = {
           },
           {
             type: "docSidebar",
-            sidebarId: "sitesSidebar",
-            label: "Walrus Sites",
+            sidebarId: "consoleSidebar",
             position: "right",
+            label: "Walrus Console",
           },
           {
             type: "docSidebar",
-            sidebarId: "operatorSidebar",
-            label: "Service Providers",
+            sidebarId: "marketplaceSidebar",
+            position: "right",
+            label: "Walrus Marketplace",
+          },
+          {
+            to: "/docs/release-notes",
+            label: "Release Notes",
             position: "right",
           },
-          { to: "/blog", label: "Blog", position: "right" },
           {
             href: "https://github.com/MystenLabs/walrus",
             position: "right",

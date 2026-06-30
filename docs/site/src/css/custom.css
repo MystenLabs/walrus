@@ -63,6 +63,7 @@ Infima — Light mode
 :root {
 --ifm-font-family-base: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
 --ifm-font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+--ifm-navbar-height: 5rem;
 
 --ifm-background-color: #fff;
 --ifm-background-surface-color: #fff;
@@ -103,9 +104,9 @@ Infima — Dark mode
 ══════════════════════════════════════════════ */
 
 [data-theme="dark"] {
---ifm-background-color: #1c2228;
---ifm-background-surface-color: #252b31;
---ifm-navbar-background-color: #8e9294;
+--ifm-background-color: #1c2128;
+--ifm-background-surface-color: #22272e;
+--ifm-navbar-background-color: #373e47;
 
 --ifm-color-primary: #98EFDD;
 --ifm-color-primary-dark: #98EFDD;
@@ -124,11 +125,11 @@ Infima — Dark mode
 --ifm-tabs-color-active: #98EFDD;
 --ifm-tabs-color-active-border: #98EFDD;
 
---ifm-toc-link-color: #b0b4b6;
---ifm-toc-border-color: #53575a;
+--ifm-toc-link-color: #8b949e;
+--ifm-toc-border-color: rgba(255,255,255,0.06);
 
---ifm-code-background: #252b31;
---ifm-code-border-color: #53575a;
+--ifm-code-background: #161b22;
+--ifm-code-border-color: rgba(255,255,255,0.06);
 --ifm-code-color: #98EFDD;
 }
 
@@ -137,12 +138,12 @@ Dark mode — force background
 ══════════════════════════════════════════════ */
 
 [data-theme="dark"] body {
-background-color: #1c2228 !important;
-color: #faf8f5 !important;
+background-color: #1c2128 !important;
+color: #cdd9e5 !important;
 }
 
 [data-theme="dark"] .main-wrapper {
-background-color: #1c2228 !important;
+background-color: #1c2128 !important;
 }
 
 /* ══════════════════════════════════════════════
@@ -151,12 +152,12 @@ Base typography — tight, modern
 
 body {
 font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
-font-size: 1rem;
+font-size: 0.9375rem;
 font-weight: 400;
-letter-spacing: -0.005em;
+letter-spacing: -0.01em;
 -webkit-font-smoothing: antialiased;
 -moz-osx-font-smoothing: grayscale;
-line-height: 1.6;
+line-height: 1.55;
 }
 
 /* ══════════════════════════════════════════════
@@ -184,55 +185,57 @@ Markdown headings — tighter, sleeker
 ══════════════════════════════════════════════ */
 
 .markdown header > h1 {
-font-weight: 300;
-font-size: 2.25rem;
-letter-spacing: -0.03em;
-color: #613dff;
+font-weight: 600;
+font-size: 1.75rem;
+letter-spacing: -0.04em;
+color: #000;
 margin-bottom: 0.25rem;
 }
 [data-theme="dark"] .markdown header > h1 {
-color: #cab1ff;
+color: #fff;
 }
 
 .markdown h2 {
 font-weight: 600;
-font-size: 1.6rem;
-margin-top: 2.25rem;
-margin-bottom: 0.5rem;
-letter-spacing: -0.02em;
+font-size: 1.35rem;
+margin-top: 2rem;
+margin-bottom: 0.4rem;
+letter-spacing: -0.03em;
 color: #000;
 }
 [data-theme="dark"] .markdown h2 {
-color: #faf8f5;
+color: #fff;
 }
 
 .markdown h3 {
-font-weight: 600;
-font-size: 1.45rem;
-letter-spacing: -0.01em;
-color: #484946;
-margin-top: 1.75rem;
-margin-bottom: 0.35rem;
+font-weight: 500;
+font-size: 1.15rem;
+letter-spacing: -0.02em;
+color: #24292f;
+margin-top: 1.5rem;
+margin-bottom: 0.3rem;
 }
 [data-theme="dark"] .markdown h3 {
-color: #d0d4d6;
+color: #e6edf3;
 }
 
 .markdown h4 {
-font-weight: 600;
-font-size: 1.3rem;
-letter-spacing: -0.005em;
-color: #000;
-margin-top: 1.5rem;
-margin-bottom: 0.25rem;
+font-weight: 500;
+font-size: 1rem;
+letter-spacing: -0.01em;
+color: #24292f;
+margin-top: 1.25rem;
+margin-bottom: 0.2rem;
 }
 [data-theme="dark"] .markdown h4 {
-color: #faf8f5;
+color: #e6edf3;
 }
 
 .markdown h5 {
-font-size: 1.1rem;
-margin-top: 1.25rem;
+font-size: 0.9rem;
+font-weight: 600;
+margin-top: 1rem;
+letter-spacing: 0.01em;
 }
 
 .markdown h1:first-child {
@@ -240,14 +243,14 @@ margin-top: 0;
 }
 
 .markdown p {
-line-height: 1.7;
-font-size: 1.05rem;
-margin-bottom: 1rem;
+line-height: 1.6;
+font-size: 0.9375rem;
+margin-bottom: 0.875rem;
 }
 
 .markdown li {
-line-height: 1.65;
-font-size: 0.92rem;
+line-height: 1.55;
+font-size: 0.875rem;
 }
 
 /* Tighter paragraph spacing */
@@ -259,21 +262,37 @@ margin-top: -0.25rem;
 Navbar
 ══════════════════════════════════════════════ */
 
-.navbar {
+.navbar,
+nav.navbar,
+.navbar--fixed-top {
 position: sticky !important;
 top: 0 !important;
 z-index: var(--ifm-z-index-fixed) !important;
-background: #f4f5f7 !important;
+background-color: #fff !important;
 color: #000 !important;
-border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
+border-bottom: 1px solid rgba(0, 0, 0, 0.08) !important;
 box-shadow: none !important;
-height: 4.25rem;
+height: auto !important;
+padding: 0 !important;
 }
 
-[data-theme="dark"] .navbar {
-background: #53575a !important;
-color: #faf8f5 !important;
-border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+/* Ensure tab row inherits light bg */
+.navbar-tabs {
+background-color: #fff;
+border-top: 1px solid rgba(0,0,0,0.06);
+}
+
+[data-theme="dark"] .navbar,
+[data-theme="dark"] nav.navbar,
+[data-theme="dark"] .navbar--fixed-top {
+background-color: #373e47 !important;
+color: #e6edf3 !important;
+border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+[data-theme="dark"] .navbar-tabs {
+background-color: #22272e !important;
+border-top-color: rgba(255,255,255,0.06) !important;
 }
 
 .navbar .navbar__title,
@@ -281,14 +300,14 @@ border-bottom-color: rgba(255, 255, 255, 0.06) !important;
 .navbar .navbar__brand,
 .navbar .navbar__toggle {
 color: #000 !important;
-font-size: 0.92rem;
+font-size: 0.82rem;
 }
 
 [data-theme="dark"] .navbar .navbar__title,
 [data-theme="dark"] .navbar .navbar__link,
 [data-theme="dark"] .navbar .navbar__brand,
 [data-theme="dark"] .navbar .navbar__toggle {
-color: #faf8f5 !important;
+color: #fff !important;
 }
 
 .navbar .navbar__brand {
@@ -298,9 +317,9 @@ white-space: nowrap !important;
 
 .navbar__item.navbar__link {
 border-radius: 6px;
-padding: 0.3rem 0.65rem;
+padding: 0.2rem 0.55rem;
 transition: all 0.15s ease;
-font-size: 0.9rem;
+font-size: 0.82rem;
 }
 
 .navbar__item.navbar__link:hover {
@@ -316,6 +335,42 @@ color: #613dff !important;
 }
 [data-theme="dark"] .navbar__link--active {
 color: #98EFDD !important;
+}
+
+/* Tab row styling */
+.navbar-tabs .navbar__item.navbar__link {
+font-size: 0.8125rem;
+font-weight: 500;
+padding: 0.35rem 0.75rem;
+border-radius: 0;
+color: #57606a;
+border-bottom: 2px solid transparent;
+transition: all 0.15s ease;
+}
+[data-theme="dark"] .navbar-tabs .navbar__item.navbar__link {
+color: #cdd9e5;
+}
+.navbar-tabs .navbar__item.navbar__link:hover {
+color: #000;
+background: none !important;
+}
+[data-theme="dark"] .navbar-tabs .navbar__item.navbar__link:hover {
+color: #fff;
+}
+
+/* Active tab — prominent pill + bold */
+.navbar-tabs .navbar__item.navbar__link.navbar__link--active {
+font-weight: 700 !important;
+color: #613dff !important;
+background-color: rgba(97,61,255,0.1) !important;
+border-bottom: 3px solid #613dff !important;
+border-radius: 6px 6px 0 0 !important;
+padding: 0.35rem 0.75rem !important;
+}
+[data-theme="dark"] .navbar-tabs .navbar__item.navbar__link.navbar__link--active {
+color: #fff !important;
+background-color: rgba(152,239,221,0.15) !important;
+border-bottom-color: #98EFDD !important;
 }
 
 
@@ -341,16 +396,16 @@ Sidebar — compact
 ══════════════════════════════════════════════ */
 
 .menu {
-padding: 0.75rem !important;
-font-size: 0.92rem;
+padding: 0.5rem !important;
+font-size: 0.8125rem;
 }
 
 .menu__link {
-border-radius: 5px;
+border-radius: 0.375rem;
 transition: all 0.15s ease;
-font-size: 0.92rem;
-padding: 0.3rem 0.65rem;
-color: #252b31;
+font-size: 0.8125rem;
+padding: 0.25rem 0.5rem;
+color: #24292f;
 line-height: 1.4;
 }
 
@@ -360,12 +415,12 @@ color: #000;
 }
 
 [data-theme="dark"] .menu__link {
-color: #b0b4b6;
+color: #cdd9e5;
 }
 
 [data-theme="dark"] .menu__link:hover {
-background: rgba(255, 255, 255, 0.05);
-color: #faf8f5;
+background: rgba(255, 255, 255, 0.06);
+color: #fff;
 }
 
 .menu__link--active:not(.menu__link--sublist) {
@@ -380,15 +435,16 @@ background: rgba(152, 239, 228, 0.08) !important;
 color: #98EFDD !important;
 }
 
-/* Category headings — same size as links */
+/* Category headings */
 .menu__list-item-collapsible > .menu__link {
-font-weight: 700;
-font-size: 0.82rem;
-letter-spacing: 0.05em;
-text-transform: uppercase;
-color: #252b31;
-padding: 0.4rem 0.65rem 0.25rem;
+font-weight: 600;
+font-size: 0.8125rem;
+letter-spacing: 0;
+text-transform: none;
+color: #24292f;
+padding: 0.375rem 0.5rem 0.2rem;
 }
+
 
 .menu__list-item-collapsible > .menu__link:hover {
 background: transparent;
@@ -396,12 +452,12 @@ color: #000;
 }
 
 [data-theme="dark"] .menu__list-item-collapsible > .menu__link {
-color: #8e9294;
+color: #fff;
 }
 
 [data-theme="dark"] .menu__list-item-collapsible > .menu__link:hover {
 background: transparent;
-color: #faf8f5;
+color: #e6edf3;
 }
 
 .menu__caret::before,
@@ -410,8 +466,8 @@ transition: transform 0.15s ease;
 }
 
 .menu__list .menu__list {
-margin-left: 0.35rem;
-padding-left: 0.65rem;
+margin-left: 0.25rem;
+padding-left: 0.5rem;
 border-left: 1px solid #e5e5e2;
 }
 
@@ -421,10 +477,12 @@ border-left-color: rgba(255, 255, 255, 0.06);
 
 .theme-doc-sidebar-container {
 border-right: 1px solid #e5e5e2;
+background-color: #fafbfc;
 }
 
 [data-theme="dark"] .theme-doc-sidebar-container {
-border-right-color: rgba(255, 255, 255, 0.06);
+border-right-color: rgba(255, 255, 255, 0.08);
+background-color: #22272e !important;
 }
 
 /* ══════════════════════════════════════════════
@@ -432,10 +490,11 @@ Code blocks
 ══════════════════════════════════════════════ */
 
 pre {
-border-radius: 8px !important;
+border-radius: 0.5rem !important;
 border: 1px solid rgba(0, 0, 0, 0.06);
-font-size: 0.82rem;
-padding: 0.875rem 1rem !important;
+font-size: 0.8125rem;
+padding: 0.75rem 0.875rem !important;
+line-height: 1.5;
 }
 
 [data-theme="dark"] pre {
@@ -450,9 +509,9 @@ font-weight: 500;
 }
 
 [data-theme="dark"] :not(pre) > code {
-background-color: #53575a !important;
-border-color: #53575a !important;
-color: #d0d4d6 !important;
+background-color: rgba(255,255,255,0.06) !important;
+border-color: rgba(255,255,255,0.04) !important;
+color: #e6edf3 !important;
 }
 
 div[class*="codeBlockTitle"] {
@@ -474,9 +533,9 @@ border-top-right-radius: 0 !important;
 }
 
 [data-theme="dark"] div[class*="codeBlockTitle"] {
-color: #b0b4b6;
-background: #252b31;
-border-color: rgba(255, 255, 255, 0.06);
+color: #8b949e;
+background: #161b22;
+border-color: rgba(255, 255, 255, 0.04);
 }
 
 button[class*="copyButton"] {
@@ -496,14 +555,14 @@ Tables — compact
 .markdown table {
 border-collapse: collapse;
 width: 100%;
-font-size: 0.82rem;
-margin: 1rem 0;
+font-size: 0.8125rem;
+margin: 0.875rem 0;
 border: none;
 }
 
 .markdown table th,
 .markdown table td {
-padding: 0.4rem 0.65rem;
+padding: 0.375rem 0.625rem;
 border: none;
 border-bottom: 1px solid #e5e5e2;
 text-align: left;
@@ -512,11 +571,11 @@ vertical-align: top;
 
 .markdown table th {
 font-weight: 600;
-font-size: 0.72rem;
-color: #acaca8;
+font-size: 0.6875rem;
+color: #57606a;
 letter-spacing: 0.03em;
 text-transform: uppercase;
-border-bottom: 1px solid #dadad6;
+border-bottom: 1px solid #d0d7de;
 }
 
 .markdown table td {
@@ -545,10 +604,10 @@ Pagination nav
 ══════════════════════════════════════════════ */
 
 .pagination-nav__link {
-border-radius: 12px !important;
-border: 1px solid rgba(0, 0, 0, 0.06);
+border-radius: 0.5rem !important;
+border: 1px solid rgba(0, 0, 0, 0.08);
 transition: all 0.2s ease;
-padding: 0.75rem 1rem;
+padding: 0.625rem 0.875rem;
 }
 
 .pagination-nav__link:hover {
@@ -564,20 +623,20 @@ border-color: rgba(255, 255, 255, 0.06);
 
 [data-theme="dark"] .pagination-nav__link:hover {
 border-color: #98EFDD;
-background: #252b31;
-box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+background: #161b22;
+box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .pagination-nav__sublabel {
-font-size: 0.65rem;
+font-size: 0.625rem;
 text-transform: uppercase;
 letter-spacing: 0.04em;
-color: #acaca8;
+color: #57606a;
 }
 
 .pagination-nav__label {
-font-weight: 600;
-font-size: 0.82rem;
+font-weight: 500;
+font-size: 0.8125rem;
 }
 
 /* ══════════════════════════════════════════════
@@ -585,7 +644,7 @@ TOC — right sidebar
 ══════════════════════════════════════════════ */
 
 .table-of-contents {
-font-size: 0.82rem;
+font-size: 0.75rem;
 }
 
 .table-of-contents__link {
@@ -620,22 +679,39 @@ DocSearch button
 ══════════════════════════════════════════════ */
 
 .DocSearch-Button {
-height: 2.25rem !important;
-border: solid 1px #dadad6 !important;
-border-radius: 2rem !important;
-padding: 0 0.875rem !important;
-color: #53575a !important;
+height: 2rem !important;
+border: solid 1px #d0d7de !important;
+border-radius: 1.25rem !important;
+padding: 0 1rem !important;
+color: #57606a !important;
 font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
-font-size: 0.78rem;
-background-color: #fff !important;
+font-size: 0.75rem;
+background-color: #f6f8fa !important;
 margin: 0;
 transition: all 0.15s ease;
+min-width: 180px !important;
+display: inline-flex !important;
+align-items: center !important;
+justify-content: center !important;
+line-height: 1 !important;
+}
+
+.DocSearch-Button-Container {
+display: flex !important;
+align-items: center !important;
+gap: 6px !important;
+}
+
+.DocSearch-Button-Placeholder {
+line-height: 1 !important;
+padding: 0 !important;
+margin: 0 !important;
 }
 
 [data-theme="dark"] .DocSearch-Button {
-color: #b0b4b6 !important;
-border-color: #53575a !important;
-background-color: #1c2228 !important;
+color: #fff !important;
+border-color: rgba(255,255,255,0.15) !important;
+background-color: rgba(255,255,255,0.08) !important;
 }
 
 .DocSearch-Button:hover,
@@ -788,13 +864,13 @@ Blog posts
 ══════════════════════════════════════════════ */
 
 html.blog-post-page header h1 {
-font-weight: 300;
-letter-spacing: -0.03em;
-color: #613dff;
-font-size: 2rem;
+font-weight: 600;
+letter-spacing: -0.04em;
+color: #000;
+font-size: 1.75rem;
 }
 html[data-theme="dark"].blog-post-page header h1 {
-color: #cab1ff;
+color: #e6edf3;
 }
 
 html.blog-list-page header h2 a {
@@ -841,28 +917,52 @@ background: transparent;
 border-color: #53575a;
 }
 
+/* Tabs container */
+.tabs {
+border: 1px solid rgba(0,0,0,0.1);
+border-radius: 10px;
+padding: 4px;
+background: #f6f8fa;
+display: inline-flex;
+gap: 4px;
+}
+
+[data-theme="dark"] .tabs {
+border-color: rgba(255,255,255,0.1);
+background: #22272e;
+}
+
 .tabs__item {
-font-size: 0.78rem;
-padding: 0.35rem 0.75rem;
+font-size: 0.8125rem;
+padding: 0.45rem 1.1rem;
+font-weight: 600;
+border-radius: 7px;
+border: 1px solid transparent;
+transition: all 0.15s ease;
 }
 
 .tabs__item--active {
-border-bottom: 2px solid #613dff;
-background: #f4f5f7 !important;
-border-radius: 5px 5px 0 0;
+border-color: rgba(97,61,255,0.2) !important;
+background: #fff !important;
+color: #613dff !important;
+box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+border-bottom: none;
+border-radius: 7px;
 }
 
 [data-theme="dark"] .tabs__item--active {
-border-bottom-color: #98EFDD;
-background: #252b31 !important;
+border-color: rgba(152,239,221,0.2) !important;
+background: #2d333b !important;
+color: #98EFDD !important;
+box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 
 .tabs__item:hover:not(.tabs__item--active) {
-background: rgba(0, 0, 0, 0.02) !important;
+background: rgba(0, 0, 0, 0.04) !important;
 }
 
 [data-theme="dark"] .tabs__item:hover:not(.tabs__item--active) {
-background: rgba(255, 255, 255, 0.03) !important;
+background: rgba(255, 255, 255, 0.05) !important;
 }
 
 /* ══════════════════════════════════════════════
@@ -889,13 +989,13 @@ color: #53575a !important;
 border-color: #dadad6 !important;
 border-radius: 2rem !important;
 transition: all 0.15s ease;
-font-size: 0.78rem;
+font-size: 0.72rem;
 }
 
 [data-theme="dark"] .navbar .kapa-trigger-btn {
-background: #252b31 !important;
-color: #b0b4b6 !important;
-border-color: #53575a !important;
+background: rgba(255,255,255,0.08) !important;
+color: #fff !important;
+border-color: rgba(255,255,255,0.15) !important;
 }
 
 /* ══════════════════════════════════════════════
@@ -910,10 +1010,10 @@ Admonitions — compact
 ══════════════════════════════════════════════ */
 
 .admonition {
-border-radius: 8px;
+border-radius: 0.5rem;
 box-shadow: none;
-font-size: 0.82rem;
-padding: 0.65rem 0.875rem;
+font-size: 0.8125rem;
+padding: 0.625rem 0.75rem;
 }
 
 .theme-admonition-note,
@@ -925,10 +1025,10 @@ border-left: 3px solid #acaca8;
 }
 [data-theme="dark"] .theme-admonition-note,
 [data-theme="dark"] .alert--secondary {
---ifm-alert-background-color: #252b31;
---ifm-alert-foreground-color: #d0d4d6;
---ifm-alert-border-color: #53575a;
-border-left-color: #8e9294;
+--ifm-alert-background-color: #161b22;
+--ifm-alert-foreground-color: #e6edf3;
+--ifm-alert-border-color: rgba(255,255,255,0.06);
+border-left-color: #6e7681;
 }
 
 .theme-admonition-tip,
@@ -1008,11 +1108,16 @@ border-left: 3px solid #cab1ff;
 [data-theme="dark"] .alert--secondary .admonitionHeading_Gvgb svg { fill: #8e9294; }
 
 /* ══════════════════════════════════════════════
+Release Notes — full-width, no sidebar
+══════════════════════════════════════════════ */
+
+
+/* ══════════════════════════════════════════════
 Breadcrumbs
 ══════════════════════════════════════════════ */
 
 .breadcrumbs {
-font-size: 0.92rem;
+font-size: 0.75rem;
 }
 
 .breadcrumbs__link {
@@ -1061,6 +1166,37 @@ border-top-color: rgba(255, 255, 255, 0.06);
 }
 
 /* ══════════════════════════════════════════════
+Release notes — editorial summary callout
+══════════════════════════════════════════════ */
+
+.release-editorial {
+background: linear-gradient(135deg, rgba(97,61,255,0.04) 0%, rgba(152,239,221,0.04) 100%);
+border: 1px solid rgba(97,61,255,0.12);
+border-left: 4px solid #613dff;
+border-radius: 0 10px 10px 0;
+padding: 1.25rem 1.5rem;
+margin: 0.5rem 0 1.5rem;
+}
+
+.release-editorial p {
+font-size: 1rem !important;
+line-height: 1.65 !important;
+color: #24292f;
+margin: 0 !important;
+font-weight: 400;
+}
+
+[data-theme="dark"] .release-editorial {
+background: linear-gradient(135deg, rgba(152,239,221,0.04) 0%, rgba(202,177,255,0.04) 100%);
+border-color: rgba(152,239,221,0.15);
+border-left-color: #98EFDD;
+}
+
+[data-theme="dark"] .release-editorial p {
+color: #e6edf3;
+}
+
+/* ══════════════════════════════════════════════
 Blockquotes
 ══════════════════════════════════════════════ */
 
@@ -1080,8 +1216,8 @@ margin: 0;
 
 [data-theme="dark"] .markdown blockquote {
 border-left-color: #98EFDD;
-background: #252b31;
-color: #d0d4d6;
+background: #161b22;
+color: #e6edf3;
 }
 
 /* ══════════════════════════════════════════════
@@ -1115,7 +1251,7 @@ margin-bottom: 0.75rem;
 }
 
 [data-theme="dark"] details {
---ifm-alert-border-color: #53575a;
+--ifm-alert-border-color: rgba(255,255,255,0.06);
 --docusaurus-details-decoration-color: #98EFDD;
 }
 
@@ -1219,8 +1355,8 @@ border: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 [data-theme="dark"] .badge--secondary {
-background: #252b31;
-color: #b0b4b6;
+background: #161b22;
+color: #8b949e;
 border-color: rgba(255, 255, 255, 0.06);
 }
 
@@ -1429,80 +1565,62 @@ padding-right: 0.3rem !important;
   transition: none !important;
 }
 
-/* Mermaid diagrams - Walrus palette, per-mode contrast.
-  Node fill/text come from the Mermaid themeVariables (Purple #613DFF + Tusk
-  #FAF8F5). Edges, arrowheads, and subgraph backgrounds must contrast with the
-  page background, so they are set per color mode here. Labels render as SVG
-  <text> (htmlLabels: false), so colors are applied with fill/stroke. Selectors
-  are scoped to .docusaurus-mermaid-container and use !important to override the
-  color baked into the generated SVG <style>. */
+/* ══════════════════════════════════════════════
+   Kapa sidebar content shift
+   ══════════════════════════════════════════════ */
+/* Kapa renders in Shadow DOM so CSS :has() can't detect it.
+   A client module (kapa-sidebar.js) toggles .kapa-sidebar-open on <html>. */
 
-/* Rounded corners for nodes and subgraphs, matching the brand cards. */
-.docusaurus-mermaid-container .node rect,
-.docusaurus-mermaid-container .cluster rect {
-  rx: 8px;
-  ry: 8px;
+/* Smooth transition when closing */
+body {
+  transition: width 0.3s ease;
 }
 
-/* Light mode: vibrant Mint subgraph with high-contrast Midnight edges. */
-[data-theme="light"] .docusaurus-mermaid-container .flowchart-link {
-  stroke: #000000 !important;
-}
-[data-theme="light"] .docusaurus-mermaid-container marker path {
-  fill: #000000 !important;
-  stroke: #000000 !important;
-}
-[data-theme="light"] .docusaurus-mermaid-container .cluster rect {
-  fill: #98EFDD !important;
-  stroke: #613DFF !important;
-}
-[data-theme="light"] .docusaurus-mermaid-container .cluster-label text,
-[data-theme="light"] .docusaurus-mermaid-container .cluster-label tspan {
-  fill: #000000 !important;
+.navbar,
+.navbar--fixed-top {
+  transition: right 0.3s ease;
 }
 
-/* Dark mode: subtle dark-violet subgraph with light Tusk edges. */
-[data-theme="dark"] .docusaurus-mermaid-container .flowchart-link {
-  stroke: #FAF8F5 !important;
-}
-[data-theme="dark"] .docusaurus-mermaid-container marker path {
-  fill: #FAF8F5 !important;
-  stroke: #FAF8F5 !important;
-}
-[data-theme="dark"] .docusaurus-mermaid-container .cluster rect {
-  fill: #1A1726 !important;
-  stroke: #613DFF !important;
-}
-[data-theme="dark"] .docusaurus-mermaid-container .cluster-label text,
-[data-theme="dark"] .docusaurus-mermaid-container .cluster-label tspan {
-  fill: #FAF8F5 !important;
+/* Shrink body to make room for the 500px sidebar (skip landing page) */
+html.kapa-sidebar-open body:not(:has(.landing-root)) {
+  width: calc(100vw - 500px) !important;
+  overflow-x: hidden;
+  transition: width 0.3s ease;
 }
 
-/* Sequence diagrams: message text and message lines also need per-mode
-  contrast (they use signalText/signalColor, set light for dark mode). Actor
-  boxes keep the Purple fill + white text from themeVariables. */
-[data-theme="light"] .docusaurus-mermaid-container .messageText,
-[data-theme="light"] .docusaurus-mermaid-container .loopText,
-[data-theme="light"] .docusaurus-mermaid-container .loopText tspan,
-[data-theme="light"] .docusaurus-mermaid-container .labelText,
-[data-theme="light"] .docusaurus-mermaid-container .labelText tspan,
-[data-theme="light"] .docusaurus-mermaid-container .sequenceNumber {
-  fill: #000000 !important;
-}
-[data-theme="light"] .docusaurus-mermaid-container .messageLine0,
-[data-theme="light"] .docusaurus-mermaid-container .messageLine1 {
-  stroke: #000000 !important;
+/* Shrink the fixed navbar to match (it uses position:fixed so body width
+   doesn't affect it — set right offset instead; skip when landing page is shown) */
+html.kapa-sidebar-open body:not(:has(.landing-root)) .navbar,
+html.kapa-sidebar-open body:not(:has(.landing-root)) .navbar--fixed-top {
+  right: 500px !important;
+  overflow: hidden;
+  transition: right 0.3s ease;
 }
 
-[data-theme="dark"] .docusaurus-mermaid-container .messageText,
-[data-theme="dark"] .docusaurus-mermaid-container .loopText,
-[data-theme="dark"] .docusaurus-mermaid-container .loopText tspan,
-[data-theme="dark"] .docusaurus-mermaid-container .labelText,
-[data-theme="dark"] .docusaurus-mermaid-container .labelText tspan,
-[data-theme="dark"] .docusaurus-mermaid-container .sequenceNumber {
-  fill: #FAF8F5 !important;
+/* Hide the Ask AI and Search buttons when the sidebar is already open */
+html.kapa-sidebar-open .kapa-trigger-btn,
+html.kapa-sidebar-open .DocSearch-Button {
+  display: none !important;
 }
-[data-theme="dark"] .docusaurus-mermaid-container .messageLine0,
-[data-theme="dark"] .docusaurus-mermaid-container .messageLine1 {
-  stroke: #FAF8F5 !important;
+
+/* Hide the desktop TOC column to free space */
+html.kapa-sidebar-open .col.col--3:has(.theme-doc-toc-desktop) {
+  display: none;
+}
+
+/* Let the main content column expand to fill the freed space */
+html.kapa-sidebar-open .col[class*="docItemCol"] {
+  max-width: 100% !important;
+  flex: 1 !important;
+}
+
+/* On mobile, Kapa goes full-screen so don't shrink */
+@media (max-width: 768px) {
+  html.kapa-sidebar-open body {
+    width: 100vw !important;
+  }
+  html.kapa-sidebar-open .navbar,
+  html.kapa-sidebar-open .navbar--fixed-top {
+    right: 0 !important;
+  }
 }

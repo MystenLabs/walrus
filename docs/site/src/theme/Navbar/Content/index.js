@@ -136,21 +136,51 @@ ${JSON.stringify(item, null, 2)}`,
   );
 }
 
-function NavbarContentLayout({ left, right }) {
+function NavbarContentLayout({ left, right, tabs }) {
   return (
-    <div className="navbar__inner" style={{ flexWrap: "nowrap", gap: "0.5rem" }}>
+    <div style={{ width: "100%" }}>
+      {/* Top row: logo flush left, search + actions right */}
       <div
-        className="navbar__items"
-        style={{ flexShrink: 1, minWidth: 0, overflow: "hidden" }}
+        className="navbar__inner"
+        style={{
+          flexWrap: "nowrap",
+          gap: "0.5rem",
+          padding: "0 1rem",
+          width: "100%",
+          height: "2.75rem",
+          alignItems: "center",
+        }}
       >
-        {left}
+        <div
+          className="navbar__items"
+          style={{ flexShrink: 0 }}
+        >
+          {left}
+        </div>
+        <div
+          className="navbar__items navbar__items--right"
+          style={{ flexShrink: 0, marginLeft: "auto" }}
+        >
+          {right}
+        </div>
       </div>
-      <div
-        className="navbar__items navbar__items--right"
-        style={{ flexShrink: 0, marginLeft: "auto" }}
-      >
-        {right}
-      </div>
+      {/* Bottom row: section tabs, aligned with content area */}
+      {tabs && (
+        <div
+          className="navbar-tabs"
+          style={{
+            padding: "0 1rem",
+            display: "flex",
+            alignItems: "center",
+            gap: "0.25rem",
+            height: "2.25rem",
+            borderTop: "1px solid rgba(128,128,128,0.08)",
+            overflowX: "auto",
+          }}
+        >
+          {tabs}
+        </div>
+      )}
     </div>
   );
 }
@@ -204,10 +234,10 @@ function KapaButton() {
     <button
       type="button"
       onClick={handleClick}
-      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold
-      text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-0 min-[1100px]:mx-1 min-[1300px]:mx-2 shrink-0"
+      className="kapa-trigger-btn flex items-center gap-2 cursor-pointer bg-white text-gray-900 font-semibold
+      text-xs px-3.5 py-1.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-0 min-[1100px]:mx-1 min-[1300px]:mx-2 shrink-0"
     >
-      <img src="/img/logo.svg" alt="" width="25" height="25" />
+      <img src="/img/walrus-mascot.png" alt="" width="18" height="18" style={{ borderRadius: "50%" }} />
       <span className="kapa-label">Ask Walrus AI</span>
     </button>
   );
@@ -238,13 +268,13 @@ function CustomLogo() {
       <img
         src={logoSrc}
         alt={navbar.logo?.alt || title}
-        style={{ height: "2rem", width: "auto", display: "block", flexShrink: 0 }}
+        style={{ height: "1.6rem", width: "auto", display: "block", flexShrink: 0 }}
       />
       {title && (
         <span
           style={{
             fontWeight: 600,
-            fontSize: "1rem",
+            fontSize: "0.88rem",
             whiteSpace: "nowrap",
             flexShrink: 0,
             overflow: "visible",
@@ -263,6 +293,33 @@ export default function NavbarContent() {
   const [leftItems, rightItems] = splitNavbarItems(items);
   const searchBarItem = items.find((item) => item.type === "search");
 
+  // Separate nav links (for tab row) from action items (github icon)
+  const sectionLinks = rightItems.filter(
+    (item) => item.type === "docSidebar" || item.docsPluginId
+  );
+  const otherLinks = rightItems.filter(
+    (item) => item.type !== "docSidebar" && !item.docsPluginId
+  );
+
+  // Build the full tab list including Walrus Memory
+  const walrusMemoryItem = {
+    type: "doc",
+    docId: "getting-started/what-is-walrus-memory",
+    docsPluginId: "walrus-memory",
+    label: "Walrus Memory",
+    position: "right",
+  };
+
+  // Insert Walrus Memory after Data Storage
+  const insertAfter = sectionLinks.findIndex(
+    (item) => item.sidebarId === "docsSidebar" || item.label === "Data Storage"
+  );
+  const tabItems = [
+    ...sectionLinks.slice(0, insertAfter + 1),
+    walrusMemoryItem,
+    ...sectionLinks.slice(insertAfter + 1),
+  ];
+
   return (
     <NavbarContentLayout
       left={
@@ -275,31 +332,20 @@ export default function NavbarContent() {
         </>
       }
       right={
-        <div className="flex items-center gap-1 min-[1100px]:gap-2 min-[1300px]:gap-3 min-[1430px]:gap-4 shrink-0">
-          {(() => {
-            // Insert Apps dropdown between Walrus Sites and Service Providers
-            const insertAfter = rightItems.findIndex(
-              (item) => item.sidebarId === "sitesSidebar" || item.label === "Walrus Sites"
-            );
-            const before = rightItems.slice(0, insertAfter + 1);
-            const after = rightItems.slice(insertAfter + 1);
-            return (
-              <>
-                <NavbarItems items={before} />
-                <AppsDropdown items={[
-                  { label: "Walrus Memory", href: "/walrus-memory/getting-started/what-is-walrus-memory" },
-                ]} />
-                <NavbarItems items={after} />
-              </>
-            );
-          })()}
-          <ThemeToggle />
+        <div className="flex items-center gap-2 shrink-0">
           <KapaButton />
+          <NavbarItems items={otherLinks} />
+          <ThemeToggle />
           {!searchBarItem && (
             <NavbarSearch>
               <SearchLauncher />
             </NavbarSearch>
           )}
+        </div>
+      }
+      tabs={
+        <div className="hidden min-[997px]:flex items-center gap-0.5">
+          <NavbarItems items={tabItems} />
         </div>
       }
     />

@@ -1,201 +1,193 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 //
-// Generates the Walrus Memory sidebar dynamically from the upstream MemWal
-// docs.json (Mintlify config) so the sidebar stays in sync when pages are
-// added or removed upstream. Orphan pages (files that exist but are not
-// listed in docs.json) are appended to the matching category.
+// Walrus Memory sidebar — hardcoded for optimal IA ordering.
+// Content is fetched from upstream MemWal repo at build time;
+// this file controls the navigation structure independently.
+//
+// Ordering follows Mem0-style best practices:
+//   Get Started → Concepts → AI Tools (MCP) → SDKs → Plugins →
+//   Infrastructure → Reference → Contributing
 
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CACHE_DIR = path.resolve(__dirname, ".cache-walrus-memory/docs");
-const OUTPUT_DIR = path.resolve(__dirname, "../walrus-memory-content");
-
-// Files renamed during transform (original slug → local slug)
-const SLUG_RENAMES = {
-  "getting-started/what-is-memwal": "getting-started/what-is-walrus-memory",
-};
-
-// Override tab labels where the Walrus site prefers a different name
-const TAB_LABEL_OVERRIDES = {
-  SDK: "TypeScript SDK",
-};
-
-function renameSlug(slug) {
-  return SLUG_RENAMES[slug] || slug;
-}
-
-// --- Collect doc IDs from the output directory ---
-
-function collectOutputDocIds(dir, prefix) {
-  const ids = new Set();
-  if (!fs.existsSync(dir)) return ids;
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) {
-      for (const id of collectOutputDocIds(path.join(dir, entry.name), rel)) {
-        ids.add(id);
-      }
-    } else if (/\.(mdx?)$/.test(entry.name)) {
-      ids.add(rel.replace(/\.(mdx?)$/, ""));
-    }
-  }
-  return ids;
-}
-
-// --- Extract all placed page IDs from a Mintlify pages array ---
-
-function extractPageIds(pages, placed) {
-  for (const page of pages) {
-    if (typeof page === "string") {
-      placed.add(renameSlug(page));
-    } else if (page.pages) {
-      if (page.root) placed.add(renameSlug(page.root));
-      extractPageIds(page.pages, placed);
-    }
-  }
-}
-
-// --- Convert Mintlify structures to Docusaurus sidebar items ---
-
-function convertPages(pages) {
-  const items = [];
-  for (const page of pages) {
-    if (typeof page === "string") {
-      items.push(renameSlug(page));
-    } else if (page.pages) {
-      const category = {
-        type: "category",
-        label: page.group,
-        collapsed: true,
-        items: convertPages(page.pages),
-      };
-      if (page.root) {
-        category.link = { type: "doc", id: renameSlug(page.root) };
-      }
-      items.push(category);
-    }
-  }
-  return items;
-}
-
-function convertTab(tab, isFirst) {
-  const groups = tab.groups || [];
-  if (groups.length === 0) return null;
-
-  const label = TAB_LABEL_OVERRIDES[tab.tab] || tab.tab;
-
-  if (groups.length === 1) {
-    const group = groups[0];
-    const items = convertPages(group.pages);
-    const category = {
-      type: "category",
-      label,
-      collapsed: !isFirst,
-      items,
-    };
-    // For the first tab, use the first page as the category link
-    if (isFirst && items.length > 0 && typeof items[0] === "string") {
-      category.link = { type: "doc", id: items[0] };
-      category.items = items.slice(1);
-    }
-    return category;
-  }
-
-  // Multiple groups → nested categories
-  const items = groups.map((g) => ({
-    type: "category",
-    label: g.group,
-    collapsed: true,
-    items: convertPages(g.pages),
-  }));
-
-  return { type: "category", label, collapsed: !isFirst, items };
-}
-
-// --- Orphan detection: pages that exist but are not in docs.json ---
-
-function appendOrphans(sidebar, placedIds) {
-  const allIds = collectOutputDocIds(OUTPUT_DIR, "");
-  const orphans = [...allIds].filter((id) => !placedIds.has(id)).sort();
-  if (orphans.length === 0) return;
-
-  // Build prefix → sidebar-category-index map from existing items
-  const prefixToIdx = {};
-  for (let i = 0; i < sidebar.length; i++) {
-    const item = sidebar[i];
-    if (item.type !== "category") continue;
-    const prefixes = new Set();
-    (function walk(items) {
-      for (const sub of items) {
-        const id =
-          typeof sub === "string" ? sub : sub.id || sub.link?.id || "";
-        if (id.includes("/")) prefixes.add(id.split("/")[0]);
-        if (sub.items) walk(sub.items);
-      }
-    })(item.items || []);
-    if (item.link?.id?.includes("/"))
-      prefixes.add(item.link.id.split("/")[0]);
-    for (const p of prefixes) {
-      if (prefixToIdx[p] === undefined) prefixToIdx[p] = i;
-    }
-  }
-
-  let placed = 0;
-  for (const id of orphans) {
-    const prefix = id.includes("/") ? id.split("/")[0] : null;
-    if (prefix && prefixToIdx[prefix] !== undefined) {
-      sidebar[prefixToIdx[prefix]].items.push(id);
-      placed++;
-    }
-  }
-
-  if (placed > 0) {
-    console.log(
-      `ℹ️  walrus-memory sidebar: appended ${placed} page(s) not in docs.json to matching categories`,
-    );
-  }
-}
-
-// --- Main ---
-
-function generateSidebar() {
-  const docsJsonPath = path.join(CACHE_DIR, "docs.json");
-  if (!fs.existsSync(docsJsonPath)) {
-    console.warn(
-      "⚠️  walrus-memory: docs.json not found, using minimal sidebar",
-    );
-    return [{ type: "doc", id: "index", label: "Walrus Memory" }];
-  }
-
-  const docsJson = JSON.parse(fs.readFileSync(docsJsonPath, "utf8"));
-  const tabs = docsJson.navigation?.tabs || [];
-
-  // Track which IDs are placed by docs.json
-  const placedIds = new Set(["index"]);
-  for (const tab of tabs) {
-    for (const group of tab.groups || []) {
-      extractPageIds(group.pages, placedIds);
-    }
-  }
-
-  const sidebar = [{ type: "doc", id: "index", label: "Walrus Memory" }];
-  for (let i = 0; i < tabs.length; i++) {
-    const cat = convertTab(tabs[i], i === 0);
-    if (cat) sidebar.push(cat);
-  }
-
-  appendOrphans(sidebar, placedIds);
-
-  return sidebar;
-}
+// @ts-check
 
 /** @type {import('@docusaurus/plugin-content-docs').SidebarsConfig} */
 const sidebars = {
-  walrusMemorySidebar: generateSidebar(),
+  walrusMemorySidebar: [
+    // ── 1. Get Started ───────────────────────────────────────────
+    {
+      type: "category",
+      label: "Get Started",
+      collapsed: false,
+      link: {
+        type: "doc",
+        id: "getting-started/what-is-walrus-memory",
+      },
+      items: [
+        "getting-started/quick-start",
+        "getting-started/choose-your-path",
+        "examples/example-apps",
+      ],
+    },
+
+    // ── 2. Core Concepts ─────────────────────────────────────────
+    {
+      type: "category",
+      label: "Core Concepts",
+      collapsed: true,
+      items: [
+        "fundamentals/concepts/memory-space",
+        "fundamentals/concepts/ownership-and-access",
+        "fundamentals/architecture/core-components",
+        "fundamentals/architecture/how-storage-works",
+        "fundamentals/architecture/data-flow-security-model",
+      ],
+    },
+
+    // ── 3. AI Tools (MCP) — promoted for AI developer audience ──
+    {
+      type: "category",
+      label: "AI Tools (MCP)",
+      collapsed: true,
+      link: { type: "doc", id: "mcp/overview" },
+      items: [
+        "mcp/claude-code",
+        "mcp/claude-desktop",
+        "mcp/cursor",
+        "mcp/codex",
+        "mcp/opencode",
+        "mcp/antigravity",
+        "mcp/reference",
+      ],
+    },
+
+    // ── 4. TypeScript SDK ────────────────────────────────────────
+    {
+      type: "category",
+      label: "TypeScript SDK",
+      collapsed: true,
+      link: { type: "doc", id: "sdk/overview" },
+      items: [
+        "sdk/quick-start",
+        {
+          type: "category",
+          label: "Usage",
+          collapsed: true,
+          link: { type: "doc", id: "sdk/usage" },
+          items: [
+            "sdk/usage/memwal",
+            "sdk/usage/memwal-manual",
+            "sdk/usage/with-memwal",
+          ],
+        },
+        "sdk/examples",
+        { type: "doc", id: "sdk/ai-integration", label: "AI SDK Integration" },
+        { type: "doc", id: "sdk/cookbook-multi-tenant", label: "Multi-Tenant Apps" },
+        { type: "doc", id: "sdk/cloudflare-workers", label: "Cloudflare Workers" },
+        "sdk/advanced-usage",
+        "sdk/api-reference",
+      ],
+    },
+
+    // ── 5. Python SDK ────────────────────────────────────────────
+    {
+      type: "category",
+      label: "Python SDK",
+      collapsed: true,
+      items: [
+        "python-sdk/quick-start",
+        "python-sdk/colab",
+        {
+          type: "category",
+          label: "Usage",
+          collapsed: true,
+          link: { type: "doc", id: "python-sdk/usage" },
+          items: [
+            "python-sdk/usage/memwal",
+            "python-sdk/usage/memwal-manual",
+            "python-sdk/usage/with-memwal",
+          ],
+        },
+        "python-sdk/api-reference",
+      ],
+    },
+
+    // ── 6. OpenClaw Plugin ───────────────────────────────────────
+    {
+      type: "category",
+      label: "OpenClaw Plugin",
+      collapsed: true,
+      items: [
+        "openclaw/overview",
+        "openclaw/quick-start",
+        "openclaw/how-it-works",
+        "openclaw/reference",
+      ],
+    },
+
+    // ── 7. Relayer (infrastructure) ──────────────────────────────
+    {
+      type: "category",
+      label: "Relayer",
+      collapsed: true,
+      items: [
+        "relayer/overview",
+        "relayer/public-relayer",
+        "relayer/self-hosting",
+        "relayer/nautilus-tee",
+        "relayer/observability",
+        "relayer/versioning-and-compatibility",
+        "relayer/api-reference",
+        "relayer/benchmark-ci-setup",
+        "relayer/runbook-gas-pool",
+      ],
+    },
+
+    // ── 8. Reference (collapsed, bottom) ─────────────────────────
+    {
+      type: "category",
+      label: "Reference",
+      collapsed: true,
+      items: [
+        "reference/configuration",
+        "reference/environment-variables",
+        "security/health-check-unsigned",
+        {
+          type: "category",
+          label: "Smart Contract",
+          collapsed: true,
+          items: [
+            "contract/overview",
+            "contract/delegate-key-management",
+            "contract/ownership-and-permissions",
+          ],
+        },
+        {
+          type: "category",
+          label: "Indexer",
+          collapsed: true,
+          items: [
+            "indexer/purpose",
+            "indexer/onchain-events",
+            "indexer/database-sync",
+          ],
+        },
+        "architecture/permanent-registry-design",
+      ],
+    },
+
+    // ── 9. Contributing (very bottom) ────────────────────────────
+    {
+      type: "category",
+      label: "Contributing",
+      collapsed: true,
+      items: [
+        "contributing/docs-workflow",
+        "contributing/run-docs-locally",
+        "contributing/run-repo-locally",
+      ],
+    },
+  ],
 };
 
 export default sidebars;
