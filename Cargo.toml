@@ -92,7 +92,7 @@ opentelemetry = { version = "=0.31", default-features = false, features = ["trac
 opentelemetry-otlp = { version = "=0.31" }
 opentelemetry-proto = { version = "=0.31", default-features = false, features = ["with-serde"] }
 opentelemetry-semantic-conventions = "=0.31"
-opentelemetry_sdk = "=0.31"
+opentelemetry_sdk = "=0.32"
 p256 = { version = "0.13.2", default-features = false }
 pin-project = "1.1.13"
 prettytable = "0.10.0"
