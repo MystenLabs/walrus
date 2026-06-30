@@ -58,12 +58,11 @@ use std::io::{Seek, SeekFrom, Write};
 use byteorder::{BigEndian, WriteBytesExt};
 use integer_encoding::VarIntWriter;
 use serde::{Deserialize, Serialize};
-use sui_types::base_types::ObjectID;
+use sui_types::{base_types::ObjectID, event::EventID};
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
 use super::blob_info::{PerObjectBlobInfo, PerObjectPooledBlobInfo, StoragePoolInfo};
-use crate::event::events::EventStreamCursor;
 
 /// The magic bytes at the start of a blob info snapshot.
 pub(crate) const SNAPSHOT_MAGIC: u32 = 0xB10B1F05;
@@ -98,24 +97,27 @@ pub(crate) enum SnapshotError {
 ///
 /// The header pins the exact event-stream position the snapshot corresponds to: the snapshot
 /// contains the table state after applying all events up to and including the `EpochChangeStart`
-/// for `epoch` (whose cursor is `event_cursor`), with the inline GC phase 1 for `epoch` applied.
+/// for `epoch`, with the inline GC phase 1 for `epoch` applied. The cursor is stored as its two
+/// constituent fields rather than as the `EventStreamCursor` type, so the on-disk format is not
+/// coupled to that internal type's layout.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SnapshotHeader {
-    /// The new (incoming) epoch this boundary begins; the `epoch` of the
-    /// `EpochChangeStart` event being processed.
+    /// The new (incoming) epoch this boundary begins; the `epoch` of the `EpochChangeStart` event
+    /// being processed.
     pub epoch: Epoch,
-    /// The event-stream cursor at the boundary: `event_id` of the last included event (the
-    /// `EpochChangeStart` for `epoch`) and `element_index` of the next event to process. Mirrors
-    /// the node's persisted event cursor.
-    pub event_cursor: EventStreamCursor,
+    /// Event ID of the last event included in the snapshot (the `EpochChangeStart` for `epoch`).
+    pub event_id: EventID,
+    /// Index of the next event to process when resuming from this snapshot.
+    pub next_event_index: u64,
 }
 
 impl SnapshotHeader {
     /// Creates a snapshot header.
-    pub fn new(epoch: Epoch, event_cursor: EventStreamCursor) -> Self {
+    pub fn new(epoch: Epoch, event_id: EventID, next_event_index: u64) -> Self {
         Self {
             epoch,
-            event_cursor,
+            event_id,
+            next_event_index,
         }
     }
 }
@@ -218,10 +220,7 @@ mod tests {
     use super::*;
 
     fn sample_header() -> SnapshotHeader {
-        SnapshotHeader::new(
-            7,
-            EventStreamCursor::new(Some(fixed_event_id_for_testing(3)), 42),
-        )
+        SnapshotHeader::new(7, fixed_event_id_for_testing(3), 42)
     }
 
     // Rebuilt on every call so that two serializations exercise independent value instances.
@@ -310,7 +309,7 @@ mod tests {
         hasher.write(&serialize_sample());
         assert_eq!(
             hasher.finish(),
-            0xc36c868e219b8112,
+            0x3234c3cbfe7d7b4a,
             "blob info snapshot encoding changed; if intentional, update this golden digest",
         );
     }

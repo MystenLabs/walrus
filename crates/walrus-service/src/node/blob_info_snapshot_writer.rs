@@ -124,7 +124,12 @@ pub(super) async fn serialize_snapshot_at_epoch_boundary(
     let serialize_tmp_path = tmp_path.clone();
     let (stats, digest, size_bytes) =
         tokio::task::spawn_blocking(move || -> Result<(SnapshotStats, u64, u64)> {
-            let header = SnapshotHeader::new(epoch, event_cursor);
+            // A snapshot is taken right after processing the `EpochChangeStart` event, which always
+            // has an event id, so the cursor's event id is never the genesis `None`.
+            let event_id = event_cursor.event_id.expect(
+                "snapshot is taken after the EpochChangeStart event, which has an event id",
+            );
+            let header = SnapshotHeader::new(epoch, event_id, event_cursor.element_index);
             let file = fs::File::create(&serialize_tmp_path)?;
             let mut buf_writer = BufWriter::with_capacity(1 << 20, file);
             let stats = storage_node
