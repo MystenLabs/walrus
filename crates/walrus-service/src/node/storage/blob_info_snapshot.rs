@@ -42,8 +42,13 @@
 //! fixed-width.
 //!
 //! Entries within a section are in strictly increasing key order (the natural RocksDB iteration
-//! order). The serialized bytes are consensus-critical: any change to them must bump
-//! [`SNAPSHOT_FORMAT_VERSION`] once a reader exists.
+//! order). The serialized bytes are consensus-critical. [`SNAPSHOT_FORMAT_VERSION`] versions only
+//! the framing (magic, header, sections, ordering, length encoding), not the value schema: each
+//! value is BCS of an append-only versioned enum (`PerObjectBlobInfoV1`, ...), so the leading
+//! variant tag identifies the version per entry and newer software still decodes older variants (as
+//! the on-disk tables already do). Adding a variant needs no format bump but must be epoch-gated so
+//! all nodes emit identical bytes at the same boundary. A released variant is never changed in
+//! place; any change to a value's fields goes in a new variant.
 //!
 //! The file carries no checksum; the cross-node content digest (xxhash64 of the whole file) is
 //! computed and logged by the writer, not stored.
@@ -62,7 +67,10 @@ use crate::event::events::EventStreamCursor;
 
 /// The magic bytes at the start of a blob info snapshot.
 pub(crate) const SNAPSHOT_MAGIC: u32 = 0xB10B1F05;
-/// The current format version of the blob info snapshot.
+/// Version of the snapshot framing: the envelope layout (magic, header, section set, order, and
+/// tags, count and length encoding, key ordering), not the value schema. Bump it when that layout
+/// changes. A new blob info value variant does not bump it, because values are append-only
+/// versioned enums that are self-describing per entry; see the module docs.
 pub(crate) const SNAPSHOT_FORMAT_VERSION: u32 = 1;
 
 const SECTION_TAG_PER_OBJECT: u8 = 1;
