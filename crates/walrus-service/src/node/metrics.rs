@@ -194,6 +194,16 @@ walrus_utils::metrics::define_metric_set! {
         blob info table."]
         per_object_blob_info_consistency_check_error: IntCounter[],
 
+        #[help = "The number of errors while creating blob info snapshots."]
+        blob_info_snapshot_error_total: IntCounter[],
+
+        #[help = "The duration of serializing the blob info snapshot in-process at the epoch \
+        boundary, in seconds."]
+        blob_info_snapshot_serialize_duration_seconds: Gauge[],
+
+        #[help = "The size in bytes of the in-process blob info snapshot."]
+        blob_info_snapshot_size_bytes: IntGauge[],
+
         #[help = "The number of certified per-object blobs scanned during the per-object blob info \
         consistency check."]
         per_object_blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],

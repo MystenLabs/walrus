@@ -57,7 +57,11 @@ use self::{
     per_object_pooled_blob_info::PerObjectPooledBlobInfoMergeOperand,
     storage_pool_info::StoragePoolInfoMergeOperand,
 };
-use super::{DatabaseTableOptionsFactory, constants};
+use super::{
+    DatabaseTableOptionsFactory,
+    blob_info_snapshot::{self, SnapshotError, SnapshotHeader, SnapshotStats},
+    constants,
+};
 use crate::{
     node::metrics::NodeMetricSet,
     utils::{self, process_items_in_batches},
@@ -441,6 +445,32 @@ impl BlobInfoTable {
                 blob_id,
                 &BlobInfoMergeOperand::MarkMetadataStored(metadata_stored).to_bytes(),
             )],
+        )
+    }
+
+    /// Serializes a blob info snapshot of the three snapshotted column families into `writer`.
+    /// See [`super::blob_info_snapshot`] for the format. Must be called directly after GC phase 1
+    /// at the epoch boundary, before processing any further events.
+    ///
+    /// All three column families are read through a single RocksDB engine snapshot, so they are
+    /// captured at one consistent sequence number.
+    pub fn write_snapshot<W: std::io::Write + std::io::Seek>(
+        &self,
+        header: &SnapshotHeader,
+        writer: W,
+    ) -> Result<SnapshotStats, SnapshotError> {
+        // The three column families share one database instance, so one engine snapshot covers
+        // them all.
+        let engine_snapshot = self.per_object_blob_info.rocksdb.snapshot();
+        blob_info_snapshot::write_snapshot(
+            writer,
+            header,
+            self.per_object_blob_info
+                .safe_iter_with_snapshot(&engine_snapshot)?,
+            self.per_object_pooled_blob_info
+                .safe_iter_with_snapshot(&engine_snapshot)?,
+            self.storage_pool_info
+                .safe_iter_with_snapshot(&engine_snapshot)?,
         )
     }
 

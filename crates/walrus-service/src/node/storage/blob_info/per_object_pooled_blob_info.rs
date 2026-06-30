@@ -164,6 +164,23 @@ impl PerObjectPooledBlobInfo {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn new_for_testing(
+        blob_id: BlobId,
+        registered_epoch: Epoch,
+        certified_epoch: Option<Epoch>,
+        storage_pool_id: ObjectID,
+        event: EventID,
+    ) -> Self {
+        Self::V1(PerObjectPooledBlobInfoV1 {
+            blob_id,
+            registered_epoch,
+            certified_epoch,
+            storage_pool_id,
+            event,
+        })
+    }
+
     /// Constructs a certified per-object pooled blob info for testing.
     #[cfg(test)]
     pub(crate) fn new_for_test(
