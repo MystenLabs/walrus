@@ -298,9 +298,9 @@ mod tests {
     }
 
     // TODO: this checks only that the bytes are stable, not that they decode back correctly. Add a
-    // serialize -> deserialize round-trip test asserting a decoded snapshot matches the source table
-    // once the reader/decoder lands in a following PR (the round-trip exists on a separate branch and
-    // passes on testnet data).
+    // serialize -> deserialize round-trip test that asserts a decoded snapshot matches the source
+    // table once the reader/decoder lands in a following PR (the round-trip exists on a separate
+    // branch and passes on testnet data).
     /// Byte-stability: the on-disk encoding is consensus-critical, so any change to it must be a
     /// deliberate act. If this golden digest changes, update it here and, once a reader exists,
     /// bump `SNAPSHOT_FORMAT_VERSION`.
