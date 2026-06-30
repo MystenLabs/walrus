@@ -77,15 +77,15 @@ Sui smart contract as the on-chain index.
 
 - [Walrus Client](https://docs.wal.app/docs/walrus-client.md):
     JSON Mode: Use JSON mode for programmatic access to all Walrus CLI commands with JSON-formatted
-    input and output. Managing Blobs: Use the Walrus client to extend, delete, burn, share, and set
-    attributes on blobs.
+    input and output. Managing Blobs: Use the Walrus client to check, extend, delete, burn, share,
+    and set attributes on blobs across their lifecycle.
 - [JSON Mode](https://docs.wal.app/docs/walrus-client/json-mode.md):
     All Walrus client commands are available in JSON mode, which simplifies programmatic access to
     the CLI. You can specify all command-line flags of the original CLI command in JSON format.
 - [Managing Blobs](https://docs.wal.app/docs/walrus-client/managing-blobs.md):
-    Use the Walrus client to manage blobs and their metadata. You can extend Walrus blob lifetimes
-    using the following command: The blob cannot be expired when you run this command. Both
-    address-owned blobs and shared blobs can have their lifetime extended.
+    Use the Walrus client to manage blobs and their metadata. Before you extend or depend on a
+    blob, check that it is still stored and see when it expires. Use the blob ID: This reports
+    whether the blob is stored and its availability period.
 - [Quilts](https://docs.wal.app/docs/walrus-client/quilts.md):
     For efficiently storing large numbers of small blobs, Walrus provides the quilt feature. A
     quilt batches multiple blobs into a single storage unit, significantly reducing overhead and
@@ -467,6 +467,10 @@ Sui smart contract as the on-chain index.
 - [Data Flow Security Model](https://docs.wal.app/docs/walrus-memory/fundamentals/architecture/data-flow-security-model.md):
     Walrus Memory's security model is split between onchain enforcement and offchain operations.
     Understanding where trust lives helps you make informed decisions about your deployment.
+- [Funding Storage](https://docs.wal.app/docs/walrus-memory/fundamentals/architecture/funding-storage.md):
+    Walrus Memory writes your encrypted memories to Walrus as blobs, as described in How Storage
+    Works. Someone has to pay for that storage. This page explains who, and the trade-offs between
+    an agent holding WAL itself and having a third party sponsor the cost.
 - [How Storage Works](https://docs.wal.app/docs/walrus-memory/fundamentals/architecture/how-storage-works.md):
     When you call memwal.remember(...), the relayer accepts a background job immediately and then
     stores the memory asynchronously. Here's what happens. The relayer generates a vector embedding
@@ -638,6 +642,10 @@ Sui smart contract as the on-chain index.
     memory inside an AI SDK pipeline Use: rememberManual when you already have encrypted payload
     plus vector recallManual when you already have a query vector Use analyze when you want the
     relayer to extract facts from longer text and store them as memories.
+- [Agent Storage Loop](https://docs.wal.app/docs/walrus-memory/sdk/agent-storage-loop.md):
+    This guide walks an autonomous agent through the complete storage loop on Testnet: set up the
+    client with no interactive steps, batch many small writes, encrypt agent state, confirm each
+    write landed before depending on it, then recall.
 - [Ai Integration](https://docs.wal.app/docs/walrus-memory/sdk/ai-integration.md):
     Walrus Memory includes an AI SDK integration for applications that already use model
     middleware.
@@ -667,6 +675,11 @@ Sui smart contract as the on-chain index.
     Walrus Memory exposes SDK surfaces for TypeScript and Python. The SDKs give your agents
     portable memory that works across apps, sessions, and workflows, fully under your control. Use
     this first.
+- [Production Readiness](https://docs.wal.app/docs/walrus-memory/sdk/production-readiness.md):
+    The SDK gives you the storage primitives. Running them in a long-lived agent, where there is no
+    human to retry a failed write or notice a runaway bill, takes a few patterns on top. This guide
+    collects the ones that matter most. Several of these are patterns you implement around the
+    client today.
 - [Quick Start](https://docs.wal.app/docs/walrus-memory/sdk/quick-start.md):
     The Walrus Memory SDK gives your agents portable memory that works across apps, sessions, and
     workflows. Store, recall, and analyze context, fully under your control.
@@ -679,17 +692,24 @@ Sui smart contract as the on-chain index.
 - [Memwal Manual](https://docs.wal.app/docs/walrus-memory/sdk/usage/memwal-manual.md):
     Use when the client must handle embedding calls and local Seal operations. The relayer still
     handles upload relay, vector registration, search, and restore. This is the recommended path
-    for Web3-native users who want to minimize trust in the relayer, it never sees your plaintext
-    data.
+    for Web3-native users who want to minimize trust in the relayer, because it never sees your
+    plaintext data.
 - [Memwal](https://docs.wal.app/docs/walrus-memory/sdk/usage/memwal.md):
     The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing.
 - [With Memwal](https://docs.wal.app/docs/walrus-memory/sdk/usage/with-memwal.md):
     Drop-in memory middleware for Vercel AI SDK apps.
+- [Versioned Datasets](https://docs.wal.app/docs/walrus-memory/sdk/versioned-datasets.md):
+    When an agent stores a dataset, a model artifact, or a snapshot of its own state, it usually
+    needs more than the latest copy. It needs the history: which version it acted on, what changed
+    between revisions, and proof that a past version has not been altered.
 - [Unsigned Health Check Rationale](https://docs.wal.app/docs/walrus-memory/security/health-check-unsigned.md):
     GET /health and GET /version The health and version endpoints are intentionally left
     unauthenticated and unsigned. They do not require a valid Ed25519 signature in headers like the
     rest of the API.
+- [Overview](https://docs.wal.app/docs/walrus-memory/troubleshooting/overview.md):
+    This page collects the support questions that come up most often and the fastest way to resolve
+    each one. Every entry lists the symptom you observe, the cause behind it, and the fix to apply.
 
 ## Optional
 
