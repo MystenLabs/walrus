@@ -89,6 +89,26 @@ impl RestApiError for InternalError {
 )]
 pub struct ShardNotAssigned(pub ShardIndex, pub Epoch);
 
+/// The storage node has insufficient free disk space to durably store the data.
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[error("the storage node is out of disk space")]
+#[rest_api_error(
+    reason = "STORAGE_NODE_OUT_OF_SPACE",
+    status = ApiStatusCode::ResourceExhausted,
+    domain = ERROR_DOMAIN
+)]
+pub struct OutOfSpace;
+
+/// A storage write did not complete within the configured timeout.
+#[derive(Debug, thiserror::Error, RestApiError)]
+#[error("the storage write did not complete within the configured timeout")]
+#[rest_api_error(
+    reason = "STORAGE_WRITE_TIMEOUT",
+    status = ApiStatusCode::DeadlineExceeded,
+    domain = ERROR_DOMAIN
+)]
+pub struct StorageWriteTimeout;
+
 /// The index identifying the resource is out-of-range for the system.
 #[derive(Debug, thiserror::Error, RestApiError)]
 #[error("requires 0 <= index ({index}) < {max}")]
@@ -219,6 +239,16 @@ pub enum StoreMetadataError {
     #[rest_api_error(reason = "UNSUPPORTED_ENCODING_TYPE", status = ApiStatusCode::InvalidArgument)]
     UnsupportedEncodingType(EncodingType),
 
+    /// The storage node is out of disk space and cannot store the metadata.
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    OutOfSpace(#[from] OutOfSpace),
+
+    /// Storing the metadata did not complete within the configured timeout.
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    WriteTimeout(#[from] StorageWriteTimeout),
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
@@ -340,9 +370,57 @@ pub enum StoreSliverError {
     #[rest_api_error(reason = "SLIVER_TOO_LARGE", status = ApiStatusCode::FailedPrecondition)]
     SliverTooLarge,
 
+    /// The storage node is out of disk space and cannot store the sliver.
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    OutOfSpace(#[from] OutOfSpace),
+
+    /// Storing the sliver did not complete within the configured timeout.
+    #[error(transparent)]
+    #[rest_api_error(delegate)]
+    WriteTimeout(#[from] StorageWriteTimeout),
+
     #[error(transparent)]
     #[rest_api_error(delegate)]
     Internal(#[from] InternalError),
+}
+
+/// Classification of a failed or timed-out storage write.
+///
+/// Produced by the storage-node write path and converted into the public
+/// [`StoreMetadataError`]/[`StoreSliverError`] returned to clients.
+#[derive(Debug)]
+pub(crate) enum StorageWriteFailure {
+    /// The node appears to be out of disk space.
+    OutOfSpace,
+    /// The write did not complete within the configured timeout.
+    TimedOut,
+    /// The underlying database returned an error.
+    Database(TypedStoreError),
+}
+
+impl From<StorageWriteFailure> for StoreMetadataError {
+    fn from(failure: StorageWriteFailure) -> Self {
+        match failure {
+            StorageWriteFailure::OutOfSpace => OutOfSpace.into(),
+            StorageWriteFailure::TimedOut => StorageWriteTimeout.into(),
+            StorageWriteFailure::Database(error) => StoreMetadataError::Internal(
+                anyhow::Error::new(error).context("unable to store metadata"),
+            ),
+        }
+    }
+}
+
+impl From<StorageWriteFailure> for StoreSliverError {
+    fn from(failure: StorageWriteFailure) -> Self {
+        match failure {
+            StorageWriteFailure::OutOfSpace => OutOfSpace.into(),
+            StorageWriteFailure::TimedOut => StorageWriteTimeout.into(),
+            StorageWriteFailure::Database(error) => StoreSliverError::Internal(
+                anyhow::Error::new(error).context("unable to store sliver"),
+            ),
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error, RestApiError)]
@@ -493,4 +571,51 @@ pub enum DbCheckpointError {
     RestoreError(#[from] rocksdb::Error),
     #[error("Other checkpoint error: {0}")]
     Other(#[from] anyhow::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use walrus_storage_node_client::api::errors::StatusCode as ApiStatusCode;
+
+    use super::*;
+
+    #[test]
+    fn out_of_space_failure_maps_to_resource_exhausted() {
+        let sliver_error = StoreSliverError::from(StorageWriteFailure::OutOfSpace);
+        assert!(matches!(sliver_error, StoreSliverError::OutOfSpace(_)));
+        assert_eq!(sliver_error.status_code(), ApiStatusCode::ResourceExhausted);
+
+        let metadata_error = StoreMetadataError::from(StorageWriteFailure::OutOfSpace);
+        assert!(matches!(metadata_error, StoreMetadataError::OutOfSpace(_)));
+        assert_eq!(
+            metadata_error.status_code(),
+            ApiStatusCode::ResourceExhausted
+        );
+    }
+
+    #[test]
+    fn timed_out_failure_maps_to_deadline_exceeded() {
+        let sliver_error = StoreSliverError::from(StorageWriteFailure::TimedOut);
+        assert!(matches!(sliver_error, StoreSliverError::WriteTimeout(_)));
+        assert_eq!(sliver_error.status_code(), ApiStatusCode::DeadlineExceeded);
+
+        let metadata_error = StoreMetadataError::from(StorageWriteFailure::TimedOut);
+        assert!(matches!(
+            metadata_error,
+            StoreMetadataError::WriteTimeout(_)
+        ));
+        assert_eq!(
+            metadata_error.status_code(),
+            ApiStatusCode::DeadlineExceeded
+        );
+    }
+
+    #[test]
+    fn database_failure_maps_to_internal() {
+        let failure =
+            StorageWriteFailure::Database(TypedStoreError::RocksDBError("boom".to_owned()));
+        let sliver_error = StoreSliverError::from(failure);
+        assert!(matches!(sliver_error, StoreSliverError::Internal(_)));
+        assert_eq!(sliver_error.status_code(), ApiStatusCode::Internal);
+    }
 }

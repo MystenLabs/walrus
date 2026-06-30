@@ -158,6 +158,7 @@ use self::{
         RetrieveSymbolError,
         SetRecoveryDeferralError,
         ShardNotAssigned,
+        StorageWriteFailure,
         StoreMetadataError,
         StoreSliverError,
         SyncNodeConfigError,
@@ -195,7 +196,12 @@ use crate::{
     },
     node::{
         blob_event_processor::pending_events::PendingEventCounter,
-        config::{EpochStateConsistencyConfig, LiveUploadDeferralConfig, PriceCurrency},
+        config::{
+            EpochStateConsistencyConfig,
+            LiveUploadDeferralConfig,
+            PriceCurrency,
+            StorageWriteConfig,
+        },
         event_blob_writer::EventBlobWriter,
         garbage_collector::GarbageCollector,
         wal_price_monitor::WalPriceMonitor,
@@ -703,6 +709,7 @@ pub struct StorageNodeInner {
     recovery_deferral_notify: Arc<Notify>,
     recovery_deferral_cleanup_token: CancellationToken,
     live_upload_deferral_config: LiveUploadDeferralConfig,
+    storage_write_config: StorageWriteConfig,
     sliver_ref_cache: Cache<SliverRefCacheKey, Arc<RwLock<Weak<Sliver>>>>,
     #[cfg_attr(any(test, msim), allow(dead_code))]
     epoch_state_consistency_config: EpochStateConsistencyConfig,
@@ -910,6 +917,7 @@ impl StorageNode {
             recovery_deferral_notify: Arc::new(Notify::new()),
             recovery_deferral_cleanup_token: CancellationToken::new(),
             live_upload_deferral_config: config.live_upload_deferral.clone(),
+            storage_write_config: config.storage_write.clone(),
             sliver_ref_cache: Cache::builder()
                 .name("sliver-refs")
                 .eviction_policy(EvictionPolicy::lru())
@@ -3478,6 +3486,59 @@ impl StorageNodeInner {
         thread_pool::unwrap_or_resume_panic(result)
     }
 
+    /// Runs a database write future under the configured write timeout.
+    ///
+    /// Ensures that a write which fails or stalls (for example because the disk is full and RocksDB
+    /// can no longer make progress) surfaces as an error to the caller instead of hanging
+    /// indefinitely. When the disk is (nearly) full, the failure is classified as an out-of-space
+    /// condition so that the client receives a clear signal that the node is out of space.
+    async fn run_storage_write<T>(
+        &self,
+        write: impl Future<Output = Result<T, TypedStoreError>>,
+    ) -> Result<T, StorageWriteFailure> {
+        let timeout = self.storage_write_config.write_timeout;
+        match tokio::time::timeout(timeout, write).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(error)) => {
+                if self.disk_appears_full() {
+                    tracing::warn!(%error, "storage write failed and the disk appears full");
+                    Err(StorageWriteFailure::OutOfSpace)
+                } else {
+                    Err(StorageWriteFailure::Database(error))
+                }
+            }
+            Err(_elapsed) => {
+                if self.disk_appears_full() {
+                    tracing::warn!(
+                        ?timeout,
+                        "storage write timed out and the disk appears full"
+                    );
+                    Err(StorageWriteFailure::OutOfSpace)
+                } else {
+                    tracing::warn!(
+                        ?timeout,
+                        "storage write did not complete within the timeout"
+                    );
+                    Err(StorageWriteFailure::TimedOut)
+                }
+            }
+        }
+    }
+
+    /// Returns `true` if the database disk has less free space than the configured minimum.
+    fn disk_appears_full(&self) -> bool {
+        match self.storage.available_disk_space() {
+            Ok(available) => available < self.storage_write_config.min_available_disk_space,
+            Err(error) => {
+                tracing::warn!(
+                    ?error,
+                    "failed to query available disk space; assuming the disk is not full"
+                );
+                false
+            }
+        }
+    }
+
     async fn prepare_sliver_for_storage(
         &self,
         metadata: Arc<VerifiedBlobMetadataWithId>,
@@ -3534,10 +3595,9 @@ impl StorageNodeInner {
 
         let sliver_type = verified_sliver.r#type();
 
-        shard_storage
-            .put_sliver(*metadata.blob_id(), verified_sliver)
+        self.run_storage_write(shard_storage.put_sliver(*metadata.blob_id(), verified_sliver))
             .await
-            .context("unable to store sliver")?;
+            .map_err(StoreSliverError::from)?;
 
         walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver_type).inc();
 
@@ -3561,11 +3621,9 @@ impl StorageNodeInner {
             return Ok(false);
         }
 
-        self.storage
-            .put_verified_metadata(&verified)
+        self.run_storage_write(self.storage.put_verified_metadata(&verified))
             .await
-            .context("unable to store metadata")
-            .map_err(StoreMetadataError::Internal)?;
+            .map_err(StoreMetadataError::from)?;
 
         self.pending_metadata_cache.remove(blob_id).await;
 
@@ -3626,11 +3684,9 @@ impl StorageNodeInner {
         }
 
         if let Some(metadata) = self.pending_metadata_cache.remove(blob_id).await {
-            self.storage
-                .put_verified_metadata(&metadata)
+            self.run_storage_write(self.storage.put_verified_metadata(&metadata))
                 .await
-                .context("unable to persist pending metadata")
-                .map_err(StoreMetadataError::Internal)?;
+                .map_err(StoreMetadataError::from)?;
 
             self.metrics
                 .uploaded_metadata_unencoded_blob_bytes
@@ -5125,6 +5181,8 @@ fn map_sliver_error_to_metadata(error: StoreSliverError) -> StoreMetadataError {
             StoreMetadataError::Internal(anyhow!("sliver cache flush failed: {error:?}"))
         }
         StoreSliverError::ShardNotAssigned(inner) => StoreMetadataError::Internal(inner.into()),
+        StoreSliverError::OutOfSpace(inner) => StoreMetadataError::OutOfSpace(inner),
+        StoreSliverError::WriteTimeout(inner) => StoreMetadataError::WriteTimeout(inner),
     }
 }
 
@@ -5140,6 +5198,8 @@ fn map_metadata_error_to_sliver(error: StoreMetadataError) -> StoreSliverError {
             "metadata associated with event {event:?} was invalid"
         )),
         StoreMetadataError::Internal(inner) => StoreSliverError::Internal(inner),
+        StoreMetadataError::OutOfSpace(inner) => StoreSliverError::OutOfSpace(inner),
+        StoreMetadataError::WriteTimeout(inner) => StoreSliverError::WriteTimeout(inner),
     }
 }
 
