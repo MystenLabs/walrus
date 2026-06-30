@@ -156,6 +156,31 @@ impl From<PerObjectPooledBlobInfoV1> for PerObjectPooledBlobInfo {
     }
 }
 
+impl PerObjectPooledBlobInfo {
+    /// Returns the ID of the storage pool this blob object belongs to.
+    pub(crate) fn storage_pool_id(&self) -> ObjectID {
+        match self {
+            Self::V1(value) => value.storage_pool_id,
+        }
+    }
+
+    /// Constructs a certified per-object pooled blob info for testing.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        blob_id: BlobId,
+        certified_epoch: Epoch,
+        storage_pool_id: ObjectID,
+    ) -> Self {
+        Self::V1(PerObjectPooledBlobInfoV1 {
+            blob_id,
+            registered_epoch: certified_epoch,
+            certified_epoch: Some(certified_epoch),
+            storage_pool_id,
+            event: walrus_sui::test_utils::event_id_for_testing(),
+        })
+    }
+}
+
 impl CertifiedBlobInfoApi for PerObjectPooledBlobInfoV1 {
     fn is_certified(&self, current_epoch: Epoch) -> bool {
         // A pooled blob object is removed from the table on deletion (the pool manages its
