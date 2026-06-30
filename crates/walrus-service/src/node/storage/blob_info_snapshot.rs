@@ -62,7 +62,10 @@ use sui_types::{base_types::ObjectID, event::EventID};
 use typed_store::TypedStoreError;
 use walrus_core::Epoch;
 
-use super::blob_info::{PerObjectBlobInfo, PerObjectPooledBlobInfo, StoragePoolInfo};
+use super::{
+    blob_info::{PerObjectBlobInfo, PerObjectPooledBlobInfo, StoragePoolInfo},
+    event_cursor_table::EventIdWithProgress,
+};
 
 /// The magic bytes at the start of a blob info snapshot.
 pub(crate) const SNAPSHOT_MAGIC: u32 = 0xB10B1F05;
@@ -97,27 +100,25 @@ pub(crate) enum SnapshotError {
 ///
 /// The header pins the exact event-stream position the snapshot corresponds to: the snapshot
 /// contains the table state after applying all events up to and including the `EpochChangeStart`
-/// for `epoch`, with the inline GC phase 1 for `epoch` applied. The cursor is stored as its two
-/// constituent fields rather than as the `EventStreamCursor` type, so the on-disk format is not
-/// coupled to that internal type's layout.
+/// for `epoch`, with the inline GC phase 1 for `epoch` applied. The position is stored as
+/// [`EventIdWithProgress`], the same versioned record the node persists as its event cursor, so a
+/// recovering node rehydrates the cursor directly and the format evolves with it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SnapshotHeader {
     /// The new (incoming) epoch this boundary begins; the `epoch` of the `EpochChangeStart` event
     /// being processed.
     pub epoch: Epoch,
-    /// Event ID of the last event included in the snapshot (the `EpochChangeStart` for `epoch`).
-    pub event_id: EventID,
-    /// Index of the next event to process when resuming from this snapshot.
-    pub next_event_index: u64,
+    /// The node's event cursor at the boundary: the event ID of the last included event (the
+    /// `EpochChangeStart` for `epoch`) and the index of the next event to process.
+    pub event_cursor: EventIdWithProgress,
 }
 
 impl SnapshotHeader {
-    /// Creates a snapshot header.
+    /// Creates a snapshot header from the boundary epoch and the cursor's two fields.
     pub fn new(epoch: Epoch, event_id: EventID, next_event_index: u64) -> Self {
         Self {
             epoch,
-            event_id,
-            next_event_index,
+            event_cursor: EventIdWithProgress::new(event_id, next_event_index),
         }
     }
 }
@@ -309,7 +310,7 @@ mod tests {
         hasher.write(&serialize_sample());
         assert_eq!(
             hasher.finish(),
-            0x3234c3cbfe7d7b4a,
+            0x17cf49e2fd041371,
             "blob info snapshot encoding changed; if intentional, update this golden digest",
         );
     }

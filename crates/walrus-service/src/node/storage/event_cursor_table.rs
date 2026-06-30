@@ -31,6 +31,14 @@ pub enum EventIdWithProgress {
 }
 
 impl EventIdWithProgress {
+    /// Creates a `V1` event cursor record.
+    pub fn new(event_id: EventID, next_event_index: u64) -> Self {
+        Self::V1(EventIdWithProgressV1 {
+            event_id,
+            next_event_index,
+        })
+    }
+
     pub fn event_id(&self) -> EventID {
         match self {
             EventIdWithProgress::V1(v1) => v1.event_id,
