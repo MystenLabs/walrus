@@ -117,6 +117,7 @@ const sidebars = {
         'examples/move',
         'examples/python',
         'examples/walrus-relay',
+        'examples/browser-and-mobile',
       ],
     },
     ],
