@@ -1,10 +1,28 @@
 ---
 title: Managing Blobs
-description: Use the Walrus client to extend, delete, burn, share, and set attributes on blobs.
-keywords: [ walrus, cli, client, command line, delete, extend, burn, blob management, shared blobs, blob attributes ]
+description: Use the Walrus client to check, extend, delete, burn, share, and set attributes on blobs across their lifecycle.
+keywords: [ walrus, cli, client, command line, delete, extend, burn, blob management, shared blobs, blob attributes, lifecycle, expiry, blob status, monitoring ]
 ---
 
 Use the Walrus client to manage blobs and their metadata.
+
+## Check a blob's status and expiry
+
+Before you extend or depend on a blob, check that it is still stored and see when it expires. Use the blob ID:
+
+```sh
+$ walrus blob-status --blob-id <BLOB_ID>
+```
+
+This reports whether the blob is stored and its availability period. Read the current epoch with `walrus info`, then compare it against the blob's end epoch to see how much time remains. A blob expires at the beginning of its end epoch, so renew it before the current epoch reaches that value.
+
+To check programmatically, read the blob's `Blob` object from Sui and compare the current epoch against `storage.end_epoch`. See [Verify blob availability before acting](/docs/walrus-client/verifying-availability) for the object fields and a TypeScript check.
+
+:::tip
+
+Check status on a schedule rather than waiting for a read to fail. Looking well before the end epoch gives you time to extend and avoids surprise expiry.
+
+:::
 
 ## Extend the lifetime of a blob
 
@@ -99,3 +117,37 @@ Remove a specific key-value pair from a blob's attributes using the following co
 ```sh
 $ walrus remove-blob-attribute-fields <BLOB_OBJECT_ID> --keys "key1"
 ```
+
+## Example: manage a blob's lifecycle
+
+This example walks through the full lifecycle of a blob: store it for a chosen period, confirm it is stored, extend it before it expires, and delete it to reclaim storage.
+
+1. Store the blob for a set number of epochs. Choose `--permanent` when the data must remain for the full period, or keep the default deletable blob when you want the option to delete and reclaim storage early. See [Blob lifetimes](/docs/walrus-client/storing-blobs#blob-lifetimes) and [Blob permanence](/docs/walrus-client/storing-blobs#blob-permanence).
+
+```sh
+$ walrus store <FILE> --epochs <EPOCHS>
+```
+
+2. Confirm the blob is stored and note its end epoch.
+
+```sh
+$ walrus blob-status --blob-id <BLOB_ID>
+```
+
+3. Before the blob reaches its end epoch, extend its lifetime so the data stays available. You need the blob's object ID, not the blob ID. See [Extend the lifetime of a blob](#extend-the-lifetime-of-a-blob).
+
+```sh
+$ walrus extend --blob-obj-id <BLOB_OBJECT_ID>
+```
+
+4. When you no longer need a deletable blob, delete it to release its storage object for reuse, which helps manage [storage costs](/docs/system-overview/storage-costs).
+
+```sh
+$ walrus delete --blob-id <BLOB_ID>
+```
+
+:::note
+
+You can extend a blob only before it expires, so monitor the end epoch and renew in time. Permanent blobs cannot be deleted before expiry, so choose permanence at store time based on how long the data must live.
+
+:::
