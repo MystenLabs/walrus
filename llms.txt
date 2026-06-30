@@ -422,6 +422,12 @@ Sui smart contract as the on-chain index.
     Walrus: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and
     staking object IDs, token units, and configuration snippets.
 
+## Production Readiness
+
+- [Production Readiness](https://docs.wal.app/docs/production-readiness.md):
+    A prototype that stores a blob on Testnet is not yet ready for production. Moving to Mainnet
+    adds real cost, real failure modes, and the need to keep an upload path available under load.
+
 ## Seal Encryption Tutorial
 
 - [Seal Encryption Tutorial](https://docs.wal.app/docs/seal-encryption-tutorial.md):
