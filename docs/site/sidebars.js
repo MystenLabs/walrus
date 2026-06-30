@@ -98,6 +98,7 @@ const sidebars = {
     "network-reference",
     "typescript-sdk/sdks",
     'large-uploads',
+    'production-readiness',
     'data-security',
     'seal-encryption-tutorial',
     'tusky-migration-guide',
