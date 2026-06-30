@@ -128,15 +128,20 @@ Sui smart contract as the on-chain index.
 
 ## Examples
 
+- [Browser And Mobile](https://docs.wal.app/docs/examples/browser-and-mobile.md):
+    Client apps that run in a browser or on a mobile device cannot open the many connections a
+    direct store needs. A blob is split into slivers that go to every storage node, so an
+    unprivileged client would have to manage dozens of parallel uploads and collect a confirmation
+    from each node.
 - [Checkpoint Data](https://docs.wal.app/docs/examples/checkpoint-data.md):
     The Sui Archival application demonstrates how Sui blockchain checkpoint data can be archived on
     Walrus in a reliable, deterministic, and resilient manner. The application is accessible at
     https://walrus-sui-archival.wal.app/ The application's code is open source and available on
     GitHub.
 - [Examples](https://docs.wal.app/docs/examples.md):
-    Example applications that demonstrate different workflows and use cases on Walrus Sui Archival
-    System: An example application that demonstrates archiving Sui blockchain checkpoint data on
-    Walrus.
+    Example applications that demonstrate different workflows and use cases on Walrus Browser and
+    Mobile Apps: Store blobs from a browser or mobile client through a Walrus upload relay, then
+    read them back through a CDN-backed aggregator.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md):
     The following JavaScript example shows how to upload and download a blob through a web form
     using the HTTP API.
