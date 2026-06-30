@@ -5,8 +5,9 @@
 //!
 //! A blob info snapshot is a deterministic serialization of three blob info tables at the epoch
 //! boundary (after garbage-collection phase 1): `per_object_blob_info`,
-//! `per_object_pooled_blob_info`, and `storage_pool_info`. `aggregate_blob_info` is excluded: it is
-//! a node-local materialized view, reconstructed from the per-object tables during recovery.
+//! `per_object_pooled_blob_info`, and `storage_pool_info`. These are event-derived, so honest nodes
+//! serialize identical bytes. `aggregate_blob_info` is excluded because it carries node-local state
+//! (`is_metadata_stored`) and so differs across nodes.
 //!
 //! This module contains only the writer; deserialization belongs to the (not yet implemented)
 //! recovery workflow.
