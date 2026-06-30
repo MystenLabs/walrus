@@ -44,6 +44,7 @@ use walrus_sui::types::{
 use walrus_utils::config::Config as _;
 
 use super::{
+    blob_info_snapshot_writer::BlobInfoSnapshotWriterConfig,
     consistency_check::StorageNodeConsistencyCheckConfig,
     garbage_collector::GarbageCollectionConfig,
     storage::DatabaseConfig,
@@ -317,6 +318,9 @@ pub struct StorageNodeConfig {
     /// Configuration for the consistency check.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub consistency_check: StorageNodeConsistencyCheckConfig,
+    /// Configuration for the blob info snapshot checkpoint writer.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub blob_info_snapshot: BlobInfoSnapshotWriterConfig,
     /// Configuration for the checkpointing task.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub checkpoint_config: DbCheckpointConfig,
@@ -546,6 +550,7 @@ impl Default for StorageNodeConfig {
             balance_check: Default::default(),
             thread_pool: Default::default(),
             consistency_check: Default::default(),
+            blob_info_snapshot: Default::default(),
             checkpoint_config: Default::default(),
             admin_socket_path: None,
             node_recovery_config: Default::default(),
