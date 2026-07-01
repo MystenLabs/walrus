@@ -68,7 +68,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # pin@v7.0.0
 
       - name: Configure git
         run: |
@@ -108,7 +108,7 @@ jobs:
       - name: Generate automerge token
         if: inputs.delivery == 'pr'
         id: automerge_token
-        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # pin@v2.2.1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pin@v3.2.0
         with:
           app-id: ${{ secrets.WALRUS_AUTOMERGE_APP_ID }}
           private-key: ${{ secrets.WALRUS_AUTOMERGE_PRIVATE_KEY }}
