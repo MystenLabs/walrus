@@ -152,11 +152,11 @@ html, body { background: #0d0f12 !important; }
 
 /* ── Product card grid (Mem0-inspired) ── */
 .landing-root .product-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
   padding: 32px 0 0;
   opacity: 0; animation: landingFadeIn 0.6s ease forwards 0.3s;
 }
-@media (max-width: 640px) {
+@media (max-width: 860px) {
   .landing-root .product-grid { grid-template-columns: 1fr; }
 }
 
@@ -427,29 +427,7 @@ export default function LandingPage() {
               </svg>
             </div>
             <h3>Walrus Memory</h3>
-            <p>Portable memory layer that gives AI agents persistent context across apps and sessions.</p>
-            <span className="product-arrow">{arrowIcon}</span>
-          </a>
-          <a className="product-card product-card--muted" href="/docs/getting-started">
-            <div className="product-card-thumb">
-              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <rect x="8" y="8" width="32" height="32" rx="4" />
-                <path d="M8 18h32M18 48V18" />
-              </svg>
-            </div>
-            <h3>Walrus Console <span className="coming-soon-badge">Coming soon</span></h3>
-            <p>Unified control plane for managing files, datasets, memory, and other assets on Walrus.</p>
-            <span className="product-arrow">{arrowIcon}</span>
-          </a>
-          <a className="product-card product-card--muted" href="/docs/getting-started">
-            <div className="product-card-thumb">
-              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="18" cy="38" r="3" /><circle cx="36" cy="38" r="3" />
-                <path d="M4 4h8l5.36 26.78a4 4 0 004 3.22h15.28a4 4 0 004-3.22L44 14H12" />
-              </svg>
-            </div>
-            <h3>Walrus Marketplace <span className="coming-soon-badge">Coming soon</span></h3>
-            <p>Open marketplace where developers and AI agents discover, license, and access data.</p>
+            <p>Portable memory layer for AI agents that persists context across apps and sessions.</p>
             <span className="product-arrow">{arrowIcon}</span>
           </a>
           <a className="product-card" href="/docs/getting-started">
@@ -461,7 +439,18 @@ export default function LandingPage() {
               </svg>
             </div>
             <h3>Walrus Protocol</h3>
-            <p>Open source, decentralized data storage. <span className="under-hood">Under the hood.</span></p>
+            <p>Open-source decentralized storage and data availability for building your own data layer.</p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
+          <a className="product-card" href="/docs/sites">
+            <div className="product-card-thumb">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="24" cy="24" r="18" />
+                <path d="M6 24h36M24 6c5 5 5 31 0 36M24 6c-5 5-5 31 0 36" />
+              </svg>
+            </div>
+            <h3>Walrus Sites</h3>
+            <p>Build and publish websites and frontend applications on Walrus.</p>
             <span className="product-arrow">{arrowIcon}</span>
           </a>
         </div>
