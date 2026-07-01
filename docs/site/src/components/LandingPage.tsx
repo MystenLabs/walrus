@@ -419,17 +419,6 @@ export default function LandingPage() {
         </div>
 
         <div className="product-grid">
-          <a className="product-card" href="/walrus-memory/getting-started/what-is-walrus-memory">
-            <div className="product-card-thumb">
-              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="24" cy="16" r="10" />
-                <path d="M24 26v4M18 38h12M20 26c0 2.5 1.8 4 4 4s4-1.5 4-4" />
-              </svg>
-            </div>
-            <h3>Walrus Memory</h3>
-            <p>Portable memory layer for AI agents that persists context across apps and sessions.</p>
-            <span className="product-arrow">{arrowIcon}</span>
-          </a>
           <a className="product-card" href="/docs/getting-started">
             <div className="product-card-thumb">
               <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -440,6 +429,17 @@ export default function LandingPage() {
             </div>
             <h3>Walrus Protocol</h3>
             <p>Open-source decentralized storage and data availability for building your own data layer.</p>
+            <span className="product-arrow">{arrowIcon}</span>
+          </a>
+          <a className="product-card" href="/walrus-memory/getting-started/what-is-walrus-memory">
+            <div className="product-card-thumb">
+              <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="24" cy="16" r="10" />
+                <path d="M24 26v4M18 38h12M20 26c0 2.5 1.8 4 4 4s4-1.5 4-4" />
+              </svg>
+            </div>
+            <h3>Walrus Memory</h3>
+            <p>Portable memory layer for AI agents that persists context across apps and sessions.</p>
             <span className="product-arrow">{arrowIcon}</span>
           </a>
           <a className="product-card" href="/docs/sites">
