@@ -11,7 +11,7 @@ use futures::{StreamExt, stream::FuturesUnordered};
 #[cfg(msim)]
 use sui_macros::{fail_point_arg, fail_point_async, fail_point_if};
 use tokio::{
-    sync::{Mutex, Semaphore},
+    sync::{Mutex, Semaphore, watch},
     time::Instant,
 };
 use walrus_core::{BlobId, Epoch, ShardIndex};
@@ -46,6 +46,28 @@ enum SyncShardResult {
     Failed,
 }
 
+/// RAII guard tracking a running shard-sync-related task in the sync task count watch channel.
+///
+/// Increments the count on creation and decrements it on drop, so that the count stays accurate
+/// even if the tracked task is aborted or panics.
+#[derive(Debug)]
+struct SyncTaskCountGuard(Arc<watch::Sender<usize>>);
+
+impl SyncTaskCountGuard {
+    fn new(counter: Arc<watch::Sender<usize>>) -> Self {
+        counter.send_modify(|count| *count += 1);
+        sui_macros::fail_point!("fail_point_shard_sync_task_started");
+        Self(counter)
+    }
+}
+
+impl Drop for SyncTaskCountGuard {
+    fn drop(&mut self) {
+        self.0.send_modify(|count| *count = count.saturating_sub(1));
+        sui_macros::fail_point!("fail_point_shard_sync_task_finished");
+    }
+}
+
 /// Manages tasks for syncing shards during epoch change.
 #[derive(Debug, Clone)]
 pub struct ShardSyncHandler {
@@ -53,6 +75,10 @@ pub struct ShardSyncHandler {
     shard_sync_in_progress: Arc<Mutex<HashMap<ShardIndex, tokio::task::JoinHandle<()>>>>,
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     shard_sync_semaphore: Arc<Semaphore>,
+    // Tracks the number of currently running shard sync tasks, including the task that starts
+    // the individual per-shard syncs. Used by node recovery to wait until all shard syncs have
+    // finished (successfully or not) before recovering blobs.
+    sync_task_count: Arc<watch::Sender<usize>>,
     config: ShardSyncConfig,
 }
 
@@ -63,8 +89,27 @@ impl ShardSyncHandler {
             shard_sync_in_progress: Arc::new(Mutex::new(HashMap::new())),
             task_handle: Arc::new(Mutex::new(None)),
             shard_sync_semaphore: Arc::new(Semaphore::new(config.shard_sync_concurrency)),
+            sync_task_count: Arc::new(watch::channel(0).0),
             config,
         }
+    }
+
+    /// Returns `true` if any shard sync task is currently running.
+    pub fn has_sync_in_progress(&self) -> bool {
+        *self.sync_task_count.borrow() > 0
+    }
+
+    /// Waits until no shard sync task is running.
+    ///
+    /// A shard sync that failed terminally (requiring a node restart to be retried) does not
+    /// count as running; its shard remains in `ActiveSync` status and missing blobs in it are
+    /// recovered through the regular blob recovery path.
+    pub async fn wait_until_no_sync_in_progress(&self) {
+        let mut receiver = self.sync_task_count.subscribe();
+        receiver
+            .wait_for(|count| *count == 0)
+            .await
+            .expect("the sender is owned by self and cannot be dropped while waiting");
     }
 
     /// Starts sync shards. If the node status is [`NodeStatus::RecoverMetadata`], syncs certified
@@ -86,7 +131,13 @@ impl ShardSyncHandler {
             old_task.abort();
         }
 
-        let new_task = tokio::spawn(async move { sync_handler.sync_shards_task(shards).await });
+        // Count the task that starts the individual shard syncs as a running sync, so that
+        // waiters cannot observe a zero count before the per-shard sync tasks are spawned.
+        let count_guard = SyncTaskCountGuard::new(self.sync_task_count.clone());
+        let new_task = tokio::spawn(async move {
+            let _count_guard = count_guard;
+            sync_handler.sync_shards_task(shards).await
+        });
 
         *task_handle = Some(new_task);
 
@@ -365,7 +416,9 @@ impl ShardSyncHandler {
         };
 
         let shard_sync_handler_clone = self.clone();
+        let count_guard = SyncTaskCountGuard::new(self.sync_task_count.clone());
         let shard_sync_task = tokio::spawn(async move {
+            let _count_guard = count_guard;
             let shard_index = shard_storage.id();
             let mut last_progress_time = Instant::now();
 
@@ -453,7 +506,18 @@ impl ShardSyncHandler {
                 false
             };
 
-            if epoch_sync_done {
+            // While the node is recovering, node recovery owns the epoch sync done
+            // attestation: it waits for all shard syncs to finish and attests only once
+            // the recovery itself is complete (see the recovery task's completion in
+            // node_recovery.rs).
+            let node_is_recovering = shard_sync_handler_clone
+                .node
+                .storage
+                .node_status()
+                .expect("failed to read node status from db")
+                .is_recovering();
+
+            if epoch_sync_done && !node_is_recovering {
                 shard_sync_handler_clone
                     .node
                     .contract_service
