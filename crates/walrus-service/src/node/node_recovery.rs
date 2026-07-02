@@ -37,6 +37,14 @@ pub struct NodeRecoveryHandler {
     // There can be at most one background shard removal task at a time.
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
+    // Serializes recovery-related node status transitions: the epoch-change path advances the
+    // recovery target and starts shard syncs while holding this mutex, and the recovery task
+    // transitions the node to `Active` while holding it. This guarantees that a completing
+    // recovery task either observes the advanced target together with the new shard syncs, or
+    // has completed entirely before the transition (in which case the epoch-change path starts
+    // a new task).
+    status_mutex: Arc<Mutex<()>>,
+
     // Configuration for node recovery.
     config: NodeRecoveryConfig,
 }
@@ -53,13 +61,62 @@ impl NodeRecoveryHandler {
             blob_sync_handler,
             shard_sync_handler,
             task_handle: Arc::new(Mutex::new(None)),
+            status_mutex: Arc::new(Mutex::new(())),
             config,
         }
+    }
+
+    /// Locks the recovery status mutex.
+    ///
+    /// The epoch-change path must hold the returned guard across advancing the recovery target
+    /// (setting the node status to a newer `RecoveryInProgress` epoch) and starting the shard
+    /// syncs for newly gained shards, so that these are atomic with respect to the recovery
+    /// task's completion.
+    pub async fn lock_status(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.status_mutex.lock().await
+    }
+
+    /// Ensures a recovery task is running to recover to the given epoch.
+    ///
+    /// The recovery task keeps running across epoch changes and picks up the advanced recovery
+    /// target on its own, so this normally does nothing. A new task is only started if the
+    /// caller observed that the previous task completed concurrently with the epoch change
+    /// (`task_completed_concurrently`), or if no task is running (for example, because it
+    /// stopped unexpectedly).
+    pub async fn ensure_recovery_task_running(
+        &self,
+        epoch: Epoch,
+        task_completed_concurrently: bool,
+    ) -> Result<(), TypedStoreError> {
+        let task_running = self
+            .task_handle
+            .lock()
+            .await
+            .as_ref()
+            .is_some_and(|handle| !handle.is_finished());
+
+        if task_completed_concurrently || !task_running {
+            tracing::info!(
+                walrus.epoch = epoch,
+                task_completed_concurrently,
+                task_running,
+                "no running node recovery task; starting a new one"
+            );
+            self.start_node_recovery(epoch).await?;
+        }
+
+        Ok(())
     }
 
     /// Starts the node recovery process to recover blobs that are certified before the given epoch.
     /// For blobs that are certified after `certified_before_epoch`, the event processing is in
     /// charge of making sure the blob is stored at all shards.
+    ///
+    /// The task keeps running across epoch changes: blobs certified after the scan bound are
+    /// covered by event processing, and shards gained at later epoch changes are covered by shard
+    /// sync (which the task waits for), so the scan bound stays valid. On completion, the task
+    /// attests epoch sync done for the recovery target currently recorded in the node status,
+    /// which the epoch-change path advances.
     ///
     /// Any existing recovery task will be canceled.
     // TODO(WAL-864): Refactor this function to make it readable.
@@ -80,6 +137,7 @@ impl NodeRecoveryHandler {
         let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();
         let shard_sync_handler = self.shard_sync_handler.clone();
+        let status_mutex = self.status_mutex.clone();
         let max_concurrent_blob_syncs_during_recovery =
             self.config.max_concurrent_blob_syncs_during_recovery;
         let task_handle = tokio::spawn(async move {
@@ -99,6 +157,14 @@ impl NodeRecoveryHandler {
             fail_point_async!("start_node_recovery_entry");
 
             loop {
+                // Snapshot the shard sync generation before waiting: a completed pass may only
+                // attest if no shard sync started since this point. A shard sync that starts
+                // (and possibly terminally fails) during the pass leaves blobs behind that only
+                // a new scan pass finds, so a generation change forces a re-scan. Taking the
+                // snapshot before the wait errs towards a spurious re-scan when syncs start and
+                // drain while parked, never towards a missed one.
+                let sync_generation_before_scan = shard_sync_handler.sync_generation();
+
                 // Block until the node is ready to run a recovery scan pass. Stops the recovery
                 // task if the node started catching up.
                 match wait_until_ready_to_scan(&node, &shard_sync_handler).await {
@@ -127,6 +193,19 @@ impl NodeRecoveryHandler {
                             .ok()
                     })
                 {
+                    // An epoch change may have started shard syncs for newly gained shards while
+                    // this pass is running. Stop starting new blob syncs and park: per-blob
+                    // recovery would redundantly decode slivers for the shards that shard sync is
+                    // copying in bulk. Marking the pass as having more blobs makes the loop drain
+                    // the in-flight syncs and re-scan after the park.
+                    if shard_sync_handler.has_sync_in_progress() {
+                        tracing::info!(
+                            "shard sync started during recovery scan pass; pausing blob recovery"
+                        );
+                        has_more_blobs = true;
+                        break;
+                    }
+
                     node.metrics
                         .node_recovery_recover_blob_progress
                         .set(i64::from(blob_id.first_two_bytes()));
@@ -235,54 +314,77 @@ impl NodeRecoveryHandler {
                     }
                 }
 
-                if !has_more_blobs {
-                    tracing::info!("no recovery blob found; stop recovery task");
-                    break;
-                }
-
                 // Wait for all ongoing syncs to complete
                 while (ongoing_syncs.next().await).is_some() {
                     // Each sync completion automatically releases its permit
                 }
 
-                // TODO(WAL-669): right now, we have to do one more loop to check if all the blobs
-                // are recovered. This is not efficient because checking blob existence is
-                // expensive. It's better that blob sync handler can return the blob sync status
-                // and we can avoid the extra loop of all the blob syncs finished successfully.
-            }
-
-            // A shard sync may have been started by an epoch change after the last scan
-            // pass began. The node is fully synced for the epoch only once both blob
-            // recovery and all shard syncs are complete, so drain them before attesting.
-            shard_sync_handler.wait_until_no_sync_in_progress().await;
-
-            let current_node_status = node
-                .storage
-                .node_status()
-                .expect("reading node status should not fail");
-            if current_node_status == NodeStatus::RecoveryInProgress(certified_before_epoch) {
-                tracing::info!("node recovery task finished; set node status to active");
-                match node.set_node_status(NodeStatus::Active) {
-                    Ok(()) => {
-                        // While the node is recovering, this is the only place that attests
-                        // epoch sync done: shard sync skips its own attestation in
-                        // RecoveryInProgress state (see the epoch_sync_done handling in
-                        // shard_sync.rs), so that the attestation covers both the recovered
-                        // blobs and all synced shards.
-                        node.contract_service
-                            .epoch_sync_done(certified_before_epoch, node.node_capability())
-                            .await
-                    }
-                    Err(error) => {
-                        tracing::error!(?error, "failed to set node status to active");
-                    }
+                if has_more_blobs {
+                    // TODO(WAL-669): right now, we have to do one more loop to check if all the
+                    // blobs are recovered. This is not efficient because checking blob existence
+                    // is expensive. It's better that blob sync handler can return the blob sync
+                    // status and we can avoid the extra loop of all the blob syncs finished
+                    // successfully.
+                    continue;
                 }
-            } else {
-                tracing::warn!(
-                    node_status = %current_node_status,
-                    "node recovery task finished; but node status is not RecoveryInProgress; \
-                    skip setting node status to active"
+
+                // Completion attempt. The node is fully synced for the epoch only once both
+                // blob recovery and all shard syncs are complete. An epoch change can advance
+                // the recovery target and start new shard syncs at any time without restarting
+                // this task, so the checks below run under the status mutex, which serializes
+                // completion against the epoch-change path: either this task observes the new
+                // shard syncs (and runs another scan pass), or it completes entirely before the
+                // target is advanced (and the epoch-change path starts a new task).
+                let status_guard = status_mutex.lock().await;
+
+                // A shard sync that started since this pass began invalidates the pass: the
+                // sync may have terminally failed, leaving missing blobs behind that only a new
+                // scan pass finds. The epoch-change path starts shard syncs while holding the
+                // status mutex, so no sync can start between this check and the status update
+                // below.
+                if shard_sync_handler.has_sync_in_progress()
+                    || shard_sync_handler.sync_generation() != sync_generation_before_scan
+                {
+                    tracing::info!(
+                        "shard syncs started during the recovery scan pass; running another pass"
+                    );
+                    drop(status_guard);
+                    continue;
+                }
+
+                let current_node_status = node
+                    .storage
+                    .node_status()
+                    .expect("reading node status should not fail");
+                let NodeStatus::RecoveryInProgress(target_epoch) = current_node_status else {
+                    tracing::warn!(
+                        node_status = %current_node_status,
+                        "node recovery task finished; but node status is not RecoveryInProgress; \
+                        skip setting node status to active"
+                    );
+                    return;
+                };
+
+                tracing::info!(
+                    walrus.epoch = target_epoch,
+                    "node recovery task finished; set node status to active"
                 );
+                if let Err(error) = node.set_node_status(NodeStatus::Active) {
+                    tracing::error!(?error, "failed to set node status to active");
+                    return;
+                }
+                drop(status_guard);
+
+                // While the node is recovering, this is the only place that attests epoch sync
+                // done: shard sync skips its own attestation in RecoveryInProgress state (see
+                // the epoch_sync_done handling in shard_sync.rs), so that the attestation covers
+                // both the recovered blobs and all synced shards. The attested epoch is the
+                // recovery target currently recorded in the node status, which may be newer than
+                // the epoch this task was started with.
+                node.contract_service
+                    .epoch_sync_done(target_epoch, node.node_capability())
+                    .await;
+                return;
             }
         });
         *locked_task_handle = Some(task_handle);

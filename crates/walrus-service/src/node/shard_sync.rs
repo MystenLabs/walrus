@@ -3,7 +3,10 @@
 
 use std::{
     collections::{HashMap, hash_map::Entry},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 
@@ -49,13 +52,16 @@ enum SyncShardResult {
 /// RAII guard tracking a running shard-sync-related task in the sync task count watch channel.
 ///
 /// Increments the count on creation and decrements it on drop, so that the count stays accurate
-/// even if the tracked task is aborted or panics.
+/// even if the tracked task is aborted or panics. Creation also bumps the sync generation, which
+/// only ever increases and lets node recovery detect that a shard sync started during a scan
+/// pass, even if it also finished during that pass.
 #[derive(Debug)]
 struct SyncTaskCountGuard(Arc<watch::Sender<usize>>);
 
 impl SyncTaskCountGuard {
-    fn new(counter: Arc<watch::Sender<usize>>) -> Self {
+    fn new(counter: Arc<watch::Sender<usize>>, generation: &AtomicU64) -> Self {
         counter.send_modify(|count| *count += 1);
+        generation.fetch_add(1, Ordering::SeqCst);
         sui_macros::fail_point!("fail_point_shard_sync_task_started");
         Self(counter)
     }
@@ -79,6 +85,10 @@ pub struct ShardSyncHandler {
     // the individual per-shard syncs. Used by node recovery to wait until all shard syncs have
     // finished (successfully or not) before recovering blobs.
     sync_task_count: Arc<watch::Sender<usize>>,
+    // Total number of sync tasks ever started; only ever increases. Used by node recovery to
+    // detect whether any shard sync started during a scan pass (a terminally failed sync leaves
+    // missing blobs behind that only a new scan pass finds).
+    sync_task_generation: Arc<AtomicU64>,
     config: ShardSyncConfig,
 }
 
@@ -90,6 +100,7 @@ impl ShardSyncHandler {
             task_handle: Arc::new(Mutex::new(None)),
             shard_sync_semaphore: Arc::new(Semaphore::new(config.shard_sync_concurrency)),
             sync_task_count: Arc::new(watch::channel(0).0),
+            sync_task_generation: Arc::new(AtomicU64::new(0)),
             config,
         }
     }
@@ -97,6 +108,14 @@ impl ShardSyncHandler {
     /// Returns `true` if any shard sync task is currently running.
     pub fn has_sync_in_progress(&self) -> bool {
         *self.sync_task_count.borrow() > 0
+    }
+
+    /// Returns a generation number that increases every time a shard sync task starts.
+    ///
+    /// Comparing generations around a section of code detects whether any shard sync started
+    /// while it ran, including syncs that also finished within the section.
+    pub fn sync_generation(&self) -> u64 {
+        self.sync_task_generation.load(Ordering::SeqCst)
     }
 
     /// Waits until no shard sync task is running.
@@ -133,7 +152,8 @@ impl ShardSyncHandler {
 
         // Count the task that starts the individual shard syncs as a running sync, so that
         // waiters cannot observe a zero count before the per-shard sync tasks are spawned.
-        let count_guard = SyncTaskCountGuard::new(self.sync_task_count.clone());
+        let count_guard =
+            SyncTaskCountGuard::new(self.sync_task_count.clone(), &self.sync_task_generation);
         let new_task = tokio::spawn(async move {
             let _count_guard = count_guard;
             sync_handler.sync_shards_task(shards).await
@@ -416,7 +436,8 @@ impl ShardSyncHandler {
         };
 
         let shard_sync_handler_clone = self.clone();
-        let count_guard = SyncTaskCountGuard::new(self.sync_task_count.clone());
+        let count_guard =
+            SyncTaskCountGuard::new(self.sync_task_count.clone(), &self.sync_task_generation);
         let shard_sync_task = tokio::spawn(async move {
             let _count_guard = count_guard;
             let shard_index = shard_storage.id();
