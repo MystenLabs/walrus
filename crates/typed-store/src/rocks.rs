@@ -77,8 +77,11 @@ const ENV_VAR_DB_WAL_SIZE: &str = "DB_WAL_SIZE_MB";
 const DEFAULT_DB_WAL_SIZE: usize = 1024;
 
 const ENV_VAR_DB_PARALLELISM: &str = "DB_PARALLELISM";
+const ENV_VAR_DB_PARANOID_FILE_CHECKS: &str = "DB_PARANOID_FILE_CHECKS";
 
 const SLOW_OP_SAMPLED_TRACING_INTERVAL: Duration = Duration::from_secs(60);
+
+const PARANOID_FILE_CHECKS_OPTION: &str = "paranoid_file_checks";
 
 #[cfg(test)]
 mod tests;
@@ -346,6 +349,43 @@ impl RocksDB {
         delegate_call!(self.db_options)
     }
 
+    fn apply_paranoid_file_checks_to_cf(
+        &self,
+        cf_name: &str,
+        enabled: bool,
+    ) -> Result<(), rocksdb::Error> {
+        if let Some(cf) = self.cf_handle(cf_name) {
+            // https://github.com/facebook/rocksdb/blob/v8.10.0/include/rocksdb/advanced_options.h
+            self.set_options_cf(
+                &cf,
+                &[(
+                    PARANOID_FILE_CHECKS_OPTION,
+                    if enabled { "true" } else { "false" },
+                )],
+            )?;
+        }
+        Ok(())
+    }
+
+    fn apply_env_options_to_cf(&self, cf_name: &str) -> Result<(), rocksdb::Error> {
+        if let Some(enabled) = read_bool_from_env(ENV_VAR_DB_PARANOID_FILE_CHECKS) {
+            self.apply_paranoid_file_checks_to_cf(cf_name, enabled)?;
+        }
+        Ok(())
+    }
+
+    fn apply_env_options_to_cfs<I>(&self, cf_names: I) -> Result<(), rocksdb::Error>
+    where
+        I: IntoIterator<Item = String>,
+    {
+        if let Some(enabled) = read_bool_from_env(ENV_VAR_DB_PARANOID_FILE_CHECKS) {
+            for cf_name in cf_names {
+                self.apply_paranoid_file_checks_to_cf(&cf_name, enabled)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Get a value from the database.
     pub fn get<K: AsRef<[u8]>>(&self, key: K) -> Result<Option<Vec<u8>>, rocksdb::Error> {
         delegate_call!(self.get(key))
@@ -410,7 +450,9 @@ impl RocksDB {
         name: N,
         opts: &rocksdb::Options,
     ) -> Result<(), rocksdb::Error> {
-        delegate_call!(self.create_cf(name, opts))
+        let name = name.as_ref();
+        delegate_call!(self.create_cf(name, opts))?;
+        self.apply_env_options_to_cf(name)
     }
 
     /// Drop a column family.
@@ -2195,6 +2237,22 @@ pub fn read_size_from_env(var_name: &str) -> Option<usize> {
         .ok()
 }
 
+fn read_bool_from_env(var_name: &str) -> Option<bool> {
+    let value = env::var(var_name).ok()?;
+    match value.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => {
+            tracing::warn!(
+                "Env var {} does not contain a valid boolean: {}",
+                var_name,
+                value
+            );
+            None
+        }
+    }
+}
+
 /// The read-write options.
 #[derive(Clone, Debug)]
 pub struct ReadWriteOptions {
@@ -2403,6 +2461,10 @@ pub fn open_cf_opts<P: AsRef<Path>>(
     // This is a no-op in non-simulator builds.
 
     let cfs = populate_missing_cfs(opt_cfs, path).map_err(typed_store_err_from_rocks_err)?;
+    let mut cf_names = cfs.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
+    cf_names.push(rocksdb::DEFAULT_COLUMN_FAMILY_NAME.to_string());
+    cf_names.sort_unstable();
+    cf_names.dedup();
     sui_macros::nondeterministic!({
         let options = prepare_db_options(db_options);
         let rocksdb = {
@@ -2414,12 +2476,16 @@ pub fn open_cf_opts<P: AsRef<Path>>(
             )
             .map_err(typed_store_err_from_rocks_err)?
         };
-        Ok(Arc::new(RocksDB::DB(DBWithThreadModeWrapper::new(
+        let rocksdb = Arc::new(RocksDB::DB(DBWithThreadModeWrapper::new(
             rocksdb,
             metric_conf,
             PathBuf::from(path),
             options,
-        ))))
+        )));
+        rocksdb
+            .apply_env_options_to_cfs(cf_names)
+            .map_err(typed_store_err_from_rocks_err)?;
+        Ok(rocksdb)
     })
 }
 
@@ -2434,20 +2500,26 @@ pub fn open_cf_opts_optimistic<P: AsRef<Path>>(
 ) -> Result<Arc<RocksDB>, TypedStoreError> {
     let path = path.as_ref();
     let cfs = populate_missing_cfs(opt_cfs, path).map_err(typed_store_err_from_rocks_err)?;
+    let mut cf_names = cfs.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
+    cf_names.push(rocksdb::DEFAULT_COLUMN_FAMILY_NAME.to_string());
+    cf_names.sort_unstable();
+    cf_names.dedup();
     sui_macros::nondeterministic!({
         let options = prepare_db_options(db_options);
-        rocksdb::OptimisticTransactionDB::open_cf_descriptors(
+        let rocksdb = rocksdb::OptimisticTransactionDB::open_cf_descriptors(
             &options,
             path,
             cfs.into_iter()
                 .map(|(name, opts)| ColumnFamilyDescriptor::new(name, opts)),
         )
-        .map(|db| {
-            Arc::new(RocksDB::OptimisticTransactionDB(
-                OptimisticTransactionDBWrapper::new(db, metric_conf, PathBuf::from(path), options),
-            ))
-        })
-        .map_err(typed_store_err_from_rocks_err)
+        .map_err(typed_store_err_from_rocks_err)?;
+        let rocksdb = Arc::new(RocksDB::OptimisticTransactionDB(
+            OptimisticTransactionDBWrapper::new(rocksdb, metric_conf, PathBuf::from(path), options),
+        ));
+        rocksdb
+            .apply_env_options_to_cfs(cf_names)
+            .map_err(typed_store_err_from_rocks_err)?;
+        Ok(rocksdb)
     })
 }
 

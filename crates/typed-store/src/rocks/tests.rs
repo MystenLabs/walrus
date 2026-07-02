@@ -805,6 +805,60 @@ fn open_rocksdb<P: AsRef<Path>>(path: P, opt_cfs: &[&str]) -> Arc<RocksDB> {
     open_cf(path, None, MetricConf::default(), opt_cfs).expect("failed to open rocksdb")
 }
 
+struct EnvVarGuard {
+    name: &'static str,
+    previous: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(name: &'static str, value: &str) -> Self {
+        let previous = std::env::var(name).ok();
+        // SAFETY: typed-store RocksDB tests use a process-wide mutex to serialize env mutation.
+        unsafe {
+            std::env::set_var(name, value);
+        }
+        Self { name, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        // SAFETY: the guard is held while the same process-wide test mutex is held.
+        unsafe {
+            if let Some(value) = &self.previous {
+                std::env::set_var(self.name, value);
+            } else {
+                std::env::remove_var(self.name);
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn paranoid_file_checks_env_applies_to_opened_and_created_column_families() {
+    let _lock = global_test_lock();
+    let _env = EnvVarGuard::set(ENV_VAR_DB_PARANOID_FILE_CHECKS, "true");
+    let path = temp_dir();
+    let cf_options = rocksdb::Options::default();
+
+    let rocks = open_cf_opts(
+        &path,
+        None,
+        MetricConf::default(),
+        &[("existing_cf", cf_options.clone())],
+    )
+    .expect("failed to open rocksdb with env options");
+
+    rocks
+        .create_cf("created_cf", &cf_options)
+        .expect("failed to create column family with env options");
+
+    assert_eq!(
+        read_bool_from_env(ENV_VAR_DB_PARANOID_FILE_CHECKS),
+        Some(true)
+    );
+}
+
 #[tokio::test]
 async fn test_sampling() {
     let sampling_interval = SamplingInterval::new(Duration::ZERO, 10);
