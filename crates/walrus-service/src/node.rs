@@ -2295,13 +2295,14 @@ impl StorageNode {
         if let NodeStatus::RecoveryInProgress(recovering_epoch) =
             self.inner.storage.node_status()?
         {
-            // If the node is already in recovery mode, we need to restart node recovery to recover
-            // to the latest epoch. This is to make sure that the node is always recovering to the
-            // latest epoch. Since the node is up-to-date with events, newly gained shards are
-            // synced from their previous owners instead of being filled by blob recovery.
+            // If the node is already in recovery mode, we advance the recovery target to the
+            // latest epoch, so that the node always recovers to the latest epoch. Since the node
+            // is up-to-date with events, newly gained shards are synced from their previous
+            // owners instead of being filled by blob recovery, and the running recovery task
+            // keeps its progress instead of being restarted.
             tracing::info!(
-                "node is currently recovering to epoch {recovering_epoch}, restarting \
-                node recovery to recover to the latest epoch {}",
+                "node is currently recovering to epoch {recovering_epoch}, advancing the \
+                recovery target to the latest epoch {}",
                 event.epoch
             );
             self.process_shard_changes_in_new_epoch_while_recovering(
@@ -2405,9 +2406,9 @@ impl StorageNode {
     /// In contrast to [`Self::process_shard_changes_in_new_epoch_and_start_node_recovery`], which
     /// handles a node that has lost track of the previous epoch's shard assignment, the node here
     /// is up-to-date with events, so newly gained shards are filled using shard sync from their
-    /// previous owners instead of per-blob recovery. The restarted node recovery task waits for
-    /// these shard syncs to finish before recovering blobs, and attests epoch sync done once both
-    /// are complete.
+    /// previous owners instead of per-blob recovery. The running node recovery task is not
+    /// restarted: it waits for these shard syncs to finish before recovering blobs, and attests
+    /// epoch sync done for the advanced recovery target once both are complete.
     ///
     /// As all functions that are passed an [`EventHandle`], this is responsible for marking the
     /// event as completed.
@@ -2417,9 +2418,23 @@ impl StorageNode {
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
+        // Advancing the recovery target and starting the shard syncs for gained shards must be
+        // atomic with respect to the recovery task's completion, which checks both under the
+        // same mutex: a completing task either observes the advanced target together with the
+        // new shard syncs, or completes entirely before this transition (detected below via the
+        // node status, in which case a new task is started).
+        let status_guard = self.node_recovery_handler.lock_status().await;
+
+        // If the running recovery task completed concurrently (after this event handler decided
+        // to take the recovering path), it has flipped the node status away from
+        // RecoveryInProgress; its completion no longer covers this epoch change.
+        let recovery_task_completed_concurrently = !matches!(
+            self.inner.storage.node_status()?,
+            NodeStatus::RecoveryInProgress(_)
+        );
+
         // Advance the recovery target so that the recovery task attests epoch sync done for the
-        // latest epoch; a stale attestation would be dropped by the contract service. This must
-        // happen before starting the shard syncs and restarting the recovery task below.
+        // latest epoch; a stale attestation would be dropped by the contract service.
         self.inner
             .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
 
@@ -2440,6 +2455,8 @@ impl StorageNode {
         self.create_new_shards_and_start_sync(shard_map_lock, shards_gained, &committees, false)
             .await?;
 
+        drop(status_guard);
+
         // For shards that just moved out, we need to lock them to not store more data in them.
         for shard_id in shard_diff_calculator.shards_to_lock() {
             let Some(shard_storage) = self.inner.storage.shard_storage(*shard_id).await else {
@@ -2457,10 +2474,11 @@ impl StorageNode {
                 .context("failed to lock shard")?;
         }
 
-        // Restart node recovery to recover to the latest epoch. The recovery task waits for the
-        // shard syncs started above to finish before scanning for blobs to recover.
+        // The recovery task keeps running across epoch changes: it waits for the shard syncs
+        // started above to finish before recovering blobs, and attests epoch sync done for the
+        // advanced target on completion. A new task is only started when none is running.
         self.node_recovery_handler
-            .start_node_recovery(event.epoch)
+            .ensure_recovery_task_running(event.epoch, recovery_task_completed_concurrently)
             .await?;
 
         // The recovery task is in charge of attesting epoch sync done, so the finisher is always
