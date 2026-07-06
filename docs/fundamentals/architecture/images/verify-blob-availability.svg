@@ -1,0 +1,49 @@
+<svg width="760" height="560" viewBox="0 0 760 560" role="img" xmlns="http://www.w3.org/2000/svg" font-family="Inter, system-ui, -apple-system, sans-serif">
+  <title>Verify blob availability before acting</title>
+  <desc>An agent reads the blob&#39;s on-chain Sui Blob object and checks that it is certified and not expired before depending on it; otherwise it re-stores or extends storage.</desc>
+  <rect x="0" y="0" width="760" height="560" fill="#000000"></rect>
+  <defs>
+    <marker id="sync" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#98EFDD"></path>
+    </marker>
+  </defs>
+
+  
+  <rect x="210" y="26" width="180" height="56" fill="#613DFF"></rect>
+  <text x="300" y="49.5" fill="#FAF8F5" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" letter-spacing="0.5">READ BLOB OBJECT</text>
+  <text x="300" y="66.3" fill="#98EFDD" text-anchor="middle" dominant-baseline="central" font-size="12">Sui Blob object</text>
+  <line x1="300" y1="82" x2="300" y2="130" stroke="#98EFDD" stroke-width="1.5" marker-end="url(#sync)"></line>
+
+  
+  <polygon points="300,130 360,190 300,250 240,190" fill="#613DFF"></polygon>
+  <text x="300" y="190" fill="#FAF8F5" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" letter-spacing="0.5">CERTIFIED?</text>
+
+  
+  <rect x="520" y="162" width="200" height="56" fill="#98EFDD"></rect>
+  <text x="620" y="185.5" fill="#000000" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" letter-spacing="0.5">DO NOT DEPEND</text>
+  <text x="620" y="202.3" fill="#000000" text-anchor="middle" dominant-baseline="central" font-size="12">No availability cert</text>
+  <line x1="360" y1="190" x2="520" y2="190" stroke="#98EFDD" stroke-width="1.5" marker-end="url(#sync)"></line>
+  <text x="440" y="182" fill="#98EFDD" text-anchor="middle" font-size="12">No</text>
+
+  <line x1="300" y1="250" x2="300" y2="300" stroke="#98EFDD" stroke-width="1.5" marker-end="url(#sync)"></line>
+  <text x="300" y="267" fill="#98EFDD" text-anchor="middle" font-size="12">Yes</text>
+
+  
+  <polygon points="300,300 360,360 300,420 240,360" fill="#613DFF"></polygon>
+  <text x="300" y="360" fill="#FAF8F5" text-anchor="middle" dominant-baseline="central" font-size="13" font-weight="500" letter-spacing="0.5">NOT EXPIRED?</text>
+
+  
+  <rect x="520" y="332" width="200" height="56" fill="#CAB1FF"></rect>
+  <text x="620" y="355.5" fill="#000000" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" letter-spacing="0.5">RE-STORE OR EXTEND</text>
+  <text x="620" y="372.3" fill="#000000" text-anchor="middle" dominant-baseline="central" font-size="12">Renew storage epoch</text>
+  <line x1="360" y1="360" x2="520" y2="360" stroke="#98EFDD" stroke-width="1.5" marker-end="url(#sync)"></line>
+  <text x="440" y="352" fill="#98EFDD" text-anchor="middle" font-size="12">Expired</text>
+
+  <line x1="300" y1="420" x2="300" y2="468" stroke="#98EFDD" stroke-width="1.5" marker-end="url(#sync)"></line>
+  <text x="300" y="444" fill="#98EFDD" text-anchor="middle" font-size="12">Within period</text>
+
+  
+  <rect x="210" y="468" width="180" height="56" fill="#CAB1FF"></rect>
+  <text x="300" y="491.5" fill="#000000" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="500" letter-spacing="0.5">PROCEED</text>
+  <text x="300" y="508.3" fill="#000000" text-anchor="middle" dominant-baseline="central" font-size="12">Depend on blob</text>
+</svg>
