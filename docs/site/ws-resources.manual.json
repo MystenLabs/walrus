@@ -10,7 +10,8 @@
     },
     "/markdown/**/*.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     }
   },
   "routes": {
