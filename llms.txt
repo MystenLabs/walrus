@@ -368,6 +368,226 @@ Sui smart contract as the on-chain index.
     concepts, erasure coding, cryptographic primitives, token economics, and network roles. Storage
     node: Entity storing data for Walrus; holds one or several shards.
 
+## Walrus Memory
+
+- [Walrus Memory](https://docs.wal.app/walrus-memory.md):
+    Walrus Memory gives AI agents persistent, portable memory that works across apps, sessions, and
+    workflows. Ownership and access are enforced onchain through Sui smart contracts, and all
+    content is encrypted through Seal before reaching Walrus.
+
+## Walrus Memory: Getting Started
+
+- [Choose Your Path](https://docs.wal.app/walrus-memory/getting-started/choose-your-path.md):
+    Walrus Memory supports several integration modes depending on how much control you need. Pick
+    the one that fits your use case. > Tip > > These paths aren't mutually exclusive.
+- [Quick Start](https://docs.wal.app/walrus-memory/getting-started/quick-start.md):
+    The fastest way to get Walrus Memory running is through the TypeScript SDK.
+- [What Is Walrus Memory](https://docs.wal.app/walrus-memory/getting-started/what-is-walrus-memory.md):
+    > Note > > Walrus Memory is currently in beta and actively evolving. While fully usable today,
+    the team continues to refine the developer experience and operational guidance. the team
+    welcomes feedback from early builders as the team continues to improve the product.
+
+## Walrus Memory: Fundamentals
+
+- [Core Components](https://docs.wal.app/walrus-memory/fundamentals/architecture/core-components.md):
+    Walrus Memory is made up of six core components that work together to give your agents
+    portable, verifiable memory that they fully control. The TypeScript SDK is the main entry point
+    for developers. It wraps all Walrus Memory operations into a basic client that your app calls
+    directly.
+- [Data Flow Security Model](https://docs.wal.app/walrus-memory/fundamentals/architecture/data-flow-security-model.md):
+    Walrus Memory's security model is split between onchain enforcement and offchain operations.
+    Understanding where trust lives helps you make informed decisions about your deployment.
+- [Funding Storage](https://docs.wal.app/walrus-memory/fundamentals/architecture/funding-storage.md):
+    Walrus Memory writes your encrypted memories to Walrus as blobs, as described in How Storage
+    Works. Someone has to pay for that storage. This page explains who, and the trade-offs between
+    an agent holding WAL itself and having a third party sponsor the cost.
+- [How Storage Works](https://docs.wal.app/walrus-memory/fundamentals/architecture/how-storage-works.md):
+    When you call memwal.remember(...), the relayer accepts a background job immediately and then
+    stores the memory asynchronously. Here's what happens. The relayer generates a vector embedding
+    from your plaintext content.
+- [Memory Space](https://docs.wal.app/walrus-memory/fundamentals/concepts/memory-space.md):
+    A memory space is the isolated unit of storage in Walrus Memory. Think of it as a folder or
+    bucket for your memories, you choose which memory space to store into and which to retrieve
+    from. Each user can own as many memory spaces as they want.
+- [Ownership And Access](https://docs.wal.app/walrus-memory/fundamentals/concepts/ownership-and-access.md):
+    Walrus Memory puts you in full control of your memory. Programmable permissions and explicit
+    ownership define how memory is shared, accessed, and updated, with delegate access for agents
+    and workflows.
+
+## Walrus Memory: Mcp
+
+- [Antigravity](https://docs.wal.app/walrus-memory/mcp/antigravity.md):
+    Add Walrus Memory to Antigravity so the agent recalls context and saves durable facts. Install
+    it as a plugin (adds automatic-memory hooks) or as MCP-only (just the tools). [x] Node.js 20+
+    [x] A Walrus Memory account. The first memory tool call opens a browser sign-in (memwallogin).
+- [Changelog](https://docs.wal.app/walrus-memory/mcp/changelog.md):
+    Automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity. New memwalrememberbulk
+    and memwalhealth tools. Ship the plugin's .mcp.json in the marketplace bundle. A root gitignore
+    rule excluded it, so plugin installs loaded the lifecycle hooks but never registered the MCP
+    server.
+- [Claude Code](https://docs.wal.app/walrus-memory/mcp/claude-code.md):
+    Add Walrus Memory to Claude Code so it recalls context and saves durable facts as you work.
+    Install it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the
+    tools). [x] Node.js 20+ [x] A Walrus Memory account.
+- [Claude Desktop](https://docs.wal.app/walrus-memory/mcp/claude-desktop.md):
+    Add Walrus Memory to Claude Desktop so the agent can save and recall durable facts. Claude
+    Desktop uses the MCP server (the memory tools); the automatic-memory plugin hooks are available
+    on Claude Code, Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
+- [Codex](https://docs.wal.app/walrus-memory/mcp/codex.md):
+    Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
+    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools). [x]
+    Node.js 20+ [x] A Walrus Memory account. The first memory tool call opens a browser sign-in
+    (memwallogin).
+- [Cursor](https://docs.wal.app/walrus-memory/mcp/cursor.md):
+    Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
+    (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
+    lifecycle hooks for extra reinforcement (see Lifecycle hooks). [x] Node.js 20+ [x] A Walrus
+    Memory account.
+- [Opencode](https://docs.wal.app/walrus-memory/mcp/opencode.md):
+    Add Walrus Memory to OpenCode so the agent can save and recall durable facts. OpenCode uses the
+    MCP server (the memory tools); the automatic-memory plugin hooks are available on Claude Code,
+    Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
+- [Overview](https://docs.wal.app/walrus-memory/mcp/overview.md):
+    The Walrus Memory MCP server exposes your portable Walrus Memory as Model Context Protocol
+    tools, so an AI agent can decide when to save and recall memories on its own.
+- [Reference](https://docs.wal.app/walrus-memory/mcp/reference.md):
+    This page documents every tool, flag, environment variable, and transport route the Walrus
+    Memory MCP package exposes. For per-client setup, start with the MCP overview.
+
+## Walrus Memory: Relayer
+
+- [API Reference](https://docs.wal.app/walrus-memory/relayer/api-reference.md):
+    The Rust relayer exposes these routes. Routes are defined in services/server/src/main.rs. See
+    also: Environment Variables Configuration Versioning and Compatibility All /api/ routes require
+    signed headers. The SDK handles this automatically.
+- [Benchmark CI Setup](https://docs.wal.app/walrus-memory/relayer/benchmark-ci-setup.md):
+    This document records how to configure the relayer benchmark workflows. The live benchmark
+    intentionally runs only the public relayer /api/recall path.
+- [Nautilus Tee](https://docs.wal.app/walrus-memory/relayer/nautilus-tee.md):
+    Run the Walrus Memory relayer with a TEE deployment pattern when you want the default SDK flow
+    without giving the host operator direct access to plaintext memory payloads.
+- [Observability](https://docs.wal.app/walrus-memory/relayer/observability.md):
+    Production relayers should emit structured logs, scrape Prometheus metrics, and send alerts for
+    the external systems Walrus Memory depends on: PostgreSQL, Redis, Sui RPC, OpenAI-compatible
+    embedding/LLM APIs, Seal, Walrus, and the TypeScript sidecar. Every relayer request gets an
+    x-request-id.
+- [Overview](https://docs.wal.app/walrus-memory/relayer/overview.md):
+    The relayer is the backend that turns SDK calls into memory operations. Using a delegate key
+    signed by the client, it handles the critical workflows, embedding, encryption, storage, and
+    search, on behalf of the user.
+- [Public Relayer](https://docs.wal.app/walrus-memory/relayer/public-relayer.md):
+    A managed relayer is a simpler experience for teams that want to get started without running
+    infrastructure. If a managed relayer endpoint is available for your environment, it gives you
+    the fastest path to integration.
+- [All SUI coins for an address, largest first:](https://docs.wal.app/walrus-memory/relayer/runbook-gas-pool.md):
+    When to use this: a gas-pool alert fires (the SUI gas pool maintenance alert), or relayer logs
+    show wallet jobs aborting with or Enoki dryrunfailed plus 0x2:balance:split (ENotEnough, abort
+    code 2). The relayer sponsors Walrus register transactions through Enoki.
+- [Self Hosting](https://docs.wal.app/walrus-memory/relayer/self-hosting.md):
+    Self-hosting means running your own relayer, either pointing at an existing Walrus Memory
+    package ID or deploying an entirely new Walrus Memory instance with your own contract,
+    database, and server wallet. The managed relayer provided by Walrus Foundation is a reference
+    implementation.
+- [Versioning And Compatibility](https://docs.wal.app/walrus-memory/relayer/versioning-and-compatibility.md):
+    The Walrus Memory relayer is the public protocol/API layer for SDKs, MCP clients, and
+    self-hosted deployments. Treat every route, signed header, response field, runtime config
+    field, and documented environment variable on this page as a versioned contract.
+
+## Walrus Memory: Contract
+
+- [Delegate Key Management](https://docs.wal.app/walrus-memory/contract/delegate-key-management.md):
+    Delegate keys are lightweight Ed25519 keys used for SDK authentication. They are registered
+    onchain in a MemWalAccount and verified by the relayer on every request.
+- [Overview](https://docs.wal.app/walrus-memory/contract/overview.md):
+    The smart contract (memwal:account) defines the onchain account model for Walrus Memory. It is
+    a Move module deployed on Sui. These are the onchain IDs for the current public Walrus Memory
+    deployments: For relayer setup and environment variable usage, see Self-Hosting and Environment
+    Variables.
+- [Ownership And Permissions](https://docs.wal.app/walrus-memory/contract/ownership-and-permissions.md):
+    The owner is the Sui wallet address that created the MemWalAccount.
+
+## Walrus Memory: Indexer
+
+- [Database Sync](https://docs.wal.app/walrus-memory/indexer/database-sync.md):
+    The indexer syncs account data into PostgreSQL so the relayer can resolve ownership quickly
+    without hitting the blockchain on every request. Both the relayer and the indexer connect to
+    the same PostgreSQL instance (with the pgvector extension enabled). Migrations run
+    automatically on boot.
+- [Onchain Events](https://docs.wal.app/walrus-memory/indexer/onchain-events.md):
+    The indexer listens to Sui events emitted by the Walrus Memory contract and uses them to update
+    local backend state.
+- [Purpose](https://docs.wal.app/walrus-memory/indexer/purpose.md):
+    The indexer keeps the backend in sync with onchain state so the relayer can resolve accounts
+    quickly. Without the indexer, every authenticated request would require the relayer to scan the
+    onchain AccountRegistry to find which MemWalAccount holds a given delegate key.
+
+## Walrus Memory: Openclaw
+
+- [Changelog](https://docs.wal.app/walrus-memory/openclaw/changelog.md)
+- [How It Works](https://docs.wal.app/walrus-memory/openclaw/how-it-works.md):
+    The plugin sits between OpenClaw's gateway and the Walrus Memory server. It operates through
+    hooks, automatic callbacks that run on every conversation turn, and optional tools the LLM can
+    call explicitly.
+- [Overview](https://docs.wal.app/walrus-memory/openclaw/overview.md):
+    The Walrus Memory plugin adds portable, verifiable agent memory to OpenClaw agents. It works
+    alongside OpenClaw's existing file-based memory, automatically recalling relevant context and
+    capturing new facts in the background, with no user action needed.
+- [Quick Start](https://docs.wal.app/walrus-memory/openclaw/quick-start.md):
+    Get the plugin running and test the memory loop in a few minutes. [x] OpenClaw installed and
+    running You also need a delegate key, account ID, and relayer URL from Walrus Memory, the steps
+    below guides you through getting these.
+- [Reference](https://docs.wal.app/walrus-memory/openclaw/reference.md):
+    Complete reference for every plugin capability. Hooks are the primary mechanism, they run
+    automatically on every conversation turn without any configuration beyond enabling the plugin.
+
+## Walrus Memory: Reference
+
+- [Configuration](https://docs.wal.app/walrus-memory/reference/configuration.md):
+    Use this page to pick the right config shape quickly. Used by: MemWal.create(config)
+    withMemWal(model, options) | Field | Required | Notes | | --- | --- | --- | | key | yes |
+    Delegate private key in hex | | accountId | yes | MemWalAccount object ID on Sui | | serverUrl
+    | no | Relayer URL.
+- [Environment Variables](https://docs.wal.app/walrus-memory/reference/environment-variables.md):
+    Use this page when you run your own relayer. For setup steps and deployment context, see
+    Self-Hosting. Environment variables documented here are public relayer contract items.
+    Renaming, removing, or changing their meaning follows the deprecation process in Versioning and
+    Compatibility.
+
+## Walrus Memory: Architecture
+
+- [Permanent Registry Design Intent](https://docs.wal.app/walrus-memory/architecture/permanent-registry-design.md):
+    The AccountRegistry shared object in Walrus Memory is designed as a permanent append-only
+    mapping of . Even if a user decides to deactivate or "delete" their account, their address
+    remains in the registry.
+
+## Walrus Memory: Security
+
+- [Unsigned Health Check Rationale](https://docs.wal.app/walrus-memory/security/health-check-unsigned.md):
+    GET /health and GET /version The health and version endpoints are intentionally left
+    unauthenticated and unsigned. They do not require a valid Ed25519 signature in headers like the
+    rest of the API.
+
+## Walrus Memory: Contributing
+
+- [Docs Workflow](https://docs.wal.app/walrus-memory/contributing/docs-workflow.md):
+    Walrus Memory is still in beta, so documentation is an active part of product hardening. If you
+    see unclear guidance, outdated flows, or missing examples, contributions are welcome. The docs
+    source of truth is the markdown content under docs/ in this repository.
+- [Run Docs Locally](https://docs.wal.app/walrus-memory/contributing/run-docs-locally.md):
+    Run these commands from the repository root: This starts the Mintlify site using the docs in
+    this repository. Use Node 20 LTS for Mintlify local preview. Mintlify fails on Node 25+.
+- [Docs site (Mintlify)](https://docs.wal.app/walrus-memory/contributing/run-repo-locally.md):
+    | Tool | Version | Check | |------|---------|-------| | Node.js | ≥ 20 | node -v | | pnpm | ≥
+    9.12 | pnpm -v | | Rust | latest stable (only for backend services) | rustc --version | > Tip >
+    > If you only work on TypeScript apps or docs, you don't need Rust.
+
+## Walrus Memory: Examples
+
+- [Example Apps](https://docs.wal.app/walrus-memory/examples/example-apps.md):
+    The repo includes ready-to-run apps in apps/ that show different Walrus Memory integration
+    patterns. This page focuses on app-level patterns,the basic SDK flow covered in Quick Start and
+    Walrus Memory Usage. Dashboard, playground, and interactive demo for Walrus Memory.
+
 ## 01 Announcing Walrus
 
 - [01 Announcing Walrus](https://docs.wal.app/blog/01_announcing_walrus.md):
@@ -439,286 +659,111 @@ Sui smart contract as the on-chain index.
     Walrus stores blobs publicly: anyone with a blob ID can read the bytes. To keep data
     confidential, encrypt it before you store it.
 
-## Walrus Memory
+## Walrus Memory: Python SDK
 
-- [Permanent Registry Design Intent](https://docs.wal.app/docs/walrus-memory/architecture/permanent-registry-design.md):
-    The AccountRegistry shared object in Walrus Memory is designed as a permanent append-only
-    mapping of . Even if a user decides to deactivate or "delete" their account, their address
-    remains in the registry.
-- [Delegate Key Management](https://docs.wal.app/docs/walrus-memory/contract/delegate-key-management.md):
-    Delegate keys are lightweight Ed25519 keys used for SDK authentication. They are registered
-    onchain in a MemWalAccount and verified by the relayer on every request.
-- [Overview](https://docs.wal.app/docs/walrus-memory/contract/overview.md):
-    The smart contract (memwal:account) defines the onchain account model for Walrus Memory. It is
-    a Move module deployed on Sui. These are the onchain IDs for the current public Walrus Memory
-    deployments: For relayer setup and environment variable usage, see Self-Hosting and Environment
-    Variables.
-- [Ownership And Permissions](https://docs.wal.app/docs/walrus-memory/contract/ownership-and-permissions.md):
-    The owner is the Sui wallet address that created the MemWalAccount.
-- [Docs Workflow](https://docs.wal.app/docs/walrus-memory/contributing/docs-workflow.md):
-    Walrus Memory is still in beta, so documentation is an active part of product hardening. If you
-    see unclear guidance, outdated flows, or missing examples, contributions are welcome. The docs
-    source of truth is the markdown content under docs/ in this repository.
-- [Run Docs Locally](https://docs.wal.app/docs/walrus-memory/contributing/run-docs-locally.md):
-    Run these commands from the repository root: This starts the Mintlify site using the docs in
-    this repository. Use Node 20 LTS for Mintlify local preview. Mintlify fails on Node 25+.
-- [Docs site (Mintlify)](https://docs.wal.app/docs/walrus-memory/contributing/run-repo-locally.md):
-    | Tool | Version | Check | |------|---------|-------| | Node.js | ≥ 20 | node -v | | pnpm | ≥
-    9.12 | pnpm -v | | Rust | latest stable (only for backend services) | rustc --version | > Tip >
-    > If you only work on TypeScript apps or docs, you don't need Rust.
-- [Example Apps](https://docs.wal.app/docs/walrus-memory/examples/example-apps.md):
-    The repo includes ready-to-run apps in apps/ that show different Walrus Memory integration
-    patterns. This page focuses on app-level patterns,the basic SDK flow covered in Quick Start and
-    Walrus Memory Usage. Dashboard, playground, and interactive demo for Walrus Memory.
-- [Core Components](https://docs.wal.app/docs/walrus-memory/fundamentals/architecture/core-components.md):
-    Walrus Memory is made up of six core components that work together to give your agents
-    portable, verifiable memory that they fully control. The TypeScript SDK is the main entry point
-    for developers. It wraps all Walrus Memory operations into a basic client that your app calls
-    directly.
-- [Data Flow Security Model](https://docs.wal.app/docs/walrus-memory/fundamentals/architecture/data-flow-security-model.md):
-    Walrus Memory's security model is split between onchain enforcement and offchain operations.
-    Understanding where trust lives helps you make informed decisions about your deployment.
-- [Funding Storage](https://docs.wal.app/docs/walrus-memory/fundamentals/architecture/funding-storage.md):
-    Walrus Memory writes your encrypted memories to Walrus as blobs, as described in How Storage
-    Works. Someone has to pay for that storage. This page explains who, and the trade-offs between
-    an agent holding WAL itself and having a third party sponsor the cost.
-- [How Storage Works](https://docs.wal.app/docs/walrus-memory/fundamentals/architecture/how-storage-works.md):
-    When you call memwal.remember(...), the relayer accepts a background job immediately and then
-    stores the memory asynchronously. Here's what happens. The relayer generates a vector embedding
-    from your plaintext content.
-- [Memory Space](https://docs.wal.app/docs/walrus-memory/fundamentals/concepts/memory-space.md):
-    A memory space is the isolated unit of storage in Walrus Memory. Think of it as a folder or
-    bucket for your memories, you choose which memory space to store into and which to retrieve
-    from. Each user can own as many memory spaces as they want.
-- [Ownership And Access](https://docs.wal.app/docs/walrus-memory/fundamentals/concepts/ownership-and-access.md):
-    Walrus Memory puts you in full control of your memory. Programmable permissions and explicit
-    ownership define how memory is shared, accessed, and updated, with delegate access for agents
-    and workflows.
-- [Choose Your Path](https://docs.wal.app/docs/walrus-memory/getting-started/choose-your-path.md):
-    Walrus Memory supports several integration modes depending on how much control you need. Pick
-    the one that fits your use case. > Tip > > These paths aren't mutually exclusive.
-- [Quick Start](https://docs.wal.app/docs/walrus-memory/getting-started/quick-start.md):
-    The fastest way to get Walrus Memory running is through the TypeScript SDK.
-- [What Is Walrus Memory](https://docs.wal.app/docs/walrus-memory/getting-started/what-is-walrus-memory.md):
-    > Note > > Walrus Memory is currently in beta and actively evolving. While fully usable today,
-    the team continues to refine the developer experience and operational guidance. the team
-    welcomes feedback from early builders as the team continues to improve the product.
-- [Walrus Memory](https://docs.wal.app/docs/walrus-memory.md):
-    Walrus Memory gives AI agents persistent, portable memory that works across apps, sessions, and
-    workflows. Ownership and access are enforced onchain through Sui smart contracts, and all
-    content is encrypted through Seal before reaching Walrus.
-- [Database Sync](https://docs.wal.app/docs/walrus-memory/indexer/database-sync.md):
-    The indexer syncs account data into PostgreSQL so the relayer can resolve ownership quickly
-    without hitting the blockchain on every request. Both the relayer and the indexer connect to
-    the same PostgreSQL instance (with the pgvector extension enabled). Migrations run
-    automatically on boot.
-- [Onchain Events](https://docs.wal.app/docs/walrus-memory/indexer/onchain-events.md):
-    The indexer listens to Sui events emitted by the Walrus Memory contract and uses them to update
-    local backend state.
-- [Purpose](https://docs.wal.app/docs/walrus-memory/indexer/purpose.md):
-    The indexer keeps the backend in sync with onchain state so the relayer can resolve accounts
-    quickly. Without the indexer, every authenticated request would require the relayer to scan the
-    onchain AccountRegistry to find which MemWalAccount holds a given delegate key.
-- [Antigravity](https://docs.wal.app/docs/walrus-memory/mcp/antigravity.md):
-    Add Walrus Memory to Antigravity so the agent recalls context and saves durable facts. Install
-    it as a plugin (adds automatic-memory hooks) or as MCP-only (just the tools). [x] Node.js 20+
-    [x] A Walrus Memory account. The first memory tool call opens a browser sign-in (memwallogin).
-- [Changelog](https://docs.wal.app/docs/walrus-memory/mcp/changelog.md):
-    Automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity. New memwalrememberbulk
-    and memwalhealth tools. Ship the plugin's .mcp.json in the marketplace bundle. A root gitignore
-    rule excluded it, so plugin installs loaded the lifecycle hooks but never registered the MCP
-    server.
-- [Claude Code](https://docs.wal.app/docs/walrus-memory/mcp/claude-code.md):
-    Add Walrus Memory to Claude Code so it recalls context and saves durable facts as you work.
-    Install it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the
-    tools). [x] Node.js 20+ [x] A Walrus Memory account.
-- [Claude Desktop](https://docs.wal.app/docs/walrus-memory/mcp/claude-desktop.md):
-    Add Walrus Memory to Claude Desktop so the agent can save and recall durable facts. Claude
-    Desktop uses the MCP server (the memory tools); the automatic-memory plugin hooks are available
-    on Claude Code, Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
-- [Codex](https://docs.wal.app/docs/walrus-memory/mcp/codex.md):
-    Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
-    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools). [x]
-    Node.js 20+ [x] A Walrus Memory account. The first memory tool call opens a browser sign-in
-    (memwallogin).
-- [Cursor](https://docs.wal.app/docs/walrus-memory/mcp/cursor.md):
-    Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
-    (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
-    lifecycle hooks for extra reinforcement (see Lifecycle hooks). [x] Node.js 20+ [x] A Walrus
-    Memory account.
-- [Opencode](https://docs.wal.app/docs/walrus-memory/mcp/opencode.md):
-    Add Walrus Memory to OpenCode so the agent can save and recall durable facts. OpenCode uses the
-    MCP server (the memory tools); the automatic-memory plugin hooks are available on Claude Code,
-    Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
-- [Overview](https://docs.wal.app/docs/walrus-memory/mcp/overview.md):
-    The Walrus Memory MCP server exposes your portable Walrus Memory as Model Context Protocol
-    tools, so an AI agent can decide when to save and recall memories on its own.
-- [Reference](https://docs.wal.app/docs/walrus-memory/mcp/reference.md):
-    This page documents every tool, flag, environment variable, and transport route the Walrus
-    Memory MCP package exposes. For per-client setup, start with the MCP overview.
-- [Changelog](https://docs.wal.app/docs/walrus-memory/openclaw/changelog.md)
-- [How It Works](https://docs.wal.app/docs/walrus-memory/openclaw/how-it-works.md):
-    The plugin sits between OpenClaw's gateway and the Walrus Memory server. It operates through
-    hooks, automatic callbacks that run on every conversation turn, and optional tools the LLM can
-    call explicitly.
-- [Overview](https://docs.wal.app/docs/walrus-memory/openclaw/overview.md):
-    The Walrus Memory plugin adds portable, verifiable agent memory to OpenClaw agents. It works
-    alongside OpenClaw's existing file-based memory, automatically recalling relevant context and
-    capturing new facts in the background, with no user action needed.
-- [Quick Start](https://docs.wal.app/docs/walrus-memory/openclaw/quick-start.md):
-    Get the plugin running and test the memory loop in a few minutes. [x] OpenClaw installed and
-    running You also need a delegate key, account ID, and relayer URL from Walrus Memory, the steps
-    below guides you through getting these.
-- [Reference](https://docs.wal.app/docs/walrus-memory/openclaw/reference.md):
-    Complete reference for every plugin capability. Hooks are the primary mechanism, they run
-    automatically on every conversation turn without any configuration beyond enabling the plugin.
-- [API Reference](https://docs.wal.app/docs/walrus-memory/python-sdk/api-reference.md):
+- [API Reference](https://docs.wal.app/walrus-memory/python-sdk/api-reference.md):
     See also: Configuration Relayer API MemWalSync.create(...) has the same signature and returns a
     synchronous wrapper.
-- [Changelog](https://docs.wal.app/docs/walrus-memory/python-sdk/changelog.md):
+- [Changelog](https://docs.wal.app/walrus-memory/python-sdk/changelog.md):
     Track what's new, changed, and fixed in memwal (Python). For the latest version, see the PyPI
     project page.
-- [Colab](https://docs.wal.app/docs/walrus-memory/python-sdk/colab.md):
+- [Colab](https://docs.wal.app/walrus-memory/python-sdk/colab.md):
     Use the runnable Walrus Memory Python SDK Colab when you want a notebook-first walkthrough.
-- [Quick Start](https://docs.wal.app/docs/walrus-memory/python-sdk/quick-start.md):
+- [Quick Start](https://docs.wal.app/walrus-memory/python-sdk/quick-start.md):
     The Walrus Memory Python SDK (memwal on PyPI) gives your agents portable memory that works
     across apps, sessions, and workflows. Store, recall, and analyze context, fully under your
     control. It mirrors the TypeScript MemWal client: same relayer, same Ed25519 auth, same
     methods.
-- [1. Fire and forget the wait — poll later if you need the blobid](https://docs.wal.app/docs/walrus-memory/python-sdk/usage.md):
+- [1. Fire and forget the wait — poll later if you need the blobid](https://docs.wal.app/walrus-memory/python-sdk/usage.md):
     The Python SDK exposes one relayer-backed client in two forms, plus middleware: | Entry point |
     Import | When to use | | --- | --- | --- | | MemWal | from memwal import MemWal | Recommended
     default, async-native; relayer handles embeddings, Seal, and storage | | MemWalSync | from
     memwal import MemWalSync | Same API surface, synchronous, scripts, notebooks, non-async apps |
     | withmemwallangchain / withmemwalopenai | from memwal import ...
-- [Memwal Manual](https://docs.wal.app/docs/walrus-memory/python-sdk/usage/memwal-manual.md):
+- [Memwal Manual](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal-manual.md):
     > Note > > Unlike the TypeScript SDK there is no separate MemWalManual class in Python. The
     Python SDK is relayer-backed: the relayer always handles embedding, Seal encryption, and Walrus
     storage.
-- [Memwal](https://docs.wal.app/docs/walrus-memory/python-sdk/usage/memwal.md):
+- [Memwal](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal.md):
     The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing. The SDK only signs requests and sends text.
-- [With Memwal](https://docs.wal.app/docs/walrus-memory/python-sdk/usage/with-memwal.md):
+- [With Memwal](https://docs.wal.app/walrus-memory/python-sdk/usage/with-memwal.md):
     withmemwallangchain and withmemwalopenai wrap an existing LLM client with automatic memory
     management. Before each call relevant memories are recalled and injected; after each call the
     user message is analyzed for new facts (fire-and-forget).
-- [Configuration](https://docs.wal.app/docs/walrus-memory/reference/configuration.md):
-    Use this page to pick the right config shape quickly. Used by: MemWal.create(config)
-    withMemWal(model, options) | Field | Required | Notes | | --- | --- | --- | | key | yes |
-    Delegate private key in hex | | accountId | yes | MemWalAccount object ID on Sui | | serverUrl
-    | no | Relayer URL.
-- [Environment Variables](https://docs.wal.app/docs/walrus-memory/reference/environment-variables.md):
-    Use this page when you run your own relayer. For setup steps and deployment context, see
-    Self-Hosting. Environment variables documented here are public relayer contract items.
-    Renaming, removing, or changing their meaning follows the deprecation process in Versioning and
-    Compatibility.
-- [API Reference](https://docs.wal.app/docs/walrus-memory/relayer/api-reference.md):
-    The Rust relayer exposes these routes. Routes are defined in services/server/src/main.rs. See
-    also: Environment Variables Configuration Versioning and Compatibility All /api/ routes require
-    signed headers. The SDK handles this automatically.
-- [Benchmark CI Setup](https://docs.wal.app/docs/walrus-memory/relayer/benchmark-ci-setup.md):
-    This document records how to configure the relayer benchmark workflows. The live benchmark
-    intentionally runs only the public relayer /api/recall path.
-- [Nautilus Tee](https://docs.wal.app/docs/walrus-memory/relayer/nautilus-tee.md):
-    Run the Walrus Memory relayer with a TEE deployment pattern when you want the default SDK flow
-    without giving the host operator direct access to plaintext memory payloads.
-- [Observability](https://docs.wal.app/docs/walrus-memory/relayer/observability.md):
-    Production relayers should emit structured logs, scrape Prometheus metrics, and send alerts for
-    the external systems Walrus Memory depends on: PostgreSQL, Redis, Sui RPC, OpenAI-compatible
-    embedding/LLM APIs, Seal, Walrus, and the TypeScript sidecar. Every relayer request gets an
-    x-request-id.
-- [Overview](https://docs.wal.app/docs/walrus-memory/relayer/overview.md):
-    The relayer is the backend that turns SDK calls into memory operations. Using a delegate key
-    signed by the client, it handles the critical workflows, embedding, encryption, storage, and
-    search, on behalf of the user.
-- [Public Relayer](https://docs.wal.app/docs/walrus-memory/relayer/public-relayer.md):
-    A managed relayer is a simpler experience for teams that want to get started without running
-    infrastructure. If a managed relayer endpoint is available for your environment, it gives you
-    the fastest path to integration.
-- [All SUI coins for an address, largest first:](https://docs.wal.app/docs/walrus-memory/relayer/runbook-gas-pool.md):
-    When to use this: a gas-pool alert fires (the SUI gas pool maintenance alert), or relayer logs
-    show wallet jobs aborting with or Enoki dryrunfailed plus 0x2:balance:split (ENotEnough, abort
-    code 2). The relayer sponsors Walrus register transactions through Enoki.
-- [Self Hosting](https://docs.wal.app/docs/walrus-memory/relayer/self-hosting.md):
-    Self-hosting means running your own relayer, either pointing at an existing Walrus Memory
-    package ID or deploying an entirely new Walrus Memory instance with your own contract,
-    database, and server wallet. The managed relayer provided by Walrus Foundation is a reference
-    implementation.
-- [Versioning And Compatibility](https://docs.wal.app/docs/walrus-memory/relayer/versioning-and-compatibility.md):
-    The Walrus Memory relayer is the public protocol/API layer for SDKs, MCP clients, and
-    self-hosted deployments. Treat every route, signed header, response field, runtime config
-    field, and documented environment variable on this page as a versioned contract.
-- [Advanced Usage](https://docs.wal.app/docs/walrus-memory/sdk/advanced-usage.md):
+
+## Walrus Memory: SDK
+
+- [Advanced Usage](https://docs.wal.app/walrus-memory/sdk/advanced-usage.md):
     you already have a vector or encrypted payload you want fact extraction with analyze you want
     memory inside an AI SDK pipeline Use: rememberManual when you already have encrypted payload
     plus vector recallManual when you already have a query vector Use analyze when you want the
     relayer to extract facts from longer text and store them as memories.
-- [Agent Storage Loop](https://docs.wal.app/docs/walrus-memory/sdk/agent-storage-loop.md):
+- [Agent Storage Loop](https://docs.wal.app/walrus-memory/sdk/agent-storage-loop.md):
     This guide walks an autonomous agent through the complete storage loop on Testnet: set up the
     client with no interactive steps, batch many small writes, encrypt agent state, confirm each
     write landed before depending on it, then recall.
-- [Ai Integration](https://docs.wal.app/docs/walrus-memory/sdk/ai-integration.md):
+- [Ai Integration](https://docs.wal.app/walrus-memory/sdk/ai-integration.md):
     Walrus Memory includes an AI SDK integration for applications that already use model
     middleware.
-- [API Reference](https://docs.wal.app/docs/walrus-memory/sdk/api-reference.md):
+- [API Reference](https://docs.wal.app/walrus-memory/sdk/api-reference.md):
     See also: Configuration Relayer API Config: | Property | Type | Required | Default | Notes | |
     --- | --- | --- | --- | --- | | key | string | Yes | | Ed25519 delegate private key in hex | |
     accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No | |
     Relayer URL | | namespace | string | No | "default" | Default namespace for memory isolation |
     For the full config surface, see Configuration.
-- [Changelog](https://docs.wal.app/docs/walrus-memory/sdk/changelog.md):
+- [Changelog](https://docs.wal.app/walrus-memory/sdk/changelog.md):
     Added RecallParams for object-style recall(...) calls. Marked the positional recall(...)
     overload as deprecated in favor of . Documented restore response fields, default limit,
     pagination behavior, and performance expectations. Added relayer compatibility metadata checks
     before protected requests.
-- [Cloudflare Workers](https://docs.wal.app/docs/walrus-memory/sdk/cloudflare-workers.md):
+- [Cloudflare Workers](https://docs.wal.app/walrus-memory/sdk/cloudflare-workers.md):
     Walrus Memory runs on the Cloudflare Workers runtime, but the edge environment differs from
     Node.js in a few ways that affect bundling and reliability. This guide covers the configuration
     and patterns that make it work cleanly.
-- [Cookbook Multi Tenant](https://docs.wal.app/docs/walrus-memory/sdk/cookbook-multi-tenant.md):
+- [Cookbook Multi Tenant](https://docs.wal.app/walrus-memory/sdk/cookbook-multi-tenant.md):
     This is the pattern for SaaS-style apps where one operator runs a server that stores memory on
     behalf of many end users. For example, a Next.js app on Vercel where users connect a Sui wallet
     only for sign-in, and the server holds the credentials.
-- [Example Map](https://docs.wal.app/docs/walrus-memory/sdk/example-map.md)
-- [Examples](https://docs.wal.app/docs/walrus-memory/sdk/examples.md):
+- [Example Map](https://docs.wal.app/walrus-memory/sdk/example-map.md)
+- [Examples](https://docs.wal.app/walrus-memory/sdk/examples.md):
     The shortest working Walrus Memory example using the default relayer-backed SDK.
-- [Overview](https://docs.wal.app/docs/walrus-memory/sdk/overview.md):
+- [Overview](https://docs.wal.app/walrus-memory/sdk/overview.md):
     Walrus Memory exposes SDK surfaces for TypeScript and Python. The SDKs give your agents
     portable memory that works across apps, sessions, and workflows, fully under your control. Use
     this first.
-- [Production Readiness](https://docs.wal.app/docs/walrus-memory/sdk/production-readiness.md):
+- [Production Readiness](https://docs.wal.app/walrus-memory/sdk/production-readiness.md):
     The SDK gives you the storage primitives. Running them in a long-lived agent, where there is no
     human to retry a failed write or notice a runaway bill, takes a few patterns on top. This guide
     collects the ones that matter most. Several of these are patterns you implement around the
     client today.
-- [Quick Start](https://docs.wal.app/docs/walrus-memory/sdk/quick-start.md):
+- [Quick Start](https://docs.wal.app/walrus-memory/sdk/quick-start.md):
     The Walrus Memory SDK gives your agents portable memory that works across apps, sessions, and
     workflows. Store, recall, and analyze context, fully under your control.
-- [Research App Example](https://docs.wal.app/docs/walrus-memory/sdk/research-app-example.md):
+- [Research App Example](https://docs.wal.app/walrus-memory/sdk/research-app-example.md):
     you want to store structured research findings you want to recall them in later sessions save a
     structured summary with remember generate targeted queries later use recall to pull relevant
     findings back into context Structured summaries usually recall better than raw transcripts
     because they keep the signal high.
-- [Usage](https://docs.wal.app/docs/walrus-memory/sdk/usage.md)
-- [Memwal Manual](https://docs.wal.app/docs/walrus-memory/sdk/usage/memwal-manual.md):
+- [Usage](https://docs.wal.app/walrus-memory/sdk/usage.md)
+- [Memwal Manual](https://docs.wal.app/walrus-memory/sdk/usage/memwal-manual.md):
     Use when the client must handle embedding calls and local Seal operations. The relayer still
     handles upload relay, vector registration, search, and restore. This is the recommended path
     for Web3-native users who want to minimize trust in the relayer, because it never sees your
     plaintext data.
-- [Memwal](https://docs.wal.app/docs/walrus-memory/sdk/usage/memwal.md):
+- [Memwal](https://docs.wal.app/walrus-memory/sdk/usage/memwal.md):
     The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing.
-- [With Memwal](https://docs.wal.app/docs/walrus-memory/sdk/usage/with-memwal.md):
+- [With Memwal](https://docs.wal.app/walrus-memory/sdk/usage/with-memwal.md):
     Drop-in memory middleware for Vercel AI SDK apps.
-- [Versioned Datasets](https://docs.wal.app/docs/walrus-memory/sdk/versioned-datasets.md):
+- [Versioned Datasets](https://docs.wal.app/walrus-memory/sdk/versioned-datasets.md):
     When an agent stores a dataset, a model artifact, or a snapshot of its own state, it usually
     needs more than the latest copy. It needs the history: which version it acted on, what changed
     between revisions, and proof that a past version has not been altered.
-- [Unsigned Health Check Rationale](https://docs.wal.app/docs/walrus-memory/security/health-check-unsigned.md):
-    GET /health and GET /version The health and version endpoints are intentionally left
-    unauthenticated and unsigned. They do not require a valid Ed25519 signature in headers like the
-    rest of the API.
-- [Overview](https://docs.wal.app/docs/walrus-memory/troubleshooting/overview.md):
+
+## Walrus Memory: Troubleshooting
+
+- [Overview](https://docs.wal.app/walrus-memory/troubleshooting/overview.md):
     This page collects the support questions that come up most often and the fastest way to resolve
     each one. Every entry lists the symptom you observe, the cause behind it, and the fix to apply.
 
