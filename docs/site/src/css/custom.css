@@ -1433,10 +1433,10 @@ padding-right: 0.3rem !important;
 }
 
 /* ══════════════════════════════════════════════
-   Kapa sidebar content shift
-   ══════════════════════════════════════════════ */
+  Kapa sidebar content shift
+  ══════════════════════════════════════════════ */
 /* Kapa renders in Shadow DOM so CSS :has() can't detect it.
-   A client module (kapa-sidebar.js) toggles .kapa-sidebar-open on <html>. */
+  A client module (kapa-sidebar.js) toggles .kapa-sidebar-open on <html>. */
 
 /* Smooth transition when closing */
 body {
@@ -1456,7 +1456,7 @@ html.kapa-sidebar-open body:not(:has(.landing-root)) {
 }
 
 /* Shrink the fixed navbar to match (it uses position:fixed so body width
-   doesn't affect it — set right offset instead; skip when landing page is shown) */
+  doesn't affect it — set right offset instead; skip when landing page is shown) */
 html.kapa-sidebar-open body:not(:has(.landing-root)) .navbar,
 html.kapa-sidebar-open body:not(:has(.landing-root)) .navbar--fixed-top {
   right: 500px !important;

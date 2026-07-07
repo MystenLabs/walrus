@@ -37,7 +37,7 @@
   {
     "slug": "walrus-storage-costs",
     "title": "Storage Costs",
-    "description": "Pricing, cost estimation, and the dual-token model (WAL + SUI). Covers the cost calculator, dry-run, and optimization strategies.",
+    "description": "Pricing, cost estimation, and the dual-token model (WAL + SUI). Covers the cost calculator, dry-run, and optimization.",
     "category": "Manage storage",
     "path": "walrus-storage-costs"
   },
@@ -65,7 +65,7 @@
   {
     "slug": "walrus-memory",
     "title": "Walrus Memory",
-    "description": "Persistent encrypted AI agent memory with Walrus Memory. Covers TypeScript and Python SDKs, MCP server, memory spaces, and delegate keys.",
+    "description": "Persistent encrypted AI agent memory. Covers TypeScript and Python SDKs, MCP server, memory spaces, and delegate keys.",
     "category": "Walrus Memory",
     "path": "walrus-memory"
   },

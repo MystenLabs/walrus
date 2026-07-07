@@ -240,7 +240,11 @@ export default function MultiIndexSearchModal({
                         </span>
                         <button
                             onClick={onClose}
-                            className="bg-transparent border border-solid border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5 text-[10px] text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600"
+                            className={
+                                "bg-transparent border border-solid border-gray-200 dark:border-gray-700 " +
+                                "rounded px-1.5 py-0.5 text-[10px] text-gray-400 dark:text-gray-500 " +
+                                "cursor-pointer hover:text-gray-600"
+                            }
                         >
                             ESC
                         </button>
@@ -249,7 +253,12 @@ export default function MultiIndexSearchModal({
                     {/* Ask Walrus AI banner */}
                     <button
                         type="button"
-                        className="w-full flex items-center gap-3 px-4 py-3.5 mb-3 rounded-xl bg-gradient-to-r from-[#37c3b0] to-[#298DFF] text-white border-none cursor-pointer transition-all hover:shadow-lg hover:shadow-blue-500/20 active:scale-[0.99]"
+                        className={
+                            "w-full flex items-center gap-3 px-4 py-3.5 mb-3 rounded-xl " +
+                            "bg-gradient-to-r from-[#37c3b0] to-[#298DFF] text-white border-none " +
+                            "cursor-pointer transition-all hover:shadow-lg hover:shadow-blue-500/20 " +
+                            "active:scale-[0.99]"
+                        }
                         onClick={() => {
                             onClose();
                             if (
@@ -299,7 +308,12 @@ export default function MultiIndexSearchModal({
                     </button>
 
                     {/* Search input */}
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-solid border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-white/5 mb-3">
+                    <div
+                        className={
+                            "flex items-center gap-2 px-3 py-2 rounded-lg border border-solid " +
+                            "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-white/5 mb-3"
+                        }
+                    >
                         <svg
                             width="16"
                             height="16"
@@ -322,7 +336,11 @@ export default function MultiIndexSearchModal({
                         <input
                             ref={searchBoxRef}
                             type="search"
-                            className="w-full bg-transparent border-none outline-none text-sm text-gray-900 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500"
+                            className={
+                                "w-full bg-transparent border-none outline-none text-sm " +
+                                "text-gray-900 dark:text-gray-200 placeholder-gray-400 " +
+                                "dark:placeholder-gray-500"
+                            }
                             placeholder="Search documentation..."
                             value={query}
                             onChange={(e) =>
@@ -441,7 +459,10 @@ export default function MultiIndexSearchModal({
 
                 {/* Footer */}
                 <div
-                    className={`h-10 px-5 ${modalBg} flex items-center justify-between text-[11px] border-t border-solid border-gray-200 dark:border-gray-700 shrink-0`}
+                    className={
+                        `h-10 px-5 ${modalBg} flex items-center justify-between text-[11px] ` +
+                        "border-t border-solid border-gray-200 dark:border-gray-700 shrink-0"
+                    }
                 >
                     <a
                         href={`/search?q=${encodeURIComponent(query)}`}
