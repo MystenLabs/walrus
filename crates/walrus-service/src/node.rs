@@ -8029,16 +8029,27 @@ mod tests {
         shard_sync_config: Option<ShardSyncConfig>,
         keep_destination_shards: bool,
     ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorageSet>)> {
-        let assignment = assignment.unwrap_or(&[&[0], &[1, 2, 3]]);
         let blobs: Vec<[u8; 32]> = (1..24).map(|i| [i; 32]).collect();
         let blobs: Vec<_> = blobs.iter().map(|b| &b[..]).collect();
-        let (cluster, _, blob_details) = cluster_with_initial_epoch_and_certified_blobs(
+        setup_cluster_for_shard_sync_tests_with_blobs(
             assignment,
-            &blobs,
-            2,
             shard_sync_config,
+            keep_destination_shards,
+            &blobs,
         )
-        .await?;
+        .await
+    }
+
+    async fn setup_cluster_for_shard_sync_tests_with_blobs(
+        assignment: Option<&[&[u16]]>,
+        shard_sync_config: Option<ShardSyncConfig>,
+        keep_destination_shards: bool,
+        blobs: &[&[u8]],
+    ) -> TestResult<(TestCluster, Vec<EncodedBlob>, Storage, Arc<ShardStorageSet>)> {
+        let assignment = assignment.unwrap_or(&[&[0], &[1, 2, 3]]);
+        let (cluster, _, blob_details) =
+            cluster_with_initial_epoch_and_certified_blobs(assignment, blobs, 2, shard_sync_config)
+                .await?;
 
         // Makes storage inner mutable so that we can manually add another shard to node 1.
         let node_inner = unsafe {
@@ -8481,6 +8492,245 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    // Tests that a fetched sliver that fails verification during shard sync is not stored and
+    // is recovered through shard recovery instead.
+    #[tokio::test]
+    async fn sync_shard_recovers_corrupted_sliver() -> TestResult {
+        let (cluster, blob_details, _) =
+            setup_shard_recovery_test_cluster(|_| true, |_| 42, |_| false).await?;
+
+        // Corrupts the primary sliver of one blob in the source shard by overwriting it with a
+        // sliver from a different blob.
+        let corrupted_blob_id = *blob_details[2].blob_id();
+        let wrong_sliver = Sliver::Primary(
+            blob_details[3]
+                .assigned_sliver_pair(ShardIndex(0))
+                .primary
+                .clone(),
+        );
+        cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .await
+            .expect("shard storage should exist")
+            .put_sliver(corrupted_blob_id, wrong_sliver)
+            .await?;
+
+        let node_inner = unsafe {
+            &mut *(Arc::as_ptr(&cluster.nodes[1].storage_node.inner) as *mut StorageNodeInner)
+        };
+        node_inner
+            .storage
+            .create_storage_for_shards_for_testing(&[ShardIndex(0)])
+            .await?;
+        let shard_storage_dst = node_inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .await
+            .expect("shard storage should exist");
+        shard_storage_dst
+            .update_status_in_test(ShardStatus::None)
+            .await?;
+
+        cluster.nodes[1]
+            .storage_node
+            .shard_sync_handler
+            .start_sync_shards(vec![ShardIndex(0)])
+            .await?;
+        wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
+
+        // All blobs, including the corrupted one, must contain the original slivers in the
+        // destination shard, since the corrupted sliver must have been recovered from the
+        // committee instead of being stored as fetched.
+        check_all_blobs_are_synced(
+            &blob_details,
+            &node_inner.storage,
+            shard_storage_dst.as_ref(),
+            &[],
+        )?;
+
+        Ok(())
+    }
+
+    // Tests that fetched slivers are stored without verification when sliver verification is
+    // disabled in the shard sync config.
+    #[tokio::test]
+    async fn sync_shard_stores_corrupted_sliver_when_verification_disabled() -> TestResult {
+        let shard_sync_config = ShardSyncConfig {
+            verify_fetched_slivers: false,
+            ..Default::default()
+        };
+        let (cluster, blob_details, _storage_dst, shard_storage_set) =
+            setup_cluster_for_shard_sync_tests(None, Some(shard_sync_config), false).await?;
+        let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
+
+        // Corrupts the primary sliver of one blob in the source shard by overwriting it with a
+        // sliver from a different blob.
+        let corrupted_blob_id = *blob_details[2].blob_id();
+        let wrong_sliver_data = blob_details[3]
+            .assigned_sliver_pair(ShardIndex(0))
+            .primary
+            .clone();
+        cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .await
+            .expect("shard storage should exist")
+            .put_sliver(
+                corrupted_blob_id,
+                Sliver::Primary(wrong_sliver_data.clone()),
+            )
+            .await?;
+
+        cluster.nodes[1]
+            .storage_node
+            .shard_sync_handler
+            .start_sync_shards(vec![ShardIndex(0)])
+            .await?;
+        wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
+
+        // With verification disabled, all slivers are transferred, and the corrupted sliver is
+        // stored as fetched.
+        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), Ok(23));
+        assert_eq!(
+            shard_storage_dst.sliver_count(SliverType::Secondary),
+            Ok(23)
+        );
+        let Sliver::Primary(dst_primary) = shard_storage_dst
+            .get_sliver(&corrupted_blob_id, SliverType::Primary)?
+            .expect("sliver should be present")
+        else {
+            panic!("must get primary sliver");
+        };
+        assert_eq!(dst_primary, wrong_sliver_data);
+
+        Ok(())
+    }
+
+    /// Sets up a shard sync destination for the given blobs and measures the time it takes to
+    /// sync shard 0 to the destination node.
+    async fn measure_shard_sync_duration(
+        assignment: Option<&[&[u16]]>,
+        blobs: &[&[u8]],
+        verify_fetched_slivers: bool,
+    ) -> TestResult<Duration> {
+        let shard_sync_config = ShardSyncConfig {
+            verify_fetched_slivers,
+            ..Default::default()
+        };
+        let (cluster, blob_details, _storage_dst, shard_storage_set) =
+            setup_cluster_for_shard_sync_tests_with_blobs(
+                assignment,
+                Some(shard_sync_config),
+                false,
+                blobs,
+            )
+            .await?;
+        let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
+
+        let start = std::time::Instant::now();
+        cluster.nodes[1]
+            .storage_node
+            .shard_sync_handler
+            .start_sync_shards(vec![ShardIndex(0)])
+            .await?;
+
+        // Waits for the shard to finish syncing, with a longer timeout than the functional
+        // tests to accommodate the larger data volume.
+        tokio::time::timeout(Duration::from_secs(300), async {
+            loop {
+                let status = shard_storage_dst
+                    .status()
+                    .await
+                    .expect("shard status should be readable");
+                if status == ShardStatus::Active {
+                    break;
+                }
+                // Polls with a fine granularity so that the poll interval does not dominate
+                // the measured sync duration.
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await?;
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            shard_storage_dst.sliver_count(SliverType::Primary),
+            Ok(blob_details.len())
+        );
+        assert_eq!(
+            shard_storage_dst.sliver_count(SliverType::Secondary),
+            Ok(blob_details.len())
+        );
+
+        Ok(elapsed)
+    }
+
+    /// Measures shard sync duration for the given workload with and without fetched-sliver
+    /// verification, and prints the comparison. The run with verification disabled corresponds
+    /// to the behavior before sliver verification was introduced (WAL-523).
+    async fn compare_shard_sync_performance(
+        assignment: Option<&[&[u16]]>,
+        blob_count: usize,
+        blob_size: usize,
+    ) -> TestResult {
+        let mut rng = StdRng::seed_from_u64(42);
+        let blob_data: Vec<Vec<u8>> = (0..blob_count)
+            .map(|_| {
+                let mut blob = vec![0u8; blob_size];
+                rng.fill(&mut blob[..]);
+                blob
+            })
+            .collect();
+        let blobs: Vec<&[u8]> = blob_data.iter().map(|blob| blob.as_slice()).collect();
+
+        let duration_without_verification =
+            measure_shard_sync_duration(assignment, &blobs, false).await?;
+        let duration_with_verification =
+            measure_shard_sync_duration(assignment, &blobs, true).await?;
+
+        println!("shard sync of {blob_count} blobs of {blob_size} bytes each:");
+        println!(
+            "- without sliver verification (previous behavior): \
+            {duration_without_verification:?}"
+        );
+        println!("- with sliver verification: {duration_with_verification:?}");
+
+        Ok(())
+    }
+
+    // Measures shard sync performance with and without fetched-sliver verification for many
+    // small blobs.
+    //
+    // Run manually with:
+    // cargo nextest run -r -p walrus-service sync_shard_verification_performance \
+    //     --run-ignored ignored-only --no-capture
+    #[ignore = "performance measurement; run manually"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_shard_verification_performance() -> TestResult {
+        compare_shard_sync_performance(None, 200, 256 * 1024).await
+    }
+
+    // Measures shard sync performance with and without fetched-sliver verification for large
+    // blobs.
+    //
+    // Run manually with:
+    // cargo nextest run -r -p walrus-service sync_shard_verification_performance_large_blobs \
+    //     --run-ignored ignored-only --no-capture
+    #[ignore = "performance measurement; run manually"]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn sync_shard_verification_performance_large_blobs() -> TestResult {
+        // The maximum blob size scales with the number of shards; 30 shards support blobs of
+        // up to roughly 16 MiB.
+        let node_1_shards: Vec<u16> = (1..30).collect();
+        let assignment: &[&[u16]] = &[&[0], &node_1_shards];
+        compare_shard_sync_performance(Some(assignment), 20, 10 * 1024 * 1024).await
     }
 
     // TODO(WAL-872): move failure injection test to src/tests/. Currently there is no way to run
