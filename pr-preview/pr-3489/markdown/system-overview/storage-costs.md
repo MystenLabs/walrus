@@ -22,7 +22,7 @@ You also pay **SUI** for executing transactions on Sui Mainnet. Each operation t
 
 > **Tip**
 >
-> Walrus uses erasure coding with approximately 5x expansion. The cost calculator and `walrus info` account for this. You do not need to calculate the expansion yourself.
+> Walrus bills you on the blob's **encoded size**, not the size of your original file. The encoded size is about 4.5x the original blob plus a fixed 64 MB of per-blob metadata. The cost calculator and `walrus info` already account for this, so you do not need to compute it yourself. Run `walrus store --dry-run ...` to see the exact encoded size for a file.
 ## What you get for $0.023/GB/month
 
 At $0.023 per GB per month, Walrus is in line with centralized storage providers but includes additional capabilities and lower configuration requirements.
@@ -47,7 +47,12 @@ Access is enforced through onchain policies, enabling fine-grained, dynamic perm
 
 You need a storage resource with adequate capacity and epoch duration to store a blob. You can purchase storage resources from the Walrus system contract by paying WAL, which is used by the client and aggregators while free space is available, or you can receive them from other parties.
 
-The cost of a storage resource is based on the blob's **encoded size**: the erasure-coded size of the blob (roughly 5x the original) plus fixed per-blob metadata of up to ~64 MB. For blobs smaller than 10 MB, this fixed metadata cost dominates. See [Reducing costs for small blobs](#reducing-costs-for-small-blobs-with-quilt) for optimization strategies.
+The cost of a storage resource is based on the blob's **encoded size**, not the size of your original file. The encoded size is the erasure-coded size of the blob, about 4.5x the original, plus a fixed 64 MB of per-blob metadata. For blobs smaller than 10 MB, the fixed metadata cost dominates. See [Reducing costs for small blobs](#reducing-costs-for-small-blobs-with-quilt) for optimization strategies.
+
+For example:
+
+- A **1 MB** blob encodes to about 4.5 MB of coded data plus 64 MB of metadata, so you pay for roughly **68 MB**. The fixed metadata dominates, which is why storing many small files separately is expensive.
+- A **1 GB** blob encodes to about 4.5 GB of coded data plus 64 MB of metadata, so you pay for roughly **4.56 GB**. At this size the erasure-coding overhead dominates and the metadata is negligible.
 
 > **Tip**
 >
