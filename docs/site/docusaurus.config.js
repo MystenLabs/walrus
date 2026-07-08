@@ -244,6 +244,9 @@ const config = {
         ],
         rehypePlugins: [rehypeKatex],
       },
+      blog: {
+        path: "../blog",
+      },
       sitemap: {
         ignorePatterns: [
           '/docs/walrus-sites/**',
