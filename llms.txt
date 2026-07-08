@@ -653,6 +653,14 @@ Sui smart contract as the on-chain index.
     A prototype that stores a blob on Testnet is not yet ready for production. Moving to Mainnet
     adds real cost, real failure modes, and the need to keep an upload path available under load.
 
+## Release Notes
+
+- [Release Notes](https://docs.wal.app/docs/release-notes.md):
+    Release notes from Walrus and Walrus Memory. Testnet July 1, 2026 | GitHub #3479: walrus info
+    committee gains a --commission-receivers flag that prints, as CSV, the commission receiver of
+    every node in the previous, current, and next committees (including the owning address for
+    object receivers).
+
 ## Seal Encryption Tutorial
 
 - [Seal Encryption Tutorial](https://docs.wal.app/docs/seal-encryption-tutorial.md):
