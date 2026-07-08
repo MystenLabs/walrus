@@ -1405,10 +1405,23 @@ impl ShardStorage {
         let mut verification_futures = Vec::with_capacity(fetched_slivers.len());
         for (blob_id, sliver) in fetched_slivers {
             verification_futures.push(async move {
-                (
-                    *blob_id,
-                    self.verify_fetched_sliver(node, blob_id, sliver).await,
-                )
+                // Check that the sliver has the type requested by the sync. The verification in
+                // `verify_fetched_sliver` authenticates the sliver against its own embedded
+                // type, so without this check a corrupt source could return a valid sliver of
+                // the other type.
+                let outcome = if sliver.r#type() == sliver_type {
+                    self.verify_fetched_sliver(node, blob_id, sliver).await
+                } else {
+                    tracing::warn!(
+                        walrus.blob_id = %blob_id,
+                        walrus.shard_index = %self.id,
+                        expected_sliver_type = %sliver_type,
+                        actual_sliver_type = %sliver.r#type(),
+                        "fetched sliver has a different type than the requested sliver type"
+                    );
+                    Ok(SliverVerificationOutcome::Invalid)
+                };
+                (*blob_id, outcome)
             });
         }
         let mut verifications = futures::stream::iter(verification_futures)
