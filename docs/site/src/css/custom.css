@@ -63,7 +63,6 @@ Infima — Light mode
 :root {
 --ifm-font-family-base: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
 --ifm-font-family-monospace: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
---ifm-navbar-height: 3.25rem;
 
 --ifm-background-color: #fff;
 --ifm-background-surface-color: #fff;
@@ -268,9 +267,7 @@ background: #f4f5f7 !important;
 color: #000 !important;
 border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
 box-shadow: none !important;
-height: 3.25rem;
-padding-top: 0 !important;
-padding-bottom: 0 !important;
+height: 4.25rem;
 }
 
 [data-theme="dark"] .navbar {
@@ -284,7 +281,7 @@ border-bottom-color: rgba(255, 255, 255, 0.06) !important;
 .navbar .navbar__brand,
 .navbar .navbar__toggle {
 color: #000 !important;
-font-size: 0.82rem;
+font-size: 0.92rem;
 }
 
 [data-theme="dark"] .navbar .navbar__title,
@@ -301,9 +298,9 @@ white-space: nowrap !important;
 
 .navbar__item.navbar__link {
 border-radius: 6px;
-padding: 0.2rem 0.55rem;
+padding: 0.3rem 0.65rem;
 transition: all 0.15s ease;
-font-size: 0.82rem;
+font-size: 0.9rem;
 }
 
 .navbar__item.navbar__link:hover {
@@ -892,7 +889,7 @@ color: #53575a !important;
 border-color: #dadad6 !important;
 border-radius: 2rem !important;
 transition: all 0.15s ease;
-font-size: 0.72rem;
+font-size: 0.78rem;
 }
 
 [data-theme="dark"] .navbar .kapa-trigger-btn {
@@ -1430,66 +1427,6 @@ padding-right: 0.3rem !important;
 [class*="buttonGroup_"] span {
   opacity: 1 !important;
   transition: none !important;
-}
-
-/* ══════════════════════════════════════════════
-  Kapa sidebar content shift
-  ══════════════════════════════════════════════ */
-/* Kapa renders in Shadow DOM so CSS :has() can't detect it.
-  A client module (kapa-sidebar.js) toggles .kapa-sidebar-open on <html>. */
-
-/* Smooth transition when closing */
-body {
-  transition: width 0.3s ease;
-}
-
-.navbar,
-.navbar--fixed-top {
-  transition: right 0.3s ease;
-}
-
-/* Shrink body to make room for the 500px sidebar (skip landing page) */
-html.kapa-sidebar-open body:not(:has(.landing-root)) {
-  width: calc(100vw - 500px) !important;
-  overflow-x: hidden;
-  transition: width 0.3s ease;
-}
-
-/* Shrink the fixed navbar to match (it uses position:fixed so body width
-  doesn't affect it — set right offset instead; skip when landing page is shown) */
-html.kapa-sidebar-open body:not(:has(.landing-root)) .navbar,
-html.kapa-sidebar-open body:not(:has(.landing-root)) .navbar--fixed-top {
-  right: 500px !important;
-  overflow: hidden;
-  transition: right 0.3s ease;
-}
-
-/* Hide the Ask AI and Search buttons when the sidebar is already open */
-html.kapa-sidebar-open .kapa-trigger-btn,
-html.kapa-sidebar-open .DocSearch-Button {
-  display: none !important;
-}
-
-/* Hide the desktop TOC column to free space */
-html.kapa-sidebar-open .col.col--3:has(.theme-doc-toc-desktop) {
-  display: none;
-}
-
-/* Let the main content column expand to fill the freed space */
-html.kapa-sidebar-open .col[class*="docItemCol"] {
-  max-width: 100% !important;
-  flex: 1 !important;
-}
-
-/* On mobile, Kapa goes full-screen so don't shrink */
-@media (max-width: 768px) {
-  html.kapa-sidebar-open body {
-    width: 100vw !important;
-  }
-  html.kapa-sidebar-open .navbar,
-  html.kapa-sidebar-open .navbar--fixed-top {
-    right: 0 !important;
-  }
 }
 
 /* Mermaid diagrams - Walrus palette, per-mode contrast.
