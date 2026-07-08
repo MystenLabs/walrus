@@ -93,6 +93,7 @@ const config = {
 
   clientModules: [
     "./src/client/webmcp.js",
+    "./src/client/kapa-sidebar.js",
   ],
 
   onBrokenLinks: "throw",
@@ -258,22 +259,6 @@ const config = {
           '/docs/snippets/**',
         ],
       },
-      blog: {
-        path: "../blog",
-        postsPerPage: "ALL",
-        blogSidebarTitle: "All posts",
-        blogSidebarCount: "ALL",
-        showReadingTime: true,
-        feedOptions: {
-          type: ["rss", "atom"],
-          xslt: true,
-        },
-        onInlineTags: "warn",
-        onInlineAuthors: "warn",
-        onUntruncatedBlogPosts: "warn",
-        remarkPlugins: [remarkMath],
-        rehypePlugins: [rehypeKatex],
-      },
       pages: {
         remarkPlugins: [
           [remarkGlossary, { glossaryFile: "static/glossary.json" }],
@@ -297,6 +282,9 @@ const config = {
       "data-project-name": "Walrus Knowledge",
       "data-project-color": "#37c3b0ff",
       "data-button-hide": "true",
+      "data-view-mode": "sidebar",
+      "data-modal-overlay-hidden": "true",
+      "data-modal-lock-scroll": "false",
       "data-modal-title": "Ask Walrus AI",
       "data-modal-ask-ai-input-placeholder": "Ask me anything about Walrus!",
       "data-modal-example-questions":
@@ -344,7 +332,7 @@ const config = {
             label: "Service Providers",
             position: "right",
           },
-          { to: "/blog", label: "Blog", position: "right" },
+          { to: "/skills", label: "Skills", position: "right" },
           { to: "/docs/release-notes", label: "Release Notes", position: "right" },
           {
             href: "https://github.com/MystenLabs/walrus",

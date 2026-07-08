@@ -108,6 +108,22 @@ const SECTION_PRIORITY = [
   "Glossary",
   "Tusky Migration Guide",
   "Legal",
+  // Walrus Memory sections
+  "Walrus Memory",
+  "Walrus Memory: Getting Started",
+  "Walrus Memory: Fundamentals",
+  "Walrus Memory: Sdk",
+  "Walrus Memory: Python Sdk",
+  "Walrus Memory: Mcp",
+  "Walrus Memory: Relayer",
+  "Walrus Memory: Contract",
+  "Walrus Memory: Indexer",
+  "Walrus Memory: Openclaw",
+  "Walrus Memory: Reference",
+  "Walrus Memory: Architecture",
+  "Walrus Memory: Security",
+  "Walrus Memory: Contributing",
+  "Walrus Memory: Examples",
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -380,9 +396,11 @@ for (const file of files) {
   const { title, description } = parseMarkdown(file, content);
   const urlPath = fileToUrlPath(file, markdownDir);
 
-  // Blog posts keep their /blog/ prefix; docs get /docs/ prefix
+  // Blog posts keep their /blog/ prefix; walrus-memory keeps /walrus-memory/;
+  // everything else gets /docs/ prefix.
   const isBlogPost = urlPath === "blog" || urlPath.startsWith("blog/") || urlPath.startsWith("/blog");
-  const docUrlPath = urlPath.startsWith("/docs") || isBlogPost
+  const isWalrusMemory = urlPath === "walrus-memory" || urlPath.startsWith("walrus-memory/") || urlPath.startsWith("/walrus-memory");
+  const docUrlPath = urlPath.startsWith("/docs") || isBlogPost || isWalrusMemory
     ? (urlPath.startsWith("/") ? urlPath : "/" + urlPath)
     : "/docs" + (urlPath.startsWith("/") ? urlPath : "/" + urlPath);
 
@@ -402,11 +420,20 @@ for (const file of files) {
   }
 
   const segments = docUrlPath.replace(/^\//, "").split("/");
-  const section = segments.length > 2
-    ? toSectionTitle(segments[1])
-    : segments.length > 1 && segments[1]
+  let section;
+  if (segments[0] === "walrus-memory") {
+    // walrus-memory/sdk/overview → "Walrus Memory: Sdk"
+    // walrus-memory/index → "Walrus Memory"
+    section = segments.length > 2 && segments[1]
+      ? "Walrus Memory: " + toSectionTitle(segments[1])
+      : "Walrus Memory";
+  } else {
+    section = segments.length > 2
       ? toSectionTitle(segments[1])
-      : "General";
+      : segments.length > 1 && segments[1]
+        ? toSectionTitle(segments[1])
+        : "General";
+  }
 
   // CHANGED: Only store .md URL
   pages.push({ title: derivedTitle, mdUrl, description, section });
@@ -414,7 +441,7 @@ for (const file of files) {
 
 // ── Build llms.txt ────────────────────────────────────────────────────────────
 
-const TARGET_CHARS = 120_000;
+const TARGET_CHARS = 150_000;
 
 const sectionOrderRaw = [];
 const grouped = {};

@@ -10,19 +10,12 @@
     },
     "/markdown/**/*.md": {
       "Content-Disposition": "inline",
-      "content-type": "text/markdown; charset=utf-8"
+      "content-type": "text/markdown; charset=utf-8",
+      "Cache-Control": "public, max-age=3600, must-revalidate"
     }
   },
   "routes": {
     "/404": "/404.html",
-    "/blog": "/blog.html",
-    "/blog/01_announcing_walrus": "/blog/01_announcing_walrus.html",
-    "/blog/02_devnet_update": "/blog/02_devnet_update.html",
-    "/blog/03_whitepaper": "/blog/03_whitepaper.html",
-    "/blog/04_testnet_update": "/blog/04_testnet_update.html",
-    "/blog/05_testnet_redeployment": "/blog/05_testnet_redeployment.html",
-    "/blog/06_mainnet": "/blog/06_mainnet.html",
-    "/blog/archive": "/blog/archive.html",
     "/docs/data-security.md": "/markdown/data-security.md",
     "/docs/design/architecture.md": "/markdown/system-overview/core-concepts.md",
     "/docs/design/encoding.md": "/markdown/system-overview/core-concepts.md",
