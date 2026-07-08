@@ -1445,6 +1445,28 @@ impl ShardStorage {
         blob_id: &BlobId,
         sliver: &Sliver,
     ) -> Result<SliverVerificationOutcome, SyncShardClientError> {
+        // Check that the sliver is the one this shard must hold for the blob. The metadata
+        // verification below authenticates the sliver against its own pair index, so without
+        // this check a corrupt source could return a valid sliver of the same blob for a
+        // different sliver pair. This mirrors the `SliverIndexMismatch` check in the upload
+        // path, and runs first since it is much cheaper than the metadata verification.
+        let n_shards = node.encoding_config.n_shards();
+        let expected_pair_index = self.id.to_pair_index(n_shards, blob_id);
+        let actual_pair_index = match sliver.r#type() {
+            SliverType::Primary => sliver.sliver_index().to_pair_index::<Primary>(n_shards),
+            SliverType::Secondary => sliver.sliver_index().to_pair_index::<Secondary>(n_shards),
+        };
+        if actual_pair_index != expected_pair_index {
+            tracing::warn!(
+                walrus.blob_id = %blob_id,
+                walrus.shard_index = %self.id,
+                %expected_pair_index,
+                %actual_pair_index,
+                "fetched sliver has a pair index that does not belong to this shard"
+            );
+            return Ok(SliverVerificationOutcome::Invalid);
+        }
+
         // Use the blob's initial certified epoch to fetch missing metadata: during a committee
         // transition, `read_committee` routes reads for blobs certified before the current epoch
         // to the previous committee, which is the one guaranteed to hold the data while the new

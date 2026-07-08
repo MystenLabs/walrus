@@ -8494,22 +8494,18 @@ mod tests {
         Ok(())
     }
 
-    // Tests that a fetched sliver that fails verification during shard sync is not stored and
-    // is recovered through shard recovery instead.
-    #[tokio::test]
-    async fn sync_shard_recovers_corrupted_sliver() -> TestResult {
+    /// Overwrites the sliver of one blob in the source shard with the sliver produced by
+    /// `make_bad_sliver`, syncs the shard to the destination node, and asserts that the
+    /// destination ends up with the original slivers for all blobs, since the bad sliver must
+    /// fail verification and be recovered from the committee instead of being stored as fetched.
+    async fn assert_sync_shard_recovers_bad_source_sliver(
+        make_bad_sliver: impl FnOnce(&[EncodedBlob]) -> Sliver,
+    ) -> TestResult {
         let (cluster, blob_details, _) =
             setup_shard_recovery_test_cluster(|_| true, |_| 42, |_| false).await?;
 
-        // Corrupts the primary sliver of one blob in the source shard by overwriting it with a
-        // sliver from a different blob.
-        let corrupted_blob_id = *blob_details[2].blob_id();
-        let wrong_sliver = Sliver::Primary(
-            blob_details[3]
-                .assigned_sliver_pair(ShardIndex(0))
-                .primary
-                .clone(),
-        );
+        let bad_blob_id = *blob_details[2].blob_id();
+        let bad_sliver = make_bad_sliver(&blob_details);
         cluster.nodes[0]
             .storage_node
             .inner
@@ -8517,7 +8513,7 @@ mod tests {
             .shard_storage(ShardIndex(0))
             .await
             .expect("shard storage should exist")
-            .put_sliver(corrupted_blob_id, wrong_sliver)
+            .put_sliver(bad_blob_id, bad_sliver)
             .await?;
 
         let node_inner = unsafe {
@@ -8543,9 +8539,8 @@ mod tests {
             .await?;
         wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
 
-        // All blobs, including the corrupted one, must contain the original slivers in the
-        // destination shard, since the corrupted sliver must have been recovered from the
-        // committee instead of being stored as fetched.
+        // All blobs, including the one with the bad source sliver, must contain the original
+        // slivers in the destination shard.
         check_all_blobs_are_synced(
             &blob_details,
             &node_inner.storage,
@@ -8554,6 +8549,40 @@ mod tests {
         )?;
 
         Ok(())
+    }
+
+    // Tests that a fetched sliver that fails verification during shard sync is not stored and
+    // is recovered through shard recovery instead.
+    #[tokio::test]
+    async fn sync_shard_recovers_corrupted_sliver() -> TestResult {
+        // A sliver from a different blob fails the metadata hash verification.
+        assert_sync_shard_recovers_bad_source_sliver(|blob_details| {
+            Sliver::Primary(
+                blob_details[3]
+                    .assigned_sliver_pair(ShardIndex(0))
+                    .primary
+                    .clone(),
+            )
+        })
+        .await
+    }
+
+    // Tests that a fetched sliver that belongs to the same blob but to a different sliver pair
+    // is not stored and is recovered through shard recovery instead.
+    #[tokio::test]
+    async fn sync_shard_recovers_sliver_with_wrong_pair_index() -> TestResult {
+        // A valid sliver of the same blob assigned to a different shard passes the metadata
+        // hash verification (which authenticates the sliver against its own pair index), and
+        // is only caught by the sliver pair index check.
+        assert_sync_shard_recovers_bad_source_sliver(|blob_details| {
+            Sliver::Primary(
+                blob_details[2]
+                    .assigned_sliver_pair(ShardIndex(1))
+                    .primary
+                    .clone(),
+            )
+        })
+        .await
     }
 
     // Tests that fetched slivers are stored without verification when sliver verification is
