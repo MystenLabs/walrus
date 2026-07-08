@@ -259,22 +259,6 @@ const config = {
           '/docs/snippets/**',
         ],
       },
-      blog: {
-        path: "../blog",
-        postsPerPage: "ALL",
-        blogSidebarTitle: "All posts",
-        blogSidebarCount: "ALL",
-        showReadingTime: true,
-        feedOptions: {
-          type: ["rss", "atom"],
-          xslt: true,
-        },
-        onInlineTags: "warn",
-        onInlineAuthors: "warn",
-        onUntruncatedBlogPosts: "warn",
-        remarkPlugins: [remarkMath],
-        rehypePlugins: [rehypeKatex],
-      },
       pages: {
         remarkPlugins: [
           [remarkGlossary, { glossaryFile: "static/glossary.json" }],
@@ -348,7 +332,7 @@ const config = {
             label: "Service Providers",
             position: "right",
           },
-          { to: "/blog", label: "Blog", position: "right" },
+          { to: "/skills", label: "Skills", position: "right" },
           {
             href: "https://github.com/MystenLabs/walrus",
             position: "right",
