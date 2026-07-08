@@ -45,7 +45,7 @@ use walrus_utils::{metrics::Registry, tracing_sampled};
 
 use super::{
     DatabaseTableOptionsFactory,
-    blob_info::{BlobInfo, BlobInfoIterator},
+    blob_info::{BlobInfo, BlobInfoIterator, CertifiedBlobInfoApi},
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
 };
@@ -1080,7 +1080,7 @@ impl ShardStorage {
                     .await?;
 
                 let verification_results = if config.verify_fetched_slivers {
-                    self.verify_fetched_slivers(&node, &fetched_slivers, sliver_type, epoch, config)
+                    self.verify_fetched_slivers(&node, &fetched_slivers, sliver_type, config)
                         .await?
                 } else {
                     FetchedSliverVerificationResults::default()
@@ -1399,7 +1399,6 @@ impl ShardStorage {
         node: &Arc<StorageNodeInner>,
         fetched_slivers: &[(BlobId, Sliver)],
         sliver_type: SliverType,
-        epoch: Epoch,
         config: &ShardSyncConfig,
     ) -> Result<FetchedSliverVerificationResults, SyncShardClientError> {
         let mut results = FetchedSliverVerificationResults::default();
@@ -1408,8 +1407,7 @@ impl ShardStorage {
             verification_futures.push(async move {
                 (
                     *blob_id,
-                    self.verify_fetched_sliver(node, blob_id, sliver, epoch)
-                        .await,
+                    self.verify_fetched_sliver(node, blob_id, sliver).await,
                 )
             });
         }
@@ -1446,15 +1444,26 @@ impl ShardStorage {
         node: &Arc<StorageNodeInner>,
         blob_id: &BlobId,
         sliver: &Sliver,
-        epoch: Epoch,
     ) -> Result<SliverVerificationOutcome, SyncShardClientError> {
+        // Use the blob's initial certified epoch to fetch missing metadata: during a committee
+        // transition, `read_committee` routes reads for blobs certified before the current epoch
+        // to the previous committee, which is the one guaranteed to hold the data while the new
+        // committee is still syncing.
+        let Some(certified_epoch) = node
+            .storage
+            .get_blob_info(blob_id)?
+            .and_then(|blob_info| blob_info.initial_certified_epoch())
+        else {
+            return Ok(SliverVerificationOutcome::BlobRetired);
+        };
+
         // Fetching missing metadata is guarded by the blob retirement check, so that we neither
         // fetch metadata for blobs that are not certified nor keep fetching metadata for blobs
         // that are retired while the fetch is in progress.
         let result = node
             .blob_retirement_notifier
             .execute_with_retirement_check(node, *blob_id, || {
-                node.get_or_recover_blob_metadata(blob_id, epoch)
+                node.get_or_recover_blob_metadata(blob_id, certified_epoch)
             })
             .await?;
         let metadata = match result {
@@ -1729,6 +1738,10 @@ impl ShardStorage {
         sui_macros::fail_point!("fail_point_shard_sync_recover_blob");
 
         // Get the metadata for the blob. If metadata is not found, it will be recovered.
+        // TODO(zhewu): pass the blob's initial certified epoch instead of the sync target epoch
+        // to `get_or_recover_blob_metadata` and `recover_sliver` below, so that missing metadata
+        // and slivers are fetched from the correct committee during a committee transition; see
+        // `verify_fetched_sliver`. To be fixed in a follow-up PR.
         let metadata = {
             let result = node
                 .blob_retirement_notifier
