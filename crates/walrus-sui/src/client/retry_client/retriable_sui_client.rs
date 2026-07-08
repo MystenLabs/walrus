@@ -1248,7 +1248,7 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::multi_get_object_with_options`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn multi_get_object_with_options(
+    pub(crate) async fn multi_get_object_with_options(
         &self,
         object_ids: &[ObjectID],
         options: SuiObjectDataOptions,
@@ -1284,7 +1284,7 @@ impl RetriableSuiClient {
     /// [`Self::multi_get_object_with_options`] in batches of the maximum number of objects allowed
     /// in a single RPC call.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn multi_get_object_with_options_batched(
+    pub(crate) async fn multi_get_object_with_options_batched(
         &self,
         object_ids: &[ObjectID],
         options: SuiObjectDataOptions,
@@ -1310,7 +1310,7 @@ impl RetriableSuiClient {
     /// `WALRUS_GRPC_MIGRATION_LEVEL < 9`; the gRPC path uses
     /// `MovePackageService.GetDatatype` instead and never reaches this method.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn get_normalized_move_modules_by_package(
+    pub(crate) async fn get_normalized_move_modules_by_package(
         &self,
         package_id: ObjectID,
     ) -> SuiClientResult<BTreeMap<String, SuiMoveNormalizedModule>> {
@@ -1460,7 +1460,7 @@ impl RetriableSuiClient {
     /// Executes a transaction dry run.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::dry_run_transaction_block`] internally.
-    pub async fn dry_run_transaction_block(
+    pub(crate) async fn dry_run_transaction_block(
         &self,
         transaction: TransactionData,
     ) -> SuiClientResult<DryRunTransactionBlockResponse> {
