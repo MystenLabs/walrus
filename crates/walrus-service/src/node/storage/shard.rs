@@ -1254,6 +1254,9 @@ impl ShardStorage {
     ///
     /// Returns the updated iterator position together with the ids whose recovery deferrals can be
     /// cleared.
+    ///
+    /// TODO(zhewu): clean up this function to make it more readable, for example, by extracting
+    /// the per-sliver skip/store decision and the SST/plain-batch insertion paths into helpers.
     #[allow(clippy::too_many_arguments)]
     fn batch_fetched_slivers_and_check_missing_blobs(
         &self,
