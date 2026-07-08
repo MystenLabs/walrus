@@ -333,6 +333,7 @@ const config = {
             position: "right",
           },
           { to: "/skills", label: "Skills", position: "right" },
+          { to: "/docs/release-notes", label: "Release Notes", position: "right" },
           {
             href: "https://github.com/MystenLabs/walrus",
             position: "right",
