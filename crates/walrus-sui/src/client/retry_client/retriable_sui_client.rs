@@ -228,6 +228,19 @@ const GRPC_MIGRATION_LEVEL_SERVICE_INFO: GrpcMigrationLevel = GrpcMigrationLevel
 const GRPC_MIGRATION_LEVEL_TRANSACTION_WRITES: GrpcMigrationLevel = GrpcMigrationLevel(7);
 const GRPC_MIGRATION_LEVEL_OWNED_OBJECTS: GrpcMigrationLevel = GrpcMigrationLevel(8);
 const GRPC_MIGRATION_LEVEL_MOVE_PACKAGE_READS: GrpcMigrationLevel = GrpcMigrationLevel(9);
+// Level 10 removed `query_events` entirely (see #3342) and needs no runtime gate.
+const GRPC_MIGRATION_LEVEL_SKIP_JSON_RPC_CLIENT: GrpcMigrationLevel = GrpcMigrationLevel(11);
+
+impl GrpcMigrationLevel {
+    /// Returns `true` if the JSON-RPC `SuiClient` must be constructed at this migration level.
+    ///
+    /// At the level of `GRPC_MIGRATION_LEVEL_SKIP_JSON_RPC_CLIENT` and above, all operations are
+    /// served via gRPC, so the JSON-RPC client is not constructed at all. This allows running
+    /// against Sui endpoints that no longer serve JSON-RPC.
+    pub fn requires_json_rpc_client(self) -> bool {
+        self < GRPC_MIGRATION_LEVEL_SKIP_JSON_RPC_CLIENT
+    }
+}
 
 impl Default for GrpcMigrationLevel {
     fn default() -> Self {
@@ -714,7 +727,7 @@ impl RetriableSuiClient {
                                     self.get_strategy(),
                                     || async {
                                         client
-                                            .sui_client()
+                                            .try_sui_client()?
                                             .coin_read_api()
                                             .get_coins(
                                                 owner,
@@ -834,7 +847,7 @@ impl RetriableSuiClient {
                         self.get_strategy(),
                         || async {
                             client
-                                .sui_client()
+                                .try_sui_client()?
                                 .coin_read_api()
                                 .get_balance(owner, Some(coin_type.to_owned()))
                                 .await
@@ -939,7 +952,7 @@ impl RetriableSuiClient {
             cursor: Option<ObjectID>,
         ) -> SuiClientResult<ObjectsPage> {
             Ok(client
-                .sui_client()
+                .try_sui_client()?
                 .read_api()
                 .get_owned_objects(address, Some(query), cursor, None)
                 .await?)
@@ -1040,7 +1053,7 @@ impl RetriableSuiClient {
             options: SuiObjectDataOptions,
         ) -> SuiClientResult<SuiObjectResponse> {
             Ok(client
-                .sui_client()
+                .try_sui_client()?
                 .read_api()
                 .get_object_with_options(object_id, options.clone())
                 .await?)
@@ -1129,7 +1142,7 @@ impl RetriableSuiClient {
             sdk_options: SuiTransactionBlockResponseOptions,
         ) -> SuiClientResult<SuiTransactionBlockResponse> {
             Ok(client
-                .sui_client()
+                .try_sui_client()?
                 .read_api()
                 .get_transaction_with_options(digest, sdk_options.clone())
                 .await?)
@@ -1235,7 +1248,7 @@ impl RetriableSuiClient {
     ///
     /// Calls [`sui_sdk::apis::ReadApi::multi_get_object_with_options`] internally.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn multi_get_object_with_options(
+    pub(crate) async fn multi_get_object_with_options(
         &self,
         object_ids: &[ObjectID],
         options: SuiObjectDataOptions,
@@ -1246,7 +1259,7 @@ impl RetriableSuiClient {
             options: SuiObjectDataOptions,
         ) -> SuiClientResult<Vec<SuiObjectResponse>> {
             Ok(client
-                .sui_client()
+                .try_sui_client()?
                 .read_api()
                 .multi_get_object_with_options(object_ids.to_vec(), options)
                 .await?)
@@ -1271,7 +1284,7 @@ impl RetriableSuiClient {
     /// [`Self::multi_get_object_with_options`] in batches of the maximum number of objects allowed
     /// in a single RPC call.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn multi_get_object_with_options_batched(
+    pub(crate) async fn multi_get_object_with_options_batched(
         &self,
         object_ids: &[ObjectID],
         options: SuiObjectDataOptions,
@@ -1297,7 +1310,7 @@ impl RetriableSuiClient {
     /// `WALRUS_GRPC_MIGRATION_LEVEL < 9`; the gRPC path uses
     /// `MovePackageService.GetDatatype` instead and never reaches this method.
     #[tracing::instrument(level = Level::DEBUG, skip_all)]
-    pub async fn get_normalized_move_modules_by_package(
+    pub(crate) async fn get_normalized_move_modules_by_package(
         &self,
         package_id: ObjectID,
     ) -> SuiClientResult<BTreeMap<String, SuiMoveNormalizedModule>> {
@@ -1310,7 +1323,7 @@ impl RetriableSuiClient {
             package_id: ObjectID,
         ) -> SuiClientResult<BTreeMap<String, SuiMoveNormalizedModule>> {
             Ok(client
-                .sui_client()
+                .try_sui_client()?
                 .read_api()
                 .get_normalized_move_modules_by_package(package_id)
                 .await?)
@@ -1355,7 +1368,7 @@ impl RetriableSuiClient {
                     let client = client.clone();
                     async move {
                         Ok(client
-                            .sui_client()
+                            .try_sui_client()?
                             .governance_api()
                             .get_committee_info(epoch)
                             .await?
@@ -1411,7 +1424,7 @@ impl RetriableSuiClient {
                     let client = client.clone();
                     async move {
                         Ok(client
-                            .sui_client()
+                            .try_sui_client()?
                             .read_api()
                             .get_reference_gas_price()
                             .await?)
@@ -1447,7 +1460,7 @@ impl RetriableSuiClient {
     /// Executes a transaction dry run.
     ///
     /// Calls [`sui_sdk::apis::ReadApi::dry_run_transaction_block`] internally.
-    pub async fn dry_run_transaction_block(
+    pub(crate) async fn dry_run_transaction_block(
         &self,
         transaction: TransactionData,
     ) -> SuiClientResult<DryRunTransactionBlockResponse> {
@@ -1458,7 +1471,7 @@ impl RetriableSuiClient {
         ) -> SuiClientResult<DryRunTransactionBlockResponse> {
             let tx = TransactionData::clone(&transaction);
             Ok(client
-                .sui_client()
+                .try_sui_client()?
                 .read_api()
                 .dry_run_transaction_block(tx)
                 .await?)
@@ -1611,7 +1624,7 @@ impl RetriableSuiClient {
                     let client = client.clone();
                     async move {
                         Ok(client
-                            .sui_client()
+                            .try_sui_client()?
                             .read_api()
                             .get_chain_identifier()
                             .await?)
@@ -2092,7 +2105,7 @@ impl RetriableSuiClient {
                     maybe_return_injected_error_in_stake_pool_transaction(&transaction)?;
                 }
                 Ok(client
-                    .sui_client()
+                    .try_sui_client()?
                     .quorum_driver_api()
                     .execute_transaction_block(
                         transaction.clone(),
@@ -2824,5 +2837,17 @@ mod tests {
         assert_eq!(result.timestamp_ms, Some(12345));
         assert!(result.balance_changes.is_none());
         assert!(result.events.is_none());
+    }
+
+    #[test]
+    fn test_json_rpc_client_required_below_skip_level_only() {
+        // All levels with JSON-RPC fallback paths still require the client.
+        assert!(GrpcMigrationLevel(0).requires_json_rpc_client());
+        assert!(GRPC_MIGRATION_LEVEL_MOVE_PACKAGE_READS.requires_json_rpc_client());
+        assert!(GrpcMigrationLevel(10).requires_json_rpc_client());
+        // From the skip level onwards, the JSON-RPC client is not constructed, so binaries can
+        // run against Sui endpoints that no longer serve JSON-RPC.
+        assert!(!GRPC_MIGRATION_LEVEL_SKIP_JSON_RPC_CLIENT.requires_json_rpc_client());
+        assert!(!GrpcMigrationLevel(GRPC_MIGRATION_LEVEL_DEFAULT_U32).requires_json_rpc_client());
     }
 }
