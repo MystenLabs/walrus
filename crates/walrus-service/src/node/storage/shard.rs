@@ -1462,19 +1462,23 @@ impl ShardStorage {
         // this check a corrupt source could return a valid sliver of the same blob for a
         // different sliver pair. This mirrors the `SliverIndexMismatch` check in the upload
         // path, and runs first since it is much cheaper than the metadata verification.
+        //
+        // The comparison converts the shard's trusted pair index to a sliver index, and not the
+        // other way around, since converting the untrusted sliver index with `to_pair_index`
+        // panics on indices that are out of range for the committee.
         let n_shards = node.encoding_config.n_shards();
         let expected_pair_index = self.id.to_pair_index(n_shards, blob_id);
-        let actual_pair_index = match sliver.r#type() {
-            SliverType::Primary => sliver.sliver_index().to_pair_index::<Primary>(n_shards),
-            SliverType::Secondary => sliver.sliver_index().to_pair_index::<Secondary>(n_shards),
+        let expected_sliver_index = match sliver.r#type() {
+            SliverType::Primary => expected_pair_index.to_sliver_index::<Primary>(n_shards),
+            SliverType::Secondary => expected_pair_index.to_sliver_index::<Secondary>(n_shards),
         };
-        if actual_pair_index != expected_pair_index {
+        if sliver.sliver_index() != expected_sliver_index {
             tracing::warn!(
                 walrus.blob_id = %blob_id,
                 walrus.shard_index = %self.id,
-                %expected_pair_index,
-                %actual_pair_index,
-                "fetched sliver has a pair index that does not belong to this shard"
+                %expected_sliver_index,
+                actual_sliver_index = %sliver.sliver_index(),
+                "fetched sliver has a sliver index that does not belong to this shard"
             );
             return Ok(SliverVerificationOutcome::Invalid);
         }
