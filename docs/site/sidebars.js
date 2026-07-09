@@ -101,6 +101,7 @@ const sidebars = {
     'production-readiness',
     'data-security',
     'tusky-migration-guide',
+    'prompt-library',
     'glossary',
     {
       type: "category",
