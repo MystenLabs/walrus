@@ -37,7 +37,7 @@ Sui smart contract as the on-chain index.
 - [Core Concepts](https://docs.wal.app/docs/system-overview/core-concepts.md):
     Data is stored on Walrus as blobs. Each blob is an immutable array of bytes. Any type of file,
     such as text, video, or source code, can be stored on Walrus. All blobs uploaded to Walrus are
-    publicly available. To secure data on Walrus, consider an encryption service like Seal.
+    publicly available. Sui is a blockchain that supports programmable transactions.
 - [System Overview](https://docs.wal.app/docs/system-overview.md):
     Available Networks: Overview of Walrus networks including Mainnet and Testnet configurations,
     parameters, and setup instructions. Walrus Fundamentals: Technical reference for Walrus
@@ -95,9 +95,10 @@ Sui smart contract as the on-chain index.
     You can query the status of a blob through one of the following commands: Each command returns
     output that indicates whether the specified blob is stored and its availability period.
 - [Storing Blobs](https://docs.wal.app/docs/walrus-client/storing-blobs.md):
-    All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use
-    Seal or Nautilus to encrypt the data before storing it on Walrus. For a worked example, see
-    Encrypting data with Seal.
+    All blobs stored in Walrus are public and discoverable by all. Do not store sensitive data on
+    Walrus without additional protection. Store blobs on Walrus with the following command: After
+    you upload a blob to Walrus, it has 2 identifiers: Blob ID: A way to reference the blob on
+    Walrus.
 - [Verifying Availability](https://docs.wal.app/docs/walrus-client/verifying-availability.md):
     When an agent stores data on Walrus, or receives a blob ID and plans to build on it, it needs
     to confirm the data is durably stored before depending on it.
@@ -325,8 +326,8 @@ Sui smart contract as the on-chain index.
     RPC endpoint, and Walrus aggregator.
 - [Access Control Options](https://docs.wal.app/docs/sites/security/access-control-options.md):
     All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its
-    contents directly from a Walrus aggregator. This means that access control for Walrus Sites is
-    not enforced at the storage layer.
+    contents directly from a Walrus aggregator. Access control for Walrus Sites is not enforced at
+    the storage layer.
 - [Site Data Authentication](https://docs.wal.app/docs/sites/security/site-data-authentication.md):
     Walrus Sites use SHA-256 hashes stored on Sui to verify that every resource served by a portal
     matches the content the site owner originally published.
@@ -359,7 +360,9 @@ Sui smart contract as the on-chain index.
 
 - [Data Security](https://docs.wal.app/docs/data-security.md):
     Walrus provides decentralized storage for application and user data. All data stored on Walrus
-    is public and can be accessed by anyone.
+    is public and can be accessed by anyone. Walrus natively provides data availability and
+    integrity guarantees. It does not provide confidentiality. > Caution > > Blob IDs are not
+    secrets.
 
 ## Glossary
 
@@ -656,16 +659,10 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Release notes from Walrus and Walrus Memory. Testnet July 1, 2026 | GitHub #3479: walrus info
+    Release notes from Walrus and Walrus Memory. Mainnet July 9, 2026 | GitHub #3479: walrus info
     committee gains a --commission-receivers flag that prints, as CSV, the commission receiver of
     every node in the previous, current, and next committees (including the owning address for
     object receivers).
-
-## Seal Encryption Tutorial
-
-- [Seal Encryption Tutorial](https://docs.wal.app/docs/seal-encryption-tutorial.md):
-    Walrus stores blobs publicly: anyone with a blob ID can read the bytes. To keep data
-    confidential, encrypt it before you store it.
 
 ## Walrus Memory: Python SDK
 

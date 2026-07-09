@@ -6,14 +6,14 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 ### Walrus v1.51.1
 
-`Testnet` July 1, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.51.1)
+`Mainnet` July 9, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.51.1)
 
 #### CLI
 
 [#3479](https://github.com/MystenLabs/walrus/pull/3479): `walrus info committee` gains a `--commission-receivers` flag that prints, as CSV, the commission receiver of every node in the previous, current, and next committees (including the owning address for object receivers).
 
 ---
-#### Full Log: https://github.com/MystenLabs/walrus/commits/testnet-v1.51.1
+#### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.51.1
 
 ---
 

@@ -9,7 +9,7 @@ Walrus Memory supports several integration modes depending on how much control y
 
 Use `@mysten-incubation/memwal` when you want the fastest working integration.
 
-- relayer handles embedding, encryption, retrieval, and restore
+- relayer handles embedding, retrieval, and restore
 - best starting point for most teams
 
 Go to: [SDK Overview](/walrus-memory/sdk/overview)

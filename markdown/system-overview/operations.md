@@ -12,7 +12,8 @@ $ walrus store file.txt --epochs 2 --context testnet
 
 > **Danger**
 >
-> All blobs stored in Walrus are public and discoverable by all. Do not store secrets or private data without additional confidentiality measures, such as encrypting with [Seal](/docs/data-security).
+> All blobs stored in Walrus are public and discoverable by all. Do not store secrets or
+> private data on Walrus.
 When you run this command, the steps executed by the client are:
 
 1. Acquire a storage resource of appropriate size and duration onchain, either directly from the Walrus system object or a secondary market. Storage resources can be split, merged, and transferred.

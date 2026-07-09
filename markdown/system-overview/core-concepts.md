@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Data is stored on Walrus as blobs. Each blob is an immutable array of bytes. Any type of file, such as text, video, or source code, can be stored on Walrus. All blobs uploaded to Walrus are publicly available. To secure data on Walrus, consider an [encryption service like Seal](https://seal-docs.wal.app/).
+Data is stored on Walrus as blobs. Each blob is an immutable array of bytes. Any type of file, such as text, video, or source code, can be stored on Walrus. All blobs uploaded to Walrus are publicly available. 
 
 Sui is a blockchain that supports [programmable transactions](https://docs.sui.io/concepts/transactions/prog-txn-blocks). Walrus binds all blobs to objects on Sui. Walrus blobs are represented as Sui objects of type `Blob`.
 

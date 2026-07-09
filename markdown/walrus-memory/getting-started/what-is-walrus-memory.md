@@ -68,15 +68,9 @@ Query your memories and get an AI-generated answer with the relevant context att
 
   
 
-**End-to-End Encryption**
-
-All content is encrypted through Seal before it reaches Walrus. Only the owner and authorized delegates can decrypt it.
-
-  
-
 **Decentralized Storage**
 
-Encrypted blobs stored on Walrus, no single point of failure, no central operator holding your data.
+Blobs stored on Walrus, no single point of failure, no central operator holding your data.
 
   
 
@@ -107,7 +101,7 @@ Drop-in memory for Vercel AI SDK apps. Automatically saves and recalls context a
 ## What's included
 
 - **TypeScript SDK**: integrate memory into any app with a few lines of code
-- **Relayer**: handles encryption, storage, and retrieval behind a basic API
+- **Relayer**: handles storage and retrieval behind a basic API
 - **Smart Contract**: enforces ownership and delegate access onchain
 - **Indexer**: keeps onchain state synced for fast lookups
 - **Dashboard**: manage accounts, memory, and delegate keys visually

@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-All blobs stored in Walrus are public and discoverable by all. To store sensitive data, use [Seal](/docs/data-security#seal-data-confidentiality-and-access-control) or [Nautilus](/docs/data-security#nautilus-secure-and-verifiable-off-chain-computation) to encrypt the data before storing it on Walrus. For a worked example, see [Encrypting data with Seal](/docs/seal-encryption-tutorial).
+All blobs stored in Walrus are public and discoverable by all. Do not store sensitive data on Walrus without additional protection.
 
 Store blobs on Walrus with the following command:
 
