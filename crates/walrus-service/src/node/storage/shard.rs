@@ -45,7 +45,7 @@ use walrus_utils::{metrics::Registry, tracing_sampled};
 
 use super::{
     DatabaseTableOptionsFactory,
-    blob_info::{BlobInfo, BlobInfoIterator},
+    blob_info::{BlobInfo, BlobInfoIterator, CertifiedBlobInfoApi},
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
 };
@@ -54,7 +54,7 @@ use crate::{
         StorageNodeInner,
         blob_retirement_notifier::ExecutionResultWithRetirementCheck,
         config::ShardSyncConfig,
-        errors::SyncShardClientError,
+        errors::{StoreSliverError, SyncShardClientError},
         shard_sync,
     },
     utils,
@@ -65,6 +65,27 @@ type ShardMetrics = CommonDatabaseMetrics;
 // Type aliases to simplify complex return types flagged by clippy::type_complexity.
 type NextBlobInfo = Option<(BlobId, BlobInfo)>;
 type BatchFetchedSliversOutcome = Result<NextBlobInfo, SyncShardClientError>;
+
+/// The result of verifying a single sliver fetched during shard sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SliverVerificationOutcome {
+    /// The sliver is consistent with the verified blob metadata.
+    Valid,
+    /// The sliver failed verification against the verified blob metadata.
+    Invalid,
+    /// The blob is not (or no longer) certified; the sliver does not need to be stored.
+    BlobRetired,
+}
+
+/// The blobs in a sync-shard response whose fetched slivers must not be stored.
+#[derive(Debug, Default)]
+struct FetchedSliverVerificationResults {
+    /// Blobs whose fetched slivers failed verification against the blob metadata. The slivers
+    /// are not stored, and the blobs are scheduled for recovery instead.
+    invalid_blob_ids: HashSet<BlobId>,
+    /// Blobs that are not (or no longer) certified. Their slivers are not stored.
+    retired_blob_ids: HashSet<BlobId>,
+}
 
 /// A cache of the family names created for an instance of a shard, to avoid recomputing them for
 /// metrics.
@@ -1058,10 +1079,18 @@ impl ShardStorage {
                     )
                     .await?;
 
+                let verification_results = if config.verify_fetched_slivers {
+                    self.verify_fetched_slivers(&node, &fetched_slivers, sliver_type, config)
+                        .await?
+                } else {
+                    FetchedSliverVerificationResults::default()
+                };
+
                 next_blob_info = self.batch_fetched_slivers_and_check_missing_blobs(
                     epoch,
                     &node,
                     &fetched_slivers,
+                    &verification_results,
                     sliver_type,
                     next_blob_info,
                     &mut blob_info_iter,
@@ -1225,12 +1254,16 @@ impl ShardStorage {
     ///
     /// Returns the updated iterator position together with the ids whose recovery deferrals can be
     /// cleared.
+    ///
+    /// TODO(zhewu): clean up this function to make it more readable, for example, by extracting
+    /// the per-sliver skip/store decision and the SST/plain-batch insertion paths into helpers.
     #[allow(clippy::too_many_arguments)]
     fn batch_fetched_slivers_and_check_missing_blobs(
         &self,
         epoch: Epoch,
         _node: &Arc<StorageNodeInner>,
         fetched_slivers: &[(BlobId, Sliver)],
+        verification_results: &FetchedSliverVerificationResults,
         sliver_type: SliverType,
         mut next_blob_info: NextBlobInfo,
         blob_info_iter: &mut BlobInfoIterator,
@@ -1246,11 +1279,40 @@ impl ShardStorage {
                 %sliver_type,
                 "synced blob",
             );
-            //TODO(WAL-523): verify sliver validity.
-            //  - blob is certified
-            //  - fetch metadata if missing (note that certified event may be processed after epoch
-            //    change, so we need to fetch metadata if missing)
-            //  - metadata is correct
+
+            if verification_results.retired_blob_ids.contains(blob_id) {
+                tracing::debug!(
+                    walrus.blob_id = %blob_id,
+                    "skip storing fetched sliver for a blob that is not certified"
+                );
+                next_blob_info = self.check_and_record_missing_blobs(
+                    blob_info_iter,
+                    next_blob_info,
+                    *blob_id,
+                    sliver_type,
+                    batch,
+                )?;
+                continue;
+            }
+
+            if verification_results.invalid_blob_ids.contains(blob_id) {
+                tracing::warn!(
+                    walrus.blob_id = %blob_id,
+                    "fetched sliver failed verification; scheduling the blob for recovery"
+                );
+                batch.insert_batch(
+                    &self.pending_recover_slivers,
+                    [((sliver_type, *blob_id), ())],
+                )?;
+                next_blob_info = self.check_and_record_missing_blobs(
+                    blob_info_iter,
+                    next_blob_info,
+                    *blob_id,
+                    sliver_type,
+                    batch,
+                )?;
+                continue;
+            }
 
             if use_sst {
                 let max_entries = config
@@ -1325,6 +1387,143 @@ impl ShardStorage {
             cleared_blob_ids.push(*blob_id);
         }
         Ok(next_blob_info)
+    }
+
+    /// Verifies the slivers fetched in a single sync-shard response against the corresponding
+    /// blob metadata, fetching the metadata from the committee if it is missing locally.
+    ///
+    /// Returns the blobs whose fetched slivers must not be stored, either because the sliver
+    /// failed verification or because the blob is not (or no longer) certified.
+    async fn verify_fetched_slivers(
+        &self,
+        node: &Arc<StorageNodeInner>,
+        fetched_slivers: &[(BlobId, Sliver)],
+        sliver_type: SliverType,
+        config: &ShardSyncConfig,
+    ) -> Result<FetchedSliverVerificationResults, SyncShardClientError> {
+        let mut results = FetchedSliverVerificationResults::default();
+        let mut verification_futures = Vec::with_capacity(fetched_slivers.len());
+        for (blob_id, sliver) in fetched_slivers {
+            verification_futures.push(async move {
+                // Check that the sliver has the type requested by the sync. The verification in
+                // `verify_fetched_sliver` authenticates the sliver against its own embedded
+                // type, so without this check a corrupt source could return a valid sliver of
+                // the other type.
+                let outcome = if sliver.r#type() == sliver_type {
+                    self.verify_fetched_sliver(node, blob_id, sliver).await
+                } else {
+                    tracing::warn!(
+                        walrus.blob_id = %blob_id,
+                        walrus.shard_index = %self.id,
+                        expected_sliver_type = %sliver_type,
+                        actual_sliver_type = %sliver.r#type(),
+                        "fetched sliver has a different type than the requested sliver type"
+                    );
+                    Ok(SliverVerificationOutcome::Invalid)
+                };
+                (*blob_id, outcome)
+            });
+        }
+        let mut verifications = futures::stream::iter(verification_futures)
+            .buffer_unordered(config.max_concurrent_metadata_fetch);
+
+        while let Some((blob_id, outcome)) = verifications.next().await {
+            match outcome? {
+                SliverVerificationOutcome::Valid => (),
+                SliverVerificationOutcome::Invalid => {
+                    walrus_utils::with_label!(
+                        node.metrics.sync_shard_sliver_verification_error_total,
+                        &self.id.to_string(),
+                        &sliver_type.to_string()
+                    )
+                    .inc();
+                    results.invalid_blob_ids.insert(blob_id);
+                }
+                SliverVerificationOutcome::BlobRetired => {
+                    results.retired_blob_ids.insert(blob_id);
+                }
+            }
+        }
+
+        Ok(results)
+    }
+
+    /// Verifies a single fetched sliver against the (possibly newly fetched) blob metadata.
+    ///
+    /// The verification itself runs on the node's thread pool to avoid blocking the tokio
+    /// runtime with the CPU-intensive sliver verification.
+    async fn verify_fetched_sliver(
+        &self,
+        node: &Arc<StorageNodeInner>,
+        blob_id: &BlobId,
+        sliver: &Sliver,
+    ) -> Result<SliverVerificationOutcome, SyncShardClientError> {
+        // Check that the sliver is the one this shard must hold for the blob. The metadata
+        // verification below authenticates the sliver against its own pair index, so without
+        // this check a corrupt source could return a valid sliver of the same blob for a
+        // different sliver pair. This mirrors the `SliverIndexMismatch` check in the upload
+        // path, and runs first since it is much cheaper than the metadata verification.
+        let n_shards = node.encoding_config.n_shards();
+        let expected_pair_index = self.id.to_pair_index(n_shards, blob_id);
+        let actual_pair_index = match sliver.r#type() {
+            SliverType::Primary => sliver.sliver_index().to_pair_index::<Primary>(n_shards),
+            SliverType::Secondary => sliver.sliver_index().to_pair_index::<Secondary>(n_shards),
+        };
+        if actual_pair_index != expected_pair_index {
+            tracing::warn!(
+                walrus.blob_id = %blob_id,
+                walrus.shard_index = %self.id,
+                %expected_pair_index,
+                %actual_pair_index,
+                "fetched sliver has a pair index that does not belong to this shard"
+            );
+            return Ok(SliverVerificationOutcome::Invalid);
+        }
+
+        // Use the blob's initial certified epoch to fetch missing metadata: during a committee
+        // transition, `read_committee` routes reads for blobs certified before the current epoch
+        // to the previous committee, which is the one guaranteed to hold the data while the new
+        // committee is still syncing.
+        let Some(certified_epoch) = node
+            .storage
+            .get_blob_info(blob_id)?
+            .and_then(|blob_info| blob_info.initial_certified_epoch())
+        else {
+            return Ok(SliverVerificationOutcome::BlobRetired);
+        };
+
+        // Fetching missing metadata is guarded by the blob retirement check, so that we neither
+        // fetch metadata for blobs that are not certified nor keep fetching metadata for blobs
+        // that are retired while the fetch is in progress.
+        let result = node
+            .blob_retirement_notifier
+            .execute_with_retirement_check(node, *blob_id, || {
+                node.get_or_recover_blob_metadata(blob_id, certified_epoch)
+            })
+            .await?;
+        let metadata = match result {
+            ExecutionResultWithRetirementCheck::Executed(metadata) => metadata?,
+            ExecutionResultWithRetirementCheck::BlobRetired => {
+                return Ok(SliverVerificationOutcome::BlobRetired);
+            }
+        };
+
+        match node
+            .verify_sliver_against_metadata(Arc::new(metadata), sliver.clone())
+            .await
+        {
+            Ok(_) => Ok(SliverVerificationOutcome::Valid),
+            Err(StoreSliverError::InvalidSliver(error)) => {
+                tracing::warn!(
+                    walrus.blob_id = %blob_id,
+                    walrus.shard_index = %self.id,
+                    %error,
+                    "fetched sliver failed verification during shard sync"
+                );
+                Ok(SliverVerificationOutcome::Invalid)
+            }
+            Err(error) => Err(anyhow::anyhow!(error).into()),
+        }
     }
 
     /// Given a iterator over blob info table that is currently pointing to `next_blob_info`,
@@ -1574,6 +1773,10 @@ impl ShardStorage {
         sui_macros::fail_point!("fail_point_shard_sync_recover_blob");
 
         // Get the metadata for the blob. If metadata is not found, it will be recovered.
+        // TODO(zhewu): pass the blob's initial certified epoch instead of the sync target epoch
+        // to `get_or_recover_blob_metadata` and `recover_sliver` below, so that missing metadata
+        // and slivers are fetched from the correct committee during a committee transition; see
+        // `verify_fetched_sliver`. To be fixed in a follow-up PR.
         let metadata = {
             let result = node
                 .blob_retirement_notifier

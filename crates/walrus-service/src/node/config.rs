@@ -1211,6 +1211,11 @@ pub struct ShardSyncConfig {
     /// Configuration for using SST ingestion during shard sync. None disables this feature.
     #[serde(default, skip_serializing_if = "defaults::is_none")]
     pub sst_ingestion_config: Option<SstIngestionConfig>,
+    /// Whether to verify slivers fetched during shard sync against the blob metadata before
+    /// storing them. If the metadata is missing locally, it is fetched from the committee.
+    /// Slivers that fail verification are not stored and are recovered from the committee
+    /// instead.
+    pub verify_fetched_slivers: bool,
 }
 
 impl Default for ShardSyncConfig {
@@ -1227,6 +1232,7 @@ impl Default for ShardSyncConfig {
             shard_sync_retry_switch_to_recovery_interval: Duration::from_hours(12),
             restart_shard_sync_always_retry_transfer_first: true,
             sst_ingestion_config: None,
+            verify_fetched_slivers: true,
         }
     }
 }
