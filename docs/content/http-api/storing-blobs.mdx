@@ -4,6 +4,10 @@ description: Store blobs on Walrus using HTTP PUT requests through a publisher, 
 keywords: [ walrus, HTTP, API, publisher, store, blob, PUT, deletable, permanent, quilt ]
 ---
 
+<AgentPrompt
+  prompt="Store report.pdf on Testnet for 10 epochs as a permanent blob using nothing but curl, then read it back to out.pdf. Show me how to tell the difference between a first-time store and a store where the blob already existed."
+/>
+
 :::caution No public Mainnet publisher
 
 Walrus has no public unauthenticated publisher on Mainnet. There are no plans to create one. On Mainnet, run your own authenticated publisher (or use the [Upload Relay](/docs/operator-guide/upload-relay) or [TypeScript SDK](/docs/typescript-sdk/sdks) directly). The public publisher endpoints below are for Testnet, where WAL has no monetary value.
