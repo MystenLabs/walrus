@@ -100,7 +100,6 @@ const sidebars = {
     'large-uploads',
     'production-readiness',
     'data-security',
-    'seal-encryption-tutorial',
     'tusky-migration-guide',
     'glossary',
     {
