@@ -953,8 +953,7 @@ impl ShardStorage {
             ShardLastSyncStatus::Recovery => {}
         }
 
-        self.recovery_any_missing_slivers(node, config, epoch)
-            .await?;
+        self.recovery_any_missing_slivers(node, config).await?;
 
         self.shard_status.write().await.with_shard_status_mut(
             |shard_status| -> Result<(), TypedStoreError> {
@@ -1579,7 +1578,6 @@ impl ShardStorage {
         &self,
         node: Arc<StorageNodeInner>,
         config: &ShardSyncConfig,
-        epoch: Epoch,
     ) -> Result<(), SyncShardClientError> {
         if self.pending_recover_slivers.is_empty() {
             return Ok(());
@@ -1615,8 +1613,7 @@ impl ShardStorage {
         }
 
         loop {
-            self.recover_missing_blobs(node.clone(), config, epoch)
-                .await?;
+            self.recover_missing_blobs(node.clone(), config).await?;
 
             if self.pending_recover_slivers.is_empty() {
                 // TODO: in test, check that we have recovered all the certified blobs.
@@ -1634,7 +1631,6 @@ impl ShardStorage {
         &self,
         node: Arc<StorageNodeInner>,
         config: &ShardSyncConfig,
-        epoch: Epoch,
     ) -> Result<(), SyncShardClientError> {
         let mut futures = FuturesUnordered::new();
         let inflight_gauge = walrus_utils::with_label!(
@@ -1679,7 +1675,7 @@ impl ShardStorage {
             } else if !skip_certified_check_in_test && !node.is_blob_certified(&blob_id)? {
                 self.skip_recover_blob(blob_id, sliver_type, &node, "not_certified")?;
             } else {
-                futures.push(self.recover_blob(blob_id, sliver_type, node.clone(), epoch));
+                futures.push(self.recover_blob(blob_id, sliver_type, node.clone()));
                 inflight_gauge.set(
                     i64::try_from(futures.len())
                         .expect("number of inflight recoveries should fit into an i64"),
@@ -1760,7 +1756,6 @@ impl ShardStorage {
         blob_id: BlobId,
         sliver_type: SliverType,
         node: Arc<StorageNodeInner>,
-        epoch: Epoch,
     ) -> Result<(), SyncShardClientError> {
         tracing_sampled::info!(
             shard_sync::SAMPLED_TRACING_INTERVAL,
@@ -1772,16 +1767,25 @@ impl ShardStorage {
         #[cfg(msim)]
         sui_macros::fail_point!("fail_point_shard_sync_recover_blob");
 
+        // Use the blob's initial certified epoch to fetch missing metadata and recovery symbols:
+        // during a committee transition, `read_committee` routes reads for blobs certified
+        // before the current epoch to the previous committee, which is the one guaranteed to
+        // hold the data while the new committee is still syncing.
+        let Some(certified_epoch) = node
+            .storage
+            .get_blob_info(&blob_id)?
+            .and_then(|blob_info| blob_info.initial_certified_epoch())
+        else {
+            self.skip_recover_blob(blob_id, sliver_type, &node, "blob_retired")?;
+            return Ok(());
+        };
+
         // Get the metadata for the blob. If metadata is not found, it will be recovered.
-        // TODO(zhewu): pass the blob's initial certified epoch instead of the sync target epoch
-        // to `get_or_recover_blob_metadata` and `recover_sliver` below, so that missing metadata
-        // and slivers are fetched from the correct committee during a committee transition; see
-        // `verify_fetched_sliver`. To be fixed in a follow-up PR.
         let metadata = {
             let result = node
                 .blob_retirement_notifier
                 .execute_with_retirement_check(&node, blob_id, || {
-                    node.get_or_recover_blob_metadata(&blob_id, epoch)
+                    node.get_or_recover_blob_metadata(&blob_id, certified_epoch)
                 })
                 .await?;
 
@@ -1813,7 +1817,7 @@ impl ShardStorage {
                     metadata.into(),
                     sliver_id,
                     sliver_type,
-                    epoch,
+                    certified_epoch,
                 )
             })
             .await?;
