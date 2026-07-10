@@ -31,30 +31,6 @@ The command creates a file in your current directory named after the new Sui add
 
 Open the `.key` file. Its content is the private key in `base64WithFlag` format. This value is what you use for the `SUI_KEYSTORE` secret.
 
-Use this method if you manage keys through the [Slush browser extension](https://slush.app/).
-
-1. Open Slush and select the account you want to use for deployments. Copy its Sui address,you need it later for the `SUI_ADDRESS` variable.
-2. Navigate to the account management screen and select **Export Private Key**.
-3. Copy the private key displayed. It is in bech32 format and starts with `suiprivkey`.
-4. Convert the bech32 key to the Base64 format required by the GitHub Action. Replace `suiprivkey...` with your copied key:
-
-```sh
-$ sui keytool convert suiprivkey...
-```
-
-5. The command produces a table similar to the following:
-
-```sh
-╭────────────────┬──────────────────────────────────────────────────────────────────────────╮
-│ bech32WithFlag │  suiprivkey............................................................  │
-│ base64WithFlag │  A...........................................                            │
-│ hexWithoutFlag │  ................................................................        │
-│ scheme         │  ed25519                                                                 │
-╰────────────────┴──────────────────────────────────────────────────────────────────────────╯
-```
-
-Copy the value in the `base64WithFlag` row. This is what you use for the `SUI_KEYSTORE` secret.
-
 ## Funding your deployment address
 
 Before any workflow can deploy a site, the address needs SUI tokens to pay network gas fees and WAL tokens to pay for storage. For instructions on acquiring both, refer to [Getting Started with Walrus](/docs/getting-started).

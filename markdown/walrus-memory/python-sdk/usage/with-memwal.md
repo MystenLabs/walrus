@@ -8,10 +8,6 @@ Both integrations import their dependency lazily, install only what you use:
 $ pip install memwal[langchain]
 ```
 
-```bash
-$ pip install memwal[openai]
-```
-
 ## LangChain
 
 ```python

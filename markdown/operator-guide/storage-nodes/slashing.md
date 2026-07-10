@@ -77,15 +77,6 @@ The IDs in the table below are the live shared objects on each network. You can 
 | SlashingManager             | `0xfe343f7b72f67a1eca9bfc9dff0dac0520e11dca3bda5a0ea32816af6f722109` |
 | WAL `ProtectedTreasury`     | `0x3a19b564728b56df21e0e2bd3582b2be00be992e27b44faf30611e15ae6eac91` |
 
-| Object                      | ID                                                                   |
-|-----------------------------|----------------------------------------------------------------------|
-| Walrus package (current)    | `0x849e95d2718938d66c37fb91df76d72f78526c1864c339bac415ce8ecda2d8cc` |
-| Walrus package (original)   | `0xd84704c17fc870b8764832c535aa6b11f21a95cd6f5bb38a9b07d2cf42220c66` |
-| Staking object              | `0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3` |
-| System object               | `0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af` |
-| SlashingManager             | `0xba59eb74de5c7707f830415ff9f64261d107d790bb65ab5835918eeac62daaee` |
-| WAL `ProtectedTreasury`     | `0x1dcbbb4fc81c39901be78fcaa6ee0be688512e5ceef11713ef7fe1e6f6a3131b` |
-
 The Walrus package ID changes after every contract upgrade. To get the latest package ID, read the `package_id` field on the `Staking` object on Suiscan and use whatever value is there. The original package address is the one used for Move type identifiers and does not change.
 
 ## Vote on a slashing proposal
@@ -105,20 +96,6 @@ $ CANDIDATE_NODE_ID=   # The StakingPool ID of the candidate to slash.
 $ WALRUS_PACKAGE=0x98da433aa0139512c210597b1c5e3df6cd121d8d77f8652691bb66fadfc8aa1b
 $ SLASHING_MANAGER=0xfe343f7b72f67a1eca9bfc9dff0dac0520e11dca3bda5a0ea32816af6f722109
 $ STAKING_OBJECT=0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-$ sui client ptb \
-    --move-call $WALRUS_PACKAGE::auth::authenticate_sender \
-    --assign auth \
-    --move-call $WALRUS_PACKAGE::slashing::vote_for_slashing \
-        @$SLASHING_MANAGER @$STAKING_OBJECT auth @$NODE_ID @$CANDIDATE_NODE_ID \
-    --gas-budget 100000000
-```
-
-```sh
-$ NODE_ID=             # Your storage node ID (the StakingPool you operate).
-$ CANDIDATE_NODE_ID=   # The StakingPool ID of the candidate to slash.
-$ WALRUS_PACKAGE=0x849e95d2718938d66c37fb91df76d72f78526c1864c339bac415ce8ecda2d8cc
-$ SLASHING_MANAGER=0xba59eb74de5c7707f830415ff9f64261d107d790bb65ab5835918eeac62daaee
-$ STAKING_OBJECT=0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
 $ sui client ptb \
     --move-call $WALRUS_PACKAGE::auth::authenticate_sender \
     --assign auth \
@@ -193,20 +170,6 @@ $ sui client call \
     --gas-budget 100000000
 ```
 
-```sh
-$ CANDIDATE_NODE_ID=  # The StakingPool ID of the candidate being slashed.
-$ WALRUS_PACKAGE=0x849e95d2718938d66c37fb91df76d72f78526c1864c339bac415ce8ecda2d8cc
-$ SLASHING_MANAGER=0xba59eb74de5c7707f830415ff9f64261d107d790bb65ab5835918eeac62daaee
-$ STAKING_OBJECT=0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
-$ TREASURY_OBJECT=0x1dcbbb4fc81c39901be78fcaa6ee0be688512e5ceef11713ef7fe1e6f6a3131b
-$ sui client call \
-    --package $WALRUS_PACKAGE \
-    --module slashing \
-    --function execute_slashing \
-    --args $SLASHING_MANAGER $STAKING_OBJECT $TREASURY_OBJECT $CANDIDATE_NODE_ID \
-    --gas-budget 100000000
-```
-
 ### Execute abort codes
 
 | Code | Name                 | Meaning                                                                                                                  |
@@ -235,19 +198,6 @@ Batching reduces gas. You can include any number of candidate IDs in the same ca
 $ WALRUS_PACKAGE=0x98da433aa0139512c210597b1c5e3df6cd121d8d77f8652691bb66fadfc8aa1b
 $ SLASHING_MANAGER=0xfe343f7b72f67a1eca9bfc9dff0dac0520e11dca3bda5a0ea32816af6f722109
 $ STAKING_OBJECT=0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-$ CANDIDATES='["0x...","0x..."]'  # JSON array of candidate node IDs to clean up.
-$ sui client call \
-    --package $WALRUS_PACKAGE \
-    --module slashing \
-    --function cleanup_slashing_proposals \
-    --args $SLASHING_MANAGER $STAKING_OBJECT "$CANDIDATES" \
-    --gas-budget 100000000
-```
-
-```sh
-$ WALRUS_PACKAGE=0x849e95d2718938d66c37fb91df76d72f78526c1864c339bac415ce8ecda2d8cc
-$ SLASHING_MANAGER=0xba59eb74de5c7707f830415ff9f64261d107d790bb65ab5835918eeac62daaee
-$ STAKING_OBJECT=0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
 $ CANDIDATES='["0x...","0x..."]'  # JSON array of candidate node IDs to clean up.
 $ sui client call \
     --package $WALRUS_PACKAGE \

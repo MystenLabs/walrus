@@ -22,10 +22,6 @@ The publisher requires a client configuration file. If you run the publisher on 
 curl "https://docs.wal.app/setup/client_config_mainnet.yaml" -o /opt/walrus/config/client_config.yaml
 ```
 
-```sh
-curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/config/client_config.yaml
-```
-
 For the canonical configuration snippets and the object IDs they contain, see the [Network Reference](/docs/network-reference#configuration-snippets).
 
 ## Create and fund the publisher wallet {#fund-publisher}
@@ -62,14 +58,6 @@ Acquire WAL tokens through the Walrus token distribution or supported exchanges,
 > **Caution**
 >
 > The aggregator does not perform Sui onchain actions and therefore consumes no gas. The publisher, however, performs actions onchain and consumes both SUI and WAL tokens. On Mainnet, you are generally not expected to run a public publisher because this comes with real monetary cost. If you do run one, ensure only authorized parties can access it, or use other measures to manage gas costs. Consider using an [authenticated publisher](/docs/operator-guide/publishers/auth-publisher) to restrict access.
-
-On Testnet, you can exchange SUI for WAL using the exchange objects in the client configuration. Use the `--amount` option to specify the amount in MIST (1 WAL = 1,000,000,000 MIST):
-
-```sh
-/opt/walrus/bin/walrus --config /opt/walrus/config/publisher/client_config.yaml get-wal --amount 5000000000
-```
-
-This exchanges SUI for 5 WAL. Adjust the amount based on the number of sub-wallets and expected usage. For the standard Testnet wallet flow, see [Exchange Testnet SUI for WAL](/docs/system-overview/available-networks#testnet-wal-faucet).
 
  
 

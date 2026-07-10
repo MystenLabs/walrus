@@ -41,10 +41,6 @@ Copy the appropriate example config file for your target network:
 $ cp ./portal/server/portal-config.mainnet.example.yaml ./portal/server/portal-config.yaml
 ```
 
-``` sh
-$ cp ./portal/server/portal-config.testnet.example.yaml ./portal/server/portal-config.yaml
-```
-
 Open `portal-config.yaml` and update the following fields:
 
 ```yaml title='portal-config.yaml'

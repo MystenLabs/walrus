@@ -22,10 +22,6 @@ Copy the template configuration file for your target network and rename it to `p
 $ cp portal/server/portal-config.mainnet.example.yaml portal/server/portal-config.yaml
 ```
 
-```sh
-$ cp portal/server/portal-config.testnet.example.yaml portal/server/portal-config.yaml
-```
-
 Run the Docker container:
 
 ```bash

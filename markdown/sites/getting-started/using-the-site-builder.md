@@ -89,20 +89,6 @@ the flag:
 site-builder deploy --epochs <NUMBER> ./path/to/your/site
 ```
 
-Manually add the `object_id` field to `ws-resources.json` in your site's root directory:
-
-```json
-{
-  "object_id": "0x123...abc"
-}
-```
-
-Then deploy normally:
-
-```sh
-site-builder deploy --epochs <NUMBER> ./path/to/your/site
-```
-
 ### `convert`
 
 Converts a Walrus Site object ID from hex format to Base36. Use this to find the subdomain where a site is accessible.

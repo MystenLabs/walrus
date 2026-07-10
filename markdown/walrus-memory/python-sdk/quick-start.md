@@ -24,14 +24,6 @@ Optional integrations:
 $ pip install memwal[langchain]
 ```
 
-```bash
-$ pip install memwal[openai]
-```
-
-```bash
-$ pip install memwal[all]
-```
-
 Requires Python 3.9+. Core dependencies are `httpx` and `PyNaCl` (Ed25519 signing).
 
 ## Configuration

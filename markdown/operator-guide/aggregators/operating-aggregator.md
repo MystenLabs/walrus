@@ -24,10 +24,6 @@ The aggregator requires a client configuration file. If you run the aggregator o
 curl "https://docs.wal.app/setup/client_config_mainnet.yaml" -o /opt/walrus/config/client_config.yaml
 ```
 
-```sh
-curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/config/client_config.yaml
-```
-
  
 
 For the canonical configuration snippets and the object IDs they contain, see the [Network Reference](/docs/network-reference#configuration-snippets).

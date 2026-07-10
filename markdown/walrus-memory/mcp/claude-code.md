@@ -7,8 +7,7 @@ Add Walrus Memory to Claude Code so it recalls context and saves durable facts a
 
 ## Installation
 
-  
-    ### Add the marketplace
+### Add the marketplace
 
 ```
         /plugin marketplace add MystenLabs/MemWal
@@ -23,19 +22,6 @@ Add Walrus Memory to Claude Code so it recalls context and saves durable facts a
       ### Restart and sign in
 
 Restart Claude Code. On first use the agent runs `memwal_login`, which opens a browser to connect your wallet.
-
-  
-  
-    ```bash
-    claude mcp add --scope user memwal -- npx -y @mysten-incubation/memwal-mcp
-    ```
-    Restart Claude Code, then ask the agent to run `memwal_login` on first use.
-
-    Or connect to the relayer over HTTP directly (no local package):
-    ```bash
-    claude mcp add --transport http memwal https://relayer.memory.walrus.xyz/api/mcp
-    ```
-  
 
 ## What the plugin includes
 

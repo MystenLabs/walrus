@@ -7,8 +7,7 @@ Add Walrus Memory to Codex so it recalls context and saves durable facts as you 
 
 ## Installation
 
-  
-    ### Install the hooks + MCP server
+### Install the hooks + MCP server
 
 From a cloned repo:
         ```bash
@@ -27,17 +26,6 @@ Add to `~/.codex/config.toml`:
       ### Restart and sign in
 
 Restart Codex. On first use the agent runs `memwal_login` to connect your wallet.
-
-  
-  
-    Add to `~/.codex/config.toml`:
-    ```toml
-    [mcp_servers.memwal]
-    command = "npx"
-    args = ["-y", "@mysten-incubation/memwal-mcp"]
-    ```
-    Restart Codex, then ask the agent to run `memwal_login` on first use.
-  
 
 > **Warning**
 >

@@ -7,28 +7,11 @@ Add Walrus Memory to Antigravity so the agent recalls context and saves durable 
 
 ## Installation
 
-  
-    Deploy the plugin (MCP server + lifecycle hooks) into Antigravity's plugin directory:
+Deploy the plugin (MCP server + lifecycle hooks) into Antigravity's plugin directory:
     ```bash
     npx degit MystenLabs/Walrus Memory/packages/mcp/plugin ~/.gemini/config/plugins/memwal
     ```
     Restart Antigravity, then ask the agent to run `memwal_login` on first use.
-  
-  
-    Add the Walrus Memory server to Antigravity's MCP configuration as a local stdio command:
-    ```json
-    {
-      "mcpServers": {
-        "memwal": {
-          "command": "npx",
-          "args": ["-y", "@mysten-incubation/memwal-mcp"],
-          "env": { "MEMWAL_NAMESPACE": "default" }
-        }
-      }
-    }
-    ```
-    Restart Antigravity, then ask the agent to run `memwal_login` on first use.
-  
 
 ## What the plugin includes
 

@@ -6,80 +6,23 @@ The fastest way to get Walrus Memory running is through the TypeScript SDK.
 
 ### Install the SDK
 
-    
-      
-        ```bash
+    ```bash
         pnpm add @mysten-incubation/memwal
         ```
-      
-      
-        ```bash
-        npm install @mysten-incubation/memwal
-        ```
-      
-      
-        ```bash
-        yarn add @mysten-incubation/memwal
-        ```
-      
-      
-        ```bash
-        bun add @mysten-incubation/memwal
-        ```
-      
-    
 
     **Optional packages**
 
     For AI middleware with [Vercel AI SDK](https://sdk.vercel.ai/) (`@mysten-incubation/memwal/ai`):
 
-    
-      
-        ```bash
+    ```bash
         pnpm add ai
         ```
-      
-      
-        ```bash
-        npm install ai
-        ```
-      
-      
-        ```bash
-        yarn add ai
-        ```
-      
-      
-        ```bash
-        bun add ai
-        ```
-      
-    
 
     For the [manual client flow](/walrus-memory/getting-started/choose-your-path) (`@mysten-incubation/memwal/manual`):
 
-    
-      
-        ```bash
+    ```bash
         pnpm add @mysten/sui @mysten/seal @mysten/walrus
         ```
-      
-      
-        ```bash
-        npm install @mysten/sui @mysten/seal @mysten/walrus
-        ```
-      
-      
-        ```bash
-        yarn add @mysten/sui @mysten/seal @mysten/walrus
-        ```
-      
-      
-        ```bash
-        bun add @mysten/sui @mysten/seal @mysten/walrus
-        ```
-      
-    
 
   ### Generate your account ID and delegate key
 

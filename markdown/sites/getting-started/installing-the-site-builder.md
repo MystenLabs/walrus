@@ -50,22 +50,10 @@ A `site-builder` client binary is available for Ubuntu, macOS (Apple and Intel C
 | MacOS   | Intel 64bit           | [`site-builder-mainnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-macos-x86_64)                  |
 | Windows | Intel 64bit           | [`site-builder-mainnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-windows-x86_64.exe)      |
 
-| OS      | CPU                   | Architecture |
-|---------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| Ubuntu  | Intel 64bit           | [`site-builder-testnet-latest-ubuntu-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-ubuntu-x86_64)                |
-| MacOS   | Apple Silicon         | [`site-builder-testnet-latest-macos-arm64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-arm64)                    |
-| MacOS   | Intel 64bit           | [`site-builder-testnet-latest-macos-x86_64`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-macos-x86_64)                  |
-| Windows | Intel 64bit           | [`site-builder-testnet-latest-windows-x86_64.exe`](https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-windows-x86_64.exe)      |
-
 If you prefer, you can also use a `curl` request to download the latest build from the GCS bucket. Ensure you set the `$SYSTEM` variable to your current system: `ubuntu-x86_64`, `ubuntu-x86_64-generic`, `macos-arm64`, `macos-x86_64`.
 
 ```sh
 $ curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-mainnet-latest-$SYSTEM -o site-builder
-$ chmod +x site-builder
-```
-
-``` sh
-$ curl https://storage.googleapis.com/mysten-walrus-binaries/site-builder-testnet-latest-$SYSTEM -o site-builder
 $ chmod +x site-builder
 ```
 

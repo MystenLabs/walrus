@@ -62,10 +62,6 @@ Copy the example file for your target network and rename it to `portal-config.ya
 $ cp portal/server/portal-config.mainnet.example.yaml portal/server/portal-config.yaml
 ```
 
-```sh
-$ cp portal/server/portal-config.testnet.example.yaml portal/server/portal-config.yaml
-```
-
 ### Customize the configuration
 
 Edit the file to adjust values for your deployment using the following parameters.
@@ -99,10 +95,6 @@ Check the [`walrus-sites` releases](https://github.com/MystenLabs/walrus-sites/r
 site_package: "0x26eb7ee8688da02c5f671679524e379f0b837a12f1d1d799f255b7eea260ad27"
 ```
 
-```yaml
-site_package: "0xf99aee9f21493e1590e7e5a9aea6f343a1f381031a04a732724871fc294be799"
-```
-
 #### `landing_page_oid_b36`
 
 The base-36 encoded object ID of the site the portal serves at its root domain. This is the page users see when they navigate to the portal directly, without a site-specific subdomain.
@@ -116,10 +108,6 @@ $ git pull origin mainnet && grep 'landing_page_oid_b36' portal/server/portal-co
 
 ```yaml
 landing_page_oid_b36: "46f3881sp4r55fc6pcao9t93bieeejl4vr4k2uv8u4wwyx1a93"
-```
-
-```yaml
-landing_page_oid_b36: "1p3repujoigwcqrk0w4itsxm7hs7xjl4hwgt3t0szn6evad83q"
 ```
 
 #### `domain_name_length`
@@ -248,13 +236,6 @@ Each entry uses the same structure as [`rpc_urls`](#rpc_urls).
 ```yaml
 aggregator_urls:
   - url: https://aggregator.walrus-mainnet.walrus.space
-    retries: 3
-    metric: 100
-```
-
-```yaml
-aggregator_urls:
-  - url: https://aggregator.walrus-testnet.walrus.space
     retries: 3
     metric: 100
 ```

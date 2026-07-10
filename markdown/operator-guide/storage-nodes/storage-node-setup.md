@@ -189,10 +189,6 @@ sudo su walrus
 NETWORK=mainnet
 ```
 
-```sh
-NETWORK=testnet
-```
-
 Set the server name (as configured in the [TLS setup](#tls-setup) section):
 
 ```sh
@@ -351,8 +347,6 @@ The `walrus-node setup` command creates a Sui wallet at `/opt/walrus/config/sui_
 Send SUI to the wallet address shown during setup. 1 SUI is sufficient for registration, but the node needs additional SUI for ongoing operation. A recommended initial balance is approximately 20 SUI.
 
 Transfer SUI from an existing wallet or exchange to the address shown during setup.
-
-You can use the [Sui Testnet faucet](https://faucet.sui.io) to obtain test SUI. The faucet has rate limits, so you might need to make multiple requests or wait between attempts. Alternatively, transfer SUI from an existing Testnet wallet.
 
 ##### Step 2: Register the node.
 
