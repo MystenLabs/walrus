@@ -12,6 +12,30 @@
       "Content-Disposition": "inline",
       "content-type": "text/markdown; charset=utf-8",
       "Cache-Control": "public, max-age=3600, must-revalidate"
+    },
+    "/.well-known/api-catalog": {
+      "Cache-Control": "public, max-age=86400, must-revalidate",
+      "content-type": "application/linkset+json; charset=utf-8"
+    },
+    "/.well-known/mcp/server-card.json": {
+      "Cache-Control": "public, max-age=86400, must-revalidate",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "/robots.txt": {
+      "Cache-Control": "public, max-age=86400, must-revalidate",
+      "content-type": "text/plain; charset=utf-8"
+    },
+    "/sitemap.xml": {
+      "Cache-Control": "public, max-age=86400, must-revalidate",
+      "content-type": "application/xml; charset=utf-8"
+    },
+    "/glossary.json": {
+      "Cache-Control": "public, max-age=3600, must-revalidate",
+      "content-type": "application/json; charset=utf-8"
+    },
+    "/portals.json": {
+      "Cache-Control": "public, max-age=3600, must-revalidate",
+      "content-type": "application/json; charset=utf-8"
     }
   },
   "routes": {

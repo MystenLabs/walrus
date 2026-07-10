@@ -105,20 +105,23 @@ function generateMarkdownRoutes(markdownDir) {
     // mdPath is like /examples/awesome-walrus.md or /blog/01_announcing_walrus.md
     const targetPath = "/markdown" + mdPath;
 
-    // Blog posts use /blog/*.md routes; docs use /docs/*.md routes
+    // Blog and walrus-memory paths keep their prefix; docs get /docs/ prepended
     const isBlog = mdPath.startsWith("/blog/");
-    const routeKey = isBlog ? mdPath : "/docs" + mdPath;
+    const isWalrusMemory = mdPath.startsWith("/walrus-memory/");
+    const routeKey = (isBlog || isWalrusMemory) ? mdPath : "/docs" + mdPath;
 
     routes[routeKey] = targetPath;
 
     // For index.md files, also add a short-form route:
     // /docs/sites/index.md -> also accessible as /docs/sites.md
+    // /walrus-memory/sdk/index.md -> also accessible as /walrus-memory/sdk.md
     if (!isBlog) {
       const basename = path.basename(mdPath, ".md");
       if (basename === "index") {
         const dir = path.dirname(mdPath);
         if (dir !== "/") {
-          routes["/docs" + dir + ".md"] = targetPath;
+          const prefix = isWalrusMemory ? "" : "/docs";
+          routes[prefix + dir + ".md"] = targetPath;
         }
       }
     }

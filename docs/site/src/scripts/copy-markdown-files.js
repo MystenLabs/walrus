@@ -186,6 +186,14 @@ function cleanMdxComponents(content, filePath, baseDir) {
     '[$2]($1)',
   );
 
+  // ── Collapse <Tabs>: keep only the first <TabItem> content ────────────
+  cleaned = cleaned.replace(/<Tabs[^>]*>([\s\S]*?)<\/Tabs>/gi, (_match, inner) => {
+    const firstTab = inner.match(/<TabItem[^>]*>([\s\S]*?)<\/TabItem>/i);
+    return firstTab ? firstTab[1].trim() : inner;
+  });
+  // Remove any orphaned TabItem wrappers left over
+  cleaned = cleaned.replace(/<\/?TabItem[^>]*>/gi, '');
+
   // ── Remove paired JSX/HTML tags, keep content (loop for nesting) ───────
   let prev;
   do {
