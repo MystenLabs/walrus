@@ -161,32 +161,40 @@ jobs:
           # from prebuilt walrus images. amd64 lands at gs://mysten-walrus-binaries/walrus/<sha>/<basename>,
           # arm64 at gs://mysten-walrus-binaries/walrus-arm64/<sha>/<basename> — see mp3's
           # binary_upload_config in sui-operations/pulumi/apps/mp3 (walrus-service[-arm64] and
-          # walrus-upload-relay[-arm64] rules). Fails loudly if any binary in
-          # binary-build-list.json release_binaries is missing.
+          # walrus-upload-relay[-arm64] rules).
           mkdir -p ${{ env.TMP_BUILD_DIR }} ./tmp
           [ ! -f ${{ env.BINARY_LIST_FILE }} ] && echo "${{ env.BINARY_LIST_FILE }} cannot be found" && exit 1
 
           [ -z "${linux_prebuilt_path}" ] && echo "::error::linux_prebuilt_path is not configured for ${{ matrix.os }}" && exit 1
           gcs_prefix="gs://mysten-walrus-binaries/${linux_prebuilt_path}/${walrus_sha}"
 
-          missing=()
-          for binary in $(jq -r '.release_binaries[]' ${{ env.BINARY_LIST_FILE }}); do
-            binary=$(echo "${binary}" | tr -d $'\r')
-            src="${gcs_prefix}/${binary}"
-            dest="${{ env.TMP_BUILD_DIR }}/${binary}"
-            echo "Downloading ${src}"
-            if ! gcloud storage cp "${src}" "${dest}"; then
-              missing+=("${binary}")
-              continue
+          mapfile -t binaries < <(jq -r '.release_binaries[]' ${{ env.BINARY_LIST_FILE }} | tr -d $'\r')
+
+          # The release event that triggers this workflow also triggers the
+          # prebuild pipeline that uploads these binaries (~15 min), so poll
+          # instead of failing on the first miss.
+          deadline=$((SECONDS + 1800))
+          while true; do
+            missing=()
+            for binary in "${binaries[@]}"; do
+              gcloud storage ls "${gcs_prefix}/${binary}" >/dev/null 2>&1 || missing+=("${binary}")
+            done
+            [ ${#missing[@]} -eq 0 ] && break
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              echo "::error::Missing prebuilt binaries at ${gcs_prefix}/ after 30 minutes: ${missing[*]}"
+              echo "::error::These must be produced by sui-operations/prebuild-walrus-images.yml + mp3:binary_upload_config."
+              exit 1
             fi
-            chmod +x "${dest}"
+            echo "Waiting for ${#missing[@]} binaries at ${gcs_prefix}/: ${missing[*]} (retrying in 30s)"
+            sleep 30
           done
 
-          if [ ${#missing[@]} -ne 0 ]; then
-            echo "::error::Missing prebuilt binaries at ${gcs_prefix}/: ${missing[*]}"
-            echo "::error::These must be produced by sui-operations/prebuild-walrus-images.yml + mp3:binary_upload_config before tagging."
-            exit 1
-          fi
+          for binary in "${binaries[@]}"; do
+            dest="${{ env.TMP_BUILD_DIR }}/${binary}"
+            echo "Downloading ${gcs_prefix}/${binary}"
+            gcloud storage cp "${gcs_prefix}/${binary}" "${dest}"
+            chmod +x "${dest}"
+          done
 
           tar -cvzf ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz -C ${{ env.TMP_BUILD_DIR }} .
 
