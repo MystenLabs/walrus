@@ -6,7 +6,7 @@ keywords: [ walrus, cli, client, quilt, batch storage, QuiltPatchId ]
 ---
 
 <AgentPrompt
-  prompt="I have 400 JSON files averaging 3 KB in ./records/. Store them as one storage unit for 20 epochs, tag each by year, then show me how to pull back just the 2025 ones by identifier."
+  prompt="I have 400 JSON files averaging 3 KB in ./records/. Store them as one storage unit for 20 epochs, tag each one with the year it covers, then show me how to read back only the 2025 files without downloading the whole quilt."
 />
 
 For efficiently storing large numbers of small blobs, Walrus provides the quilt feature. A quilt batches multiple blobs into a single storage unit, significantly reducing overhead and cost. [Learn more about quilts](/docs/system-overview/quilt).
