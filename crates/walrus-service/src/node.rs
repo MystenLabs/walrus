@@ -8585,6 +8585,21 @@ mod tests {
         .await
     }
 
+    // Tests that a fetched sliver whose embedded sliver index is out of range for the committee
+    // is rejected without panicking the sync and is recovered through shard recovery instead.
+    #[tokio::test]
+    async fn sync_shard_recovers_sliver_with_out_of_range_index() -> TestResult {
+        assert_sync_shard_recovers_bad_source_sliver(|blob_details| {
+            let mut sliver = blob_details[2]
+                .assigned_sliver_pair(ShardIndex(0))
+                .secondary
+                .clone();
+            sliver.index = SliverIndex(u16::MAX);
+            Sliver::Secondary(sliver)
+        })
+        .await
+    }
+
     // Tests that fetched slivers are stored without verification when sliver verification is
     // disabled in the shard sync config.
     #[tokio::test]
