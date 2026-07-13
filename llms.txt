@@ -664,6 +664,14 @@ Sui smart contract as the on-chain index.
     every node in the previous, current, and next committees (including the owning address for
     object receivers).
 
+## Walrus Memory: Guides
+
+- [Delete Old Memories](https://docs.wal.app/walrus-memory/guides/delete-old-memories.md):
+    As part of ongoing security improvements, we're giving you the option to review and remove
+    memories you no longer want stored on Walrus Memory. This guide shows you how to preview your
+    memories and delete any you'd like to clear. > Warning > > Deleting a memory is permanent and
+    you cannot undo it.
+
 ## Walrus Memory: Python SDK
 
 - [API Reference](https://docs.wal.app/walrus-memory/python-sdk/api-reference.md):
