@@ -1931,7 +1931,7 @@ dependencies = [
  "mysten-metrics",
  "prometheus",
  "rand 0.8.5",
- "rocksdb",
+ "rocksdb 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_with",
  "sui-macros",
@@ -5375,6 +5375,7 @@ dependencies = [
  "libc",
  "libz-sys",
  "lz4-sys",
+ "pkg-config",
  "tikv-jemalloc-sys",
  "zstd-sys",
 ]
@@ -8938,6 +8939,19 @@ dependencies = [
 [[package]]
 name = "rocksdb"
 version = "0.22.0"
+dependencies = [
+ "bincode",
+ "libc",
+ "librocksdb-sys",
+ "pretty_assertions",
+ "serde",
+ "tempfile",
+ "trybuild",
+]
+
+[[package]]
+name = "rocksdb"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6bd13e55d6d7b8cd0ea569161127567cd587676c99f4472f779a0279aa60a7a7"
 dependencies = [
@@ -10410,7 +10424,7 @@ dependencies = [
  "prometheus",
  "prost 0.14.3",
  "reqwest",
- "rocksdb",
+ "rocksdb 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "scoped-futures",
  "serde",
  "serde_json",
@@ -11507,7 +11521,7 @@ dependencies = [
  "prometheus",
  "prost 0.14.3",
  "roaring",
- "rocksdb",
+ "rocksdb 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "sui-consistent-store",
  "sui-execution",
@@ -12076,6 +12090,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
+name = "target-triple"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "591ef38edfb78ca4771ee32cf494cb8771944bee237a9b91fc9c1424ac4b777b"
+
+[[package]]
 name = "telemetry-subscribers"
 version = "0.2.0"
 source = "git+https://github.com/MystenLabs/sui?tag=testnet-v1.75.1#623521008f1c3afa3a1adbb6c3c44c39c46c5e17"
@@ -12548,10 +12568,12 @@ version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75129e1dc5000bfbaa9fee9d1b21f974f9fbad9daec557a521ee6e080825f6e8"
 dependencies = [
+ "indexmap 2.14.0",
  "serde",
  "serde_spanned 1.0.0",
  "toml_datetime 0.7.0",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
@@ -12601,6 +12623,12 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
+name = "toml_writer"
+version = "1.1.1+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "756daf9b1013ebe47a8776667b466417e2d4c5679d441c26230efd9ef78692db"
 
 [[package]]
 name = "tonic"
@@ -13014,6 +13042,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "trybuild"
+version = "1.0.115"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f614c21bd3a61bad9501d75cbb7686f00386c806d7f456778432c25cf86948a"
+dependencies = [
+ "glob",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "target-triple",
+ "termcolor",
+ "toml 0.9.5",
+]
+
+[[package]]
 name = "tungstenite"
 version = "0.26.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13068,7 +13111,7 @@ dependencies = [
  "mysten-metrics",
  "once_cell",
  "prometheus",
- "rocksdb",
+ "rocksdb 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "sui-macros",
  "tap",
@@ -13094,7 +13137,7 @@ dependencies = [
  "once_cell",
  "prometheus",
  "rand 0.8.5",
- "rocksdb",
+ "rocksdb 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rstest",
  "serde",
  "sui-macros",
@@ -13521,7 +13564,7 @@ dependencies = [
  "bcs",
  "clap",
  "rand 0.8.5",
- "rocksdb",
+ "rocksdb 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_json",
  "sui-types",
@@ -13738,7 +13781,7 @@ dependencies = [
  "regex",
  "reqwest",
  "ring",
- "rocksdb",
+ "rocksdb 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustls",
  "rustls-native-certs",
  "scoped-futures",
@@ -13797,7 +13840,7 @@ dependencies = [
  "prometheus",
  "rand 0.8.5",
  "reqwest",
- "rocksdb",
+ "rocksdb 0.22.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "sui-macros",
  "sui-protocol-config",
  "sui-rpc-api",
