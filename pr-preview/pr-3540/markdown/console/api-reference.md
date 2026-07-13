@@ -1,0 +1,334 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+This reference covers the Walrus Console external API: the endpoints third-party developers
+use to manage spaces, buckets, and files, plus the Seal sponsorship endpoints that back
+private-bucket access control.
+
+> **Note**
+>
+> This documents the current Testnet surface, hosted at `https://api.testnet.harbor.walrus.xyz`.
+> The API is in alpha and endpoint shapes may change before Mainnet GA. For a guided walkthrough
+> of the full encrypted flow, start with the [quickstart](./quickstart). For the product model
+> behind these endpoints, see the [concepts and overview](./overview).
+## Authentication
+
+Every request carries an API key as a bearer token:
+
+```http
+Authorization: Bearer hbr_…
+```
+
+You mint keys in the Console web app. Each key has one of two roles:
+
+- `read_write` keys can change state: create and delete buckets, upload and delete files, and
+  finalize private buckets.
+- `read_only` keys can list, check status, and download only. Any write with a read-only key
+  returns `403` with code `read_only_api_key`.
+
+A request with no valid key returns `401`. A key without access to the target resource returns
+`403`.
+
+## Base URL and conventions
+
+All paths are relative to the base URL and prefixed with `/api/v1`:
+
+```
+https://api.testnet.harbor.walrus.xyz
+```
+
+Request and response bodies are JSON unless noted (file upload uses `multipart/form-data`,
+and download returns a raw byte stream). Resource identifiers are UUIDs.
+
+### Pagination
+
+List endpoints return an opaque cursor. Pass `limit` to set page size and `cursor` to fetch
+the next page. When there are no more results, the cursor field is `null`. Bucket lists return
+the cursor as `next_cursor`; file lists return it under `pagination.nextCursor`.
+
+### Asynchronous operations
+
+Upload and delete are asynchronous. Upload returns `202` with a file id, then you poll the
+file status endpoint until the state is `completed`. Delete returns `204` immediately and
+releases storage after a background worker confirms the removal.
+
+## Errors
+
+Error responses use a consistent shape:
+
+```json
+{ "error": "Human-readable message", "code": "machine_readable_code" }
+```
+
+The `code` field is present when a machine-readable value applies. Common codes:
+
+| Code | Meaning |
+| --- | --- |
+| `unauthorized` | Missing or invalid API key. |
+| `read_only_api_key` | A write was attempted with a read-only key. |
+| `api_key_registering` / `api_key_revoking` / `api_key_revoked` | The key is not currently usable. |
+| `bucket_not_in_scope` | The key cannot access the target bucket. |
+| `bucket_not_finalized` | The bucket has not completed the finalize step. |
+| `mirror_missing_grant` | The onchain access grant has not yet mirrored into the access index. Retry. |
+| `quota_exceeded` | The operation exceeds the plan or storage quota. |
+| `payload_too_large` | The upload exceeds the size limit. |
+| `bad_request` | The request failed validation. |
+| `USED_NONCE` / `EXPIRED_TIMESTAMP` / `ADDRESS_MISMATCH` / `INVALID_CHALLENGE` | Wallet challenge errors, returned by the signature-authentication flow. |
+
+Create-bucket requests that exceed a plan limit return `422` with a distinct shape:
+
+```json
+{ "code": "PLAN_LIMIT_EXCEEDED", "limit": "storage", "currentTier": "free" }
+```
+
+The `limit` value is one of `storage`, `users`, or `buckets`.
+
+## Spaces
+
+A space is the top-level container for your data. Console creates a Personal Space at sign-up.
+
+### List spaces
+
+`GET /api/v1/spaces`
+
+Lists all spaces accessible to the authenticated user.
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `type` | query | No | Filter by space type: `personal` or `team`. |
+
+Returns `200` with a `data` array of spaces. Each space includes `id`, `type`, `name`,
+`storage_used`, `storage_cap`, `bucket_count`, `role`, and `created_at`. Team spaces also
+include `member_count`.
+
+### List buckets in a space
+
+`GET /api/v1/spaces/{id}/buckets`
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `id` | path | Yes | Space UUID. |
+| `limit` | query | No | Page size, 1 to 1000. Default 100. |
+| `cursor` | query | No | Cursor from a previous page. |
+| `q` | query | No | Case-insensitive substring match on bucket name. |
+| `visibility` | query | No | Filter by `public` or `private`. |
+| `sortField` | query | No | `name`, `date`, or `storage`. Default `date`. |
+| `sortOrder` | query | No | `asc` or `desc`. Default `desc`. |
+
+Returns `200` with `buckets` and `next_cursor`.
+
+### Create a bucket
+
+`POST /api/v1/spaces/{id}/buckets`
+
+Reserves a private bucket. This is the first step of the reserve, sign, and finalize handshake.
+In the current alpha, `scope` accepts `private` only.
+
+Body:
+
+```json
+{ "name": "secrets", "scope": "private" }
+```
+
+Returns `201` with the reservation:
+
+```json
+{
+  "bucket_id": "…",
+  "bytes": "<base64 sponsored Sui transaction>",
+  "digest": "…",
+  "state": "pending_policy"
+}
+```
+
+Sign `bytes` locally with your service key, then call the finalize endpoint. The bucket stays
+in `pending_policy` and accepts no uploads until finalize succeeds. A name conflict returns
+`409`. A plan-limit breach returns `422`. See the [quickstart](./quickstart) for the full
+signing flow.
+
+### List files in a space
+
+`GET /api/v1/spaces/{id}/files`
+
+Searches files across every bucket in the space.
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `id` | path | Yes | Space UUID. |
+| `limit` | query | No | Page size, 1 to 100. Default 20. |
+| `cursor` | query | No | Cursor from a previous page. |
+| `q` | query | No | Case-insensitive substring match on file name. |
+| `sortField` | query | No | `name`, `date`, `size`, or `type`. Default `date`. |
+| `sortOrder` | query | No | `asc` or `desc`. Default `desc`. |
+
+Returns `200` with `data` and a `pagination` object (`limit`, `hasMore`, `nextCursor`).
+
+## Buckets
+
+A bucket holds files inside a space. Private buckets store Seal ciphertext only.
+
+### Get a bucket
+
+`GET /api/v1/buckets/{id}`
+
+Returns `200` with the bucket under `data`: `id`, `space_id`, `name`, `oyster_bucket_name`,
+`visibility`, `seal_policy_id`, `storage_used`, `created_at`, and `updated_at`.
+
+### Update a bucket
+
+`PUT /api/v1/buckets/{id}`
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `name` | Yes | New bucket name, 1 to 100 characters. |
+| `sealPolicyId` | No | Seal policy id. Pass `null` to clear. |
+| `visibility` | No | Immutable in v1. Changing it returns `403`. |
+
+Returns `200` with the updated bucket (`id`, `name`, `visibility`, `updated_at`). A name
+conflict returns `409`.
+
+### Delete a bucket
+
+`DELETE /api/v1/buckets/{id}?confirm=true`
+
+Requires the `confirm=true` query parameter, and the bucket must be empty. Returns `204` with
+an `X-Deleted-Id` header. A missing confirmation, a validation error, or a non-empty bucket
+returns `400`.
+
+### Finalize a private bucket
+
+`POST /api/v1/buckets/{id}/finalize`
+
+Submits the signature over the reserved transaction bytes to activate a pending private bucket.
+
+Body:
+
+```json
+{ "signature": "<base64 signature>" }
+```
+
+Returns `200`:
+
+```json
+{ "bucket_id": "…", "seal_policy_id": "…", "state": "active" }
+```
+
+`seal_policy_id` is the onchain bucket-policy object used by Seal for access checks. The bucket
+is now ready for uploads.
+
+### List files in a bucket
+
+`GET /api/v1/buckets/{id}/files`
+
+Takes the same `limit`, `cursor`, `q`, `sortField`, and `sortOrder` parameters as the space
+file listing. Returns `200` with `data` and `pagination`.
+
+### Upload a file
+
+`POST /api/v1/buckets/{id}/files`
+
+Uploads a file asynchronously using `multipart/form-data`.
+
+| Field | Required | Description |
+| --- | --- | --- |
+| `file` | Yes | The file bytes. For private buckets, upload the Seal-encrypted object. |
+| `name` | No | File name, up to 255 characters. |
+| `metadata` | No | JSON object string persisted with the file. Maximum 8 KB. |
+
+Returns `202` with the file summary under `data`. Poll the status endpoint until the state is
+`completed`.
+
+> **Note**
+>
+> Just after finalize, the onchain access grant needs a few seconds to mirror into the access
+> index. Until it does, upload returns `403` with code `mirror_missing_grant`. Retry every few
+> seconds.
+Other responses: `409` when the bucket is not finalized or a file name is duplicated, `413`
+when the payload is too large, `422` when a quota is exceeded, and `429` when rate limited.
+
+## Files
+
+### Get file metadata
+
+`GET /api/v1/buckets/{id}/files/{fileId}`
+
+Returns `200` with the file summary under `data`: `id`, `bucket_id`, `name`, `blob_id`,
+`oyster_object_id`, `size`, `mime_type`, `status`, `is_private`, `metadata`, `created_at`,
+`updated_at`, and `deleted_at`.
+
+### Delete a file
+
+`DELETE /api/v1/buckets/{id}/files/{fileId}`
+
+Marks the file as `deleting` and enqueues a background job to remove the underlying blob.
+Returns `204` immediately. Storage is released after the worker confirms the delete. Repeated
+calls for the same file id are deduplicated.
+
+### Get upload status
+
+`GET /api/v1/buckets/{id}/files/{fileId}/status`
+
+Polls the state of an in-flight upload after the upload endpoint returns `202`.
+
+Returns `200` with `data.state`, one of `queued`, `active`, `completed`, or `failed`. When the
+worker reports it, `data.progress` gives fractional progress from 0 to 1. When the state is
+`failed`, `data.error` includes a `code` and `message`. Once the job leaves the queue, this
+endpoint returns `404`; confirm completion through the file metadata endpoint after that.
+
+### Download a file
+
+`GET /api/v1/buckets/{id}/files/{fileId}/download`
+
+Streams the raw file content with `Content-Type` and `Content-Disposition` headers. For a
+private bucket, this returns the Seal ciphertext, which you decrypt client-side. See the
+[quickstart](./quickstart) for the decrypt flow.
+
+A file in `deleting` or `deleted` status returns `423`. An unavailable blob stream returns
+`500`.
+
+## Seal sponsorship
+
+These endpoints build and sponsor the onchain bucket-policy transactions that manage private
+access. Console sponsors the gas through Enoki, so your service key signs but does not need a
+token balance. They are typically driven through the SDK patterns shown in the
+[quickstart](./quickstart).
+
+### Sponsor a transaction
+
+`POST /api/v1/seal/sponsor`
+
+Builds a sponsored bucket-policy transaction and returns the bytes to sign plus a digest to
+echo to the execute endpoint. The body's `kind` selects the operation:
+
+| `kind` | Purpose | Additional fields |
+| --- | --- | --- |
+| `bucket_group_create` | Create a bucket access group. | `bucketId` |
+| `grant_bucket_access` | Grant access to recipients. | `groupIds`, `recipientAddress`, `scope` (`read` or `readwrite`) |
+| `share_admin` | Add an admin to a group. | `groupId`, `member` |
+| `unshare` | Remove a member from a group. | `groupId`, `member` |
+| `unshare_bucket_access` | Revoke a service signer's access. | `groupId`, `serviceSignerAddress` |
+
+Returns `200` with `bytes` and `digest`.
+
+### Execute a sponsored transaction
+
+`POST /api/v1/seal/sponsor/{digest}/execute`
+
+Submits the signature over the sponsored bytes. Console broadcasts the transaction and returns
+the onchain digest.
+
+| Parameter | In | Required | Description |
+| --- | --- | --- | --- |
+| `digest` | path | Yes | The sponsor digest from the sponsor endpoint. |
+
+Body:
+
+```json
+{ "signature": "<base64 signature>" }
+```
+
+Returns `200` with the onchain `digest`. An expired or unknown digest returns `404`.
+
+## Next steps
+
+- Work through the [quickstart](./quickstart) to see these endpoints in a full encrypted flow.
+- Review the [concepts and overview](./overview) for the space, bucket, and file model.
