@@ -3486,7 +3486,8 @@ impl StorageNodeInner {
         thread_pool::unwrap_or_resume_panic(result)
     }
 
-    /// Runs a database write future under the configured write timeout.
+    /// Runs a database write future under the configured write timeout, rejecting it up-front if
+    /// the disk is already full.
     ///
     /// Ensures that a write which fails or stalls (for example because the disk is full and RocksDB
     /// can no longer make progress) surfaces as an error to the caller instead of hanging
@@ -3496,33 +3497,26 @@ impl StorageNodeInner {
         &self,
         write: impl Future<Output = Result<T, TypedStoreError>>,
     ) -> Result<T, StorageWriteFailure> {
-        let timeout = self.storage_write_config.write_timeout;
-        match tokio::time::timeout(timeout, write).await {
-            Ok(Ok(value)) => Ok(value),
-            Ok(Err(error)) => {
-                if self.disk_appears_full() {
-                    tracing::warn!(%error, "storage write failed and the disk appears full");
-                    Err(StorageWriteFailure::OutOfSpace)
-                } else {
-                    Err(StorageWriteFailure::Database(error))
-                }
+        let write_timeout = self.storage_write_config.write_timeout;
+        let result =
+            classify_storage_write(write_timeout, write, || self.disk_appears_full()).await;
+
+        match &result {
+            Err(StorageWriteFailure::OutOfSpace) => {
+                tracing::warn!("storage write rejected or failed: the disk appears full");
             }
-            Err(_elapsed) => {
-                if self.disk_appears_full() {
-                    tracing::warn!(
-                        ?timeout,
-                        "storage write timed out and the disk appears full"
-                    );
-                    Err(StorageWriteFailure::OutOfSpace)
-                } else {
-                    tracing::warn!(
-                        ?timeout,
-                        "storage write did not complete within the timeout"
-                    );
-                    Err(StorageWriteFailure::TimedOut)
-                }
+            Err(StorageWriteFailure::TimedOut) => {
+                tracing::warn!(
+                    ?write_timeout,
+                    "storage write did not complete within the timeout"
+                );
             }
+            // Database errors are propagated and reported by the caller, as before this
+            // classification existed.
+            Err(StorageWriteFailure::Database(_)) | Ok(_) => {}
         }
+
+        result
     }
 
     /// Returns `true` if the database disk has less free space than the configured minimum.
@@ -5165,6 +5159,35 @@ enum PendingCacheError {
     Sliver(StoreSliverError),
 }
 
+/// Classifies the outcome of a database write, bounding it by `write_timeout`.
+///
+/// Fails fast with [`StorageWriteFailure::OutOfSpace`] when the disk is already full, without
+/// dispatching the write: a stalled RocksDB write cannot be cancelled and would occupy a
+/// blocking-pool thread until it completes, so refusing up-front avoids both waiting out the
+/// timeout and piling up blocked threads while the disk remains full. Failures and timeouts of
+/// dispatched writes are likewise reported as out-of-space when the disk is full.
+async fn classify_storage_write<T>(
+    write_timeout: Duration,
+    write: impl Future<Output = Result<T, TypedStoreError>>,
+    disk_appears_full: impl Fn() -> bool,
+) -> Result<T, StorageWriteFailure> {
+    if disk_appears_full() {
+        return Err(StorageWriteFailure::OutOfSpace);
+    }
+
+    let failure = match tokio::time::timeout(write_timeout, write).await {
+        Ok(Ok(value)) => return Ok(value),
+        Ok(Err(error)) => StorageWriteFailure::Database(error),
+        Err(_elapsed) => StorageWriteFailure::TimedOut,
+    };
+
+    if disk_appears_full() {
+        Err(StorageWriteFailure::OutOfSpace)
+    } else {
+        Err(failure)
+    }
+}
+
 fn map_sliver_error_to_metadata(error: StoreSliverError) -> StoreMetadataError {
     match error {
         StoreSliverError::Internal(inner) => StoreMetadataError::Internal(inner),
@@ -5315,6 +5338,70 @@ mod tests {
             .build()
             .await
             .expect("storage node creation in setup should not fail")
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn classify_storage_write_times_out_stalled_write() {
+        let result = classify_storage_write(
+            Duration::from_secs(1),
+            std::future::pending::<Result<(), TypedStoreError>>(),
+            || false,
+        )
+        .await;
+
+        assert!(matches!(result, Err(StorageWriteFailure::TimedOut)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn classify_storage_write_rejects_up_front_when_disk_full() {
+        // The write never resolves; the up-front disk check must reject it without waiting for
+        // the timeout to elapse.
+        let result = tokio::time::timeout(
+            Duration::from_millis(1),
+            classify_storage_write(
+                Duration::from_secs(3600),
+                std::future::pending::<Result<(), TypedStoreError>>(),
+                || true,
+            ),
+        )
+        .await
+        .expect("the write must be rejected before its own timeout can elapse");
+
+        assert!(matches!(result, Err(StorageWriteFailure::OutOfSpace)));
+    }
+
+    #[tokio::test]
+    async fn classify_storage_write_passes_through_success_and_database_errors() {
+        let success =
+            classify_storage_write(Duration::from_secs(1), async { Ok(7) }, || false).await;
+        assert_eq!(success.expect("write should succeed"), 7);
+
+        let failure = classify_storage_write(
+            Duration::from_secs(1),
+            async { Err::<(), _>(TypedStoreError::RocksDBError("boom".to_owned())) },
+            || false,
+        )
+        .await;
+        assert!(matches!(failure, Err(StorageWriteFailure::Database(_))));
+    }
+
+    #[tokio::test]
+    async fn classify_storage_write_reports_out_of_space_when_write_fails_on_full_disk() {
+        // The disk fills up while the write is in flight: the up-front check passes, the write
+        // fails, and the failure must be classified as out-of-space.
+        let probe_calls = std::cell::Cell::new(0);
+        let result = classify_storage_write(
+            Duration::from_secs(1),
+            async { Err::<(), _>(TypedStoreError::RocksDBError("no space".to_owned())) },
+            || {
+                let calls = probe_calls.get();
+                probe_calls.set(calls + 1);
+                calls > 0
+            },
+        )
+        .await;
+
+        assert!(matches!(result, Err(StorageWriteFailure::OutOfSpace)));
     }
 
     #[tokio::test]
