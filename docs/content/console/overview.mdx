@@ -1,0 +1,152 @@
+---
+title: Concepts and overview
+description: What Walrus Console is, how it relates to Walrus, and the core concepts you work with (spaces, buckets, files, and asset types).
+keywords: [walrus console, spaces, buckets, files, asset types, zklogin, api keys, seal]
+---
+
+Walrus Console is the developer-first interface for [Walrus](/), the decentralized
+storage network. It gives you a hosted place to store, manage, and serve data without
+running your own Walrus client or handling wallets and tokens directly. You sign in, get
+an API key, and upload your first file in minutes, then manage everything from one place.
+
+:::note
+
+Walrus Console is in an invited beta on Mainnet. Some capabilities described here ship at
+general availability (GA) or later, and the surface may change before GA. Availability is
+called out per feature below. The current Testnet preview and its API are hosted under the
+Harbor name (for example, `testnet.harbor.walrus.xyz`); Walrus Console is the product name.
+
+:::
+
+## How Console relates to Walrus
+
+Walrus is the underlying protocol: a decentralized network that stores data as blobs,
+coordinated onchain through Sui. You can already use Walrus directly through the CLI and
+SDKs, which give you low-level control over blobs, storage epochs, and payments.
+
+Walrus Console sits on top of that protocol as a managed developer surface. It handles the
+parts that are otherwise manual: account and wallet provisioning, storage payment,
+metadata, and a dashboard and API for organizing your data. Use the CLI and SDKs when you
+want direct protocol access, and use Console when you want a hosted, managed experience.
+
+## Core concepts: spaces, buckets, and files
+
+Console organizes your data in three levels.
+
+A **space** is the top-level container tied to your account. Console creates a Personal
+Space for you automatically when you sign up. A space tracks how much storage you have used
+against your storage cap. Team spaces, which let a group share storage under one managed API
+key, arrive at GA.
+
+A **bucket** is a named container inside a space that holds files. Every bucket has a
+visibility setting. In the current beta, all buckets are private and encrypted with Seal;
+public buckets are planned for a later release.
+
+A **file** is an individual object stored inside a bucket. Uploads are asynchronous: you
+upload a file, then poll its status until Console confirms it is stored on Walrus. Each file
+can carry metadata you define, which you use later to search and organize your data.
+
+## Asset types
+
+Console is built around a single navigation shell that treats your data as typed assets. At
+GA, files, memory, and datasets are all first-class asset types managed the same way.
+
+**Files** are general-purpose objects you upload and retrieve. This is the asset type
+available in the current beta.
+
+**Memory** refers to [Walrus Memory](/) namespaces, the portable memory layer for AI agents.
+At GA you can browse, search, and manage your agent memory and renew its storage directly in
+Console, without touching the SDK.
+
+**Datasets** are published collections with metadata and an access model. At GA you can set a
+dataset to public, time-gated, or perpetually gated access, and later list it on the Walrus
+Marketplace.
+
+## Accounts and sign-in
+
+You sign in with Gmail today, with Apple joining at beta, both through Sui zkLogin. Console
+derives a Sui address from your identity and silently provisions a Pearl wallet, so you do
+not manage private keys or hold tokens to get started.
+
+Identities from different providers map to separate accounts. Console shows an
+account-separation notice the first time you sign in so it is clear which identity owns which
+data.
+
+You own your data. Console does not migrate data you previously stored on Walrus outside the
+product; you re-upload it. After GA, Console will surface blobs already associated with your
+address when you first sign in.
+
+## API keys and roles
+
+You mint API keys in the Console web app. Each key carries one of two roles:
+
+- `read_write` keys can change state: create and delete buckets, upload and delete files, and
+  finalize private buckets.
+- `read_only` keys can list, check status, and download only. Any write with a read-only key
+  returns `403` with code `read_only_api_key`. Use this role for a downstream consumer that
+  should read your data but never change it.
+
+Console shows the full key (prefixed `hbr_`) once, at creation, and cannot recover it
+afterward. Store it like a cloud secret access key.
+
+When you create an encrypted-capable key, Console also returns a service private key (prefixed
+`suiprivkey1`). You keep this locally and use it to sign the transaction that finalizes a
+private bucket and to authenticate decrypt sessions with Seal. It does not need a token
+balance, since Console sponsors the gas.
+
+### Connect AI clients with the MCP server
+
+Console publishes an open-source MCP server that exposes file and bucket operations as tools
+for AI clients. You connect Claude Code, Cursor, or any MCP-compliant client using your
+existing API key, with no separate credential. This is available in beta.
+
+## Encryption and privacy
+
+:::warning
+
+On Walrus, stored blobs are public by default. Anyone who has a blob ID can read the bytes.
+Do not rely on obscurity for sensitive data.
+
+:::
+
+Console private buckets solve this by encrypting every file client-side with
+[Seal](/) before upload. Console stores ciphertext only and never sees your plaintext or your
+decryption keys. Setting up a private bucket uses a short reserve, sign, and finalize
+handshake that provisions the bucket's Seal access policy onchain. Encryption on upload and
+decryption on download both happen on your machine.
+
+## Storage, epochs, and renewal
+
+Walrus storage is time-bound. You pay to store data for a number of storage epochs, and data
+expires when its storage runs out. Console manages epochs and payment for you rather than
+asking you to track them by hand.
+
+After GA, storage renews automatically for wallets that stayed active, meaning at least one
+Walrus transaction within a recent activity window. Active developers keep their data without
+manual renewal, and dormant accounts expire naturally.
+
+## Billing and the free tier
+
+Console keeps a perpetual free tier so new developers are not paywalled. A free storage cap,
+tentatively 5 GB, is planned pending analysis of real Mainnet usage. Usage-based billing for
+reads and egress, along with a paid top-up path, follows at and after GA. Console manages WAL
+token handling on your behalf.
+
+## What is available in beta
+
+Capabilities roll out in phases. The current beta is a subset of the full product.
+
+| Capability | Availability |
+| --- | --- |
+| Gmail and Apple sign-in, Personal Space | Beta |
+| Private, Seal-encrypted buckets and file upload or download | Beta |
+| API keys and the MCP server | Beta |
+| Memory and datasets as asset types | GA |
+| Mainnet billing and free tier | GA |
+| Auto-renewal, existing-blob discovery, team spaces, Marketplace sync | After GA |
+
+## Next steps
+
+- Follow the [quickstart](./quickstart) to sign up, create an encrypted bucket, and upload
+  your first file.
+- See the [API reference](./api-reference) for the full endpoint surface.
