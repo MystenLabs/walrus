@@ -38,11 +38,14 @@ pub struct NodeRecoveryHandler {
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
     // Serializes recovery-related node status transitions: the epoch-change path advances the
-    // recovery target and starts shard syncs while holding this mutex, and the recovery task
-    // transitions the node to `Active` while holding it. This guarantees that a completing
-    // recovery task either observes the advanced target together with the new shard syncs, or
-    // has completed entirely before the transition (in which case the epoch-change path starts
-    // a new task).
+    // recovery target and starts shard syncs while holding this mutex, the catch-up path holds
+    // it across writing a new recovery target and aborting the previous recovery task, and the
+    // recovery task transitions the node to `Active` while holding it. This guarantees that a
+    // completing recovery task either observes the advanced target together with the new shard
+    // syncs, or has completed entirely before the transition (in which case the epoch-change
+    // path starts a new task) — and that a task from before a catch-up can never complete a
+    // recovery target written after the catch-up, which its scan does not cover (blob certified
+    // events are skipped while catching up).
     status_mutex: Arc<Mutex<()>>,
 
     // Configuration for node recovery.
@@ -71,7 +74,9 @@ impl NodeRecoveryHandler {
     /// The epoch-change path must hold the returned guard across advancing the recovery target
     /// (setting the node status to a newer `RecoveryInProgress` epoch) and starting the shard
     /// syncs for newly gained shards, so that these are atomic with respect to the recovery
-    /// task's completion.
+    /// task's completion. The catch-up path must hold it across writing its recovery target and
+    /// aborting the previous recovery task (via [`Self::start_node_recovery`]), so that a task
+    /// from before the catch-up cannot complete a target whose blobs it never scanned.
     pub async fn lock_status(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.status_mutex.lock().await
     }
@@ -178,6 +183,13 @@ impl NodeRecoveryHandler {
 
                 // Keep track of whether there are more blobs to recover.
                 let mut has_more_blobs = false;
+                // Whether this scan pass was interrupted because a shard sync started. An
+                // interrupted pass has not verified all blobs, so a new pass is required even if
+                // no blob needing recovery was found. This is deliberately kept separate from
+                // `has_more_blobs`: once blob sync outcomes are tracked directly and the
+                // verification re-scan is removed (WAL-669), an interrupted pass still requires
+                // a new round of blob recovery.
+                let mut scan_pass_interrupted = false;
                 tracing::info!(
                     "scanning blobs to recover certified blobs before epoch {}",
                     certified_before_epoch
@@ -196,13 +208,13 @@ impl NodeRecoveryHandler {
                     // An epoch change may have started shard syncs for newly gained shards while
                     // this pass is running. Stop starting new blob syncs and park: per-blob
                     // recovery would redundantly decode slivers for the shards that shard sync is
-                    // copying in bulk. Marking the pass as having more blobs makes the loop drain
-                    // the in-flight syncs and re-scan after the park.
+                    // copying in bulk. The loop drains the in-flight syncs and starts a new scan
+                    // pass after the park.
                     if shard_sync_handler.has_sync_in_progress() {
                         tracing::info!(
                             "shard sync started during recovery scan pass; pausing blob recovery"
                         );
-                        has_more_blobs = true;
+                        scan_pass_interrupted = true;
                         break;
                     }
 
@@ -317,6 +329,12 @@ impl NodeRecoveryHandler {
                 // Wait for all ongoing syncs to complete
                 while (ongoing_syncs.next().await).is_some() {
                     // Each sync completion automatically releases its permit
+                }
+
+                // An interrupted pass has not verified all blobs; run a new pass (which parks
+                // until the shard syncs that interrupted it have finished).
+                if scan_pass_interrupted {
+                    continue;
                 }
 
                 if has_more_blobs {

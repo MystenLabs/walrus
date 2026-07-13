@@ -2332,6 +2332,15 @@ impl StorageNode {
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
+        // Serialize this restart against the completion of a possibly still-running recovery
+        // task from before the node started catching up. Such a task only scanned blobs
+        // certified before its own start epoch, and blob certified events were skipped while
+        // catching up, so it must not complete the recovery target written below. Holding the
+        // status mutex guarantees that: if the old task's completion runs first, it observes the
+        // RecoveryCatchUp status and exits without attesting; otherwise, it is aborted by
+        // `start_node_recovery` below before it can complete.
+        let status_guard = self.node_recovery_handler.lock_status().await;
+
         self.inner
             .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
 
@@ -2382,6 +2391,8 @@ impl StorageNode {
         self.node_recovery_handler
             .start_node_recovery(event.epoch)
             .await?;
+
+        drop(status_guard);
 
         // Last but not least, we need to remove any shards that are no longer owned by the node.
         let shards_to_remove = shard_diff_calculator.shards_to_remove();
