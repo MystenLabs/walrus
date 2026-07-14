@@ -5,13 +5,13 @@
 version = 4
 
 [pinned.testnet.MoveStdlib]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "623521008f1c3afa3a1adbb6c3c44c39c46c5e17" }
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "027e13b2c14022b58067bd536c7e4f2afff72164" }
 use_environment = "testnet"
 manifest_digest = "C4FE4C91DE74CBF223B2E380AE40F592177D21870DC2D7EB6227D2D694E05363"
 deps = {}
 
 [pinned.testnet.Sui]
-source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "623521008f1c3afa3a1adbb6c3c44c39c46c5e17" }
+source = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "027e13b2c14022b58067bd536c7e4f2afff72164" }
 use_environment = "testnet"
 manifest_digest = "7AFB66695545775FBFBB2D3078ADFD084244D5002392E837FDE21D9EA1C6D01C"
 deps = { MoveStdlib = "MoveStdlib" }
@@ -19,5 +19,5 @@ deps = { MoveStdlib = "MoveStdlib" }
 [pinned.testnet.wal]
 source = { root = true }
 use_environment = "testnet"
-manifest_digest = "018CC23A9A3CD588AC21558F3C44454E0F7501E6FF3240C5565BF0CCD9A166AF"
+manifest_digest = "AA9624CB832AB4BFAC0AB71AD6CE684F18E1AE7491D07F3A193128B58304EBEA"
 deps = { std = "MoveStdlib", sui = "Sui" }
