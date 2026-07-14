@@ -4,7 +4,7 @@ This reference covers the Walrus Console external API: the endpoints third-party
 
 > **Info**
 >
-> This documents the current Testnet surface. The API is in alpha and currently only available on Testnet at `https://api.testnet.harbor.walrus.xyz`. The endpoint structure may change before Mainnet GA. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
+> This documents the current Testnet surface. The API is in alpha and currently only available on Testnet at `https://api.testnet.harbor.walrus.xyz`. The endpoint structure might change before Mainnet GA. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
 ## Authentication
 
 Every request carries an API key as a bearer token:
@@ -213,7 +213,7 @@ Returns `202` with the file summary under `data`. Poll the status endpoint until
 
 > **Info**
 >
-> After finalize, the on-chain access grant takes a few seconds to propagate to the access index. During this window, uploads fail with a `403` and the error code `mirror_missing_grant`. Retry every few seconds until the grant appears.
+> After finalize, the onchain access grant takes a few seconds to propagate to the access index. During this window, uploads fail with a `403` and the error code `mirror_missing_grant`. Retry every few seconds until the grant appears.
 Other responses include `409` (bucket not finalized or duplicate file name), `413` (payload too large), `422` (quota exceeded), and `429` (rate limited).
 
 ## Files
