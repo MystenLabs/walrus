@@ -8,7 +8,7 @@ This reference covers the Walrus Console external API: the endpoints third-party
 
 :::info
 
-This documents the current Testnet surface. The API is in alpha and currently only available on Testnet at `https://api.testnet.harbor.walrus.xyz`. The endpoint structure may change before Mainnet GA. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
+This documents the current Testnet surface. The API is in alpha and currently only available on Testnet at `https://api.testnet.harbor.walrus.xyz`. The endpoint structure might change before Mainnet GA. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
 
 :::
 
@@ -220,7 +220,7 @@ Returns `202` with the file summary under `data`. Poll the status endpoint until
 
 :::info
 
-After finalize, the on-chain access grant takes a few seconds to propagate to the access index. During this window, uploads fail with a `403` and the error code `mirror_missing_grant`. Retry every few seconds until the grant appears.
+After finalize, the onchain access grant takes a few seconds to propagate to the access index. During this window, uploads fail with a `403` and the error code `mirror_missing_grant`. Retry every few seconds until the grant appears.
 
 :::
 
