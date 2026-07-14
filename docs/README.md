@@ -72,7 +72,9 @@ All documentation must follow the [Sui Documentation Style Guide](https://docs.s
 
 ### Tabs
 
-Use `<Tabs>` and `<TabItem>` for Testnet/Mainnet differences or prerequisite checklists. Wrap in `<div className="outlined-tabs">` for outlined styling. These components are globally available and do not need to be imported.
+Use `<Tabs>` and `<TabItem>` for Testnet/Mainnet differences or prerequisite
+checklists. Wrap in `<div className="outlined-tabs">` for outlined styling.
+These components are globally available and do not need to be imported.
 
 ### Snippets
 
@@ -82,18 +84,25 @@ Reusable content fragments live in `content/snippets/`. Import them into pages w
 
 The full build runs these steps in sequence:
 
-1. **`prestart` / `prebuild`** — Generates skills data, prepares Walrus Memory content, processes imports, copies YAML files, and generates release notes from `editorial/` source files.
+1. **`prestart` / `prebuild`** — Generates skills data, prepares Walrus Memory
+   content, processes imports, copies YAML files, and generates release notes
+   from `editorial/` source files.
 2. **`build:prep`** — Inlines imports, copies markdown files, and generates `llms.txt` / `llms-full.txt` for LLM consumption.
 3. **`docusaurus build`** — Compiles the Docusaurus site.
 4. **`generate-routes.js`** — Produces route metadata for the Walrus Sites portal.
 
 ## Redirects and custom headers
 
-Redirects and custom HTTP headers are configured in `site/ws-resources.manual.json`. Do not use client-side JavaScript redirects. This file is merged with auto-generated route data during the build.
+Redirects and custom HTTP headers are configured in
+`site/ws-resources.manual.json`. Do not use client-side JavaScript redirects.
+This file is merged with auto-generated route data during the build.
 
 ## Shared components
 
-This project uses shared TSX/JSX components from [ML-Shared-Docusaurus](https://github.com/MystenLabs/ML-Shared-Docusaurus), pulled in as a git subtree at `site/src/shared/`. These components are also used by the Sui, SuiNS, and Seal documentation sites.
+This project uses shared TSX/JSX components from
+[ML-Shared-Docusaurus](https://github.com/MystenLabs/ML-Shared-Docusaurus),
+pulled in as a git subtree at `site/src/shared/`. These components are also
+used by the Sui, SuiNS, and Seal documentation sites.
 
 To update shared components:
 
