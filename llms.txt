@@ -666,6 +666,11 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: Guides
 
+- [Delete Memories Programmatically](https://docs.wal.app/walrus-memory/guides/delete-memories-programmatically.md):
+    Use the Security Delete API to find memories owned by a wallet, select memories older than a
+    cutoff date, and permanently delete them. The API prepares and sponsors the Sui transaction;
+    your wallet authenticates the requests and signs the prepared transaction. > Warning > >
+    Deletion is permanent.
 - [Delete Old Memories](https://docs.wal.app/walrus-memory/guides/delete-old-memories.md):
     As part of ongoing security improvements, we're giving you the option to review and remove
     memories you no longer want stored on Walrus Memory. This guide shows you how to preview your

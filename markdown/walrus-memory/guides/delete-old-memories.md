@@ -20,7 +20,7 @@ dashboard opens at `/dashboard`.
 On the dashboard, scroll down to the **Delete memories** panel. The panel shows how many
 memories your wallet has stored and their current status:
 
-- **At risk**: stored memories that you can delete.
+- **Stored**: memories that you can delete.
 - **In progress**: memories that you have selected for deletion and that Walrus Memory is
   in the process of deleting.
 - **Deleted**: memories that Walrus Memory has removed.
