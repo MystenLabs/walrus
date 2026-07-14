@@ -640,19 +640,19 @@ Sui smart contract as the on-chain index.
 - [API Reference](https://docs.wal.app/docs/console/api-reference.md):
     This reference covers the Walrus Console external API: the endpoints third-party developers use
     to manage spaces, buckets, and files, plus the Seal sponsorship endpoints that back
-    private-bucket access control. > Note > > This documents the current Testnet surface, hosted at
-    .
+    private-bucket access control. > Info > > This documents the current Testnet surface.
 - [Auth](https://docs.wal.app/docs/console/auth.md):
-    Walrus Console signs you in with a familiar identity provider and provisions everything you
-    need to start storing data. You do not create a wallet, manage a seed phrase, or hold tokens to
-    sign up. > Note > > Walrus Console is in an invited beta on Mainnet.
+    Walrus Console uses the same kind of login you already know using Google or Apple; no wallet,
+    no seed phrase, no crypto setup. Just sign in and start storing data. > Info > > Walrus Console
+    is available on Mainnet through a closed, invite-only beta.
 - [Overview](https://docs.wal.app/docs/console/overview.md):
-    Walrus Console is the developer-first interface for Walrus, the decentralized storage network.
-    It gives you a hosted place to store, manage, and serve data without running your own Walrus
+    Walrus Console is the developer-first interface for interacting with the Walrus network. It
+    gives you a hosted place to store, manage, and serve data without running your own Walrus
     client or handling wallets and tokens directly.
 - [Quickstart](https://docs.wal.app/docs/console/quickstart.md):
     This quickstart takes you from sign-up to a working encrypted upload: create an account, mint
-    an API key, then create a Seal-encrypted bucket and upload, download, and decrypt a file.
+    an API key, then create a Seal-encrypted bucket and upload, download, and decrypt a file. >
+    Info > > Walrus Console is in a closed, invite-only beta on Mainnet.
 - [Storage Epochs](https://docs.wal.app/docs/console/storage-epochs.md):
     Walrus storage is time-bound. Your data stays available for a set amount of storage, measured
     in epochs, and expires when that storage runs out. Walrus Console tracks and pays for this so
@@ -687,6 +687,19 @@ Sui smart contract as the on-chain index.
     committee gains a --commission-receivers flag that prints, as CSV, the commission receiver of
     every node in the previous, current, and next committees (including the owning address for
     object receivers).
+
+## Walrus Memory: Guides
+
+- [Delete Memories Programmatically](https://docs.wal.app/walrus-memory/guides/delete-memories-programmatically.md):
+    Use the Security Delete API to find memories owned by a wallet, select memories older than a
+    cutoff date, and permanently delete them. The API prepares and sponsors the Sui transaction;
+    your wallet authenticates the requests and signs the prepared transaction. > Warning > >
+    Deletion is permanent.
+- [Delete Old Memories](https://docs.wal.app/walrus-memory/guides/delete-old-memories.md):
+    As part of ongoing security improvements, we're giving you the option to review and remove
+    memories you no longer want stored on Walrus Memory. This guide shows you how to preview your
+    memories and delete any you'd like to clear. > Warning > > Deleting a memory is permanent and
+    you cannot undo it.
 
 ## Walrus Memory: Python SDK
 

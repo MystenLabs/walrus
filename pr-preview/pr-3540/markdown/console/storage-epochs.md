@@ -1,32 +1,19 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Walrus storage is time-bound. Your data stays available for a set amount of storage, measured
-in epochs, and expires when that storage runs out. Walrus Console tracks and pays for this so
-you do not manage epochs by hand, and it is built to renew storage automatically for accounts
-that stay active.
+Walrus storage is time-bound. Your data stays available for a set amount of storage, measured in epochs, and expires when that storage runs out. Walrus Console tracks and pays for this so you do not manage epochs by hand, and it is built to renew storage automatically for accounts that stay active.
 
-> **Note**
+> **Info**
 >
-> Storage and epochs work today. Automatic renewal ships at and after GA. This page explains both
-> so you understand how your data's lifetime works and how to avoid losing it. For related cost
-> details, see the [concepts and overview](./overview).
+> Storage and epochs work today. Automatic renewal will ship at and after GA. This page explains both so you understand how your data's lifetime works and how to avoid losing it. For related cost details, see the [concepts and overview](./overview).
 ## How storage epochs work
 
-Walrus measures storage in epochs, which are fixed periods defined by the Walrus network. When
-you store a file, you reserve storage for a number of epochs. While that storage is funded, the
-network keeps your data available. When it runs out and is not renewed, the data expires and is
-no longer retrievable.
+Walrus measures storage in epochs, which are fixed periods defined by the Walrus network. When you store a file, you reserve storage for a number of epochs. While that storage is funded, the network keeps your data available. When it runs out and is not renewed, the data expires and is no longer retrievable.
 
-Console handles the underlying payment and epoch accounting for you through your Pearl wallet.
-You store a file, and Console reserves and funds its storage. You do not buy epochs or sign
-renewal transactions yourself.
+Console handles the underlying payment and epoch accounting for you through your [Pearl wallet](./auth#your-pearl-wallet). You store a file, and Console reserves and funds its storage. You do not buy epochs or sign renewal transactions yourself.
 
 ## Automatic renewal
 
-To keep active developers from losing data because they forgot to renew, Console renews storage
-automatically for wallets that stayed active. A wallet counts as active when it has at least one
-Walrus transaction within a recent activity window, planned as 14 days. Renewal runs on your
-behalf, so data you keep using stays available without any manual step.
+To keep active developers from losing data because they forgot to renew, Console renews storage automatically for wallets that stayed active. A wallet counts as active when it has at least one Walrus transaction within a recent activity window, planned as 14 days. Renewal runs on your behalf, so data you keep using stays available without any manual step.
 
 Automatic renewal ships at and after GA, alongside Mainnet billing.
 
@@ -34,27 +21,13 @@ Automatic renewal ships at and after GA, alongside Mainnet billing.
 
 > **Warning**
 >
-> If a wallet goes dormant, its storage is allowed to lapse and its data expires. Automatic
-> renewal covers active wallets only. If you store data you want to keep, make sure the account
-> stays active within the activity window, or plan to re-upload.
-Expiring dormant storage is deliberate. It keeps the network from paying indefinitely to store
-data for accounts that are no longer in use. An account returns to active status as soon as it
-records a new Walrus transaction within the window.
+> If a wallet goes dormant, its storage is allowed to lapse and its data expires. Automatic renewal covers active wallets only. If you store data you want to keep, make sure the account stays active within the activity window, or plan to re-upload.
+Expiring dormant storage is deliberate. It keeps the network from paying indefinitely to store data for accounts that are no longer in use. An account returns to active status as soon as it records a new Walrus transaction within the window.
 
 ## Checking storage status
 
-Your dashboard shows how much storage each space is using and surfaces upcoming expiry so you
-can act before data lapses. Storage used and your storage cap also appear per space when you
-list spaces through the API.
+Your dashboard shows how much storage each space is using and surfaces upcoming expiry so you can act before data lapses. Storage used and your storage cap also appear per space when you list spaces through the API.
 
 ## Storage and the free tier
 
-Console keeps a perpetual free tier with a storage cap, tentatively 5 GB, so new developers are
-not paywalled. Usage-based billing for reads and egress, along with a paid path, follows at and
-after GA. Console manages WAL token handling for storage on your behalf. For the model behind
-spaces and storage, see the [concepts and overview](./overview).
-
-## Next steps
-
-- Follow the [quickstart](./quickstart) to store your first file.
-- See the [concepts and overview](./overview) for spaces, buckets, and asset types.
+Console keeps a perpetual free tier with a storage cap, tentatively 5 GB, so new developers are not paywalled. Usage-based billing for reads and egress, along with a paid path, follows at and after GA. Console manages WAL token handling for storage on your behalf. For the model behind spaces and storage, see the [concepts and overview](./overview).
