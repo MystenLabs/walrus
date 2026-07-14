@@ -7,8 +7,8 @@ This quickstart takes you from sign-up to a working encrypted upload: create an 
 > Walrus Console is in a closed, invite-only beta on Mainnet. This quickstart uses the current Testnet preview, hosted under the Harbor name at `testnet.harbor.walrus.xyz`, with its API at `https://api.testnet.harbor.walrus.xyz`. The external API is in alpha and its endpoint shapes might change before Mainnet GA. All bucket creation goes through the private, Seal-encrypted flow; public bucket creation is disabled at the API boundary. For the full endpoint surface, see the [API reference](./api-reference). For the product model, see the [concepts and overview](./overview).
 ## Prerequisites
 
-- A Google account for sign-in.
-- Node.js with [`@mysten/sui`](https://www.npmjs.com/package/@mysten/sui) and [`@mysten/seal`](https://www.npmjs.com/package/@mysten/seal) installed, for the signing and encryption steps.
+- [x] A Google account for sign-in.
+- [x] Node.js with [`@mysten/sui`](https://www.npmjs.com/package/@mysten/sui) and [`@mysten/seal`](https://www.npmjs.com/package/@mysten/seal) installed, for the signing and encryption steps.
 
 Every request below carries your API key as a bearer token:
 
