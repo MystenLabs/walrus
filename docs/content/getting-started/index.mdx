@@ -51,24 +51,24 @@ The rest of this guide uses the Walrus CLI on Testnet because it shows the full 
 
 ## Before you begin
 
-This walkthrough uses Testnet, so you spend free test tokens rather than real funds. You need a terminal and about 10 minutes. You do not need to write any code, and you do not need to install Sui separately, because the `suiup` tool in the next step installs both `sui` and `walrus`.
-
-You complete the following steps in order:
-
-1. **Install tooling** — get the `sui` and `walrus` command-line tools.
-2. **Configure tooling for Walrus Testnet** — point the client at Testnet and verify the connection.
-3. **Understand your Sui account** — learn about the address and account created during setup.
-4. **Fund your Sui account with tokens** — get free Testnet SUI, then swap some for WAL.
-5. **Store a blob** — upload your first file to Walrus.
-6. **Retrieve a blob** — read the file back.
-7. **Extend a blob storage duration** — keep a blob stored for longer.
-8. **Delete a blob** — release a blob you no longer need.
+This walkthrough uses Testnet, so you spend free test tokens rather than real funds. You do not need to write any code, and you do not need to install Sui separately, because the `suiup` tool in the next step installs both `sui` and `walrus`.
 
 :::tip Already have the tools installed?
 
 If `sui` and `walrus` are already on your `$PATH`, skip to [Configure tooling for Walrus Testnet](#configure-testnet). To confirm, run `walrus --version` and `sui --version`. For alternative installation methods, such as building from source or installing a specific binary, see [Advanced Installation](/docs/getting-started/advanced-setup).
 
 :::
+
+The guide covers the following steps:
+
+1. **Install tooling:** Get the `sui` and `walrus` command-line tools.
+2. **Configure tooling for Walrus Testnet:** Point the client at Testnet and verify the connection.
+3. **Understand your Sui account:** Learn about the address and account created during setup.
+4. **Fund your Sui account with tokens:** Get free Testnet SUI, then swap some for WAL.
+5. **Store a blob:** Upload your first file to Walrus.
+6. **Retrieve a blob:** Read the file back.
+7. **Extend a blob storage duration:** Keep a blob stored for longer.
+8. **Delete a blob:** Release a blob you no longer need.
 
 ##step Install tooling
 
@@ -134,13 +134,13 @@ To store on Mainnet later, either pass `--context mainnet` on individual command
 
 :::
 
+For detailed information about the `walrus` CLI, use `walrus --help`. Append `--help` to any `walrus` subcommand to get details about that specific command.
+
 :::tip Setup not connecting?
 
 If `walrus info` fails or `walrus store` later returns `could not retrieve enough confirmations to certify the blob` or `the specified Walrus system object does not exist`, your configuration is most likely outdated or points at the wrong network. Re-download the configuration file shown previously and confirm the Sui client uses Testnet. See the [Troubleshooting guide](/docs/troubleshooting) for these and other common errors.
 
 :::
-
-For detailed information about the `walrus` CLI, use `walrus --help`. Append `--help` to any `walrus` subcommand to get details about that specific command.
 
 ##step Understand your Sui account
 
