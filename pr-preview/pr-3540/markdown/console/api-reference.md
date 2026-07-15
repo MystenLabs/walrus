@@ -236,7 +236,7 @@ Marks the file as `deleting` and enqueues a background job to remove the underly
 
 Polls the state of an in-flight upload after the upload endpoint returns `202`.
 
-Returns `200` with `data.state`, one of `queued`, `active`, `completed`, or `failed`. When the worker reports it, `data.progress` gives fractional progress from 0 to 1. When the state is `failed`, `data.error` includes a `code` and `message`. Once the job leaves the queue, this endpoint returns `404`; confirm completion through the file metadata endpoint after that.
+Returns `200` with `data.state`, one of `queued`, `active`, `completed`, or `failed`. When the worker reports it, `data.progress` gives fractional progress from 0 to 1. When the state is `failed`, `data.error` includes a `code` and `message`. Once the job leaves the queue this endpoint returns `404`, which does not mean the upload failed. If you get a `404` after uploading, check the file metadata endpoint to confirm the final status before treating it as an error.
 
 ### Download a file
 

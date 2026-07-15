@@ -20,7 +20,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3540/assets/css/styles.f7bd8a7d.css">
-<script src="/walrus/pr-preview/pr-3540/assets/js/runtime~main.81aa1d19.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3540/assets/js/runtime~main.f592414a.js" defer="defer"></script>
 <script src="/walrus/pr-preview/pr-3540/assets/js/main.2ac80331.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -122,7 +122,7 @@
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="get-upload-status">Get upload status<a href="#get-upload-status" class="hash-link" aria-label="Direct link to Get upload status" title="Direct link to Get upload status" translate="no">​</a></h3>
 <p><code>GET /api/v1/buckets/{id}/files/{fileId}/status</code></p>
 <p>Polls the state of an in-flight upload after the upload endpoint returns <code>202</code>.</p>
-<p>Returns <code>200</code> with <code>data.state</code>, one of <code>queued</code>, <code>active</code>, <code>completed</code>, or <code>failed</code>. When the worker reports it, <code>data.progress</code> gives fractional progress from 0 to 1. When the state is <code>failed</code>, <code>data.error</code> includes a <code>code</code> and <code>message</code>. Once the job leaves the queue, this endpoint returns <code>404</code>; confirm completion through the file metadata endpoint after that.</p>
+<p>Returns <code>200</code> with <code>data.state</code>, one of <code>queued</code>, <code>active</code>, <code>completed</code>, or <code>failed</code>. When the worker reports it, <code>data.progress</code> gives fractional progress from 0 to 1. When the state is <code>failed</code>, <code>data.error</code> includes a <code>code</code> and <code>message</code>. Once the job leaves the queue this endpoint returns <code>404</code>, which does not mean the upload failed. If you get a <code>404</code> after uploading, check the file metadata endpoint to confirm the final status before treating it as an error.</p>
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="download-a-file">Download a file<a href="#download-a-file" class="hash-link" aria-label="Direct link to Download a file" title="Direct link to Download a file" translate="no">​</a></h3>
 <p><code>GET /api/v1/buckets/{id}/files/{fileId}/download</code></p>
 <p>Streams the raw file content with <code>Content-Type</code> and <code>Content-Disposition</code> headers. For a private bucket, this returns the Seal ciphertext, which you decrypt<!-- --> <!-- -->client<!-- -->-side. See the <a class="" href="/walrus/pr-preview/pr-3540/docs/console/quickstart">Quick Start</a> for the decrypt flow.</p>

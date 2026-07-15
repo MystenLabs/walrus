@@ -651,8 +651,7 @@ Sui smart contract as the on-chain index.
     client or handling wallets and tokens directly.
 - [Quickstart](https://docs.wal.app/docs/console/quickstart.md):
     This quickstart takes you from sign-up to a working encrypted upload: create an account, mint
-    an API key, then create a Seal-encrypted bucket and upload, download, and decrypt a file. >
-    Info > > Walrus Console is in a closed, invite-only beta on Mainnet.
+    an API key, then create a Seal-encrypted bucket and upload, download, and decrypt a file.
 - [Storage Epochs](https://docs.wal.app/docs/console/storage-epochs.md):
     Walrus storage is time-bound. Your data stays available for a set amount of storage, measured
     in epochs, and expires when that storage runs out. Walrus Console tracks and pays for this so
