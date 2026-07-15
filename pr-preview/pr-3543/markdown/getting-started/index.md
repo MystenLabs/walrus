@@ -44,7 +44,7 @@ This walkthrough uses Testnet, so you spend free test tokens rather than real fu
 
 > **Already have the tools installed?**
 >
-> If `sui` and `walrus` are already on your `$PATH`, skip to [Configure tooling for Walrus Testnet](#configure-testnet). To confirm, run `walrus --version` and `sui --version`. For alternative installation methods, such as building from source or installing a specific binary, see [Advanced Installation](/docs/getting-started/advanced-setup).
+> If `sui` and `walrus` are already on your `$PATH`, skip to [Configure tooling for Walrus Testnet](#configure-tooling). To confirm, run `walrus --version` and `sui --version`. For alternative installation methods, such as building from source or installing a specific binary, see [Advanced Installation](/docs/getting-started/advanced-setup).
 The guide covers the following steps:
 
 1. **Install tooling:** Get the `sui` and `walrus` command-line tools.
@@ -73,7 +73,7 @@ $ suiup install sui
 $ suiup install walrus
 ```
 
-##step Configure tooling for Walrus Testnet {#configure-testnet}
+##step Configure tooling for Walrus Testnet {#configure-tooling}
 
 After installing Walrus, configure the Walrus client. The client configuration tells Walrus which RPC URLs to use to access Testnet or Mainnet and which Sui objects track the state of the Walrus network. The easiest way to configure Walrus is to download the following pre-filled configuration file.
 
