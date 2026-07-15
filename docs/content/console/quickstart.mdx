@@ -8,7 +8,7 @@ This quickstart takes you from sign-up to a working encrypted upload: create an 
 
 :::info
 
-Walrus Console is in a closed, invite-only beta on Mainnet. This quickstart uses the current Testnet preview, hosted under the Harbor name at `testnet.harbor.walrus.xyz`, with its API at `https://api.testnet.harbor.walrus.xyz`. The external API is in alpha and its endpoint shapes might change before Mainnet GA. All bucket creation goes through the private, Seal-encrypted flow; public bucket creation is disabled at the API boundary. For the full endpoint surface, see the [API reference](./api-reference). For the product model, see the [concepts and overview](./overview).
+The Console developer API is in alpha and currently available on Testnet only, hosted under the Harbor name at `api.testnet.harbor.walrus.xyz`. Endpoint shapes might change before it reaches Mainnet at GA. In alpha, all bucket creation goes through the private, Seal-encrypted flow; public bucket creation is disabled at the API boundary. For the full endpoint surface, see the [API reference](./api-reference); for the product model, see the [concepts and overview](./overview).
 
 :::
 
@@ -40,38 +40,24 @@ The code in this guide is pulled directly from the runnable [`walrus-harbor-quic
 ## Sign up and create an API key
 
 1. Visit the [Walrus Console app](https://testnet.harbor.walrus.xyz/) and sign in with Google. zkLogin provisions your account and a Personal Space automatically.
-2. Open **Settings → API Keys → New API key**, give it a name, pick a role, and submit.
-   - `read_write` is required for any state change: create and delete buckets, upload, rename, and delete files, and finalize private buckets.
-   - `read_only` covers listing, status, and download only. Every write endpoint returns `403` with code `read_only_api_key` for these keys. Use this role when you hand a key to a downstream consumer that should not change your data.
-3. On the reveal screen, copy the `hbr_…` key. Console shows it once and cannot recover it afterward. Store it like a cloud secret access key.
+2. Open **Settings → API Keys → New API key**, give it a name, pick role **`read_write`**, and tick **Create** so the key is encryption-capable. Submit.
+3. On the reveal screen, copy both secrets. Console shows them once and cannot recover them afterward:
+   - `hbr_…`, the API key you send as `Authorization: Bearer …` on every request.
+   - `suiprivkey1…`, the service private key: an Ed25519 secret in Sui keytool format, bound to this API key. Console stores only the derived public address, and it does not need a token balance. You use it to sign the finalize transaction and to authenticate decrypt sessions with Seal.
 
-Pick `read_write` if you intend to follow the encrypted flow below end to end.
+   Store both like cloud secret access keys. Paste them into your `.env` as your bearer token and `HARBOR_SERVICE_PRIVKEY`, or into Postman.
+
+A `read_only` key (listing, status, and download only) is also available for downstream consumers that should not change your data; every write endpoint returns `403` with code `read_only_api_key` for those keys. The encrypted flow below needs the `read_write` encryption-capable key created above.
 
 ## Create an encrypted bucket and upload a file
 
-Private buckets are encrypted client-side, so Console stores ciphertext only and never sees your plaintext or decryption material. Creation goes through a reserve, sign, and finalize handshake, with a one-time service-key setup beforehand and a local decrypt step on download:
+Private buckets are encrypted client-side, so Console stores ciphertext only and never sees your plaintext or decryption material. With your key in hand, creation goes through a reserve, sign, and finalize handshake, then a local encrypt on upload and decrypt on download:
 
 ```
-service key setup → get space → reserve → sign → finalize →
-encrypt → upload → poll → download → decrypt
+get space → reserve → sign → finalize → encrypt → upload → poll → download → decrypt
 ```
 
-:::warning
-
-You end this section holding two secrets: an `hbr_…` API key, sent as `Authorization: Bearer …` on every request, and a `suiprivkey1…` service private key, kept locally and used to sign the finalize transaction and to authenticate decrypt sessions with Seal. Console shows both once. Store them like cloud access keys.
-
-:::
-
-### Step 1: Create an encrypted-capable API key
-
-In **Settings → API Keys → New API key**, pick role `read_write` and tick **Create**. The reveal screen now exposes two secrets:
-
-- `hbr_…`, the API key.
-- `suiprivkey1…`, the service private key: an Ed25519 secret in Sui keytool format. It is bound to this API key, and Console stores only the derived public address. It does not need a token balance.
-
-Paste them into your `.env` as `HARBOR_SERVICE_PRIVKEY` and your bearer token, or into Postman.
-
-### Step 2: Get your space ID
+### Step 1: Get your space ID
 
 ```http
 GET /api/v1/spaces
@@ -79,7 +65,7 @@ GET /api/v1/spaces
 
 The response's `data[]` array holds your spaces. Copy the `id` of the Personal Space created at sign-up.
 
-### Step 3: Reserve the bucket
+### Step 2: Reserve the bucket
 
 ```http
 POST /api/v1/spaces/{spaceId}/buckets
@@ -109,19 +95,19 @@ The signing, encryption, and decryption steps below come from the runnable [`wal
 
 <ImportContent source="app/src/lib/seal.ts" mode="code" org="MystenLabs" repo="walrus-harbor-quickstart" />
 
-### Step 4: Sign the bytes with the service key
+### Step 3: Sign the bytes with the service key
 
 Sign the reserved `bytes` with your service key. `sign-reserve.ts` loads the key with `loadKeypair` and calls `signReserveBytes`, returning the base64 signature you pass to finalize. Run it with `pnpm sign-reserve <base64-reserve-bytes>`:
 
 <ImportContent source="app/src/scripts/sign-reserve.ts" mode="code" org="MystenLabs" repo="walrus-harbor-quickstart" />
 
-### Step 5: Finalize
+### Step 4: Finalize
 
 ```http
 POST /api/v1/buckets/{bucketId}/finalize
 Content-Type: application/json
 
-{ "signature": "<base64 signature from step 4>" }
+{ "signature": "<base64 signature from step 3>" }
 ```
 
 Console combines your signature with the gas-sponsor signature and broadcasts the transaction. Response (`200`):
@@ -132,7 +118,7 @@ Console combines your signature with the gas-sponsor signature and broadcasts th
 
 `seal_policy_id` is the onchain bucket-policy object ID that Seal uses for access checks. The bucket is now usable.
 
-### Step 6: Encrypt the file with Seal
+### Step 5: Encrypt the file with Seal
 
 Encrypt locally against the `seal_policy_id` from finalize. `encryptBytes` (in `lib/seal.ts`) derives a per-file Seal identity and encrypts against the bucket policy using `ORIGINAL_PACKAGE_ID` from `config.ts`. Seal pins identity derivation to the original package ID, so this value must stay fixed across package upgrades, otherwise an upgrade would invalidate every previously encrypted blob's key. `encrypt-file.ts` wires it up; run it with `pnpm encrypt-file <plaintextPath> <sealPolicyId>`:
 
@@ -140,7 +126,7 @@ Encrypt locally against the `seal_policy_id` from finalize. `encryptBytes` (in `
 
 It writes `<plaintextPath>.enc`, the byte stream you upload next.
 
-### Step 7: Upload
+### Step 6: Upload
 
 ```http
 POST /api/v1/buckets/{bucketId}/files
@@ -151,7 +137,7 @@ file=@<encryptedObject>
 
 Just after finalize, the onchain access grant needs a few seconds to propagate into Console's access index. Until it does, this endpoint returns `403` with code `mirror_missing_grant`. Retry every few seconds; usually 20 attempts is plenty in practice. Once the grant mirrors, the response is `202` with `data.id`.
 
-### Step 8: Poll status
+### Step 7: Poll status
 
 ```http
 GET /api/v1/buckets/{bucketId}/files/{fileId}/status
@@ -159,7 +145,7 @@ GET /api/v1/buckets/{bucketId}/files/{fileId}/status
 
 Returns `data.state`, one of `queued`, `active`, `completed`, or `failed`. Poll every second or two until the state is `completed`. Completion is typically under 30 seconds on Testnet.
 
-### Step 9: Download and decrypt
+### Step 8: Download and decrypt
 
 ```http
 GET /api/v1/buckets/{bucketId}/files/{fileId}/download
@@ -173,5 +159,5 @@ Decryption is fully client-side and never touches Console's backend.
 
 ## Get help
 
-- Open an issue at [github.com/MystenLabs/harbor/issues](https://github.com/MystenLabs/harbor/issues) with the `developer-docs` label. Include the endpoint and method, the HTTP status, and the `code` field from any error response.
 - Ask the team and other developers in the [Walrus Discord](https://discord.gg/walrusprotocol).
+- File an issue on the [`walrus-harbor-quickstart`](https://github.com/MystenLabs/walrus-harbor-quickstart/issues) example repo. Include the endpoint and method, the HTTP status, and the `code` field from any error response.
