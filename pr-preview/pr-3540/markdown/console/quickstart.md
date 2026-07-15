@@ -21,7 +21,7 @@ Authorization: Bearer hbr_…
 > The TypeScript snippets in this guide mirror the hosted quickstart. The canonical version, including the live package IDs and Seal key-server object IDs, lives in the [Harbor repository](https://github.com/MystenLabs/harbor); prefer copying from there so your values stay current across contract upgrades.
 ## Sign up and create an API key
 
-1. Visit [testnet.harbor.walrus.xyz](https://testnet.harbor.walrus.xyz/) and sign in with Google. zkLogin provisions your account and a Personal Space automatically.
+1. Visit the [Walrus Console app](https://testnet.harbor.walrus.xyz/) and sign in with Google. zkLogin provisions your account and a Personal Space automatically.
 2. Open **Settings → API Keys → New API key**, give it a name, pick a role, and submit.
    - `read_write` is required for any state change: create and delete buckets, upload, rename, and delete files, and finalize private buckets.
    - `read_only` covers listing, status, and download only. Every write endpoint returns `403` with code `read_only_api_key` for these keys. Use this role when you hand a key to a downstream consumer that should not change your data.

@@ -11,7 +11,7 @@ Console uses Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin). Y
 
 ## Sign in with Google
 
-1. Visit [testnet.harbor.walrus.xyz](https://testnet.harbor.walrus.xyz/).
+1. Visit the [Walrus Console app](https://testnet.harbor.walrus.xyz/).
 2. Choose **Continue with Google** and complete the Google sign-in.
 3. Console provisions your account and a [Personal Space](./overview#core-concepts-spaces-buckets-and-files), then takes you to the dashboard.
 
