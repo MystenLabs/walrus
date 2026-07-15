@@ -40,22 +40,22 @@ The rest of this guide uses the Walrus CLI on Testnet because it shows the full 
 
 ## Before you begin
 
-This walkthrough uses Testnet, so you spend free test tokens rather than real funds. You need a terminal and about 10 minutes. You do not need to write any code, and you do not need to install Sui separately, because the `suiup` tool in the next step installs both `sui` and `walrus`.
-
-You complete the following steps in order:
-
-1. **Install tooling** — get the `sui` and `walrus` command-line tools.
-2. **Configure tooling for Walrus Testnet** — point the client at Testnet and verify the connection.
-3. **Understand your Sui account** — learn about the address and account created during setup.
-4. **Fund your Sui account with tokens** — get free Testnet SUI, then swap some for WAL.
-5. **Store a blob** — upload your first file to Walrus.
-6. **Retrieve a blob** — read the file back.
-7. **Extend a blob storage duration** — keep a blob stored for longer.
-8. **Delete a blob** — release a blob you no longer need.
+This walkthrough uses Testnet, so you spend free test tokens rather than real funds. You do not need to write any code, and you do not need to install Sui separately, because the `suiup` tool in the next step installs both `sui` and `walrus`.
 
 > **Already have the tools installed?**
 >
 > If `sui` and `walrus` are already on your `$PATH`, skip to [Configure tooling for Walrus Testnet](#configure-testnet). To confirm, run `walrus --version` and `sui --version`. For alternative installation methods, such as building from source or installing a specific binary, see [Advanced Installation](/docs/getting-started/advanced-setup).
+The guide covers the following steps:
+
+1. **Install tooling:** Get the `sui` and `walrus` command-line tools.
+2. **Configure tooling for Walrus Testnet:** Point the client at Testnet and verify the connection.
+3. **Understand your Sui account:** Learn about the address and account created during setup.
+4. **Fund your Sui account with tokens:** Get free Testnet SUI, then swap some for WAL.
+5. **Store a blob:** Upload your first file to Walrus.
+6. **Retrieve a blob:** Read the file back.
+7. **Extend a blob storage duration:** Keep a blob stored for longer.
+8. **Delete a blob:** Release a blob you no longer need.
+
 ##step Install tooling
 
 To install Walrus and Sui, use the Mysten Labs `suiup` tool.
@@ -117,11 +117,11 @@ Make sure that the output of this command includes `Epoch duration: 1day` to ind
 > The pre-filled configuration file defines both a `testnet` and a `mainnet` context and sets `default_context: testnet`. Because Testnet is the default, you do not need to pass `--context testnet` on every command. This guide includes the flag on each command to make the target network explicit, but you can omit it while you work on Testnet.
 > 
 > To store on Mainnet later, either pass `--context mainnet` on individual commands or change `default_context` to `mainnet` in `~/.config/walrus/client_config.yaml`. For the full list of contexts and endpoints, see the [Network Reference](/docs/network-reference).
+For detailed information about the `walrus` CLI, use `walrus --help`. Append `--help` to any `walrus` subcommand to get details about that specific command.
+
 > **Setup not connecting?**
 >
 > If `walrus info` fails or `walrus store` later returns `could not retrieve enough confirmations to certify the blob` or `the specified Walrus system object does not exist`, your configuration is most likely outdated or points at the wrong network. Re-download the configuration file shown previously and confirm the Sui client uses Testnet. See the [Troubleshooting guide](/docs/troubleshooting) for these and other common errors.
-For detailed information about the `walrus` CLI, use `walrus --help`. Append `--help` to any `walrus` subcommand to get details about that specific command.
-
 ##step Understand your Sui account
 
 When you ran `sui client` during setup, the system automatically created a Sui account for you. Sui uses addresses and accounts. When you store blobs on Walrus, Walrus binds them to an object on Sui that an address owns.
