@@ -14,7 +14,10 @@ use std::{
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use fastcrypto::encoding::Encoding;
+use fastcrypto::{
+    encoding::Encoding,
+    hash::{HashFunction as _, Sha256},
+};
 use itertools::Itertools as _;
 use rand::seq::SliceRandom;
 use reqwest::Url;
@@ -771,6 +774,7 @@ impl ClientCommandRunner {
             store_optimizations,
             persistence,
             post_store,
+            attach_sha256_checksum,
             encoding_type,
             upload_relay,
             confirmation,
@@ -861,6 +865,9 @@ impl ClientCommandRunner {
                 for (path, _) in &blobs {
                     cmd.arg(path);
                 }
+                if attach_sha256_checksum {
+                    cmd.arg("--attach-sha256-checksum");
+                }
             },
             blobs.len(),
         )
@@ -868,6 +875,15 @@ impl ClientCommandRunner {
         {
             return Ok(());
         }
+
+        let attributes = if attach_sha256_checksum {
+            blobs
+                .iter()
+                .map(|(_, blob)| sha256_checksum_attribute(blob))
+                .collect()
+        } else {
+            vec![]
+        };
 
         let base_store_args = StoreArgs::new(
             encoding_type,
@@ -928,7 +944,7 @@ impl ClientCommandRunner {
 
         let blobs_len = blobs.len();
         let results = client_created_in_bg
-            .reserve_and_store_blobs_retry_committees_with_path(blobs, &store_args)
+            .reserve_and_store_blobs_retry_committees_with_path(blobs, attributes, &store_args)
             .await?;
 
         internal_run_ctx.finalize_after_store(&mut store_args).await;
@@ -1134,6 +1150,7 @@ impl ClientCommandRunner {
             store_optimizations,
             persistence,
             post_store,
+            attach_sha256_checksum,
             encoding_type,
             upload_relay,
             confirmation,
@@ -1149,6 +1166,12 @@ impl ClientCommandRunner {
         }
         if persistence.is_deletable() && post_store == PostStoreAction::Share {
             anyhow::bail!("deletable blobs cannot be shared");
+        }
+        if attach_sha256_checksum {
+            anyhow::bail!(
+                "--attach-sha256-checksum is not supported for store-quilt; it only applies to \
+                the `store` command"
+            );
         }
 
         let encoding_type = encoding_type.unwrap_or(DEFAULT_ENCODING);
@@ -2218,12 +2241,21 @@ impl ClientCommandRunner {
     }
 }
 
+/// Computes the SHA-256 checksum of `blob` and wraps it in a [`BlobAttribute`] under the
+/// well-known `sha256` key, as a lowercase hex string.
+fn sha256_checksum_attribute(blob: &[u8]) -> BlobAttribute {
+    let digest = Sha256::digest(blob).digest;
+    let checksum = digest.iter().map(|byte| format!("{byte:02x}")).join("");
+    BlobAttribute::from([("sha256".to_string(), checksum)])
+}
+
 struct StoreOptions {
     epoch_arg: EpochArg,
     dry_run: bool,
     store_optimizations: StoreOptimizations,
     persistence: BlobPersistence,
     post_store: PostStoreAction,
+    attach_sha256_checksum: bool,
     encoding_type: Option<EncodingType>,
     upload_relay: Option<Url>,
     confirmation: UserConfirmation,
@@ -2243,6 +2275,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             deletable,
             permanent,
             share,
+            attach_sha256_checksum,
             encoding_type,
             upload_relay,
             skip_tip_confirmation,
@@ -2259,6 +2292,7 @@ impl TryFrom<CommonStoreOptions> for StoreOptions {
             ),
             persistence: BlobPersistence::from_deletable_and_permanent(deletable, permanent)?,
             post_store: PostStoreAction::from_share(share),
+            attach_sha256_checksum,
             encoding_type,
             upload_relay,
             confirmation: skip_tip_confirmation.into(),
@@ -2511,5 +2545,30 @@ async fn get_latest_checkpoint_sequence_number(
     } else {
         println!("Failed to create RPC client.");
         None
+    }
+}
+
+#[cfg(test)]
+mod checksum_tests {
+    use super::sha256_checksum_attribute;
+
+    #[test]
+    fn sha256_checksum_attribute_matches_known_digest() {
+        // echo -n "hello world" | sha256sum
+        let attribute = sha256_checksum_attribute(b"hello world");
+        assert_eq!(
+            attribute.get("sha256"),
+            Some("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
+        );
+    }
+
+    #[test]
+    fn sha256_checksum_attribute_of_empty_blob() {
+        // echo -n "" | sha256sum
+        let attribute = sha256_checksum_attribute(b"");
+        assert_eq!(
+            attribute.get("sha256"),
+            Some("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+        );
     }
 }

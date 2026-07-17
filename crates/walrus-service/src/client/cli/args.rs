@@ -1242,6 +1242,15 @@ pub struct CommonStoreOptions {
     #[arg(long)]
     #[serde(default)]
     pub share: bool,
+    /// Compute the SHA-256 checksum of each blob and attach it to the blob object as a
+    /// `sha256` attribute.
+    ///
+    /// The checksum is computed over the raw, unencoded blob bytes and stored on-chain as a
+    /// lowercase hex string, so it can be used to match externally-known file checksums to
+    /// blobs stored on Walrus.
+    #[arg(long)]
+    #[serde(default)]
+    pub attach_sha256_checksum: bool,
     /// The encoding type to use for encoding the files.
     #[arg(long, hide = true)]
     #[serde(default)]
@@ -2011,6 +2020,7 @@ mod tests {
                 deletable: false,
                 permanent: false,
                 share: false,
+                attach_sha256_checksum: false,
                 encoding_type: Default::default(),
                 upload_relay: None,
                 skip_tip_confirmation: false,

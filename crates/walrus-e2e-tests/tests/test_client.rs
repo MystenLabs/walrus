@@ -170,7 +170,7 @@ where
 
     let store_result = client
         .as_ref()
-        .reserve_and_store_blobs_retry_committees_with_path(blobs_with_paths, &store_args)
+        .reserve_and_store_blobs_retry_committees_with_path(blobs_with_paths, vec![], &store_args)
         .await?;
 
     // Wait for the tail uploads to complete.
@@ -770,7 +770,11 @@ pub async fn test_store_and_read_duplicate_blobs() -> TestResult {
 
     let store_args = StoreArgs::default_with_epochs(1).no_store_optimizations();
     let store_result_with_path = client
-        .reserve_and_store_blobs_retry_committees_with_path(blobs_with_paths.clone(), &store_args)
+        .reserve_and_store_blobs_retry_committees_with_path(
+            blobs_with_paths.clone(),
+            vec![],
+            &store_args,
+        )
         .await?;
 
     let read_result =
