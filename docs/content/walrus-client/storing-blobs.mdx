@@ -53,7 +53,7 @@ using the `--attach-sha256-checksum` flag:
 $ walrus store <FILES> --epochs <EPOCHS> --attach-sha256-checksum
 ```
 
-The checksum is computed over the raw, unencoded blob bytes and stored on-chain as a lowercase
+The checksum is computed over the raw, unencoded blob bytes and stored onchain as a lowercase
 hex string, so it can be used to match externally known file checksums to blobs stored on
 Walrus. Retrieve it later with `walrus get-blob-attribute <BLOB_OBJECT_ID>`. This flag is only
 supported for the `store` command, not `store-quilt`.
