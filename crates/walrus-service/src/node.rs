@@ -2429,11 +2429,14 @@ impl StorageNode {
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
     ) -> anyhow::Result<()> {
-        // Advancing the recovery target and starting the shard syncs for gained shards must be
-        // atomic with respect to the recovery task's completion, which checks both under the
-        // same mutex: a completing task either observes the advanced target together with the
-        // new shard syncs, or completes entirely before this transition (detected below via the
-        // node status, in which case a new task is started).
+        // Advancing the recovery target, starting the shard syncs for gained shards, and locking
+        // the shards that moved away must be atomic with respect to the recovery task's
+        // completion, which runs under the same mutex: a completing task either observes the
+        // advanced target together with the new shard syncs and the locked shards, or completes
+        // entirely before this transition (detected below via the node status, in which case a
+        // new task is started). In particular, completion must not attest epoch sync done before
+        // the lost shards are locked, as the node would still accept slivers for shards it no
+        // longer owns.
         let status_guard = self.node_recovery_handler.lock_status().await;
 
         // If the running recovery task completed concurrently (after this event handler decided
@@ -2466,8 +2469,6 @@ impl StorageNode {
         self.create_new_shards_and_start_sync(shard_map_lock, shards_gained, &committees, false)
             .await?;
 
-        drop(status_guard);
-
         // For shards that just moved out, we need to lock them to not store more data in them.
         for shard_id in shard_diff_calculator.shards_to_lock() {
             let Some(shard_storage) = self.inner.storage.shard_storage(*shard_id).await else {
@@ -2484,6 +2485,8 @@ impl StorageNode {
                 .await
                 .context("failed to lock shard")?;
         }
+
+        drop(status_guard);
 
         // The recovery task keeps running across epoch changes: it waits for the shard syncs
         // started above to finish before recovering blobs, and attests epoch sync done for the

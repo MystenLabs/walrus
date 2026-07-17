@@ -72,11 +72,13 @@ impl NodeRecoveryHandler {
     /// Locks the recovery status mutex.
     ///
     /// The epoch-change path must hold the returned guard across advancing the recovery target
-    /// (setting the node status to a newer `RecoveryInProgress` epoch) and starting the shard
-    /// syncs for newly gained shards, so that these are atomic with respect to the recovery
-    /// task's completion. The catch-up path must hold it across writing its recovery target and
-    /// aborting the previous recovery task (via [`Self::start_node_recovery`]), so that a task
-    /// from before the catch-up cannot complete a target whose blobs it never scanned.
+    /// (setting the node status to a newer `RecoveryInProgress` epoch), starting the shard
+    /// syncs for newly gained shards, and locking the shards that moved away, so that these are
+    /// atomic with respect to the recovery task's completion; otherwise, the task could attest
+    /// epoch sync done while the node still accepts slivers for shards it no longer owns. The
+    /// catch-up path must hold it across writing its recovery target and aborting the previous
+    /// recovery task (via [`Self::start_node_recovery`]), so that a task from before the
+    /// catch-up cannot complete a target whose blobs it never scanned.
     pub async fn lock_status(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.status_mutex.lock().await
     }
