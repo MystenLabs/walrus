@@ -17,9 +17,9 @@ Walrus has no built-in gas-sponsorship primitive that lets a user sign a store w
 
 Every store spends real resources, so sponsorship always means one of your wallets pays for the following onchain steps:
 
-1. **Reserve storage:** The store reserves storage space for a number of epochs, paid in WAL.
-2. **Register the blob:** The store registers the blob ID onchain. This Sui transaction costs SUI gas.
-3. **Certify the blob:** After the slivers reach a quorum of storage nodes, the store certifies the blob onchain. This second Sui transaction costs SUI gas.
+1. **Reserve storage:** The store buys storage space for a number of epochs. This costs WAL (a storage fee that scales with blob size and duration) plus SUI gas.
+2. **Register the blob:** The store creates the onchain `Blob` object. This costs WAL (a write fee) plus SUI gas. In practice, reserve and register are usually combined into a single transaction, so the first transaction spends both WAL and SUI.
+3. **Certify the blob:** After the slivers reach a quorum of storage nodes, the store certifies the blob onchain. This second transaction costs SUI gas only.
 
 There is no free storage tier. Sponsorship changes only who pays, not whether WAL and SUI are spent. Keep both a WAL balance and a SUI balance funded on whichever wallet performs the store. Where a network configures an onchain storage subsidy, the subsidy can offset part of the WAL cost, but it does not change who signs the store or who pays the SUI gas.
 
@@ -30,7 +30,7 @@ For the full onchain lifecycle, see [Operations](/docs/system-overview/operation
 | Pattern | Who signs onchain | Who pays | Walletless for the user | Best for |
 | --- | --- | --- | --- | --- |
 | Backend publisher | Publisher wallet | App | Yes | Server backends that accept raw bytes over HTTP and pay for storage |
-| Upload relay | Client (or the app's signer) | Client, app, or relay policy | Only if the app manages signing | Browser and mobile clients that cannot open many node connections |
+| Upload relay | Client or app signer | Client or app signer for storage and gas, plus a relay tip if configured | Only if the app manages signing | Browser and mobile clients that cannot open many node connections |
 | Direct SDK | The signer your code configures | App wallet or signer | Yes, if the backend holds the signer | Apps that integrate Walrus directly and control signing in code |
 
 ### Backend publisher
@@ -66,7 +66,7 @@ Teams commonly run the publisher on a cloud host behind an edge or gateway layer
 
 Decide up front who owns the stored blob and for how long:
 
-- **Ownership:** If you do not specify a destination, the publisher keeps the resulting `Blob` object, which returns to the operator's main wallet. Pass `send_object_to=<address>` to transfer ownership to a walletless user's address at store time, or `share=true` to wrap it as a shared blob.
+- **Ownership:** If you do not specify a destination, the publisher keeps the resulting `Blob` object, which returns to the operator's main wallet. Pass `send_object_to=<address>` to transfer ownership to a walletless user's address at store time.
 - **Deletable compared with permanent:** Newly stored blobs are deletable by default. The owner can delete a deletable blob to reclaim storage; a permanent blob cannot. Choose with `deletable=true` or `permanent=true`. See [Deletable and permanent blobs](/docs/http-api/storing-blobs#deletable-and-permanent-blobs).
 - **Renewal:** Storage lasts for the epochs you paid for. Decide whether your backend renews blobs before they expire, or whether that responsibility passes to the user along with the object.
 
