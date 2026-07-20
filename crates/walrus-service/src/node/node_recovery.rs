@@ -7,7 +7,7 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use sui_macros::fail_point_async;
 use tokio::sync::Mutex;
 use typed_store::TypedStoreError;
-use walrus_core::Epoch;
+use walrus_core::{Epoch, ShardIndex};
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use super::{
@@ -16,7 +16,10 @@ use super::{
     config::NodeRecoveryConfig,
     shard_sync::ShardSyncHandler,
 };
-use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
+use crate::node::{
+    NodeStatus,
+    storage::{ShardStatus, blob_info::CertifiedBlobInfoApi},
+};
 
 /// Exponential backoff bounds for re-checking shard creation while node recovery waits for event
 /// processing to create a shard it owns at the latest epoch. The wait starts small so the common
@@ -24,6 +27,11 @@ use crate::node::{NodeStatus, storage::blob_info::CertifiedBlobInfoApi};
 /// event processing can create the shard and self-heal.
 const SHARD_NOT_CREATED_BACKOFF_MIN: Duration = Duration::from_secs(1);
 const SHARD_NOT_CREATED_BACKOFF_MAX: Duration = Duration::from_secs(60);
+
+/// Interval at which a recovery task that has finished blob recovery re-checks the status of
+/// owned shards that are not `Active` while no shard sync is running (a terminally failed shard
+/// sync requires a node restart to be retried).
+const UNSYNCED_SHARD_RECHECK_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone)]
 pub struct NodeRecoveryHandler {
@@ -79,6 +87,11 @@ impl NodeRecoveryHandler {
     /// catch-up path must hold it across writing its recovery target and aborting the previous
     /// recovery task (via [`Self::start_node_recovery`]), so that a task from before the
     /// catch-up cannot complete a target whose blobs it never scanned.
+    ///
+    /// Lock ordering: this mutex must be acquired *before* the storage shard map lock. The
+    /// recovery task's completion attempt reads shard statuses (which takes the shard map read
+    /// lock) while holding this mutex, so acquiring this mutex while holding the shard map lock
+    /// deadlocks with it.
     pub async fn lock_status(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.status_mutex.lock().await
     }
@@ -121,9 +134,10 @@ impl NodeRecoveryHandler {
     ///
     /// The task keeps running across epoch changes: blobs certified after the scan bound are
     /// covered by event processing, and shards gained at later epoch changes are covered by shard
-    /// sync (which the task waits for), so the scan bound stays valid. On completion, the task
-    /// attests epoch sync done for the recovery target currently recorded in the node status,
-    /// which the epoch-change path advances.
+    /// sync (which the task waits for), so the scan bound stays valid. The task completes only
+    /// once blob recovery is done and every owned shard is in `Active` status, that is, shard
+    /// sync has delivered every gained shard; it then attests epoch sync done for the recovery
+    /// target currently recorded in the node status, which the epoch-change path advances.
     ///
     /// Any existing recovery task will be canceled.
     // TODO(WAL-864): Refactor this function to make it readable.
@@ -164,14 +178,6 @@ impl NodeRecoveryHandler {
             fail_point_async!("start_node_recovery_entry");
 
             loop {
-                // Snapshot the shard sync generation before waiting: a completed pass may only
-                // attest if no shard sync started since this point. A shard sync that starts
-                // (and possibly terminally fails) during the pass leaves blobs behind that only
-                // a new scan pass finds, so a generation change forces a re-scan. Taking the
-                // snapshot before the wait errs towards a spurious re-scan when syncs start and
-                // drain while parked, never towards a missed one.
-                let sync_generation_before_scan = shard_sync_handler.sync_generation();
-
                 // Block until the node is ready to run a recovery scan pass. Stops the recovery
                 // task if the node started catching up.
                 match wait_until_ready_to_scan(&node, &shard_sync_handler).await {
@@ -348,61 +354,9 @@ impl NodeRecoveryHandler {
                     continue;
                 }
 
-                // Completion attempt. The node is fully synced for the epoch only once both
-                // blob recovery and all shard syncs are complete. An epoch change can advance
-                // the recovery target and start new shard syncs at any time without restarting
-                // this task, so the checks below run under the status mutex, which serializes
-                // completion against the epoch-change path: either this task observes the new
-                // shard syncs (and runs another scan pass), or it completes entirely before the
-                // target is advanced (and the epoch-change path starts a new task).
-                let status_guard = status_mutex.lock().await;
-
-                // A shard sync that started since this pass began invalidates the pass: the
-                // sync may have terminally failed, leaving missing blobs behind that only a new
-                // scan pass finds. The epoch-change path starts shard syncs while holding the
-                // status mutex, so no sync can start between this check and the status update
-                // below.
-                if shard_sync_handler.has_sync_in_progress()
-                    || shard_sync_handler.sync_generation() != sync_generation_before_scan
-                {
-                    tracing::info!(
-                        "shard syncs started during the recovery scan pass; running another pass"
-                    );
-                    drop(status_guard);
-                    continue;
-                }
-
-                let current_node_status = node
-                    .storage
-                    .node_status()
-                    .expect("reading node status should not fail");
-                let NodeStatus::RecoveryInProgress(target_epoch) = current_node_status else {
-                    tracing::warn!(
-                        node_status = %current_node_status,
-                        "node recovery task finished; but node status is not RecoveryInProgress; \
-                        skip setting node status to active"
-                    );
-                    return;
-                };
-
-                tracing::info!(
-                    walrus.epoch = target_epoch,
-                    "node recovery task finished; set node status to active"
-                );
-                if let Err(error) = node.set_node_status(NodeStatus::Active) {
-                    tracing::error!(?error, "failed to set node status to active");
-                    return;
-                }
-                drop(status_guard);
-
-                // While the node is recovering, this is the only place that attests epoch sync
-                // done: shard sync skips its own attestation in RecoveryInProgress state (see
-                // the epoch_sync_done handling in shard_sync.rs), so that the attestation covers
-                // both the recovered blobs and all synced shards. The attested epoch is the
-                // recovery target currently recorded in the node status, which may be newer than
-                // the epoch this task was started with.
-                node.contract_service
-                    .epoch_sync_done(target_epoch, node.node_capability())
+                // Blob recovery (this task's scan) is done; wait for shard sync to deliver
+                // every owned shard and then complete the recovery.
+                complete_recovery_once_shards_synced(&node, &shard_sync_handler, &status_mutex)
                     .await;
                 return;
             }
@@ -521,4 +475,118 @@ async fn wait_until_ready_to_scan(
     node.metrics.node_recovery_missing_owned_shards.set(0);
 
     readiness
+}
+
+/// Completes node recovery once shard sync has delivered every owned shard, then attests epoch
+/// sync done. Called after the recovery task's blob scan has finished cleanly; returns when the
+/// recovery task should exit.
+///
+/// Completion waits for shard sync even though recovering blobs and syncing shards are separate
+/// responsibilities (the recovery task only recovers blobs certified before its scan bound,
+/// while shard sync fills a gained shard with all of its blobs), because the `epoch_sync_done`
+/// attestation sent on completion is a joint claim: it states that the node holds *all* the data
+/// it should have for the epoch, gained shards included. While the node is recovering, the
+/// recovery task is the sole attester (shard sync suppresses its own attestation, see the
+/// epoch_sync_done handling in shard_sync.rs), so it must not attest before shard sync's half of
+/// the claim is true — measured directly by every owned shard being in `Active` status. The
+/// separation still holds for the work itself: a shard that reached `Active` needs no re-scan,
+/// and a shard that has not is shard sync's job to finish — never the recovery task's.
+///
+/// The checks run under the status mutex, which serializes completion against the epoch-change
+/// path: either this task observes the advanced target together with the not-yet-`Active` gained
+/// shards, or it completes entirely before the target is advanced (and the epoch-change path
+/// starts a new task).
+async fn complete_recovery_once_shards_synced(
+    node: &StorageNodeInner,
+    shard_sync_handler: &ShardSyncHandler,
+    status_mutex: &Mutex<()>,
+) {
+    loop {
+        let status_guard = status_mutex.lock().await;
+
+        let unsynced_shards = unsynced_owned_shards(node).await;
+        if unsynced_shards.is_empty() {
+            let current_node_status = node
+                .storage
+                .node_status()
+                .expect("reading node status should not fail");
+            let NodeStatus::RecoveryInProgress(target_epoch) = current_node_status else {
+                tracing::warn!(
+                    node_status = %current_node_status,
+                    "node recovery task finished; but node status is not RecoveryInProgress; \
+                    skip setting node status to active"
+                );
+                return;
+            };
+
+            tracing::info!(
+                walrus.epoch = target_epoch,
+                "node recovery task finished; set node status to active"
+            );
+            if let Err(error) = node.set_node_status(NodeStatus::Active) {
+                tracing::error!(?error, "failed to set node status to active");
+                return;
+            }
+            drop(status_guard);
+
+            // While the node is recovering, this is the only place that attests epoch sync
+            // done: shard sync skips its own attestation in RecoveryInProgress state (see the
+            // epoch_sync_done handling in shard_sync.rs), so that the attestation covers both
+            // the recovered blobs and all synced shards. The attested epoch is the recovery
+            // target currently recorded in the node status, which may be newer than the epoch
+            // this task was started with.
+            node.contract_service
+                .epoch_sync_done(target_epoch, node.node_capability())
+                .await;
+            return;
+        }
+        drop(status_guard);
+
+        if shard_sync_handler.has_sync_in_progress() {
+            tracing::info!(
+                ?unsynced_shards,
+                "waiting for ongoing shard syncs before completing node recovery"
+            );
+            shard_sync_handler.wait_until_no_sync_in_progress().await;
+        } else {
+            // The syncs for these shards stopped without reaching `Active` status (a terminally
+            // failed shard sync requires a node restart to be retried). Completing now would
+            // attest epoch sync done while the shard data is still missing, so park and
+            // re-check instead.
+            tracing::warn!(
+                ?unsynced_shards,
+                "owned shards are not active and no shard sync is running; node recovery \
+                cannot complete; restart the node to retry shard sync"
+            );
+            tokio::time::sleep(UNSYNCED_SHARD_RECHECK_INTERVAL).await;
+        }
+    }
+}
+
+/// Returns the shards owned at the latest committee epoch whose local storage is missing or whose
+/// status is not [`ShardStatus::Active`], meaning shard sync has not (yet) completed for them.
+///
+/// A shard whose status cannot be read is conservatively reported as unsynced.
+async fn unsynced_owned_shards(node: &StorageNodeInner) -> Vec<ShardIndex> {
+    let mut unsynced = Vec::new();
+    for shard in node.owned_shards_at_latest_epoch() {
+        let status = match node.storage.shard_storage(shard).await {
+            Some(shard_storage) => shard_storage
+                .status()
+                .await
+                .inspect_err(|error| {
+                    tracing::warn!(
+                        walrus.shard_index = %shard,
+                        ?error,
+                        "failed to read shard status; treating shard as unsynced"
+                    );
+                })
+                .ok(),
+            None => None,
+        };
+        if !matches!(status, Some(ShardStatus::Active)) {
+            unsynced.push(shard);
+        }
+    }
+    unsynced
 }
