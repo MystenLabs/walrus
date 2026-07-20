@@ -1,0 +1,223 @@
+---
+title: Blob Operations Quickstart
+description: "Store, read, and check the status of a Walrus blob three ways: the Walrus CLI, the HTTP API, and Python. A single multi-language quickstart for backend developers."
+keywords: [walrus, quickstart, python, http api, cli, store blob, read blob, blob status, backend]
+---
+
+This quickstart shows the core blob operations, store, read, and check status, three ways: the Walrus CLI, the HTTP API, and Python. Each operation appears in all three so you can pick the surface that fits your stack, or compare them side by side.
+
+Walrus does not ship a dedicated Python SDK. A Python backend integrates with Walrus through the HTTP API, reading from an aggregator and writing to a publisher, or by driving the `walrus` CLI as a subprocess. This page uses the HTTP API for the Python examples because it needs nothing beyond the `requests` library.
+
+## Before you begin
+
+No API key is required. The public Walrus aggregator and publisher endpoints are open.
+
+Set the endpoints you use. The examples below use the Testnet endpoints from the [Network Reference](/docs/network-reference#aggregators-and-publishers):
+
+```sh
+# Reads go to an aggregator; writes go to a publisher.
+export AGGREGATOR=https://aggregator.walrus-testnet.walrus.space
+export PUBLISHER=https://publisher.walrus-testnet.walrus.space
+```
+
+Each surface has its own prerequisites:
+
+- **CLI:** Install and configure the `walrus` client. See [Getting Started](/docs/getting-started).
+- **HTTP API:** Any HTTP client, such as `curl`.
+- **Python:** Install the requests library with `pip install requests`.
+
+:::caution Public endpoint limits
+
+Public aggregators and publishers limit requests to 10 MiB, and Walrus does not provide a public unauthenticated publisher on Mainnet. For larger blobs or production Mainnet writes, run your own publisher, use an upload relay, or drive the CLI. See the [Mainnet Publisher Production Guide](/docs/operator-guide/publishers/mainnet-production-guide).
+
+:::
+
+## Store a blob
+
+Store a file for a number of epochs. The store returns a blob ID that you use to read the blob back.
+
+<Tabs>
+<TabItem label="CLI" value="cli">
+
+```sh
+$ walrus store ./report.pdf --epochs 5
+```
+
+</TabItem>
+<TabItem label="HTTP API" value="http">
+
+```sh
+$ curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file ./report.pdf
+```
+
+The response is JSON. A first-time store returns a `newlyCreated` object, and a store of a blob that already exists returns an `alreadyCertified` object. The blob ID is in both.
+
+</TabItem>
+<TabItem label="Python" value="python">
+
+```python
+import requests
+
+PUBLISHER = "https://publisher.walrus-testnet.walrus.space"
+
+
+def store_blob(data: bytes, epochs: int = 5) -> str:
+    response = requests.put(
+        f"{PUBLISHER}/v1/blobs",
+        params={"epochs": epochs},
+        data=data,
+    )
+    response.raise_for_status()
+    result = response.json()
+
+    # A first-time store returns "newlyCreated"; an existing blob returns
+    # "alreadyCertified". The blob ID is available in both cases.
+    if "newlyCreated" in result:
+        return result["newlyCreated"]["blobObject"]["blobId"]
+    return result["alreadyCertified"]["blobId"]
+
+
+with open("report.pdf", "rb") as file:
+    blob_id = store_blob(file.read())
+print(f"stored blob {blob_id}")
+```
+
+</TabItem>
+</Tabs>
+
+## Read a blob
+
+Read a blob back by its blob ID.
+
+<Tabs>
+<TabItem label="CLI" value="cli">
+
+```sh
+$ walrus read <BLOB_ID> --out ./report.pdf
+```
+
+Without `--out`, the blob is written to standard output.
+
+</TabItem>
+<TabItem label="HTTP API" value="http">
+
+```sh
+$ curl "$AGGREGATOR/v1/blobs/<BLOB_ID>" -o ./report.pdf
+```
+
+</TabItem>
+<TabItem label="Python" value="python">
+
+```python
+import requests
+
+AGGREGATOR = "https://aggregator.walrus-testnet.walrus.space"
+
+
+def read_blob(blob_id: str) -> bytes:
+    response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
+    response.raise_for_status()
+    return response.content
+
+
+data = read_blob(blob_id)
+with open("report.pdf", "wb") as file:
+    file.write(data)
+print(f"read {len(data)} bytes")
+```
+
+</TabItem>
+</Tabs>
+
+## Check a blob's status
+
+Check whether a blob is available and how it is registered onchain.
+
+<Tabs>
+<TabItem label="CLI" value="cli">
+
+```sh
+$ walrus blob-status --blob-id <BLOB_ID>
+```
+
+The CLI reports the blob's certification status and end epoch from its Sui object. See [Reading blobs](/docs/walrus-client/reading-blobs).
+
+</TabItem>
+<TabItem label="HTTP API" value="http">
+
+The aggregator serves reads, so a successful `GET` confirms the blob is available. A `200` response means the blob is readable; a `404` means it is not available on that aggregator.
+
+```sh
+$ curl -o /dev/null -s -w "%{http_code}\n" "$AGGREGATOR/v1/blobs/<BLOB_ID>"
+```
+
+For the onchain certification status and end epoch, use the CLI `blob-status` command.
+
+</TabItem>
+<TabItem label="Python" value="python">
+
+```python
+import requests
+
+AGGREGATOR = "https://aggregator.walrus-testnet.walrus.space"
+
+
+def is_available(blob_id: str) -> bool:
+    response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
+    return response.status_code == 200
+
+
+print("available" if is_available(blob_id) else "not available")
+```
+
+</TabItem>
+</Tabs>
+
+## Put it together in Python
+
+The following script stores a blob, reads it back, and verifies the round trip against a public Testnet publisher and aggregator.
+
+```python
+import os
+
+import requests
+
+AGGREGATOR = "https://aggregator.walrus-testnet.walrus.space"
+PUBLISHER = "https://publisher.walrus-testnet.walrus.space"
+
+
+def store_blob(data: bytes, epochs: int = 5) -> str:
+    response = requests.put(
+        f"{PUBLISHER}/v1/blobs", params={"epochs": epochs}, data=data
+    )
+    response.raise_for_status()
+    result = response.json()
+    if "newlyCreated" in result:
+        return result["newlyCreated"]["blobObject"]["blobId"]
+    return result["alreadyCertified"]["blobId"]
+
+
+def read_blob(blob_id: str) -> bytes:
+    response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
+    response.raise_for_status()
+    return response.content
+
+
+if __name__ == "__main__":
+    original = os.urandom(1024)
+    blob_id = store_blob(original)
+    print(f"stored blob {blob_id}")
+
+    downloaded = read_blob(blob_id)
+    assert downloaded == original, "round trip mismatch"
+    print(f"read {len(downloaded)} bytes back, round trip verified")
+```
+
+For more Python examples, including driving the CLI through its JSON interface and tracking Walrus events, see [Using Walrus with Python](/docs/examples/python).
+
+## Next steps
+
+- Store blobs with the CLI: [Store blobs with the Walrus client](/docs/walrus-client/storing-blobs)
+- Use the HTTP API in depth: [Storing blobs with the HTTP API](/docs/http-api/storing-blobs) and [Reading blobs with the HTTP API](/docs/http-api/reading-blobs)
+- Run a publisher that pays for storage on behalf of your users: [Mainnet Publisher Production Guide](/docs/operator-guide/publishers/mainnet-production-guide)
+- Canonical endpoints and IDs: [Network Reference](/docs/network-reference)
