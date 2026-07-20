@@ -129,7 +129,7 @@ $ docker run \
 
 > **Pointing the relay at a local network**
 >
-> The relay talks to whichever network its client configuration defines. The `--context` flag selects a context from the `--walrus-config` file, so there is no separate localnet flag. To relay against a locally run Walrus network, add a context for it to your `client_config.yaml`, then pass that context name with `--context`. For how to run a local network, see [Run a local Walrus network](/docs/system-overview/available-networks).
+> The relay talks to whichever network its client configuration defines. The `--context` flag selects a context from the `--walrus-config` file, so there is no separate flag for a local network. To relay against a locally run Walrus network, add a context for it to your `client_config.yaml`, then pass that context name with `--context`. For how to run a local network, see [Run a local Walrus network](/docs/system-overview/available-networks).
 ### Configure relay-specific settings
 
 The following is an example of the `walrus-upload-relay` configuration file:
