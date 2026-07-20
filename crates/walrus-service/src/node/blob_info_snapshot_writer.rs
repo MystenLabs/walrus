@@ -29,16 +29,23 @@ use super::{
 use crate::event::events::EventStreamCursor;
 
 /// Configuration for the blob info snapshot writer.
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BlobInfoSnapshotWriterConfig {
     /// Whether to serialize a blob info snapshot at each epoch boundary.
+    /// Defaults to `true`; set it explicitly to `false` to disable.
     ///
     /// When enabled, the node serializes the three blob-info column families in-process at the
     /// post-GC-phase-1 boundary and reports the serialization duration, size, and digest. Note
     /// that disabling this flag leaves the last snapshot file on disk until it is removed
     /// manually.
     pub enabled: bool,
+}
+
+impl Default for BlobInfoSnapshotWriterConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 /// Returns the directory under which the writer keeps its snapshots.
@@ -207,11 +214,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn config_default_is_disabled() {
-        assert!(!BlobInfoSnapshotWriterConfig::default().enabled);
-        let parsed: BlobInfoSnapshotWriterConfig =
-            serde_yaml::from_str("enabled: true\n").expect("config should deserialize");
-        assert!(parsed.enabled);
+    fn config_default_is_enabled() {
+        // Default is enabled, and an omitted field falls back to it.
+        assert!(BlobInfoSnapshotWriterConfig::default().enabled);
+        let empty: BlobInfoSnapshotWriterConfig =
+            serde_yaml::from_str("{}\n").expect("config should deserialize");
+        assert!(empty.enabled);
+        // An explicit `enabled: false` still disables it.
+        let disabled: BlobInfoSnapshotWriterConfig =
+            serde_yaml::from_str("enabled: false\n").expect("config should deserialize");
+        assert!(!disabled.enabled);
     }
 
     #[test]
