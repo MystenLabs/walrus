@@ -36,7 +36,7 @@ const MIN_STAKE: u64 = 0;
 // TODO: Remove once solutions are in place to prevent hitting move execution limits (#935).
 //
 /// Temporary upper limit for the number of storage nodes.
-const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 111;
+const TEMP_ACTIVE_SET_SIZE_LIMIT: u16 = 150;
 
 /// The number of nodes from which a flat shards limit is applied.
 const MIN_NODES_FOR_SHARDS_LIMIT: u8 = 20;
