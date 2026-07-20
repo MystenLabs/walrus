@@ -1,7 +1,44 @@
 ---
 title: Known Restrictions
-description: "A comprehensive reference of known restrictions and limitations when developing and deploying Walrus Sites."
-keywords: ["walrus sites", "restrictions", "limitations", "development", "secret values", "redirects", "portal restrictions", "service worker", "PWA", "iOS", "epochs", "static", "routing"]
+description: >-
+  A comprehensive reference of known restrictions and limitations when
+  developing and deploying Walrus Sites.
+keywords:
+  - walrus sites
+  - restrictions
+  - limitations
+  - development
+  - secret values
+  - redirects
+  - portal restrictions
+  - service worker
+  - PWA
+  - iOS
+  - epochs
+  - static
+  - routing
+goal:
+  description: Reader understands known restrictions and can apply the concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Known Restrictions in Walrus?
+answer: >-
+  Walrus Sites can be used to deploy almost any form of traditional static Web2
+  website built for modern browsers.
 ---
 
 Walrus Sites can be used to deploy almost any form of traditional static Web2 website built for modern browsers. There are, however, a number of restrictions that developers should keep in mind when creating or porting a website to Walrus Sites.

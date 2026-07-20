@@ -1,7 +1,41 @@
 ---
 title: Aggregator and Publisher Limitations
-description: "Request size limits, nginx caching configuration, and daemon metrics for Walrus aggregators and publishers."
-keywords: ["walrus", "publisher", "aggregator", "nginx", "caching", "metrics", "limitations"]
+description: >-
+  Request size limits, nginx caching configuration, and daemon metrics for
+  Walrus aggregators and publishers.
+keywords:
+  - walrus
+  - publisher
+  - aggregator
+  - nginx
+  - caching
+  - metrics
+  - limitations
+goal:
+  description: >-
+    Operator can aggregator and publisher limitations following the documented
+    procedure
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - pattern: '```'
+      min: 1
+      label: Has configuration or command examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I aggregator and publisher limitations?
+  - How do I configure nginx caching nginx-caching?
+answer: >-
+  Request size limits, nginx caching configuration, and daemon metrics for
+  Walrus aggregators and publishers.
 ---
 
 By default, [store blob](/docs/http-api/storing-blobs#store) requests are limited to 10 MiB. You can increase this limit through the `--max-body-size` option. [Store quilt](/docs/http-api/storing-blobs#storing-quilts) requests are limited to 100 MiB by default, and you can increase them using the `--max-quilt-body-size` option.

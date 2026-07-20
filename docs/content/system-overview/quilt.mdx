@@ -1,7 +1,38 @@
 ---
 title: Batch Storage with Quilt
-description: Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.
-keywords: ["walrus", "quilt", "batch storage", "cost optimization", "small blobs", "metadata", "efficiency", "storage tool", "quilt patch id"]
+description: >-
+  Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs
+  with cost optimization and metadata management.
+keywords:
+  - walrus
+  - quilt
+  - batch storage
+  - cost optimization
+  - small blobs
+  - metadata
+  - efficiency
+  - storage tool
+  - quilt patch id
+goal:
+  description: Reader understands batch storage with quilt and can apply the concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Batch Storage with Quilt in Walrus?
+  - When to use Quilt?
+answer: >-
+  Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs
+  with cost optimization and metadata management.
 ---
 
 Quilt is a batch storage feature designed to optimize the storage cost and efficiency of large numbers of small blobs. Before Quilt, storing small blobs (less than 10 MB) on Walrus involved higher per-byte costs due to internal system data overhead. Quilt addresses this by encoding multiple blobs (up to 666 for QuiltV1) into a single unit called a **quilt**, significantly reducing Walrus storage overhead and lowering costs to purchase Walrus and Sui storage, as well as Sui computation gas fees.

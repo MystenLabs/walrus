@@ -1,7 +1,35 @@
 ---
 title: Glossary
-description: "Comprehensive glossary of Walrus and blockchain storage terminology including technical definitions and concepts."
-keywords: ["walrus", "glossary", "definitions", "terminology", "blockchain", "storage", "technical terms", "concepts", "reference"]
+description: >-
+  Comprehensive glossary of Walrus and blockchain storage terminology including
+  technical definitions and concepts.
+keywords:
+  - walrus
+  - glossary
+  - definitions
+  - terminology
+  - blockchain
+  - storage
+  - technical terms
+  - concepts
+  - reference
+goal:
+  description: Reader can navigate to the right glossary subtopic
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+      label: Has required frontmatter fields
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Glossary in Walrus?
+answer: >-
+  This glossary defines key terms used throughout the Walrus documentation,
+  covering storage concepts, erasure coding, cryptographic primitives, token
+  economics, and network roles.
 ---
 
 This glossary defines key terms used throughout the Walrus documentation, covering storage concepts,

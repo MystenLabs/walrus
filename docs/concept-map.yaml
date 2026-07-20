@@ -1,0 +1,245 @@
+# Concept coverage map for Walrus docs auditing.
+#
+# Each concept lists:
+#   must_appear_in  – pages that MUST cover this concept
+#   terms           – keywords the audit script checks for (case-insensitive)
+#
+# A page passes if it contains >= half of the listed terms.
+# A page NOT listed in must_appear_in is flagged as an orphan if it contains >= 75% of the terms.
+
+concepts:
+
+  # ─── Getting Started ───────────────────────────────────────────────────────
+
+  walrus-setup:
+    must_appear_in:
+      - "getting-started/install.mdx"
+      - "getting-started/quickstart.mdx"
+    terms:
+      - "install"
+      - "walrus"
+      - "CLI"
+      - "config"
+
+  # ─── System Overview ───────────────────────────────────────────────────────
+
+  blob-storage:
+    must_appear_in:
+      - "system-overview/blobs.mdx"
+    terms:
+      - "blob"
+      - "store"
+      - "erasure coding"
+      - "slivers"
+      - "RedStuff"
+
+  storage-epochs:
+    must_appear_in:
+      - "system-overview/epochs.mdx"
+    terms:
+      - "epoch"
+      - "storage"
+      - "lifetime"
+      - "extend"
+      - "expiry"
+
+  storage-nodes:
+    must_appear_in:
+      - "system-overview/storage-nodes.mdx"
+    terms:
+      - "storage node"
+      - "sliver"
+      - "shard"
+      - "committee"
+
+  staking:
+    must_appear_in:
+      - "system-overview/staking.mdx"
+      - "operator-guide/stake.mdx"
+    terms:
+      - "stake"
+      - "WAL"
+      - "delegation"
+      - "commission"
+
+  tokenomics:
+    must_appear_in:
+      - "system-overview/wal-token.mdx"
+    terms:
+      - "WAL"
+      - "token"
+      - "SUI"
+      - "exchange"
+
+  encoding:
+    must_appear_in:
+      - "system-overview/encoding.mdx"
+    terms:
+      - "RedStuff"
+      - "erasure"
+      - "encoding"
+      - "slivers"
+      - "recovery"
+
+  # ─── Walrus Client ────────────────────────────────────────────────────────
+
+  client-cli:
+    must_appear_in:
+      - "walrus-client/usage.mdx"
+    terms:
+      - "walrus store"
+      - "walrus read"
+      - "blob ID"
+      - "CLI"
+
+  client-config:
+    must_appear_in:
+      - "walrus-client/configuration.mdx"
+    terms:
+      - "config"
+      - "client_config.yaml"
+      - "system_object"
+      - "RPC"
+
+  client-json-api:
+    must_appear_in:
+      - "walrus-client/json-api.mdx"
+    terms:
+      - "JSON"
+      - "daemon"
+      - "API"
+      - "store"
+      - "read"
+
+  # ─── HTTP API ──────────────────────────────────────────────────────────────
+
+  publisher-api:
+    must_appear_in:
+      - "http-api/publisher.mdx"
+    terms:
+      - "publisher"
+      - "PUT"
+      - "POST"
+      - "blob"
+      - "epoch"
+
+  aggregator-api:
+    must_appear_in:
+      - "http-api/aggregator.mdx"
+    terms:
+      - "aggregator"
+      - "GET"
+      - "blob"
+      - "read"
+
+  # ─── Operator Guide ───────────────────────────────────────────────────────
+
+  storage-node-setup:
+    must_appear_in:
+      - "operator-guide/storage-nodes/storage-node-setup.mdx"
+    terms:
+      - "storage node"
+      - "setup"
+      - "config"
+      - "register"
+      - "binary"
+
+  storage-node-maintenance:
+    must_appear_in:
+      - "operator-guide/storage-nodes/storage-node-maintenance.mdx"
+    terms:
+      - "maintenance"
+      - "upgrade"
+      - "migration"
+      - "backup"
+
+  slashing:
+    must_appear_in:
+      - "operator-guide/storage-nodes/slashing.mdx"
+    terms:
+      - "slashing"
+      - "penalty"
+      - "availability"
+      - "challenge"
+
+  publisher-operations:
+    must_appear_in:
+      - "operator-guide/publishers/operating-publisher.mdx"
+    terms:
+      - "publisher"
+      - "operate"
+      - "config"
+      - "daemon"
+
+  aggregator-operations:
+    must_appear_in:
+      - "operator-guide/aggregators/operating-aggregator.mdx"
+    terms:
+      - "aggregator"
+      - "operate"
+      - "config"
+      - "cache"
+
+  # ─── Walrus Sites ─────────────────────────────────────────────────────────
+
+  walrus-sites:
+    must_appear_in:
+      - "sites/overview.mdx"
+    terms:
+      - "Walrus Sites"
+      - "site-builder"
+      - "deploy"
+      - "portal"
+      - "decentralized"
+
+  site-builder:
+    must_appear_in:
+      - "sites/site-builder.mdx"
+    terms:
+      - "site-builder"
+      - "publish"
+      - "update"
+      - "ws-resources"
+
+  site-portals:
+    must_appear_in:
+      - "sites/portal.mdx"
+    terms:
+      - "portal"
+      - "service worker"
+      - "browse"
+      - "redirect"
+
+  # ─── TypeScript SDK ────────────────────────────────────────────────────────
+
+  typescript-sdk:
+    must_appear_in:
+      - "typescript-sdk/index.mdx"
+    terms:
+      - "TypeScript"
+      - "SDK"
+      - "@aspect/walrus-sdk"
+      - "npm"
+
+  # ─── Data Security ────────────────────────────────────────────────────────
+
+  data-security:
+    must_appear_in:
+      - "data-security.mdx"
+    terms:
+      - "encryption"
+      - "availability"
+      - "integrity"
+      - "public"
+      - "Seal"
+
+  # ─── Troubleshooting ──────────────────────────────────────────────────────
+
+  common-issues:
+    must_appear_in:
+      - "troubleshooting/faq.mdx"
+    terms:
+      - "error"
+      - "fix"
+      - "issue"
+      - "troubleshoot"

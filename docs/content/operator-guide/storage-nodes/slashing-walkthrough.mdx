@@ -1,8 +1,42 @@
 ---
 title: Slashing Walkthrough
-description: A worked example of a slashing event on Mainnet, with the concrete vote, execute, and cleanup commands operators run end to end.
-keywords: [ slashing, walkthrough, example, vote_for_slashing, execute_slashing, cleanup_slashing_proposals ]
+description: >-
+  A worked example of a slashing event on Mainnet, with the concrete vote,
+  execute, and cleanup commands operators run end to end.
+keywords:
+  - slashing
+  - walkthrough
+  - example
+  - vote_for_slashing
+  - execute_slashing
+  - cleanup_slashing_proposals
+goal:
+  description: Operator can slashing walkthrough following the documented procedure
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - pattern: '```'
+      min: 1
+      label: Has configuration or command examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How does slashing work on Walrus Mainnet?
+  - What happens during a Walrus slashing event?
+  - How do I execute slashing vote and cleanup commands?
+answer: >-
+  A worked example of a slashing event on Mainnet, with the concrete vote,
+  execute, and cleanup commands operators run end to end.
 ---
+
+A worked example of a slashing event on Mainnet, with the concrete vote, execute, and cleanup commands operators run end to end.
 
 This page walks through a hypothetical slashing event on Mainnet so you can see how the pieces fit together. It assumes you have already read [Slashing](/docs/operator-guide/storage-nodes/slashing) for the conceptual model and the object IDs. The commands below are the ones operators actually run, with the live Mainnet object IDs filled in.
 

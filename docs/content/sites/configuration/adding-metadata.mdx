@@ -1,8 +1,33 @@
 ---
 title: Adding Metadata
-description: "Reference page for adding metadata to a Walrus Site."
-keywords: ["walrus sites", "metadata", "ws-resources", "configuration", "reference"]
+description: Reference page for adding metadata to a Walrus Site.
+keywords:
+  - walrus sites
+  - metadata
+  - ws-resources
+  - configuration
+  - reference
 draft: false
+goal:
+  description: Reader understands adding metadata and can apply the concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Adding Metadata in Walrus?
+answer: Reference page for adding metadata to a Walrus Site.
 ---
 
 The `metadata` section of [`ws-resources.json`](/docs/sites/configuration/site-configuration) lets you add human-readable information to your Walrus Site object. This data is stored onchain and is used by portals, explorers, wallets, and other tools to display information about your site.

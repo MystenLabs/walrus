@@ -1,7 +1,42 @@
 ---
 title: Reading Blobs Right After Upload
-description: Why blobs might return 404 immediately after certification when using a cached aggregator, and how to handle the propagation window.
-keywords: [walrus, troubleshooting, aggregator, content delivery network, 404, propagation, retry]
+description: >-
+  Why blobs might return 404 immediately after certification when using a cached
+  aggregator, and how to handle the propagation window.
+keywords:
+  - walrus
+  - troubleshooting
+  - aggregator
+  - content delivery network
+  - 404
+  - propagation
+  - retry
+goal:
+  description: Reader can diagnose and fix common reading blobs right after upload issues
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - pattern: Solution|Fix|Cause
+      min: 2
+      label: Has problem-solution pairs
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 2
+      label: Has code examples showing fixes
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Reading Blobs Right After Upload in Walrus?
+  - When this applies?
+answer: >-
+  Why blobs might return 404 immediately after certification when using a cached
+  aggregator, and how to handle the propagation window.
 ---
 
 Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly from storage nodes returns it immediately. Public aggregators often sit behind a content delivery network (CDN), which might cache a `404 Not Found` response from before the aggregator sees the blob.

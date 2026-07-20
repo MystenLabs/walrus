@@ -1,7 +1,44 @@
 ---
 title: Available Networks
-description: Overview of Walrus networks including Mainnet and Testnet configurations, parameters, and setup instructions.
-keywords: ["walrus", "networks", "mainnet", "testnet", "configuration", "sui", "epoch duration", "storage nodes", "network parameters"]
+description: >-
+  Overview of Walrus networks including Mainnet and Testnet configurations,
+  parameters, and setup instructions.
+keywords:
+  - walrus
+  - networks
+  - mainnet
+  - testnet
+  - configuration
+  - sui
+  - epoch duration
+  - storage nodes
+  - network parameters
+goal:
+  description: Reader understands available networks and can apply the concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Available Networks in Walrus?
+  - How do I testnet configuration?
+answer: >-
+  Overview of Walrus networks including Mainnet and Testnet configurations,
+  parameters, and setup instructions.
 ---
 
 Walrus Mainnet operates a production-quality storage network using corresponding resources on the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui Testnet and is used to test new features before they graduate to Mainnet. Alternatively, developers can operate a local instance of both Walrus and Sui for personalized testing.

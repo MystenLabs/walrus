@@ -1,7 +1,25 @@
 ---
 title: System Overview
 description: Learn more about Walrus.
-keywords: ["walrus", "system information", "walrus info", "system object" ]
+keywords:
+  - walrus
+  - system information
+  - walrus info
+  - system object
+goal:
+  description: Reader can navigate to the right system overview subtopic
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+      label: Has required frontmatter fields
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is System Overview in Walrus?
+answer: Learn more about Walrus.
 ---
 
 import DocCardList from '@theme/DocCardList';

@@ -1,8 +1,41 @@
 ---
 title: Migrate a Storage Node
-description: "Guide for migrating a Walrus storage node to new hardware with minimal downtime."
-keywords: ["walrus", "storage node", "migration", "hardware", "rsync", "operations"]
+description: >-
+  Guide for migrating a Walrus storage node to new hardware with minimal
+  downtime.
+keywords:
+  - walrus
+  - storage node
+  - migration
+  - hardware
+  - rsync
+  - operations
+goal:
+  description: Operator can migrate a storage node following the documented procedure
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - pattern: '```'
+      min: 1
+      label: Has configuration or command examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I migrate a storage node?
+  - How do I verify the migration?
+answer: >-
+  Guide for migrating a Walrus storage node to new hardware with minimal
+  downtime.
 ---
+
+Guide for migrating a Walrus storage node to new hardware with minimal downtime.
 
 This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node (and optionally an aggregator and publisher) on the same host.
 

@@ -1,7 +1,36 @@
 ---
 title: Reading Blobs
-description: Read blobs from Walrus using HTTP GET requests with blob IDs or Sui object IDs, including content type headers and consistency check options.
-keywords: [ walrus, blob, read, HTTP, aggregator, object ID, blob ID, consistency check ]
+description: >-
+  Read blobs from Walrus using HTTP GET requests with blob IDs or Sui object
+  IDs, including content type headers and consistency check options.
+keywords:
+  - walrus
+  - blob
+  - read
+  - HTTP
+  - aggregator
+  - object ID
+  - blob ID
+  - consistency check
+goal:
+  description: Reader can look up reading blobs details
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+      label: Has required frontmatter fields
+    - min_words: 100
+      label: Has substantive reference content
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Reading Blobs in Walrus?
+answer: >-
+  You can read blobs using HTTP GET requests with their blob ID or object ID.
+  Set `$AGGREGATOR` to an aggregator endpoint from the [Network
+  Reference](/docs/network-reference#aggregators-and-publishers).
 ---
 
 You can read blobs using HTTP GET requests with their blob ID or object ID. Set `$AGGREGATOR` to an aggregator endpoint from the [Network Reference](/docs/network-reference#aggregators-and-publishers).

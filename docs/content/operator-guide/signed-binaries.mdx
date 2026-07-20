@@ -1,7 +1,42 @@
 ---
 title: Verify Signed Binaries
-description: "How to download and verify signed Walrus binaries and Docker images using Cosign."
-keywords: ["walrus", "signed binaries", "verification", "cosign", "docker images", "security", "release"]
+description: >-
+  How to download and verify signed Walrus binaries and Docker images using
+  Cosign.
+keywords:
+  - walrus
+  - signed binaries
+  - verification
+  - cosign
+  - docker images
+  - security
+  - release
+goal:
+  description: Operator can verify signed binaries following the documented procedure
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - pattern: '```'
+      min: 1
+      label: Has configuration or command examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I verify signed binaries?
+  - How do I use the verification script?
+  - How do I verify manually?
+  - How do I verify docker images?
+answer: >-
+  Walrus release binaries and Docker images are signed using
+  [Cosign](https://github.com/sigstore/cosign) with a GCP KMS key. Each binary
+  has a corresponding `.sig` file containing its signature.
 ---
 
 Walrus release binaries and Docker images are signed using [Cosign](https://github.com/sigstore/cosign) with a GCP KMS key. Each binary has a corresponding `.sig` file containing its signature. Docker image signatures are stored in the registry.

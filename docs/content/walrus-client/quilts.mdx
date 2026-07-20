@@ -1,8 +1,41 @@
 ---
 title: Using Quilts with the Walrus Client
 sidebar_label: Quilts
-description: Use the Walrus client to batch multiple blobs into quilts for efficient storage and retrieval.
-keywords: [ walrus, cli, client, quilt, batch storage, QuiltPatchId ]
+description: >-
+  Use the Walrus client to batch multiple blobs into quilts for efficient
+  storage and retrieval.
+keywords:
+  - walrus
+  - cli
+  - client
+  - quilt
+  - batch storage
+  - QuiltPatchId
+goal:
+  description: >-
+    Reader understands using quilts with the walrus client and can apply the
+    concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Using Quilts with the Walrus Client in Walrus?
+answer: >-
+  For efficiently storing large numbers of small blobs, Walrus provides the
+  quilt feature. A quilt batches multiple blobs into a single storage unit,
+  significantly reducing overhead and cost.
 ---
 
 <AgentPrompt

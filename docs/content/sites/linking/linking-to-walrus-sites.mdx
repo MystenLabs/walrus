@@ -1,7 +1,46 @@
 ---
 title: Linking to Walrus Sites from External Sources
-description: How to construct URLs that point to Walrus Sites from external pages, apps, and tools, including subdomain resolution, SuiNS names, object IDs, and deep links.
-keywords: [Walrus Sites, inbound links, SuiNS, object ID, subdomain, portal, deep link, URL]
+description: >-
+  How to construct URLs that point to Walrus Sites from external pages, apps,
+  and tools, including subdomain resolution, SuiNS names, object IDs, and deep
+  links.
+keywords:
+  - Walrus Sites
+  - inbound links
+  - SuiNS
+  - object ID
+  - subdomain
+  - portal
+  - deep link
+  - URL
+goal:
+  description: >-
+    Reader understands linking to walrus sites from external sources and can
+    apply the concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Linking to Walrus Sites from External Sources in Walrus?
+answer: >-
+  How to construct URLs that point to Walrus Sites from external pages, apps,
+  and tools, including subdomain resolution, SuiNS names, object IDs, and deep
+  links.
 ---
 
 A Walrus Site is addressed through a [portal](/docs/sites/portals/mainnet-testnet). The portal resolves the site from an onchain object and serves its content. To link to a Walrus Site from an external source, you construct a URL that the portal can resolve. There are 2 ways to identify a site in that URL: by its [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name), or by its [Sui object ID](/docs/sites/getting-started/using-the-site-builder).

@@ -1,7 +1,42 @@
 ---
 title: Configure a Local Sites Portal
-description: "Guide to configuring both Mainnet and Testnet portals."
-keywords: ["walrus sites", "portal", "mainnet", "mainnet portal", "testnet", "testnet portal", "configuration", "portal configuration", "portal config", "portal-config.yaml", "SuiNS"]
+description: Guide to configuring both Mainnet and Testnet portals.
+keywords:
+  - walrus sites
+  - portal
+  - mainnet
+  - mainnet portal
+  - testnet
+  - testnet portal
+  - configuration
+  - portal configuration
+  - portal config
+  - portal-config.yaml
+  - SuiNS
+goal:
+  description: Reader understands configure a local sites portal and can apply the concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I configure a Walrus Sites portal for Mainnet or Testnet?
+  - What portal configuration is needed for different networks?
+  - How do I switch my portal between Testnet and Mainnet?
+answer: >-
+  Walrus Site Portals are used to access and browse a Walrus Site. The portal
+  you run **must** match the network on which your site is deployed.
 ---
 
 Walrus Site Portals are used to access and browse a Walrus Site. The portal you run **must** match the network on which your site is deployed. Each network has its own onchain package, default RPC endpoint, and Walrus aggregator.

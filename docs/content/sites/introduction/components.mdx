@@ -1,7 +1,46 @@
 ---
 title: Walrus Sites Components
-description: "A Walrus Site consists of data stored as blobs on Walrus, a site object on Sui that maps resource paths to blob IDs, the site-builder CLI for publishing and updating, a ws-resources.json configuration file, and a portal that resolves and serves the site to browsers."
-keywords: ["walrus sites", "site-builder", "portal", "ws-resources", "sui object", "walrus blob", "suins", "static sites", "decentralized websites"]
+description: >-
+  A Walrus Site consists of data stored as blobs on Walrus, a site object on Sui
+  that maps resource paths to blob IDs, the site-builder CLI for publishing and
+  updating, a ws-resources.json configuration file, and a portal that resolves
+  and serves the site to browsers.
+keywords:
+  - walrus sites
+  - site-builder
+  - portal
+  - ws-resources
+  - sui object
+  - walrus blob
+  - suins
+  - static sites
+  - decentralized websites
+goal:
+  description: Reader understands walrus sites components and can apply the concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Walrus Sites Components in Walrus?
+answer: >-
+  A Walrus Site consists of data stored as blobs on Walrus, a site object on Sui
+  that maps resource paths to blob IDs, the site-builder CLI for publishing and
+  updating, a ws-resources.json configuration.
 ---
 
 A Walrus Site is made up of 4 main components that work together: the site's files stored on Walrus, a [Sui object](https://docs.sui.io/guides/developer/objects/object-model) that indexes those files as resources, the [`site-builder` CLI](/docs/sites/getting-started/installing-the-site-builder) that publishes and updates the site, and a portal that serves the site to browsers.

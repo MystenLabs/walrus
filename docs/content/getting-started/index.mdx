@@ -1,7 +1,46 @@
 ---
 title: Getting Started with Walrus
-description: "Complete getting started guide for Walrus including installation, configuration, storing and retrieving blobs on Testnet and Mainnet."
-keywords: ["walrus", "getting started", "tutorial", "installation", "sui", "testnet", "mainnet", "store blob", "retrieve blob", "setup"]
+description: >-
+  Complete getting started guide for Walrus including installation,
+  configuration, storing and retrieving blobs on Testnet and Mainnet.
+keywords:
+  - walrus
+  - getting started
+  - tutorial
+  - installation
+  - sui
+  - testnet
+  - mainnet
+  - store blob
+  - retrieve blob
+  - setup
+goal:
+  description: Reader can getting started with walrus and verify the result
+  requires:
+    - pattern: '```'
+      min: 2
+      label: Has command or code examples
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - pattern: walrus --version|walrus -V|walrus --help
+      min: 1
+      label: Shows how to verify installation
+    - min_words: 300
+      label: Needs more walkthrough depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I get started with Walrus?
+  - What is Walrus and how does it work?
+  - How do I install the Walrus CLI?
+answer: >-
+  Walrus is a verifiable data platform for high-stakes systems like AI and
+  onchain finance, where data is stored as blobs.
 ---
 
 <AgentPrompt

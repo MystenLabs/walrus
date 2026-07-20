@@ -1,9 +1,45 @@
 ---
 title: Production Readiness for Storage
 sidebar_label: Production readiness
-description: A checklist for taking Walrus storage from prototype to production, covering upload path
-  hardening, retries, cost controls, and durability verification.
-keywords: [walrus, production, storage, Mainnet, publisher, retries, cost control, WAL, SUI, hardening]
+description: >-
+  A checklist for taking Walrus storage from prototype to production, covering
+  upload path hardening, retries, cost controls, and durability verification.
+keywords:
+  - walrus
+  - production
+  - storage
+  - Mainnet
+  - publisher
+  - retries
+  - cost control
+  - WAL
+  - SUI
+  - hardening
+goal:
+  description: >-
+    Reader understands production readiness for storage and can apply the
+    concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Production Readiness for Storage in Walrus?
+  - How do I verify durability before depending on data?
+answer: >-
+  A checklist for taking Walrus storage from prototype to production, covering
+  upload path hardening, retries, cost controls, and durability verification.
 ---
 
 A prototype that stores a blob on Testnet is not yet ready for production. Moving to Mainnet adds

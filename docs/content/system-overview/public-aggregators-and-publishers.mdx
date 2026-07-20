@@ -1,5 +1,30 @@
 ---
 title: Public Aggregators and Publishers
+goal:
+  description: >-
+    Reader understands public aggregators and publishers and can apply the
+    concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Public Aggregators and Publishers in Walrus?
+answer: >-
+  The Walrus client offers a daemon mode that runs a simple web server that
+  provides HTTP interfaces you can use to store and read blobs in an aggregator
+  or publisher role respectively.
 ---
 
 The Walrus client offers a daemon mode that runs a simple web server that provides HTTP interfaces you can use to store and read blobs in an [aggregator](/docs/operator-guide/aggregators/operating-aggregator) or [publisher](/docs/operator-guide/publishers/operating-publisher) role respectively. Walrus also offers HTTP APIs through [public aggregator and publisher services](#public-services) that you can use without running a local client. 

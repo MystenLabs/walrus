@@ -1,7 +1,46 @@
 ---
 title: Github Actions Workflow
-description: "How to write and configure a GitHub Actions workflow for automated Walrus Sites deployment, including build steps, action inputs, ws-resources.json tracking, and troubleshooting."
-keywords: ["walrus sites", "github actions", "workflow", "deployment", "automation", "ci/cd", "static files", "build process", "ws-resources.json"]
+description: >-
+  How to write and configure a GitHub Actions workflow for automated Walrus
+  Sites deployment, including build steps, action inputs, ws-resources.json
+  tracking, and troubleshooting.
+keywords:
+  - walrus sites
+  - github actions
+  - workflow
+  - deployment
+  - automation
+  - ci/cd
+  - static files
+  - build process
+  - ws-resources.json
+goal:
+  description: Reader understands github actions workflow and can apply the concepts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Github Actions Workflow in Walrus?
+  - How the action works?
+answer: >-
+  How to write and configure a GitHub Actions workflow for automated Walrus
+  Sites deployment, including build steps, action inputs, ws-resources.json
+  tracking, and troubleshooting.
 ---
 
 Create a GitHub Actions workflow to automatically deploy your Walrus Site whenever you push to your repository. The workflow uses the official [Deploy Walrus Site action](https://github.com/MystenLabs/walrus-sites-github-actions) maintained by Mysten Labs.
