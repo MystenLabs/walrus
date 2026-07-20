@@ -50,8 +50,10 @@ const sidebars = {
         'system-overview/available-networks',
         'system-overview/storage-costs',
         'system-overview/public-aggregators-and-publishers',
+        'system-overview/caching',
         'system-overview/view-system-info',
         'system-overview/quilt',
+        'system-overview/wal-tokenomics-faq',
       ],
     },
     {
@@ -97,6 +99,7 @@ const sidebars = {
       ],
     },
     "network-reference",
+    "testnet-reference",
     "typescript-sdk/sdks",
     'large-uploads',
     'sponsored-uploads',
