@@ -70,10 +70,10 @@ concepts:
       - "walrus-client/walrus-cli.mdx"
       - "walrus-client/storing-blobs.mdx"
     terms:
-      - "walrus store"
-      - "walrus read"
-      - "blob ID"
-      - "CLI"
+      - "client"
+      - "command"
+      - "blob"
+      - "store"
 
   client-json:
     must_appear_in:
