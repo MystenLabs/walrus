@@ -748,10 +748,17 @@ function main() {
     "llms-full.txt",
   ]);
 
+  // Pages consolidated into other pages (content is redundant)
+  const skipPages = new Set([
+    "sdk/example-map.md",       // just 3 links, no unique content
+    "sdk/research-app-example.md", // subset of sdk/examples.md
+  ]);
+
   let count = 0;
   for (const { fullPath, relPath } of files) {
     const basename = path.basename(relPath);
     if (skipFiles.has(basename)) continue;
+    if (skipPages.has(relPath)) continue;
     // Skip files in src/ directory (CSS, assets)
     if (relPath.startsWith("src/")) continue;
 
