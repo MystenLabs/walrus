@@ -669,7 +669,7 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Release notes from Walrus and Walrus Memory.
+    Release notes from Walrus and Walrus Memory. No Walrus platform releases found.
 
 ## Sponsored Uploads
 

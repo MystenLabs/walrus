@@ -116,11 +116,11 @@ platform.
 
 > **WalrusFile buffer error**
 >
-> If `WalrusFile.from` throws `Cannot read properties of undefined (reading 'buffer')`, it received something other than a typed array for `contents`. The
-> SDK expects a `Uint8Array`, not a `File`, `Blob`, or raw `ArrayBuffer`. Read the bytes first and wrap
-> them, as in the example above: `new Uint8Array(await file.arrayBuffer())`. In a React Native app,
-> convert the bytes you read from the file system or image picker to a `Uint8Array` before you call
-> `WalrusFile.from`.
+> If `WalrusFile.from` throws `Cannot read properties of undefined (reading 'buffer')`, it
+> received something other than a typed array for `contents`. The SDK expects a `Uint8Array`, not a
+> `File`, `Blob`, or raw `ArrayBuffer`. Read the bytes first and wrap them, as in the example above:
+> `new Uint8Array(await file.arrayBuffer())`. In a React Native app, convert the bytes you read from
+> the file system or image picker to a `Uint8Array` before you call `WalrusFile.from`.
 > **Caution**
 >
 > Blobs stored on Walrus are public and readable by anyone. Encrypt sensitive data before you store
