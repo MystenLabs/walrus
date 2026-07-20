@@ -29,6 +29,9 @@ The Mysten Labs reference endpoints for Testnet are:
 | Publisher | `https://publisher.walrus-testnet.walrus.space` |
 | Upload relay | `https://upload-relay.testnet.walrus.space` |
 
+> **Note**
+>
+> `https://fullnode.testnet.sui.io:443` is the Sui full node that the Walrus client and `sui client` use, and it is the value in the pre-filled Walrus configuration and the [Network Reference](/docs/network-reference#sui-rpc-endpoints). It serves Sui client and SDK traffic, not JSON-RPC method discovery, so a direct `rpc.discover` call against it can return `404` even though normal client calls succeed. Configure it through `sui client` and the Walrus configuration file rather than calling JSON-RPC methods against it by hand.
 Many community operators also run public Testnet aggregators and publishers. For the maintained community list and the canonical copy of the endpoints above, see [Aggregators and publishers](/docs/network-reference#aggregators-and-publishers) and [Upload relays](/docs/network-reference#upload-relays) in the Network Reference. Most public endpoints limit requests to 10 MiB.
 
 ## Object and package IDs

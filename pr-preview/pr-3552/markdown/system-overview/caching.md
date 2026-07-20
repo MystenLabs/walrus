@@ -10,7 +10,7 @@ A blob ID is derived from the blob's contents. Reading the same blob ID always r
 
 Two properties still bound how long a cached copy is valid:
 
-- **Availability is time-bounded.** A blob is guaranteed available only for the epochs it is stored for. After expiry, or after a deletable blob is deleted, reads can return `404`. Caching the bytes is safe, but do not assume a blob is retrievable from Walrus forever.
+- **Availability is time-bounded.** Walrus guarantees a blob's availability only for the epochs you store it for. After expiry, or after you delete a deletable blob, reads can return `404`. Caching the bytes is safe, but do not assume a blob is retrievable from Walrus forever.
 - **Deletion does not purge caches.** The `walrus delete` command removes a blob from the network, but it does not evict copies already held in caches, CDNs, or by other readers. Do not rely on deletion to make data unreachable.
 
 ## Where to cache
@@ -35,7 +35,7 @@ Key the cache on the request path, which already includes the blob ID (`/v1/blob
 
 ### Client-side caching
 
-Clients that read the same blobs repeatedly, such as a browser or a long-running service, can keep an in-process or on-disk cache keyed by blob ID. The same immutability guarantee applies: a blob ID never needs revalidation.
+Clients that read the same blobs repeatedly, such as a browser or a long-running service, can keep an in-process or on-disk cache keyed by blob ID. The same immutability guarantee applies: you never need to revalidate a blob ID.
 
 ### Walrus Sites
 
@@ -49,7 +49,7 @@ The `Cache-Control` header itself is not derived from a blob attribute. Set it a
 
 ## Pitfalls
 
-- **Caching a `404` right after upload.** When you read through a CDN-fronted aggregator immediately after certification, the CDN might briefly cache a `404` from before the blob propagated. If your application knows the blob was just certified, retry with backoff, and do not cache negative responses for long. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload).
+- **Caching a `404` right after upload.** When you read through a CDN-fronted aggregator immediately after certification, the CDN might briefly cache a `404` from before the blob propagated. If your application just certified the blob, retry with backoff, and do not cache negative responses for long. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload).
 - **Long-lived negative caching.** Cache successful blob responses aggressively, but keep the lifetime for error responses short so a transient failure does not become a persistent one.
 - **Assuming permanence.** A cached copy can outlive the blob's storage duration. If your application must guarantee the data is still on Walrus, verify availability rather than relying on the cache. See [Verifying Availability](/docs/walrus-client/verifying-availability).
 - **Relying on deletion for privacy.** Deleting or expiring a blob does not remove cached copies. All blobs stored on Walrus are public. Encrypt sensitive data before storing it.
