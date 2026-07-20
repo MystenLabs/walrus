@@ -4,30 +4,25 @@ This quickstart shows the core blob operations, store, read, and check status, t
 
 Walrus does not ship a dedicated Python SDK. A Python backend integrates with Walrus through the HTTP API, reading from an aggregator and writing to a publisher, or by driving the `walrus` CLI as a subprocess. This page uses the HTTP API for the Python examples because it needs nothing beyond the `requests` library.
 
-## Before you begin
-
-No API key is required. The public Walrus aggregator and publisher endpoints are open.
-
-Set the endpoints you use. The examples below use the Testnet endpoints from the [Network Reference](/docs/network-reference#aggregators-and-publishers):
+- [x] No API key required. The public Walrus aggregator and publisher endpoints are open.
+- [x] Set the endpoints you want to use. The examples below use the Testnet endpoints from the [Network Reference](/docs/network-reference#aggregators-and-publishers):
 
 ```sh
-# Reads go to an aggregator; writes go to a publisher.
 export AGGREGATOR=https://aggregator.walrus-testnet.walrus.space
 export PUBLISHER=https://publisher.walrus-testnet.walrus.space
 ```
 
-Each surface has its own prerequisites:
-
-- **CLI:** Install and configure the `walrus` client. See [Getting Started](/docs/getting-started).
-- **HTTP API:** Any HTTP client, such as `curl`.
-- **Python:** Install the requests library with `pip install requests`.
+- [x] Choose a surface and complete the necessary setup:
+  - **CLI:** Install and configure the `walrus` client. See [Getting Started](/docs/getting-started).
+  - **HTTP API:** Any HTTP client, such as `curl`.
+  - **Python:** Install the requests library with `pip install requests`.
 
 > **Public endpoint limits**
 >
 > Public aggregators and publishers limit requests to 10 MiB, and Walrus does not provide a public unauthenticated publisher on Mainnet. For larger blobs or production Mainnet writes, run your own publisher, use an upload relay, or drive the CLI. See the [Mainnet Publisher Production Guide](/docs/operator-guide/publishers/mainnet-production-guide).
 ## Store a blob
 
-Store a file for a number of epochs. The store returns a blob ID that you use to read the blob back.
+Store a file for a number of epochs. The store returns a blob ID.
 
 ```sh
 $ walrus store ./report.pdf --epochs 5
@@ -35,25 +30,25 @@ $ walrus store ./report.pdf --epochs 5
 
 ## Read a blob
 
-Read a blob back by its blob ID.
+Read a blob using its blob ID.
 
 ```sh
 $ walrus read <BLOB_ID> --out ./report.pdf
 ```
 
-Without `--out`, the blob is written to standard output.
+Without the flag `--out`, the blob is written to standard output.
 
 ## Check a blob's status
 
-Check whether a blob is available and how it is registered onchain.
+Check whether a blob is available and its registered onchain information.
 
 ```sh
 $ walrus blob-status --blob-id <BLOB_ID>
 ```
 
-The CLI reports the blob's certification status and end epoch from its Sui object. See [Reading blobs](/docs/walrus-client/reading-blobs).
+The CLI reports the blob's certification status and end epoch from its Sui object. See [Reading blobs](/docs/walrus-client/reading-blobs) to learn more about certification status and Sui objects.
 
-## Put it together in Python
+## Full Python example
 
 The following script stores a blob, reads it back, and verifies the round trip against a public Testnet publisher and aggregator.
 
@@ -92,7 +87,7 @@ if __name__ == "__main__":
 
 For more Python examples, including driving the CLI through its JSON interface and tracking Walrus events, see [Using Walrus with Python](/docs/examples/python).
 
-## Next steps
+## References
 
 - Store blobs with the CLI: [Store blobs with the Walrus client](/docs/walrus-client/storing-blobs)
 - Use the HTTP API in depth: [Storing blobs with the HTTP API](/docs/http-api/storing-blobs) and [Reading blobs with the HTTP API](/docs/http-api/reading-blobs)

@@ -637,7 +637,7 @@ Sui smart contract as the on-chain index.
 
 ## Blob Operations Quickstart
 
-- [Reads go to an aggregator; writes go to a publisher.](https://docs.wal.app/docs/blob-operations-quickstart.md):
+- [Blob Operations Quickstart](https://docs.wal.app/docs/blob-operations-quickstart.md):
     This quickstart shows the core blob operations, store, read, and check status, three ways: the
     Walrus CLI, the HTTP API, and Python. Each operation appears in all three so you can pick the
     surface that fits your stack, or compare them side by side. Walrus does not ship a dedicated
