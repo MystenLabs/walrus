@@ -98,6 +98,7 @@ const sidebars = {
     "network-reference",
     "typescript-sdk/sdks",
     'large-uploads',
+    'sponsored-uploads',
     'production-readiness',
     'data-security',
     'tusky-migration-guide',
