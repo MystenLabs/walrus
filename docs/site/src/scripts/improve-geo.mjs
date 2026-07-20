@@ -133,11 +133,11 @@ function improveQuestions(questions, title, description, headings, archetype) {
     if (!q) return;
     // Clean up
     q = q.replace(/SDK SDK/g, 'SDK')
-         .replace(/pattern pattern/g, 'pattern')
-         .replace(/in Walrus in Walrus/g, 'in Walrus')
-         .replace(/on Walrus on Walrus/g, 'on Walrus')
-         .replace(/\s{2,}/g, ' ')
-         .trim();
+      .replace(/pattern pattern/g, 'pattern')
+      .replace(/in Walrus in Walrus/g, 'in Walrus')
+      .replace(/on Walrus on Walrus/g, 'on Walrus')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
     if (!q.endsWith('?')) q += '?';
     const norm = q.toLowerCase().replace(/[?!.]/g, '').trim();
     if (seen.has(norm) || norm.length < 10) return;
