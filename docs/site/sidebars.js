@@ -33,6 +33,7 @@ const sidebars = {
         'getting-started/advanced-setup',
       ]
     },
+    'blob-operations-quickstart',
     {
       type: 'category',
       label: 'System Overview',
