@@ -60,7 +60,7 @@ you to delegate sensitive or resource-intensive tasks to a self-managed trusted 
 environment (TEE) while using smart contract verification to preserve trust onchain.
 
 Use Nautilus for hybrid apps that require private data handling, complex computations, or
-integration with external Web2 systems. The framework ensures computations are
+integration with external web2 systems. The framework ensures computations are
 tamper-resistant, isolated, and cryptographically verifiable.
 
 Nautilus currently supports self-managed AWS Nitro Enclave TEEs. You can verify AWS-signed
@@ -69,7 +69,7 @@ repository](https://github.com/MystenLabs/nautilus) for the reproducible build t
 
 ### Use cases
 
-- **Trusted oracles:** Process off-chain data from Web2 services or decentralized storage
+- **Trusted oracles:** Process off-chain data from web2 services or decentralized storage
   platforms like Walrus in a tamper-resistant way.
 - **AI agents:** Securely run AI models for inference or execute agentic workflows while
   providing data and model provenance onchain.
