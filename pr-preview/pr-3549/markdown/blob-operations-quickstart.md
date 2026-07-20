@@ -1,0 +1,100 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+This quickstart shows the core blob operations, store, read, and check status, three ways: the Walrus CLI, the HTTP API, and Python. Each operation appears in all three so you can pick the surface that fits your stack, or compare them side by side.
+
+Walrus does not ship a dedicated Python SDK. A Python backend integrates with Walrus through the HTTP API, reading from an aggregator and writing to a publisher, or by driving the `walrus` CLI as a subprocess. This page uses the HTTP API for the Python examples because it needs nothing beyond the `requests` library.
+
+## Before you begin
+
+No API key is required. The public Walrus aggregator and publisher endpoints are open.
+
+Set the endpoints you use. The examples below use the Testnet endpoints from the [Network Reference](/docs/network-reference#aggregators-and-publishers):
+
+```sh
+# Reads go to an aggregator; writes go to a publisher.
+export AGGREGATOR=https://aggregator.walrus-testnet.walrus.space
+export PUBLISHER=https://publisher.walrus-testnet.walrus.space
+```
+
+Each surface has its own prerequisites:
+
+- **CLI:** Install and configure the `walrus` client. See [Getting Started](/docs/getting-started).
+- **HTTP API:** Any HTTP client, such as `curl`.
+- **Python:** Install the requests library with `pip install requests`.
+
+> **Public endpoint limits**
+>
+> Public aggregators and publishers limit requests to 10 MiB, and Walrus does not provide a public unauthenticated publisher on Mainnet. For larger blobs or production Mainnet writes, run your own publisher, use an upload relay, or drive the CLI. See the [Mainnet Publisher Production Guide](/docs/operator-guide/publishers/mainnet-production-guide).
+## Store a blob
+
+Store a file for a number of epochs. The store returns a blob ID that you use to read the blob back.
+
+```sh
+$ walrus store ./report.pdf --epochs 5
+```
+
+## Read a blob
+
+Read a blob back by its blob ID.
+
+```sh
+$ walrus read <BLOB_ID> --out ./report.pdf
+```
+
+Without `--out`, the blob is written to standard output.
+
+## Check a blob's status
+
+Check whether a blob is available and how it is registered onchain.
+
+```sh
+$ walrus blob-status --blob-id <BLOB_ID>
+```
+
+The CLI reports the blob's certification status and end epoch from its Sui object. See [Reading blobs](/docs/walrus-client/reading-blobs).
+
+## Put it together in Python
+
+The following script stores a blob, reads it back, and verifies the round trip against a public Testnet publisher and aggregator.
+
+```python
+import os
+
+import requests
+
+AGGREGATOR = "https://aggregator.walrus-testnet.walrus.space"
+PUBLISHER = "https://publisher.walrus-testnet.walrus.space"
+
+def store_blob(data: bytes, epochs: int = 5) -> str:
+    response = requests.put(
+        f"{PUBLISHER}/v1/blobs", params={"epochs": epochs}, data=data
+    )
+    response.raise_for_status()
+    result = response.json()
+    if "newlyCreated" in result:
+        return result["newlyCreated"]["blobObject"]["blobId"]
+    return result["alreadyCertified"]["blobId"]
+
+def read_blob(blob_id: str) -> bytes:
+    response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
+    response.raise_for_status()
+    return response.content
+
+if __name__ == "__main__":
+    original = os.urandom(1024)
+    blob_id = store_blob(original)
+    print(f"stored blob {blob_id}")
+
+    downloaded = read_blob(blob_id)
+    assert downloaded == original, "round trip mismatch"
+    print(f"read {len(downloaded)} bytes back, round trip verified")
+```
+
+For more Python examples, including driving the CLI through its JSON interface and tracking Walrus events, see [Using Walrus with Python](/docs/examples/python).
+
+## Next steps
+
+- Store blobs with the CLI: [Store blobs with the Walrus client](/docs/walrus-client/storing-blobs)
+- Use the HTTP API in depth: [Storing blobs with the HTTP API](/docs/http-api/storing-blobs) and [Reading blobs with the HTTP API](/docs/http-api/reading-blobs)
+- Run a publisher that pays for storage on behalf of your users: [Mainnet Publisher Production Guide](/docs/operator-guide/publishers/mainnet-production-guide)
+- Canonical endpoints and IDs: [Network Reference](/docs/network-reference)
