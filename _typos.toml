@@ -1,14 +1,14 @@
+[default.extend-identifiers]
+bimap = "bimap"
+
 [files]
 extend-exclude = [
   "*.svg",
   "docs/site/src/plugins/askcookbook/index.js",
   "docs/site/src/scripts/audit-docs.mjs",
-  "docs/site/src/scripts/generate-geo.mjs",
   "docs/site/src/scripts/backfill-questions.mjs",
+  "docs/site/src/scripts/generate-geo.mjs",
   "docs/site/src/scripts/improve-geo.mjs",
   "mainnet-contracts/",
   "testnet-contracts/",
 ]
-
-[default.extend-identifiers]
-bimap = "bimap"
