@@ -4,6 +4,15 @@
 
 Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [Walrus Memory](https://github.com/MystenLabs/MemWal/releases).
 
+### Walrus v1.52.0
+
+`Testnet` July 15, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.52.0)
+
+---
+#### Full Log: https://github.com/MystenLabs/walrus/commits/testnet-v1.52.0
+
+---
+
 ### Walrus v1.51.2
 
 `Mainnet` July 9, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.51.2)

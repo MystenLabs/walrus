@@ -1,11 +1,44 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Use this page when you run your own relayer.
-For setup steps and deployment context, see [Self-Hosting](/walrus-memory/relayer/self-hosting).
+This page lists the supported, public environment variables across Walrus Memory, grouped by where you set it: the client SDKs, the MCP server, the self-hosted relayer, and frontend apps. Each entry notes its default and whether the variable is read automatically or is a name you wire into config yourself. Internal and test-only variables are intentionally omitted.
 
-Environment variables documented here are public relayer contract items. Renaming, removing, or changing their meaning follows the deprecation process in [Versioning and Compatibility](/walrus-memory/relayer/versioning-and-compatibility).
+Walrus Memory reads only specific names, so a typo such as `MEMWAL_SERVER` or `MEMWAL_ACCOUNT` is silently ignored. Match the names here exactly.
 
-## Required
+## Client SDK
+
+The TypeScript SDK (`MemWal.create()` and `withMemWal()`) and the Python SDK take a configuration object, not environment variables. The SDK does not read the names below automatically. They are the conventions used consistently across the documentation examples, so you can keep them in a `.env` file and pass them into the config yourself.
+
+| Variable | Config field | Default | Notes |
+| --- | --- | --- | --- |
+| `MEMWAL_PRIVATE_KEY` | `key` | none | Delegate private key in hex. The fundamentals and Python examples use this name |
+| `MEMWAL_KEY` | `key` | none | The same delegate private key under a shorter name used by the getting-started and SDK quick-starts. Pick one name per project |
+| `MEMWAL_ACCOUNT_ID` | `accountId` | none | `MemWalAccount` object ID on Sui |
+| `MEMWAL_SERVER_URL` | `serverUrl` | SDK-specific | Relayer base URL. The TypeScript SDK defaults to `https://relayer.memory.walrus.xyz`; the Python SDK defaults to `http://localhost:8000` unless `env="prod"` selects the hosted relayer |
+| `SUI_PRIVATE_KEY` | `suiPrivateKey` | none | Sui signer key for `MemWalManual` local signing, in `suiprivkey1...` format |
+| `OPENAI_API_KEY` | `embeddingApiKey` (manual client only) | none | Embedding and fact-extraction provider key. Only the `MemWalManual` client takes it as `embeddingApiKey`. The standard `MemWal` and Python SDKs let the relayer handle embeddings, so this is needed only for optional OpenAI middleware or demos |
+| `OPENAI_BASE_URL` | `embeddingApiBase` (manual client only) | `https://api.openai.com/v1` | Base URL for an OpenAI-compatible provider such as OpenRouter, in the same manual-client and optional-middleware contexts as `OPENAI_API_KEY` |
+
+> **Note**
+>
+> `MEMWAL_PRIVATE_KEY` and `MEMWAL_KEY` are two names for the same delegate key. The examples use both. Standardize on one in your own project.
+## MCP Server
+
+The stdio MCP package reads these environment variables directly. A CLI flag takes precedence when both a flag and its variable are set.
+
+| Variable | CLI flag | Default | Notes |
+| --- | --- | --- | --- |
+| `MEMWAL_SERVER_URL` | `--relayer <url>` | hosted relayer | Relayer base URL |
+| `MEMWAL_NAMESPACE` | `--namespace <name>` (alias `--ns`) | `default` (applied by the relayer) | Default namespace injected into memory tool calls that omit one |
+| `MEMWAL_WEB_URL` | `--web-url <url>` | dashboard default | Dashboard URL used during login |
+| `MEMWAL_CLIENT_LABEL` | `--label <text>` | `MCP Client` / `Walrus Memory MCP` | Friendly delegate-key label shown in the dashboard |
+| `MEMWAL_MCP_DEBUG` | none | `0` | Set to `1` for verbose stderr logging |
+| `MEMWAL_MCP_SSE_IDLE_MS` | none | `30000` | Maximum milliseconds of silence on the SSE stream before the bridge treats the session as dead and reconnects. Values below `500` are ignored and fall back to the default. Mainly for tests |
+
+## Self-hosted relayer
+
+Use this section when you run your own relayer. For setup steps and deployment context, see [Self-Hosting](/walrus-memory/relayer/self-hosting). These variables are public relayer contract items. Renaming, removing, or changing their meaning follows the deprecation process in [Versioning and Compatibility](/walrus-memory/relayer/versioning-and-compatibility).
+
+### Required
 
 | Variable | Notes |
 | --- | --- |
@@ -14,7 +47,7 @@ Environment variables documented here are public relayer contract items. Renamin
 | `MEMWAL_REGISTRY_ID` | Onchain registry object ID. See [Contract Overview](/walrus-memory/contract/overview) |
 | `SIDECAR_AUTH_TOKEN` | Shared secret for Rust-to-sidecar calls. The sidecar refuses to start without it |
 
-## Usually required
+### Usually required
 
 These are not all enforced at boot, but most real deployments need them.
 
@@ -23,7 +56,7 @@ These are not all enforced at boot, but most real deployments need them.
 | `SERVER_SUI_PRIVATE_KEY` | Primary server key for backend decrypt and Walrus actions |
 | `OPENAI_API_KEY` | Server-side key used to call the embedding and fact-extraction provider |
 
-## Optional
+### Optional
 
 | Variable | Default | Notes |
 | --- | --- | --- |
@@ -66,7 +99,7 @@ These are not all enforced at boot, but most real deployments need them.
 | `MCP_MAX_SESSIONS_PER_IP` | `16` | Maximum active MCP sessions from one source IP |
 | `MCP_MAX_NEW_SESSIONS_PER_IP_PER_MIN` | `30` | Maximum new MCP sessions opened by one source IP per minute |
 
-## Notes
+### Notes
 
 - If both `SERVER_SUI_PRIVATE_KEYS` and `SERVER_SUI_PRIVATE_KEY` are set, the key pool takes priority for uploads. Upload jobs use the pool in round-robin order.
 - Keep `ENOKI_FALLBACK_TO_DIRECT_SIGN=false` in production if the server wallet should not pay gas when sponsorship is missing, expired, or rejected.
@@ -85,3 +118,18 @@ These are not all enforced at boot, but most real deployments need them.
 - `MEMWAL_PACKAGE_ID` and `MEMWAL_REGISTRY_ID` are server env vars. Do not replace them with `VITE_*` app env vars.
 - For network-specific `MEMWAL_PACKAGE_ID` and `MEMWAL_REGISTRY_ID` values, see [Contract Overview](/walrus-memory/contract/overview).
 - `MEMWAL_RELAYER_URL` is only needed when the sidecar should call a different relayer URL than the Rust server's local port. The Rust server sets it automatically to `http://127.0.0.1:$PORT` for the managed sidecar when it starts.
+
+## Frontend apps
+
+Browser apps built on Walrus Memory read build-time public variables, exposed through the bundler's public prefix (`VITE_` for Vite, `NEXT_PUBLIC_` for Next.js). These carry only public values, the onchain identifiers and the relayer endpoint, never private keys. Use the prefix that matches your bundler.
+
+| Variable | Notes |
+| --- | --- |
+| `VITE_MEMWAL_PACKAGE_ID` | Walrus Memory package ID for a Vite app build |
+| `VITE_MEMWAL_REGISTRY_ID` | Onchain registry object ID for a Vite app build |
+| `VITE_MEMWAL_SERVER_URL` | Relayer base URL for a Vite app build |
+| `NEXT_PUBLIC_MEMWAL_PACKAGE_ID` | Walrus Memory package ID for a Next.js app build |
+| `NEXT_PUBLIC_MEMWAL_REGISTRY_ID` | Onchain registry object ID for a Next.js app build |
+| `NEXT_PUBLIC_MEMWAL_SERVER_URL` | Relayer base URL for a Next.js app build |
+
+The server variables `MEMWAL_PACKAGE_ID` and `MEMWAL_REGISTRY_ID` are not interchangeable with these `VITE_*` and `NEXT_PUBLIC_*` app variables. For network-specific values, see [Contract Overview](/walrus-memory/contract/overview).

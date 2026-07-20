@@ -551,10 +551,8 @@ Sui smart contract as the on-chain index.
     Delegate private key in hex | | accountId | yes | MemWalAccount object ID on Sui | | serverUrl
     | no | Relayer URL.
 - [Environment Variables](https://docs.wal.app/walrus-memory/reference/environment-variables.md):
-    Use this page when you run your own relayer. For setup steps and deployment context, see
-    Self-Hosting. Environment variables documented here are public relayer contract items.
-    Renaming, removing, or changing their meaning follows the deprecation process in Versioning and
-    Compatibility.
+    This page lists the supported, public environment variables across Walrus Memory, grouped by
+    where you set it: the client SDKs, the MCP server, the self-hosted relayer, and frontend apps.
 
 ## Walrus Memory: Architecture
 
@@ -659,10 +657,14 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Release notes from Walrus and Walrus Memory. Mainnet July 9, 2026 | GitHub #3479: walrus info
-    committee gains a --commission-receivers flag that prints, as CSV, the commission receiver of
-    every node in the previous, current, and next committees (including the owning address for
-    object receivers).
+    Release notes from Walrus and Walrus Memory.
+
+## Sponsored Uploads
+
+- [Sponsored Uploads](https://docs.wal.app/docs/sponsored-uploads.md):
+    Most users do not hold SUI or WAL, and most apps do not want to ask them to. To build an app
+    where your backend pays for Walrus storage and users upload without managing a wallet, you need
+    to choose among several patterns.
 
 ## Walrus Memory: Guides
 

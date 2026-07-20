@@ -36,6 +36,8 @@ Walrus supports several upload paths. Choose the best path for your use case bas
 > **Mainnet publisher availability**
 >
 > Walrus does not provide a public unauthenticated publisher on Mainnet. For production Mainnet uploads, run a private authenticated publisher, use an upload relay, or integrate directly with the TypeScript SDK.
+If your app design includes storage payment on behalf of its users, or letting users upload without a wallet, see [Sponsored and walletless uploads](/docs/sponsored-uploads) for information on implementation, the reference architecture, and common pitfalls.
+
 The rest of this guide uses the Walrus CLI on Testnet because it shows the full setup flow: installing tools, configuring a wallet, getting Testnet tokens, storing a blob, and reading it back.
 
 ## Before you begin
