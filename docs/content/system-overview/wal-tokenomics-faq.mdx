@@ -51,7 +51,7 @@ Committee selection for an epoch happens ahead of time, at the midpoint of the p
 
 ### Can my stake be slashed?
 
-Storage nodes are subject to penalties for misbehavior or poor performance, which affect the rewards flowing to a node and its stakers. If you delegate stake, choose reliable nodes. For how penalties work on the operator side, see [Slashing](/docs/operator-guide/storage-nodes/slashing).
+Your delegated principal is never slashed. If a storage node misbehaves, committee members can vote to slash it, and executing that slash burns the node operator's accumulated commission, not the WAL you delegated. Separately, poor node performance lowers the rewards a node earns, which reduces the rewards you receive as a delegator. Choosing reliable nodes therefore protects your rewards, while your staked principal stays safe from slashing. For the operator side, see [Slashing](/docs/operator-guide/storage-nodes/slashing).
 
 ## Burning and supply
 
@@ -59,9 +59,16 @@ These questions address the most common points of confusion about WAL, including
 
 ### Does Walrus burn WAL when I store or delete data?
 
-No. Storing a blob pays WAL into the storage fund, which is distributed to storage nodes as rewards. It is not burned. Deleting a blob does not burn WAL either, and it does not refund your storage payment.
+Your storage payment is not burned all at once, and deleting a blob does not refund WAL. Protocol-level WAL burns do exist, though, so it is not accurate to say Walrus never burns WAL.
 
-The word "burn" in Walrus documentation almost always refers to burning a blob's **Sui object**, which is unrelated to the WAL token. For questions about WAL token supply and any protocol-level supply mechanics, the [Walrus whitepaper](/walrus.pdf) is the authoritative source. Do not rely on social media summaries for supply claims.
+When you store a blob, your WAL goes into the storage fund and is distributed to storage nodes as rewards across the epochs your blob is stored. At each epoch change, the system burns **3% of that epoch's total rewards** before distributing the rest to nodes and their stakers. Slashing a misbehaving node also burns that operator's accumulated commission.
+
+Two things are commonly mistaken for burning WAL but are not:
+
+- **Deleting a blob** does not burn WAL and does not refund your storage payment.
+- **Burning a blob's Sui object** removes an onchain object to reclaim a SUI storage rebate. It does not touch the WAL token. See the next question.
+
+For the full economic model, including the token supply, see the [Walrus whitepaper](/walrus.pdf). Do not rely on social media summaries for supply claims.
 
 ### What does burning a blob actually do?
 
@@ -73,7 +80,7 @@ Burning a blob removes the blob's corresponding **Sui object**, which reclaims m
 
 See [Burn blobs](/docs/walrus-client/managing-blobs#burn-blobs) for the CLI workflow, and [Storage Costs](/docs/system-overview/storage-costs#manage-blob-object-lifecycle) for when burning saves money.
 
-### Why is storage priced in USD but paid in WAL?
+### Why is storage priced in dollars but paid in WAL?
 
 Pricing storage at a fixed **$0.023/GB/month** gives you predictable, budgetable costs regardless of WAL price movement. Storage nodes track the WAL price from multiple sources and periodically update an onchain price vote, so the WAL amount charged for a given store adjusts to keep the USD-denominated price stable. See [How pricing works](/docs/system-overview/storage-costs#how-pricing-works).
 
