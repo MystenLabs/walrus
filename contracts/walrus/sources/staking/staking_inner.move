@@ -902,6 +902,14 @@ public(package) fun is_epoch_sync_done(self: &StakingInnerV1): bool {
     }
 }
 
+/// Sets the max size of the active set to the current `TEMP_ACTIVE_SET_SIZE_LIMIT`.
+///
+/// This is needed during migration since the limit is only read when the `ActiveSet` is
+/// created, so an updated limit must be applied to the existing `ActiveSet` explicitly.
+public(package) fun update_active_set_max_size(self: &mut StakingInnerV1) {
+    self.active_set.borrow_mut().set_max_size(TEMP_ACTIVE_SET_SIZE_LIMIT);
+}
+
 #[test_only]
 public(package) fun active_set(self: &mut StakingInnerV1): &mut ActiveSet {
     self.active_set.borrow_mut()
