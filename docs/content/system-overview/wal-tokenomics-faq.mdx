@@ -1,6 +1,6 @@
 ---
 title: WAL Tokenomics FAQ
-description: "Answers to common questions about the WAL token: fee flows, staking and re-delegation, rewards, slashing, and what burning a blob does."
+description: Answers to common questions about the WAL token, covering fee flows, staking and re-delegation, rewards, slashing, and what burning a blob does.
 keywords: ["walrus", "wal token", "tokenomics", "staking", "re-delegation", "rewards", "slashing", "storage fund", "fees", "burn", "faq"]
 ---
 
@@ -49,9 +49,9 @@ Committee selection for an epoch happens ahead of time, at the midpoint of the p
 - **Staking:** To affect the committee in epoch `e`, stake before the midpoint of epoch `e - 1`. Stake added after that point first becomes active in epoch `e + 1`.
 - **Unstaking:** A withdrawal requested before the midpoint of epoch `e - 1` stops earning at the start of epoch `e`. Requested after that point, the stake stays active and keeps accruing rewards through epoch `e`, and the balance is available at the start of epoch `e + 1`.
 
-### Can my stake be slashed?
+### Can Walrus slash my stake?
 
-Your delegated principal is never slashed. If a storage node misbehaves, committee members can vote to slash it, and executing that slash burns the node operator's accumulated commission, not the WAL you delegated. Separately, poor node performance lowers the rewards a node earns, which reduces the rewards you receive as a delegator. Choosing reliable nodes therefore protects your rewards, while your staked principal stays safe from slashing. For the operator side, see [Slashing](/docs/operator-guide/storage-nodes/slashing).
+Walrus never slashes your delegated principal. If a storage node misbehaves, committee members can vote to slash it, and executing that slash burns the node operator's accumulated commission, not the WAL you delegated. Separately, poor node performance lowers the rewards a node earns, which reduces the rewards you receive as a delegator. Choosing reliable nodes therefore protects your rewards, while your staked principal stays safe from slashing. For the operator side, see [Slashing](/docs/operator-guide/storage-nodes/slashing).
 
 ## Burning and supply
 
@@ -59,11 +59,11 @@ These questions address the most common points of confusion about WAL, including
 
 ### Does Walrus burn WAL when I store or delete data?
 
-Your storage payment is not burned all at once, and deleting a blob does not refund WAL. Protocol-level WAL burns do exist, though, so it is not accurate to say Walrus never burns WAL.
+The system does not burn your storage payment all at once, and deleting a blob does not refund WAL. Protocol-level WAL burns do exist, though, so it is not accurate to say Walrus never burns WAL.
 
-When you store a blob, your WAL goes into the storage fund and is distributed to storage nodes as rewards across the epochs your blob is stored. At each epoch change, the system burns **3% of that epoch's total rewards** before distributing the rest to nodes and their stakers. Slashing a misbehaving node also burns that operator's accumulated commission.
+When you store a blob, your WAL goes into the storage fund, which distributes it to storage nodes as rewards across the epochs your blob is stored. At each epoch change, the system burns **3% of that epoch's total rewards** before distributing the rest to nodes and their stakers. Slashing a misbehaving node also burns that operator's accumulated commission.
 
-Two things are commonly mistaken for burning WAL but are not:
+Users commonly mistake two things for burning WAL, but neither is:
 
 - **Deleting a blob** does not burn WAL and does not refund your storage payment.
 - **Burning a blob's Sui object** removes an onchain object to reclaim a SUI storage rebate. It does not touch the WAL token. See the next question.
