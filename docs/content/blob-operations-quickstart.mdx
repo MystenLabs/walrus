@@ -8,23 +8,28 @@ This quickstart shows the core blob operations, store, read, and check status, t
 
 Walrus does not ship a dedicated Python SDK. A Python backend integrates with Walrus through the HTTP API, reading from an aggregator and writing to a publisher, or by driving the `walrus` CLI as a subprocess. This page uses the HTTP API for the Python examples because it needs nothing beyond the `requests` library.
 
-## Before you begin
+<div className="outlined-tabs">
 
-No API key is required. The public Walrus aggregator and publisher endpoints are open.
+<Tabs>
+<TabItem value="prereq" label="Prerequisites">
 
-Set the endpoints you use. The examples below use the Testnet endpoints from the [Network Reference](/docs/network-reference#aggregators-and-publishers):
+- [x] No API key required. The public Walrus aggregator and publisher endpoints are open.
+- [x] Set the endpoints you want to use. The examples below use the Testnet endpoints from the [Network Reference](/docs/network-reference#aggregators-and-publishers):
 
 ```sh
-# Reads go to an aggregator; writes go to a publisher.
 export AGGREGATOR=https://aggregator.walrus-testnet.walrus.space
 export PUBLISHER=https://publisher.walrus-testnet.walrus.space
 ```
 
-Each surface has its own prerequisites:
+- [x] Choose a surface and complete the necessary setup:
+  - **CLI:** Install and configure the `walrus` client. See [Getting Started](/docs/getting-started).
+  - **HTTP API:** Any HTTP client, such as `curl`.
+  - **Python:** Install the requests library with `pip install requests`.
 
-- **CLI:** Install and configure the `walrus` client. See [Getting Started](/docs/getting-started).
-- **HTTP API:** Any HTTP client, such as `curl`.
-- **Python:** Install the requests library with `pip install requests`.
+</TabItem>
+</Tabs>
+
+</div>
 
 :::caution Public endpoint limits
 
@@ -34,7 +39,7 @@ Public aggregators and publishers limit requests to 10 MiB, and Walrus does not 
 
 ## Store a blob
 
-Store a file for a number of epochs. The store returns a blob ID that you use to read the blob back.
+Store a file for a number of epochs. The store returns a blob ID.
 
 <Tabs>
 <TabItem label="CLI" value="cli">
@@ -50,7 +55,7 @@ $ walrus store ./report.pdf --epochs 5
 $ curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file ./report.pdf
 ```
 
-The response is JSON. A first-time store returns a `newlyCreated` object, and a store of a blob that already exists returns an `alreadyCertified` object. The blob ID is in both.
+The HTTP API returns JSON. A first-time store returns a `newlyCreated` object, and a store of a blob that already exists returns an `alreadyCertified` object. The blob ID is in both.
 
 </TabItem>
 <TabItem label="Python" value="python">
@@ -87,7 +92,7 @@ print(f"stored blob {blob_id}")
 
 ## Read a blob
 
-Read a blob back by its blob ID.
+Read a blob using its blob ID.
 
 <Tabs>
 <TabItem label="CLI" value="cli">
@@ -96,7 +101,7 @@ Read a blob back by its blob ID.
 $ walrus read <BLOB_ID> --out ./report.pdf
 ```
 
-Without `--out`, the blob is written to standard output.
+Without the flag `--out`, the blob is written to standard output.
 
 </TabItem>
 <TabItem label="HTTP API" value="http">
@@ -131,7 +136,7 @@ print(f"read {len(data)} bytes")
 
 ## Check a blob's status
 
-Check whether a blob is available and how it is registered onchain.
+Check whether a blob is available and its registered onchain information.
 
 <Tabs>
 <TabItem label="CLI" value="cli">
@@ -140,7 +145,7 @@ Check whether a blob is available and how it is registered onchain.
 $ walrus blob-status --blob-id <BLOB_ID>
 ```
 
-The CLI reports the blob's certification status and end epoch from its Sui object. See [Reading blobs](/docs/walrus-client/reading-blobs).
+The CLI reports the blob's certification status and end epoch from its Sui object. See [Reading blobs](/docs/walrus-client/reading-blobs) to learn more about certification status and Sui objects.
 
 </TabItem>
 <TabItem label="HTTP API" value="http">
@@ -173,7 +178,7 @@ print("available" if is_available(blob_id) else "not available")
 </TabItem>
 </Tabs>
 
-## Put it together in Python
+## Full Python example
 
 The following script stores a blob, reads it back, and verifies the round trip against a public Testnet publisher and aggregator.
 
@@ -215,7 +220,7 @@ if __name__ == "__main__":
 
 For more Python examples, including driving the CLI through its JSON interface and tracking Walrus events, see [Using Walrus with Python](/docs/examples/python).
 
-## Next steps
+## References
 
 - Store blobs with the CLI: [Store blobs with the Walrus client](/docs/walrus-client/storing-blobs)
 - Use the HTTP API in depth: [Storing blobs with the HTTP API](/docs/http-api/storing-blobs) and [Reading blobs with the HTTP API](/docs/http-api/reading-blobs)
