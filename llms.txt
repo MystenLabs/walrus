@@ -633,6 +633,14 @@ Sui smart contract as the on-chain index.
     The production Walrus Mainnet is now live, and operated by a decentralized network of over 100
     storage nodes. Epoch 1 begun on March 25, 2025.
 
+## Blob Operations Quickstart
+
+- [Blob Operations Quickstart](https://docs.wal.app/docs/blob-operations-quickstart.md):
+    This quickstart shows the core blob operations, store, read, and check status, three ways: the
+    Walrus CLI, the HTTP API, and Python. Each operation appears in all three so you can pick the
+    surface that fits your stack, or compare them side by side. Walrus does not ship a dedicated
+    Python SDK.
+
 ## Large Uploads
 
 - [Large Uploads](https://docs.wal.app/docs/large-uploads.md):
