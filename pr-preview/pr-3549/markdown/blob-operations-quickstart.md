@@ -74,7 +74,7 @@ def store_blob(data: bytes, epochs: int = 5) -> str:
     return result["alreadyCertified"]["blobId"]
 
 def read_blob(blob_id: str, attempts: int = 5, backoff: float = 1.0) -> bytes:
-    # A public aggregator can briefly return 404 or 503 right after a blob is
+    # A public aggregator can briefly return 404 or a 5xx right after a blob is
     # certified, before its read path catches up. Because you know the blob was
     # just stored, retry those statuses with backoff before giving up.
     response = None
@@ -82,7 +82,8 @@ def read_blob(blob_id: str, attempts: int = 5, backoff: float = 1.0) -> bytes:
         response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
         if response.status_code == 200:
             return response.content
-        if response.status_code not in (404, 503):
+        retryable = response.status_code == 404 or 500 <= response.status_code < 600
+        if not retryable:
             break
         time.sleep(backoff * (2**attempt))
     response.raise_for_status()
