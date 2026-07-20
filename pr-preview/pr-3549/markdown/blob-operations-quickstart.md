@@ -36,7 +36,9 @@ Read a blob using its blob ID.
 $ walrus read <BLOB_ID> --out ./report.pdf
 ```
 
-Without the flag `--out`, the blob is written to standard output.
+Without the flag `--out`, the CLI writes the blob to standard output.
+
+When you read a blob immediately after certifying it, a public aggregator can briefly return `404` before its read path catches up. Retry with backoff in that window, as the [full Python example](#full-python-example) shows. See [Reading blobs after upload](/docs/troubleshooting/reading-blobs-after-upload) for more.
 
 ## Check a blob's status
 
@@ -54,6 +56,7 @@ The following script stores a blob, reads it back, and verifies the round trip a
 
 ```python
 import os
+import time
 
 import requests
 
@@ -70,8 +73,18 @@ def store_blob(data: bytes, epochs: int = 5) -> str:
         return result["newlyCreated"]["blobObject"]["blobId"]
     return result["alreadyCertified"]["blobId"]
 
-def read_blob(blob_id: str) -> bytes:
-    response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
+def read_blob(blob_id: str, attempts: int = 5, backoff: float = 1.0) -> bytes:
+    # A public aggregator can briefly return 404 or 503 right after a blob is
+    # certified, before its read path catches up. Because you know the blob was
+    # just stored, retry those statuses with backoff before giving up.
+    response = None
+    for attempt in range(attempts):
+        response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
+        if response.status_code == 200:
+            return response.content
+        if response.status_code not in (404, 503):
+            break
+        time.sleep(backoff * (2**attempt))
     response.raise_for_status()
     return response.content
 
