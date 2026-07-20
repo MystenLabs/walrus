@@ -150,6 +150,8 @@ function checkBrokenInternalLinks(body, docPaths, filePath) {
 
     // Normalize the target path
     let normalized = target;
+    // Strip Docusaurus routeBasePath prefix (e.g. /docs/)
+    normalized = normalized.replace(/^\/(docs|walrus-memory)\//, '/');
     // Handle relative paths
     if (!normalized.startsWith('/')) {
       const dir = '/' + relativeTo(path.dirname(filePath), CONTENT_ROOT);

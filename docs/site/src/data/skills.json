@@ -75,5 +75,26 @@
     "description": "High-level overview of what Walrus is, how it works, architecture, terminology, and which tool to choose.",
     "category": "Get started",
     "path": "walrus-overview"
+  },
+  {
+    "slug": "walrus-sites",
+    "title": "Walrus Sites",
+    "description": "",
+    "category": "General",
+    "path": "walrus-sites"
+  },
+  {
+    "slug": "walrus-sites-portal",
+    "title": "Walrus Sites Portal",
+    "description": "",
+    "category": "General",
+    "path": "walrus-sites/portal"
+  },
+  {
+    "slug": "walrus-sites-publishing",
+    "title": "Walrus Sites Publishing",
+    "description": "",
+    "category": "General",
+    "path": "walrus-sites/publishing"
   }
 ]

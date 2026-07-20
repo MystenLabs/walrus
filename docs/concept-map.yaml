@@ -5,75 +5,48 @@
 #   terms           – keywords the audit script checks for (case-insensitive)
 #
 # A page passes if it contains >= half of the listed terms.
-# A page NOT listed in must_appear_in is flagged as an orphan if it contains >= 75% of the terms.
+# A page NOT listed in must_appear_in is flagged as an orphan
+# if it contains >= 75% of the terms.
 
 concepts:
 
-  # ─── Getting Started ───────────────────────────────────────────────────────
+  # ─── Getting Started ─────────────────────────────
 
   walrus-setup:
     must_appear_in:
-      - "getting-started/install.mdx"
-      - "getting-started/quickstart.mdx"
+      - "getting-started/index.mdx"
+      - "getting-started/advanced-setup.mdx"
     terms:
       - "install"
       - "walrus"
       - "CLI"
       - "config"
 
-  # ─── System Overview ───────────────────────────────────────────────────────
+  # ─── System Overview ─────────────────────────────
 
   blob-storage:
     must_appear_in:
-      - "system-overview/blobs.mdx"
+      - "system-overview/core-concepts.mdx"
+      - "system-overview/operations.mdx"
     terms:
       - "blob"
       - "store"
       - "erasure coding"
       - "slivers"
-      - "RedStuff"
 
   storage-epochs:
     must_appear_in:
-      - "system-overview/epochs.mdx"
+      - "system-overview/core-concepts.mdx"
+      - "system-overview/storage-costs.mdx"
     terms:
       - "epoch"
       - "storage"
       - "lifetime"
       - "extend"
-      - "expiry"
-
-  storage-nodes:
-    must_appear_in:
-      - "system-overview/storage-nodes.mdx"
-    terms:
-      - "storage node"
-      - "sliver"
-      - "shard"
-      - "committee"
-
-  staking:
-    must_appear_in:
-      - "system-overview/staking.mdx"
-      - "operator-guide/stake.mdx"
-    terms:
-      - "stake"
-      - "WAL"
-      - "delegation"
-      - "commission"
-
-  tokenomics:
-    must_appear_in:
-      - "system-overview/wal-token.mdx"
-    terms:
-      - "WAL"
-      - "token"
-      - "SUI"
-      - "exchange"
 
   encoding:
     must_appear_in:
-      - "system-overview/encoding.mdx"
+      - "system-overview/red-stuff.mdx"
     terms:
       - "RedStuff"
       - "erasure"
@@ -81,58 +54,57 @@ concepts:
       - "slivers"
       - "recovery"
 
-  # ─── Walrus Client ────────────────────────────────────────────────────────
+  staking:
+    must_appear_in:
+      - "operator-guide/stake.mdx"
+    terms:
+      - "stake"
+      - "WAL"
+      - "delegation"
+      - "commission"
+
+  # ─── Walrus Client ──────────────────────────────
 
   client-cli:
     must_appear_in:
-      - "walrus-client/usage.mdx"
+      - "walrus-client/walrus-cli.mdx"
+      - "walrus-client/storing-blobs.mdx"
     terms:
       - "walrus store"
       - "walrus read"
       - "blob ID"
       - "CLI"
 
-  client-config:
+  client-json:
     must_appear_in:
-      - "walrus-client/configuration.mdx"
-    terms:
-      - "config"
-      - "client_config.yaml"
-      - "system_object"
-      - "RPC"
-
-  client-json-api:
-    must_appear_in:
-      - "walrus-client/json-api.mdx"
+      - "walrus-client/json-mode.mdx"
     terms:
       - "JSON"
       - "daemon"
       - "API"
       - "store"
-      - "read"
 
-  # ─── HTTP API ──────────────────────────────────────────────────────────────
+  # ─── HTTP API ────────────────────────────────────
 
-  publisher-api:
+  http-store:
     must_appear_in:
-      - "http-api/publisher.mdx"
+      - "http-api/storing-blobs.mdx"
     terms:
       - "publisher"
       - "PUT"
-      - "POST"
       - "blob"
       - "epoch"
 
-  aggregator-api:
+  http-read:
     must_appear_in:
-      - "http-api/aggregator.mdx"
+      - "http-api/reading-blobs.mdx"
     terms:
       - "aggregator"
       - "GET"
       - "blob"
       - "read"
 
-  # ─── Operator Guide ───────────────────────────────────────────────────────
+  # ─── Operator Guide ─────────────────────────────
 
   storage-node-setup:
     must_appear_in:
@@ -142,7 +114,6 @@ concepts:
       - "setup"
       - "config"
       - "register"
-      - "binary"
 
   storage-node-maintenance:
     must_appear_in:
@@ -180,48 +151,50 @@ concepts:
       - "config"
       - "cache"
 
-  # ─── Walrus Sites ─────────────────────────────────────────────────────────
+  # ─── Walrus Sites ───────────────────────────────
 
   walrus-sites:
     must_appear_in:
-      - "sites/overview.mdx"
+      - "sites/introduction/technical-overview.mdx"
+      - "sites/introduction/components.mdx"
     terms:
       - "Walrus Sites"
       - "site-builder"
       - "deploy"
       - "portal"
-      - "decentralized"
 
   site-builder:
     must_appear_in:
-      - "sites/site-builder.mdx"
+      - "sites/getting-started/installing-the-site-builder.mdx"
+      - "sites/getting-started/using-the-site-builder.mdx"
     terms:
       - "site-builder"
       - "publish"
       - "update"
-      - "ws-resources"
+      - "install"
 
   site-portals:
     must_appear_in:
-      - "sites/portal.mdx"
+      - "sites/portals/mainnet-testnet.mdx"
+      - "sites/portals/deploy-locally.mdx"
     terms:
       - "portal"
       - "service worker"
       - "browse"
-      - "redirect"
+      - "deploy"
 
-  # ─── TypeScript SDK ────────────────────────────────────────────────────────
+  # ─── SDKs ───────────────────────────────────────
 
   typescript-sdk:
     must_appear_in:
-      - "typescript-sdk/index.mdx"
+      - "typescript-sdk/sdks.mdx"
     terms:
       - "TypeScript"
       - "SDK"
-      - "@aspect/walrus-sdk"
       - "npm"
+      - "install"
 
-  # ─── Data Security ────────────────────────────────────────────────────────
+  # ─── Data Security ──────────────────────────────
 
   data-security:
     must_appear_in:
@@ -231,15 +204,15 @@ concepts:
       - "availability"
       - "integrity"
       - "public"
-      - "Seal"
 
-  # ─── Troubleshooting ──────────────────────────────────────────────────────
+  # ─── Troubleshooting ────────────────────────────
 
   common-issues:
     must_appear_in:
-      - "troubleshooting/faq.mdx"
+      - "troubleshooting/index.mdx"
+      - "troubleshooting/network-errors.mdx"
     terms:
       - "error"
       - "fix"
-      - "issue"
       - "troubleshoot"
+      - "timeout"
