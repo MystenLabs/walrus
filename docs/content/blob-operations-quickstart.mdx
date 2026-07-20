@@ -101,7 +101,7 @@ Read a blob using its blob ID.
 $ walrus read <BLOB_ID> --out ./report.pdf
 ```
 
-Without the flag `--out`, the blob is written to standard output.
+Without the flag `--out`, the CLI writes the blob to standard output.
 
 </TabItem>
 <TabItem label="HTTP API" value="http">
@@ -134,6 +134,8 @@ print(f"read {len(data)} bytes")
 </TabItem>
 </Tabs>
 
+When you read a blob immediately after certifying it, a public aggregator can briefly return `404` before its read path catches up. Retry with backoff in that window, as the [full Python example](#full-python-example) shows. See [Reading blobs after upload](/docs/troubleshooting/reading-blobs-after-upload) for more.
+
 ## Check a blob's status
 
 Check whether a blob is available and its registered onchain information.
@@ -150,7 +152,7 @@ The CLI reports the blob's certification status and end epoch from its Sui objec
 </TabItem>
 <TabItem label="HTTP API" value="http">
 
-The aggregator serves reads, so a successful `GET` confirms the blob is available. A `200` response means the blob is readable; a `404` means it is not available on that aggregator.
+The aggregator serves reads, so a successful `GET` confirms availability. A `200` means you can read the blob. A `404` immediately after you certified the blob is usually transient on public, CDN-fronted aggregators, so retry with backoff; a `404` for a blob you did not just write is final. Treat `503` and other `5xx` responses as retryable.
 
 ```sh
 $ curl -o /dev/null -s -w "%{http_code}\n" "$AGGREGATOR/v1/blobs/<BLOB_ID>"
@@ -167,12 +169,19 @@ import requests
 AGGREGATOR = "https://aggregator.walrus-testnet.walrus.space"
 
 
-def is_available(blob_id: str) -> bool:
+def read_status(blob_id: str) -> str:
+    # A 404 right after certification is usually transient on public
+    # aggregators; a 404 for a blob you did not just write is final. Treat 503
+    # and other 5xx responses as transient too.
     response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
-    return response.status_code == 200
+    if response.status_code == 200:
+        return "available"
+    if response.status_code in (404, 503):
+        return "retry"
+    return "unavailable"
 
 
-print("available" if is_available(blob_id) else "not available")
+print(read_status(blob_id))  # "available", "retry", or "unavailable"
 ```
 
 </TabItem>
@@ -184,6 +193,7 @@ The following script stores a blob, reads it back, and verifies the round trip a
 
 ```python
 import os
+import time
 
 import requests
 
@@ -202,8 +212,18 @@ def store_blob(data: bytes, epochs: int = 5) -> str:
     return result["alreadyCertified"]["blobId"]
 
 
-def read_blob(blob_id: str) -> bytes:
-    response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
+def read_blob(blob_id: str, attempts: int = 5, backoff: float = 1.0) -> bytes:
+    # A public aggregator can briefly return 404 or 503 right after a blob is
+    # certified, before its read path catches up. Because you know the blob was
+    # just stored, retry those statuses with backoff before giving up.
+    response = None
+    for attempt in range(attempts):
+        response = requests.get(f"{AGGREGATOR}/v1/blobs/{blob_id}")
+        if response.status_code == 200:
+            return response.content
+        if response.status_code not in (404, 503):
+            break
+        time.sleep(backoff * (2**attempt))
     response.raise_for_status()
     return response.content
 
