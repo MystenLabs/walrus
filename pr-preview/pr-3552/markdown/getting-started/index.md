@@ -1,0 +1,317 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+Walrus is a verifiable data platform for high-stakes systems like AI and onchain finance, where data is stored as blobs.
+
+Walrus uses an object storage architecture, where blobs are stored in a flat namespace rather than a hierarchy. There are no folders or directories. Each piece of data in an object storage model contains the data itself, metadata describing the data, and a unique identifier.
+
+Sui is a blockchain that supports programmability at a [fundamental level](https://docs.sui.io/concepts/transactions/prog-txn-blocks). Walrus binds all blobs to objects on the Sui blockchain.
+
+## Walrus and Sui
+
+Walrus depends on Sui, as it leverages Sui to track blobs, their respective owners, and their lifetimes.
+
+Sui and Walrus are both decentralized, distributed systems made up of many independent servers that communicate and collectively establish shared state. A group of servers together is a network.
+
+### Available networks
+
+Sui and Walrus each have the following available [networks](/docs/system-overview/available-networks):
+
+- **Testnet:** A sandbox-like network where you can receive test tokens for free to use for the network fees. You can build, test, and debug software packages on Testnet. Testnet does not guarantee data persistence and might wipe data at any time without warning.
+- **Mainnet:** A production environment where you use real tokens and users or other applications rely on consistent functionality.
+
+When you are getting started, you should use Testnet.
+
+## Choose your upload path
+
+Walrus supports several upload paths. Choose the best path for your use case based on where the upload runs, who manages signing, and who operates the payment and authentication boundary.
+
+| **Upload path** | **Use case** | **Start here** |
+| --- | --- | --- |
+| Walrus CLI | Local development, scripts, and operator workflows | Continue with this guide, then see [Store blobs with the Walrus client](/docs/walrus-client/storing-blobs) |
+| HTTP API publisher | Quick Testnet uploads or services that already use HTTP | [Storing Blobs with the HTTP API](/docs/http-api/storing-blobs) |
+| TypeScript SDK | Applications that integrate Walrus directly in code | [Software Development Kits (SDKs) and Other Tools](/docs/typescript-sdk/sdks) |
+| Upload Relay | Browser or mobile clients that need a relay-managed upload path | [Operate an Upload Relay](/docs/operator-guide/upload-relay) |
+| Private authenticated publisher | Controlled Mainnet clients that need an HTTP upload interface | [Mainnet Publisher Production Guide](/docs/operator-guide/publishers/mainnet-production-guide) |
+
+> **Mainnet publisher availability**
+>
+> Walrus does not provide a public unauthenticated publisher on Mainnet. For production Mainnet uploads, run a private authenticated publisher, use an upload relay, or integrate directly with the TypeScript SDK.
+If your app design includes storage payment on behalf of its users, or letting users upload without a wallet, see [Sponsored and walletless uploads](/docs/sponsored-uploads) for information on implementation, the reference architecture, and common pitfalls.
+
+The rest of this guide uses the Walrus CLI on Testnet because it shows the full setup flow: installing tools, configuring a wallet, getting Testnet tokens, storing a blob, and reading it back.
+
+## Before you begin
+
+This walkthrough uses Testnet, so you spend free test tokens rather than real funds. You do not need to write any code, and you do not need to install Sui separately, because the `suiup` tool in the next step installs both `sui` and `walrus`.
+
+> **Already have the tools installed?**
+>
+> If `sui` and `walrus` are already on your `$PATH`, skip to [Configure tooling for Walrus Testnet](#configure-tooling). To confirm, run `walrus --version` and `sui --version`. For alternative installation methods, such as building from source or installing a specific binary, see [Advanced Installation](/docs/getting-started/advanced-setup).
+The guide covers the following steps:
+
+1. **Install tooling:** Get the `sui` and `walrus` command-line tools.
+2. **Configure tooling for Walrus Testnet:** Point the client at Testnet and verify the connection.
+3. **Understand your Sui account:** Learn about the address and account created during setup.
+4. **Fund your Sui account with tokens:** Get free Testnet SUI, then swap some for WAL.
+5. **Store a blob:** Upload your first file to Walrus.
+6. **Retrieve a blob:** Read the file back.
+7. **Extend a blob storage duration:** Keep a blob stored for longer.
+8. **Delete a blob:** Release a blob you no longer need.
+
+##step Install tooling
+
+To install Walrus and Sui, use the Mysten Labs `suiup` tool.
+
+Install `suiup`:
+
+```sh
+$ curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
+```
+
+Install `sui` and `walrus`:
+
+```sh
+$ suiup install sui
+$ suiup install walrus
+```
+
+##step Configure tooling for Walrus Testnet {#configure-tooling}
+
+After installing Walrus, configure the Walrus client. The client configuration tells Walrus which RPC URLs to use to access Testnet or Mainnet and which Sui objects track the state of the Walrus network. The easiest way to configure Walrus is to download the following pre-filled configuration file.
+
+Download the configuration file:
+
+```sh
+$ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+```
+
+This pre-filled file includes both the Mainnet and Testnet contexts. For the canonical endpoints, RPC URLs, object IDs, and configuration snippets, see the [Network Reference](/docs/network-reference).
+
+Configure the Sui client to connect to Testnet.
+
+The Sui client configuration is separate from the Walrus client configuration. [Learn more about the Sui client configuration.](https://docs.sui.io/guides/developer/getting-started/configure-sui-client)
+
+Initialize the Sui client:
+
+```sh
+$ sui client
+```
+
+When prompted, enter the following:
+
+- Connect to a Sui Full Node server? Enter `Y`.
+- Full node server URL: Enter `https://fullnode.testnet.sui.io:443`.
+- Environment alias: Enter `testnet`.
+- Select key scheme: Enter `0` (for ed25519).
+
+This creates your Sui client configuration file with a Testnet environment and generates your first address.
+
+To confirm the Walrus configuration also uses Testnet, run the following command:
+
+```sh
+$ walrus info
+```
+
+Make sure that the output of this command includes `Epoch duration: 1day` to indicate connection to Testnet. The same output also includes current storage pricing information. For interactive cost estimates, use the [Walrus Cost Calculator](https://costcalculator.wal.app/).
+
+> **About the context flag**
+>
+> The pre-filled configuration file defines both a `testnet` and a `mainnet` context and sets `default_context: testnet`. Because Testnet is the default, you do not need to pass `--context testnet` on every command. This guide includes the flag on each command to make the target network explicit, but you can omit it while you work on Testnet.
+> 
+> To store on Mainnet later, either pass `--context mainnet` on individual commands or change `default_context` to `mainnet` in `~/.config/walrus/client_config.yaml`. For the full list of contexts and endpoints, see the [Network Reference](/docs/network-reference).
+For detailed information about the `walrus` CLI, use `walrus --help`. Append `--help` to any `walrus` subcommand to get details about that specific command.
+
+> **Setup not connecting?**
+>
+> If `walrus info` fails or `walrus store` later returns `could not retrieve enough confirmations to certify the blob` or `the specified Walrus system object does not exist`, your configuration is most likely outdated or points at the wrong network. Re-download the configuration file shown previously and confirm the Sui client uses Testnet. See the [Troubleshooting guide](/docs/troubleshooting) for these and other common errors.
+##step Understand your Sui account
+
+When you ran `sui client` during setup, the system automatically created a Sui account for you. Sui uses addresses and accounts. When you store blobs on Walrus, Walrus binds them to an object on Sui that an address owns.
+
+An address is a unique location on the blockchain. A 32-byte identifier (displayed as 64 hex characters with a `0x` prefix) identifies the address, which can own objects. The system derives the address from a public key using a hash function.
+
+Anyone can see addresses, and they are valid on all networks (Testnet, Mainnet, and others), but networks do not share data and assets.
+
+An account is an address plus the key to access it. If you have the private key for an address, you have privileged access and control over what the address owns, such as tokens and objects.
+
+To view your active address, run the following command:
+
+```sh
+$ sui client active-address
+```
+
+To see all your addresses and their key schemes, run the following command:
+
+```sh
+$ sui client addresses
+```
+
+> **Store your keys securely**
+>
+> You must store your private key and recovery passphrase securely, otherwise you might lose access to your address.
+> 
+> [Learn more about addresses, available key pair options, and key storage.](https://docs.sui.io/guides/developer/getting-started/get-address)
+#### Creating additional addresses
+
+You can create additional addresses if needed:
+
+```sh
+$ sui client new-address ed25519
+```
+
+The argument `ed25519` specifies the key pair scheme to be of type ed25519.
+
+##step Fund Sui account with tokens
+
+Before you can upload a file to Walrus and store it as a blob, you need SUI tokens to pay transaction fees and WAL tokens to pay for storage on the network. Walrus Testnet uses Testnet WAL tokens that have no value. You can exchange them at a 1:1 rate for Testnet SUI tokens. For more information about storage costs, see [Storage Costs](/docs/system-overview/storage-costs).
+
+Navigate to the SUI Testnet faucet: https://faucet.sui.io/
+
+Ensure you select Testnet.
+
+Then, insert your Sui address. To print your Sui address, use the following command:
+
+```sh
+$ sui client active-address
+```
+
+After you insert your address on the faucet and receive a message confirming you received SUI tokens, check your balance with the following command:
+
+```sh
+$ sui client balance
+```
+
+> **Faucet alternatives**
+>
+> The Sui faucet is rate limited. If you encounter errors or have questions, you can request tokens from the Discord faucet or a third-party faucet. [Learn more about the Sui faucet.](https://docs.sui.io/guides/developer/getting-started/get-coins)
+Convert some of those SUI tokens into WAL with the following command:
+
+```sh
+$ walrus get-wal --context testnet
+```
+
+Check your balance again with `sui client balance` to confirm you now have WAL:
+
+```sh
+╭─────────────────────────────────────────╮
+│ Balance of coins owned by this address  │
+├─────────────────────────────────────────┤
+│ ╭─────────────────────────────────────╮ │
+│ │ coin  balance (raw)     balance     │ │
+│ ├─────────────────────────────────────┤ │
+│ │ Sui        497664604      0.49 SUI  │ │
+│ │ WAL Token  500000000      0.50 WAL  │ │
+│ ╰─────────────────────────────────────╯ │
+╰─────────────────────────────────────────╯
+```
+
+##step Store a blob
+
+Changes to objects on Sui happen through transactions. Accounts sign these transactions on behalf of addresses, and the transactions result in the system creating, updating, transferring, and sometimes destroying objects. Learn more about [transactions](https://docs.sui.io/concepts/transactions).
+
+To upload a file to Walrus and store it as a blob, run the following command:
+
+```sh
+$ walrus store file.txt --epochs 2 --context testnet
+```
+
+Replace `file.txt` with the file you want to store on Walrus. You can store any file type on Walrus.
+
+You must specify the `--epochs` flag, because the system stores blobs for a certain number of epochs. An epoch is a defined period of time on the network. On Testnet, epochs are 1 day, and on Mainnet, epochs are 2 weeks. You can extend the number of epochs the system stores a blob indefinitely.
+
+The system uploads a blob in slivers, which are small pieces of the file the system stores on different servers through erasure coding. [Learn more](/docs/system-overview/red-stuff) about the Walrus architecture and how the system implements erasure coding.
+
+After you upload a blob to Walrus, it has 2 identifiers:
+
+```sh
+Blob ID: oehkoh0352bRGNPjuwcy0nye3OLKT649K62imdNAlXg
+Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe83
+```
+
+- Blob ID: A way to reference the blob on Walrus. The system generates the blob ID based on the blob's contents, meaning any file you upload to the network twice results in the same blob ID.
+
+- Sui Object ID: The blob's corresponding newly created Sui object identifier, as the system binds all blobs to one or more Sui objects.
+
+You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the blob's metadata, such as its storage duration. You might also use them to read blob data.
+
+> **Keep both identifiers**
+>
+> Record both identifiers from the `walrus store` output before you continue. You read a blob with its **blob ID**, and you extend a blob's storage duration with its **Sui object ID** (the `walrus extend` command does not accept a blob ID). The `walrus delete` command accepts either. Keeping both identifiers on hand avoids the most common error in the following steps.
+You can use [Walrus Explorer](https://walruscan.com/) to view more information about a blob ID.
+
+##step Retrieve a blob
+
+To retrieve a blob and save it on your local machine, run the following command:
+
+```sh
+$ walrus read <blob-id> --out file.txt --context testnet
+```
+
+Replace `<blob-id>` with the blob identifier the `walrus store` command returns in its output, and replace `file.txt` with the name and file extension for storing the file locally.
+
+> **You have completed the core loop**
+>
+> Storing and reading a blob is the full Walrus write-and-read cycle. The next two steps cover lifecycle management (extending and deleting). If you would rather start building now, jump to [Next steps](#next-steps) to branch into a CLI, application, Walrus Sites, or agent-memory workflow.
+##step Extend a blob storage duration
+
+To extend a blob storage duration, you must reference the Sui object ID and indicate how many epochs you want to extend the blob storage for.
+
+Run the following command to extend a blob storage duration by 3 epochs. You must use the Sui object ID, not the blob ID:
+
+```sh
+$ walrus extend --blob-obj-id <blob-object-id> --epochs-extended 3 --context testnet
+```
+
+Replace `<blob-object-id>` with the blob Sui object ID the `walrus store` command returns in its output.
+
+##step Delete a blob
+
+All blobs stored in Walrus are public and discoverable by anyone. The `delete` command does not delete blobs from caches, slivers from past storage nodes, or copies that other users might have made before the blob was deleted.
+
+To delete a blob, run the following command:
+
+```sh
+$ walrus delete --blob-id <blob-id> --context testnet
+```
+
+Replace `<blob-id>` with the blob identifier the `walrus store` command returns in its output.
+
+## Next steps
+
+Now that you have stored and read your first blob, choose where to go next based on what you want to build.
+
+#### Keep working from the command line
+
+- [Store blobs with the Walrus client](/docs/walrus-client/storing-blobs) covers batch uploads, blob attributes, and other advanced options.
+- [Managing blobs](/docs/walrus-client/managing-blobs) covers extending, deleting, sharing, and burning blobs across their lifecycle.
+
+#### Integrate Walrus in an application
+
+- Use the [TypeScript SDK](/docs/typescript-sdk/sdks) to store and read blobs directly from code.
+- Use the [HTTP API](/docs/http-api/storing-blobs) if your service already speaks HTTP.
+- For browser or mobile clients and sponsored uploads, review [Choose your upload path](#choose-your-upload-path) and [Sponsored and walletless uploads](/docs/sponsored-uploads).
+
+#### Build a website on Walrus
+
+- [Walrus Sites](/docs/sites) lets you host a full website whose files live on Walrus, served through a portal and named with SuiNS.
+
+#### Give an AI agent persistent memory
+
+- Batch many small agent writes cheaply with [Walrus Quilt](/docs/system-overview/quilt), and cache frequently read data with [Caching hot reads](/docs/system-overview/caching).
+
+#### Understand the architecture and costs
+
+- [System Overview](/docs/system-overview) explains how Walrus uses erasure coding and Sui to store data.
+- [Storage Costs](/docs/system-overview/storage-costs) and the [WAL Tokenomics FAQ](/docs/system-overview/wal-tokenomics-faq) explain what you pay and why.
+- Keep the [Testnet Reference](/docs/testnet-reference) handy for endpoints, faucets, and recovery steps while you build.
+
+Explore working examples:
+
+- [Python examples](https://github.com/MystenLabs/walrus/tree/main/docs/examples/python)
+- [JavaScript web form](https://github.com/MystenLabs/walrus/tree/main/docs/examples/javascript)
+- [Move smart contracts](https://github.com/MystenLabs/walrus/tree/main/docs/examples/move)
+
+## Need help?
+
+- [Troubleshooting guide](/docs/troubleshooting)
+- [Discord community](https://discord.com/invite/walrusprotocol)
