@@ -151,9 +151,45 @@ pub struct TestClusterHandle {
     wallet_path: Mutex<PathBuf>,
     cluster: LocalOrExternalTestCluster,
     additional_fullnodes: Vec<FullNodeHandle>,
+    grpc_only_rpc_url: Option<String>,
 
     #[cfg(msim)]
     node_handle: NodeHandle,
+}
+
+/// Spawns an additional fullnode with JSON-RPC disabled on the test cluster and returns its RPC
+/// URL once its gRPC service is reachable.
+///
+/// Public Sui fullnodes no longer serve JSON-RPC, so this fullnode lets tests verify that walrus
+/// works against gRPC-only endpoints. The readiness probe deliberately uses the raw gRPC client
+/// instead of walrus's retriable client, so that cluster creation does not depend on the
+/// `WALRUS_GRPC_MIGRATION_LEVEL` environment variable.
+async fn spawn_grpc_only_fullnode(test_cluster: &mut TestCluster) -> anyhow::Result<String> {
+    let config = test_cluster
+        .fullnode_config_builder()
+        .with_disable_json_rpc(true)
+        .build(&mut rand::rngs::OsRng, test_cluster.swarm.config());
+    let rpc_url = format!("http://{}", config.json_rpc_address);
+    test_cluster.swarm.spawn_new_node(config).await;
+
+    let mut grpc_client = sui_rpc::Client::new(rpc_url.clone())
+        .map_err(|error| anyhow!("failed to create gRPC client: {error}"))?;
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            if grpc_client
+                .ledger_client()
+                .get_service_info(sui_rpc::proto::sui::rpc::v2::GetServiceInfoRequest::default())
+                .await
+                .is_ok()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("gRPC-only fullnode did not become ready within 60 seconds"))?;
+    Ok(rpc_url)
 }
 
 impl Debug for TestClusterHandle {
@@ -186,17 +222,28 @@ impl TestClusterHandle {
                 }
             }
 
-            tx.send((test_cluster, wallet_path, full_node_handles))
-                .expect("can send test cluster");
+            let grpc_only_rpc_url = spawn_grpc_only_fullnode(&mut test_cluster)
+                .await
+                .inspect_err(|error| tracing::warn!(%error, "failed to spawn a gRPC-only fullnode"))
+                .ok();
+
+            tx.send((
+                test_cluster,
+                wallet_path,
+                full_node_handles,
+                grpc_only_rpc_url,
+            ))
+            .expect("can send test cluster");
         });
 
-        let (cluster, wallet_path, full_node_handles) =
+        let (cluster, wallet_path, full_node_handles, grpc_only_rpc_url) =
             rx.recv().expect("should receive test_cluster");
 
         Self {
             wallet_path: Mutex::new(wallet_path),
             cluster: LocalOrExternalTestCluster::Local { cluster },
             additional_fullnodes: full_node_handles,
+            grpc_only_rpc_url,
         }
     }
 
@@ -218,6 +265,7 @@ impl TestClusterHandle {
             cluster: LocalOrExternalTestCluster::External { rpc_url },
             wallet_path,
             additional_fullnodes: Vec::new(),
+            grpc_only_rpc_url: None,
         })
     }
 
@@ -274,13 +322,25 @@ impl TestClusterHandle {
                             full_node_handles.push(full_node_handle);
                         }
                     }
-                    tx.send((test_cluster, wallet_path, full_node_handles))
+                    let grpc_only_rpc_url = spawn_grpc_only_fullnode(&mut test_cluster)
                         .await
-                        .expect("Notifying cluster creation must succeed");
+                        .inspect_err(
+                            |error| tracing::warn!(%error, "failed to spawn a gRPC-only fullnode"),
+                        )
+                        .ok();
+                    tx.send((
+                        test_cluster,
+                        wallet_path,
+                        full_node_handles,
+                        grpc_only_rpc_url,
+                    ))
+                    .await
+                    .expect("Notifying cluster creation must succeed");
                 }
             })
             .build();
-        let Some((cluster, wallet_path, full_node_handles)) = rx.recv().await else {
+        let Some((cluster, wallet_path, full_node_handles, grpc_only_rpc_url)) = rx.recv().await
+        else {
             panic!("Unexpected end of channel");
         };
         Self {
@@ -288,6 +348,7 @@ impl TestClusterHandle {
             cluster: LocalOrExternalTestCluster::Local { cluster },
             node_handle,
             additional_fullnodes: full_node_handles,
+            grpc_only_rpc_url,
         }
     }
 
@@ -327,6 +388,14 @@ impl TestClusterHandle {
     /// Returns the additional fullnodes.
     pub fn additional_fullnodes(&self) -> &[FullNodeHandle] {
         &self.additional_fullnodes
+    }
+
+    /// Returns the RPC URL of the fullnode that has JSON-RPC disabled, if one was spawned.
+    ///
+    /// This fullnode serves only gRPC, matching public Sui fullnodes after the JSON-RPC
+    /// decommission. It is `None` when using an external Sui cluster.
+    pub fn grpc_only_rpc_url(&self) -> Option<&str> {
+        self.grpc_only_rpc_url.as_deref()
     }
 }
 
@@ -489,6 +558,24 @@ pub async fn new_wallet_on_sui_test_cluster(
     Ok(wallet)
 }
 
+/// Returns a funded wallet on the global Sui test cluster whose Sui environment points at
+/// `rpc_url` instead of the cluster's default fullnode (for example, at the gRPC-only fullnode
+/// from [`TestClusterHandle::grpc_only_rpc_url`]).
+pub async fn new_wallet_on_sui_test_cluster_with_rpc_url(
+    sui_cluster: Arc<tokio::sync::Mutex<TestClusterHandle>>,
+    rpc_url: &str,
+) -> anyhow::Result<WithTempDir<Wallet>> {
+    let sui_cluster = sui_cluster.lock().await;
+    let path_guard = sui_cluster.wallet_path.lock().await;
+    // Load the cluster's wallet from file instead of using the wallet stored in the cluster.
+    // This prevents tasks from being spawned in the current runtime that are expected by
+    // the wallet to continue running.
+    let mut cluster_wallet = load_wallet_context_from_path(Some(path_guard.as_path()), None)?;
+    let wallet = wallet_for_testing_with_rpc_url(&mut cluster_wallet, true, rpc_url).await?;
+    drop(path_guard);
+    Ok(wallet)
+}
+
 /// Returns a new `SuiContractClient` on the global Sui test cluster.
 pub async fn new_contract_client_on_sui_test_cluster(
     sui_cluster_handle: Arc<tokio::sync::Mutex<TestClusterHandle>>,
@@ -528,11 +615,32 @@ pub async fn wallet_for_testing(
     funding_wallet: &mut Wallet,
     funded: bool,
 ) -> anyhow::Result<WithTempDir<Wallet>> {
+    let sui_env = funding_wallet.get_active_env().to_owned();
+    wallet_for_testing_with_env(funding_wallet, funded, sui_env).await
+}
+
+/// Creates a wallet for testing whose Sui environment points at `rpc_url` instead of the funding
+/// wallet's fullnode, funded by `funding_wallet` if `funded` is set.
+pub async fn wallet_for_testing_with_rpc_url(
+    funding_wallet: &mut Wallet,
+    funded: bool,
+    rpc_url: &str,
+) -> anyhow::Result<WithTempDir<Wallet>> {
+    let mut sui_env = funding_wallet.get_active_env().to_owned();
+    sui_env.rpc = rpc_url.to_owned();
+    wallet_for_testing_with_env(funding_wallet, funded, sui_env).await
+}
+
+async fn wallet_for_testing_with_env(
+    funding_wallet: &mut Wallet,
+    funded: bool,
+    sui_env: SuiEnv,
+) -> anyhow::Result<WithTempDir<Wallet>> {
     let temp_dir = tempfile::tempdir().expect("temporary directory creation must succeed");
 
     let wallet = create_wallet(
         &temp_dir.path().join("wallet_config.yaml"),
-        funding_wallet.get_active_env().to_owned(),
+        sui_env,
         None,
         None,
     )
