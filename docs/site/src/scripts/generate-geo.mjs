@@ -1,7 +1,6 @@
-/*
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-*/
+
 
 /**
  * Generates GEO/AEO frontmatter (questions + answer) for docs pages.
@@ -68,7 +67,7 @@ function getIntro(body) {
     .slice(0, 300);
 }
 
-// ─── Question generation ────────────────────────────────────────────────────
+// ─── Question generation ────────────────────────────
 
 // Detect if title is already a question
 function isQuestion(text) {
@@ -111,21 +110,28 @@ function generateQuestions(title, description, headings, relPath) {
 
   // Convert gerund titles to base form for "How do I" questions
   // "Querying Data" → "query data", "Emitting Events" → "emit events"
+  const gerundMap = {
+    querying: 'query', emitting: 'emit',
+    building: 'build', creating: 'create',
+    configuring: 'configure', installing: 'install',
+    deploying: 'deploy', testing: 'test',
+    debugging: 'debug', connecting: 'connect',
+    running: 'run', monitoring: 'monitor',
+    signing: 'sign', sending: 'send',
+    minting: 'mint', transferring: 'transfer',
+    upgrading: 'upgrade', publishing: 'publish',
+    starting: 'start', stopping: 'stop',
+    verifying: 'verify', integrating: 'integrate',
+    optimizing: 'optimize', updating: 'update',
+    logging: 'log', submitting: 'submit',
+    adding: 'add',
+  };
+  const gerundRe = new RegExp(
+    '^(' + Object.keys(gerundMap).join('|') + ')\\b', 'i'
+  );
   let actionForm = topicLower
-    .replace(/^(querying|emitting|building|creating|configuring|installing|deploying|testing|debugging|connecting|running|monitoring|signing|sending|minting|transferring|upgrading|publishing|starting|stopping|verifying|integrating|optimizing)\b/i,
-      (m) => {
-        const map = {
-          querying: 'query', emitting: 'emit', building: 'build', creating: 'create',
-          configuring: 'configure', installing: 'install', deploying: 'deploy',
-          testing: 'test', debugging: 'debug', connecting: 'connect', running: 'run',
-          monitoring: 'monitor', signing: 'sign', sending: 'send', minting: 'mint',
-          transferring: 'transfer', upgrading: 'upgrade', publishing: 'publish',
-          starting: 'start', stopping: 'stop', verifying: 'verify',
-          integrating: 'integrate', optimizing: 'optimize',
-          updating: 'update', logging: 'log', submitting: 'submit', adding: 'add',
-        };
-        return map[m.toLowerCase()] || m;
-      });
+    .replace(gerundRe,
+      (m) => gerundMap[m.toLowerCase()] || m);
 
   // Generate primary questions from title based on archetype
   switch (archetype) {
@@ -155,7 +161,14 @@ function generateQuestions(title, description, headings, relPath) {
       break;
     default: // guide
       // Detect conceptual vs procedural from title
-      if (/^(build|create|set up|configure|install|deploy|write|test|debug|connect|query|emit|use|optimiz|integrat|run|monitor|sign|send)/i.test(actionForm)) {
+      // cspell:disable
+      const proceduralRe = new RegExp(
+        '^(build|create|set up|configure|install|deploy'
+        + '|write|test|debug|connect|query|emit|use'
+        + '|optimiz|integrat|run|monitor|sign|send)', 'i'
+      );
+      // cspell:enable
+      if (proceduralRe.test(actionForm)) {
         questions.push(`How do I ${actionForm} on Walrus?`);
       } else {
         questions.push(`What is ${topicName} in Walrus?`);
@@ -176,21 +189,15 @@ function generateQuestions(title, description, headings, relPath) {
     if (/^(overview|introduction|summary|prerequisites|setup|resources|related|see also|next steps)/i.test(text)) continue;
     // Convert procedural headings to questions
     const headingLower = text.toLowerCase()
-      .replace(/^(querying|emitting|building|creating|configuring|installing|deploying|testing|debugging|connecting|running|monitoring|signing|sending|minting|transferring|upgrading|publishing|starting|stopping|verifying|integrating|optimizing|submitting|adding)\b/i,
-        (m) => {
-          const map = {
-            querying: 'query', emitting: 'emit', building: 'build', creating: 'create',
-            configuring: 'configure', installing: 'install', deploying: 'deploy',
-            testing: 'test', debugging: 'debug', connecting: 'connect', running: 'run',
-            monitoring: 'monitor', signing: 'sign', sending: 'send', minting: 'mint',
-            transferring: 'transfer', upgrading: 'upgrade', publishing: 'publish',
-            starting: 'start', stopping: 'stop', verifying: 'verify',
-            integrating: 'integrate', optimizing: 'optimize', submitting: 'submit',
-            adding: 'add', updating: 'update', logging: 'log',
-          };
-          return map[m.toLowerCase()] || m;
-        });
-    if (/^(install|create|build|configure|set up|deploy|run|test|use|add|enable|connect|query|submit|verify|sign|send|mint|transfer|upgrade|publish|start|stop|monitor|integrate|optimize|emit)/i.test(headingLower)) {
+      .replace(gerundRe,
+        (m) => gerundMap[m.toLowerCase()] || m);
+    const headingActionRe = new RegExp(
+      '^(install|create|build|configure|set up|deploy'
+      + '|run|test|use|add|enable|connect|query|submit'
+      + '|verify|sign|send|mint|transfer|upgrade|publish'
+      + '|start|stop|monitor|integrate|optimize|emit)', 'i'
+    );
+    if (headingActionRe.test(headingLower)) {
       questions.push(`How do I ${headingLower}?`);
     }
   }
@@ -209,7 +216,7 @@ function generateQuestions(title, description, headings, relPath) {
   return unique;
 }
 
-// ─── Answer generation ──────────────────────────────────────────────────────
+// ─── Answer generation ──────────────────────────────
 
 function generateAnswer(title, description, intro) {
   // Use description as the base — it's usually the best one-liner
@@ -241,7 +248,7 @@ function generateAnswer(title, description, intro) {
   return null;
 }
 
-// ─── Main ───────────────────────────────────────────────────────────────────
+// ─── Main ───────────────────────────────────────────
 
 function main() {
   const files = globMdx(CONTENT_ROOT);

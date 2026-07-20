@@ -1,7 +1,6 @@
-/*
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-*/
+
 
 /**
  * Generates goal frontmatter for all .mdx pages based on page type and content.
@@ -22,7 +21,7 @@ const CONTENT_ROOT = path.resolve(__dirname, '..', '..', '..', 'content');
 
 const dryRun = !process.argv.includes('--apply');
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────
 
 function globMdx(dir) {
   const results = [];
@@ -67,7 +66,7 @@ function countWords(body) {
   return (cleaned.match(/[a-zA-Z0-9]+/g) || []).length;
 }
 
-// ─── Archetype detection ────────────────────────────────────────────────────
+// ─── Archetype detection ────────────────────────────
 
 function getArchetype(relPath, data, body) {
   // Skip snippets
@@ -112,7 +111,7 @@ function getArchetype(relPath, data, body) {
   return 'guide';
 }
 
-// ─── Goal generators by archetype ───────────────────────────────────────────
+// ─── Goal generators by archetype ───────────────────
 
 function generateGoal(archetype, relPath, data, body) {
   const title = data.title || path.basename(relPath, '.mdx').replace(/-/g, ' ');
@@ -313,7 +312,7 @@ function generateIndexGoal(title, headings) {
   };
 }
 
-// ─── Main ───────────────────────────────────────────────────────────────────
+// ─── Main ───────────────────────────────────────────
 
 function main() {
   const files = globMdx(CONTENT_ROOT);

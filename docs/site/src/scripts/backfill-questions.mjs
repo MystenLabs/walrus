@@ -1,7 +1,6 @@
-/*
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-*/
+
 
 /**
  * Backfills pages that have < 3 questions with better generated questions
@@ -116,22 +115,37 @@ function generateQuestions(title, description, archetype, existing) {
   }
 
   // "How does X work?" — only for noun-phrase topics (not action phrases)
-  const isActionPhrase = /^(build|create|set up|configure|install|deploy|run|test|use|add|enable|connect|query|submit|verify|sign|send|mint|transfer|upgrade|publish|start|stop|monitor|integrate|optimize|emit|write|debug|check|migrate)/i.test(topicLower);
+  const actionPhraseRe = new RegExp(
+    '^(build|create|set up|configure|install|deploy|run|test'
+    + '|use|add|enable|connect|query|submit|verify|sign|send'
+    + '|mint|transfer|upgrade|publish|start|stop|monitor'
+    + '|integrate|optimize|emit|write|debug|check|migrate)', 'i'
+  );
+  const isActionPhrase = actionPhraseRe.test(topicLower);
   if (!isActionPhrase) {
     add(`How does ${topicLower} work on Walrus?`);
   }
 
   // Description-derived questions — use the topic noun, not the full action title
   // For action-phrase titles, extract the noun part: "Build a Custom Indexer" → "custom indexer"
+  const topicNounRe = new RegExp(
+    '^(build|create|set up|configure|install|deploy|run|test'
+    + '|use|add|enable|connect|query|submit|verify|sign|send'
+    + '|mint|transfer|upgrade|publish|start|stop|monitor'
+    + '|integrate|optimize|emit|write|debug|check|migrate)'
+    + '\\s+(a |the |an |your )?', 'i'
+  );
   const topicNoun = isActionPhrase
-    ? topicLower.replace(/^(build|create|set up|configure|install|deploy|run|test|use|add|enable|connect|query|submit|verify|sign|send|mint|transfer|upgrade|publish|start|stop|monitor|integrate|optimize|emit|write|debug|check|migrate)\s+(a |the |an |your )?/i, '')
+    ? topicLower.replace(topicNounRe, '')
     : topicLower;
 
+  // cspell:disable-next-line
   if (desc.includes('configur') && !isActionPhrase) add(`How do I configure ${topicNoun}?`);
   if (desc.includes('deploy') && !topicLower.includes('deploy')) add(`How do I deploy ${topicNoun}?`);
   if (desc.includes('monitor')) add(`How do I monitor ${topicNoun}?`);
   if (desc.includes('debug') || desc.includes('troubleshoot')) add(`How do I troubleshoot ${topicNoun}?`);
   if (desc.includes('security') || desc.includes('secure')) add(`What are the security considerations for ${topicNoun}?`);
+  // cspell:disable-next-line
   if (desc.includes('performance') || desc.includes('optimiz')) add(`How do I optimize ${topicNoun} performance?`);
   if (desc.includes('migrate') || desc.includes('migration')) add(`How do I migrate to ${topicNoun}?`);
   if (desc.includes('example') || desc.includes('tutorial')) add(`Where can I find ${topicNoun} examples?`);

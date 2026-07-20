@@ -1,7 +1,6 @@
-/*
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-*/
+
 
 /**
  * Improves GEO/AEO quality across all docs pages:
@@ -103,7 +102,7 @@ function getFirstParagraph(body) {
   return para;
 }
 
-// ─── 1. Improve questions ───────────────────────────────────────────────────
+// ─── 1. Improve questions ───────────────────────────
 
 const GERUND_MAP = {
   querying: 'query', emitting: 'emit', building: 'build', creating: 'create',
@@ -163,7 +162,13 @@ function improveQuestions(questions, title, description, headings, archetype) {
       break;
     }
     default:
-      if (/^(build|create|set up|configure|install|deploy|write|test|debug|connect|query|emit|use|run|monitor|sign|send|mint|transfer|upgrade|publish)/i.test(topicAction)) {
+      const actionRe = new RegExp(
+        '^(build|create|set up|configure|install|deploy'
+        + '|write|test|debug|connect|query|emit|use|run'
+        + '|monitor|sign|send|mint|transfer|upgrade'
+        + '|publish)', 'i'
+      );
+      if (actionRe.test(topicAction)) {
         addQ(`How do I ${topicAction}?`);
       } else {
         addQ(`What is ${topicName} in Walrus?`);
@@ -182,9 +187,15 @@ function improveQuestions(questions, title, description, headings, archetype) {
       continue;
     }
 
-    // Procedural heading → "How do I X?"
+    // Procedural heading -> "How do I X?"
     const actionText = deGerund(text.toLowerCase());
-    if (/^(build|create|set up|configure|install|deploy|run|test|use|add|enable|connect|query|submit|verify|sign|send|mint|transfer|upgrade|publish|start|stop|monitor|integrate|optimize|emit)/i.test(actionText)) {
+    const headingActionRe = new RegExp(
+      '^(build|create|set up|configure|install|deploy'
+      + '|run|test|use|add|enable|connect|query|submit'
+      + '|verify|sign|send|mint|transfer|upgrade|publish'
+      + '|start|stop|monitor|integrate|optimize|emit)', 'i'
+    );
+    if (headingActionRe.test(actionText)) {
       addQ(`How do I ${actionText}?`);
     }
   }
@@ -198,7 +209,7 @@ function improveQuestions(questions, title, description, headings, archetype) {
   return newQuestions.slice(0, 5);
 }
 
-// ─── 2. Improve answers ────────────────────────────────────────────────────
+// ─── 2. Improve answers ─────────────────────────────
 
 function improveAnswer(answer, title, description, firstParagraph) {
   // The answer should be a direct, concise statement — not a repeat of the description
@@ -242,9 +253,17 @@ function improveAnswer(answer, title, description, firstParagraph) {
   return best;
 }
 
-// ─── 3. Fix first paragraph ────────────────────────────────────────────────
+// ─── 3. Fix first paragraph ─────────────────────────
 
-const PREAMBLE_RE = /^(in this (guide|page|section|document|topic)|this (guide|page|section|document) (shows|explains|covers|describes|walks|provides|demonstrates)|learn (how|about|to)|you (will|can|should) learn|the following|below is)/i;
+const PREAMBLE_RE = new RegExp(
+  '^(in this (guide|page|section|document|topic)'
+  + '|this (guide|page|section|document) '
+  + '(shows|explains|covers|describes|walks|provides'
+  + '|demonstrates)'
+  + '|learn (how|about|to)'
+  + '|you (will|can|should) learn'
+  + '|the following|below is)', 'i'
+);
 
 function fixFirstParagraph(body, answer) {
   if (!answer) return body;
@@ -287,7 +306,7 @@ function fixFirstParagraph(body, answer) {
   return newLines.join('\n');
 }
 
-// ─── 4. Convert headings to questions ──────────────────────────────────────
+// ─── 4. Convert headings to questions ───────────────
 
 function convertHeadingsToQuestions(body) {
   const lines = body.split('\n');
@@ -304,7 +323,12 @@ function convertHeadingsToQuestions(body) {
     // Skip if already a question
     if (/^(what|how|why|when|where|can|do|is|are|should|which)\b/i.test(text)) continue;
     // Skip generic headings that don't convert well
-    if (/^(overview|introduction|summary|prerequisites|setup|resources|related|see also|next steps|key |more |additional|troubleshoot|common)/i.test(text)) continue;
+    const skipRe = new RegExp(
+      '^(overview|introduction|summary|prerequisites'
+      + '|setup|resources|related|see also|next steps'
+      + '|key |more |additional|troubleshoot|common)', 'i'
+    );
+    if (skipRe.test(text)) continue;
     // Skip very short headings
     if (text.length < 5) continue;
     // Skip headings with special formatting
@@ -314,7 +338,13 @@ function convertHeadingsToQuestions(body) {
     const actionText = deGerund(text.toLowerCase());
 
     let newText;
-    if (/^(build|create|set up|configure|install|deploy|run|test|use|add|enable|connect|query|submit|verify|sign|send|mint|transfer|upgrade|publish|start|stop|monitor|integrate|optimize|emit)/i.test(actionText)) {
+    const convertActionRe = new RegExp(
+      '^(build|create|set up|configure|install|deploy'
+      + '|run|test|use|add|enable|connect|query|submit'
+      + '|verify|sign|send|mint|transfer|upgrade|publish'
+      + '|start|stop|monitor|integrate|optimize|emit)', 'i'
+    );
+    if (convertActionRe.test(actionText)) {
       newText = `How do I ${actionText}?`;
     } else {
       newText = `What is ${text.toLowerCase()}?`;
@@ -330,7 +360,7 @@ function convertHeadingsToQuestions(body) {
   return changed ? lines.join('\n') : body;
 }
 
-// ─── Main ───────────────────────────────────────────────────────────────────
+// ─── Main ───────────────────────────────────────────
 
 function main() {
   const files = globMdx(CONTENT_ROOT);

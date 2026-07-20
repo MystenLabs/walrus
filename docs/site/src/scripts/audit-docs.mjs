@@ -1,7 +1,6 @@
-/*
-// Copyright (c) Mysten Labs, Inc.
+// Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
-*/
+
 
 /**
  * Deterministic docs audit pipeline.
@@ -30,7 +29,7 @@ const CONTENT_ROOT = path.resolve(__dirname, '..', '..', '..', 'content');
 const REPO_ROOT = path.resolve(CONTENT_ROOT, '..', '..');
 const CONCEPT_MAP_PATH = path.resolve(CONTENT_ROOT, '..', 'concept-map.yaml');
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+// ─── Helpers ────────────────────────────────────────
 
 function globMdx(dir) {
   const results = [];
@@ -125,7 +124,7 @@ function buildDocPathSet(contentRoot) {
   return paths;
 }
 
-// ─── Layer 1: Base Checks ───────────────────────────────────────────────────
+// ─── Layer 1: Base Checks ───────────────────────────
 
 function checkFrontmatter(data) {
   const required = ['title', 'description', 'keywords'];
@@ -303,7 +302,7 @@ function findDuplicateTitles(allPages) {
   return duplicates;
 }
 
-// ─── Layer 2: Goal Checklist ────────────────────────────────────────────────
+// ─── Layer 2: Goal Checklist ────────────────────────
 
 function evaluateGoalRequires(goal, body, data, headings) {
   if (!goal || !goal.requires) return null;
@@ -367,7 +366,13 @@ function evaluateGoalRequires(goal, body, data, headings) {
       const has = Array.isArray(data.questions) && data.questions.length > 0;
       // Also check for junk questions
       const junkPatterns = [
-        /How do I (?!implement|supplement|augment|comment|document|transition|position|partition|function)[a-z]+(tion|ment|ness|ity|ing|cap|ticket) /i,   // noun after "How do I"
+        // cspell:disable
+        new RegExp(
+          'How do I (?!implement|supplement|augment|comment|document'
+          + '|transition|position|partition|function)'
+          + '[a-z]+(tion|ment|ness|ity|ing|cap|ticket) ', 'i'
+        ), // noun after "How do I"
+        // cspell:enable
         /How do I [a-z]+ (and [a-z]+ing|[a-z]+ing)\?$/i,          // "How do I test and debugging?"
         /How do I [a-z]+ [a-z]+(ture|ure|icy|ity)\?$/i,           // "How do I user signature?"
         /How do I [a-z]+ and [a-z]+\?$/i,                          // "How do I create and share?" (no object)
@@ -390,7 +395,11 @@ function evaluateGoalRequires(goal, body, data, headings) {
         }
       }
       result.pass = req.has_questions ? (has && junkCount === 0) : !has;
-      result.detail = !has ? 'no questions field' : junkCount > 0 ? `${junkCount}/${data.questions.length} question(s) look malformed` : `${data.questions.length} question(s)`;
+      result.detail = !has
+        ? 'no questions field'
+        : junkCount > 0
+          ? `${junkCount}/${data.questions.length} question(s) look malformed`
+          : `${data.questions.length} question(s)`;
     } else if (req.has_answer !== undefined) {
       const has = typeof data.answer === 'string' && data.answer.trim().length > 0;
       result.pass = req.has_answer ? has : !has;
@@ -433,7 +442,7 @@ function evaluateGoalRequires(goal, body, data, headings) {
   return { description: goal.description || null, allPass, checks: results };
 }
 
-// ─── Layer 3: Concept Map ───────────────────────────────────────────────────
+// ─── Layer 3: Concept Map ───────────────────────────
 
 function loadConceptMap() {
   if (!fs.existsSync(CONCEPT_MAP_PATH)) return null;
@@ -542,7 +551,7 @@ function runConceptAudit(concepts, allPages) {
   return results;
 }
 
-// ─── Main ───────────────────────────────────────────────────────────────────
+// ─── Main ───────────────────────────────────────────
 
 function main() {
   const args = process.argv.slice(2);
@@ -612,7 +621,7 @@ function main() {
 
   // Optional summary table to stderr
   if (showSummary) {
-    console.error('\n── Audit Summary ──────────────────────────────────────');
+    console.error('\n── Audit Summary ─────────────────────────────────');
     console.error(`Total pages:       ${output.summary.totalPages}`);
     console.error(`Pages with issues: ${output.summary.pagesWithIssues}`);
     console.error(`Pages with goal:   ${output.summary.pagesWithGoal}`);
@@ -684,7 +693,7 @@ function main() {
       }
     }
 
-    console.error('──────────────────────────────────────────────────────\n');
+    console.error('─'.repeat(50) + '\n');
   }
 
   // Exit with error code if there are issues
