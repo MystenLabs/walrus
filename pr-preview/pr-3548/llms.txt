@@ -664,9 +664,9 @@ Sui smart contract as the on-chain index.
 ## Sponsored Uploads
 
 - [Sponsored Uploads](https://docs.wal.app/docs/sponsored-uploads.md):
-    Most end users do not hold SUI or WAL, and most apps do not want to ask them to. This page
-    describes how to build an app where your backend pays for Walrus storage, and where users
-    upload without managing a wallet themselves.
+    Most users do not hold SUI or WAL, and most apps do not want to ask them to. To build an app
+    where your backend pays for Walrus storage and users upload without managing a wallet, you need
+    to choose among several patterns.
 
 ## Walrus Memory: Guides
 
