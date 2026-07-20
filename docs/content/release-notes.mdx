@@ -1,30 +1,8 @@
 ---
-title: Release Notes
-description: 'Release notes for Walrus, Walrus Memory, and related tools.'
+title: "Release Notes"
+description: "Release notes for Walrus, Walrus Memory, and related tools."
 displayed_sidebar: null
 hide_table_of_contents: true
-goal:
-  description: Reader understands release notes and can apply the concepts
-  requires:
-    - has_frontmatter:
-        - title
-        - description
-        - keywords
-      label: Has required frontmatter fields
-    - min_words: 300
-      label: Needs more content depth
-    - pattern: '```'
-      min: 1
-      label: Has code examples
-    - has_questions: true
-      label: Needs questions for AI search visibility
-    - has_answer: true
-      label: Needs answer summary for AI citation
-questions:
-  - What is Release Notes in Walrus?
-answer: >-
-  Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and
-  [Walrus Memory](https://github.com/MystenLabs/MemWal/releases).
 ---
 
 # Release Notes
@@ -35,16 +13,38 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 <TabItem value="walrus" label="Walrus Platform" default>
 
-### Walrus v1.51.1
+### Walrus v1.52.0
 
-`Testnet` July 1, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.51.1)
+`Testnet` July 15, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.52.0)
+
+---
+#### Full Log: https://github.com/MystenLabs/walrus/commits/testnet-v1.52.0
+
+---
+
+### Walrus v1.51.2
+
+`Mainnet` July 9, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.51.2)
 
 #### CLI
 
 [#3479](https://github.com/MystenLabs/walrus/pull/3479): `walrus info committee` gains a `--commission-receivers` flag that prints, as CSV, the commission receiver of every node in the previous, current, and next committees (including the owning address for object receivers).
 
 ---
-#### Full Log: https://github.com/MystenLabs/walrus/commits/testnet-v1.51.1
+#### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.51.2
+
+---
+
+### Walrus v1.51.1
+
+`Mainnet` July 8, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.51.1)
+
+#### CLI
+
+[#3479](https://github.com/MystenLabs/walrus/pull/3479): `walrus info committee` gains a `--commission-receivers` flag that prints, as CSV, the commission receiver of every node in the previous, current, and next committees (including the owning address for object receivers).
+
+---
+#### Full Log: https://github.com/MystenLabs/walrus/commits/mainnet-v1.51.1
 
 ---
 
@@ -1721,7 +1721,7 @@ While one previous example could be:
 ```
 
 [#1532](https://github.com/MystenLabs/walrus/pull/1532):
-support has been introduced for multiple contexts, and a default_context for walrus client invocations. Context can be overridden with the new --context &lt;context&gt; argument.
+support has been introduced for multiple contexts, and a default_context for walrus client invocations. Context can be overriden with the new --context &lt;context&gt; argument.
 
 Here is an example (with some fake addresses) multi-context config file.
 
