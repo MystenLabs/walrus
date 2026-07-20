@@ -11,4 +11,4 @@
 - [Storage Costs](/docs/system-overview/storage-costs): Comprehensive guide to Walrus storage costs including fixed USD-denominated pricing, WAL tokens, SUI gas fees, and cost optimization strategies.
 - [System Constraints & Considerations](/docs/system-overview/system-constraints): Storage limits, cost considerations, memory requirements, and other constraints to consider when building on Walrus.
 - [View System Information](/docs/system-overview/view-system-info): Use the walrus info command to view Walrus system parameters, storage node details, epoch information, and current storage costs.
-- [WAL Tokenomics FAQ](/docs/system-overview/wal-tokenomics-faq): Answers to common questions about the WAL token: fee flows, staking and re-delegation, rewards, slashing, and what burning a blob does.
+- [WAL Tokenomics FAQ](/docs/system-overview/wal-tokenomics-faq): Answers to common questions about the WAL token, covering fee flows, staking and re-delegation, rewards, slashing, and what burning a blob does.
