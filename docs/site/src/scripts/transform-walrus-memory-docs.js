@@ -759,6 +759,7 @@ function main() {
     const basename = path.basename(relPath);
     if (skipFiles.has(basename)) continue;
     if (skipPages.has(relPath)) continue;
+    if (/^changelog\.(mdx?)$/i.test(basename)) continue;
     // Skip files in src/ directory (CSS, assets)
     if (relPath.startsWith("src/")) continue;
 

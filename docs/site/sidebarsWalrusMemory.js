@@ -73,6 +73,7 @@ function convertPages(pages) {
     if (typeof page === "string") {
       const slug = renameSlug(page);
       if (REMOVED_PAGES.has(slug)) continue;
+      if (slug.endsWith("/changelog")) continue;
       items.push(slug);
     } else if (page.pages) {
       const category = {
