@@ -72,8 +72,23 @@ described in the [encoding documentation](/docs/system-overview/red-stuff).
 ## Data confidentiality
 
 Walrus does not provide native encryption for data. By default, all blobs stored in Walrus
-are public and discoverable by everyone. Walrus does not currently document a
-confidentiality mechanism.
+are public and discoverable by everyone. To keep data confidential, encrypt it on the
+client before you store it, for example with [Seal](https://github.com/MystenLabs/seal), and
+treat the blob ID as public. Encryption is your responsibility. Walrus stores and serves
+whatever bytes you upload.
+
+## Data sovereignty and residency
+
+Walrus does not let you choose which storage nodes or geographic regions hold your data.
+When you store a blob, Walrus erasure-codes it into slivers and distributes them across all
+shards, and a smart contract on Sui controls how shards are assigned to storage nodes. There
+is no mechanism to pin a blob to a specific node, region, or jurisdiction.
+
+Because every blob is public and its placement is not controllable, do not store personal or
+regulated data on Walrus in the clear. If you must handle such data, encrypt it before
+storing it, keep the plaintext and any keys off Walrus, and store only what you are willing
+to make permanently public. For the distribution and encoding details, see
+[Core Concepts](/docs/system-overview/core-concepts) and [Red Stuff](/docs/system-overview/red-stuff).
 
 ## Nautilus: Secure and verifiable off-chain computation
 
