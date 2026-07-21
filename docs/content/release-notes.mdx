@@ -18,6 +18,20 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
 
 <TabItem value="walrus" label="Walrus Platform" default>
 
+### Walrus (Unreleased)
+
+`Testnet`
+
+#### Storage Node
+
+[#3517](https://github.com/MystenLabs/walrus/pull/3517): Storage nodes now verify each sliver fetched during shard sync against the blob's certified metadata before storing it. The node does not store a sliver that fails verification; instead it queues the blob for the existing shard recovery path, which reconstructs the correct sliver from the committee. This protects a syncing node from a corrupt or malicious source, and sync progress still advances past a rejected sliver so it cannot stall in a retry loop.
+
+The behavior is controlled by a new `ShardSyncConfig::verify_fetched_slivers` option, **enabled by default**. Existing configuration files remain valid with no changes; set the option to `false` to restore the previous unverified behavior. Verification is CPU-bound and its cost scales with sliver size, but it runs concurrently with fetching, so the added latency is small relative to network transfer during a sync.
+
+Operators gain a new observability surface: the `sync_shard_sliver_verification_error_total{shard, sliver_type}` counter tracks rejected slivers per shard and sliver type, and each rejection also emits a warn-level log.
+
+---
+
 ### Walrus v1.52.0
 
 `Testnet` July 15, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.52.0)
