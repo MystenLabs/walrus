@@ -4,13 +4,13 @@ description: "Serve audio and video stored as Walrus blobs to browsers, includin
 keywords: ["walrus", "video", "audio", "media", "streaming", "aggregator", "byte range", "206", "content-type", "cors", "playback"]
 ---
 
-You can play audio and video that is stored as Walrus blobs directly in a browser by pointing a media element at an aggregator. This page covers how to set the source, how content types affect playback, how to seek with byte ranges, and what to expect for cross-origin requests.
+You can play audio and video stored as Walrus blobs directly in a browser. Point an HTML media element, such as `<audio>` or `<video>`, at a Walrus aggregator URL, and the browser streams the blob as it plays. No download step or plugin is required.
 
 Set `$AGGREGATOR` to an aggregator endpoint from the [Network Reference](/docs/network-reference#aggregators-and-publishers).
 
 ## Point a media element at an aggregator
 
-A blob read endpoint is a normal HTTP URL, so you can use it as the `src` of a `<video>` or `<audio>` element:
+A blob read endpoint is an HTTP URL, so you can use it as the `src` of a `<video>` or `<audio>` element:
 
 ```html
 <video controls src="https://aggregator.walrus-mainnet.walrus.space/v1/blobs/<BLOB_ID>"></video>
@@ -20,9 +20,11 @@ The browser fetches the blob from the aggregator and plays it. For the read path
 
 ## Set a content type so the browser plays instead of downloads
 
-When you read a blob **by blob ID**, the response does not carry a content type derived from your metadata. Browsers try to infer the type, and they generally do this well for media, but the aggregator intentionally prevents inferring dangerous executable types such as JavaScript. If you paste a blob URL directly into the address bar and see raw bytes or garbled text instead of a player, the response was treated as generic data rather than a media type.
+When you read a blob by its blob ID, the aggregator response does not include a content type from your metadata. The browser infers the type instead. Browsers infer media types well in most cases, but the aggregator deliberately blocks inference of dangerous executable types, such as JavaScript, to protect users.
 
-To make playback reliable, read the blob **by object ID** and set the `content-type` attribute when you store it. The aggregator returns recognized attributes, including `content-type`, as HTTP response headers on the by-object-id read path:
+If a blob URL shows raw bytes or garbled text in the address bar instead of a player, the browser treated the response as generic data rather than a media type.
+
+To make playback reliable, read the blob by object ID and set the `content-type` attribute when you store it. The aggregator returns recognized attributes, including `content-type`, as HTTP response headers on the by-object-id read path:
 
 ```html
 <video controls src="https://aggregator.walrus-mainnet.walrus.space/v1/blobs/by-object-id/<OBJECT_ID>"></video>
