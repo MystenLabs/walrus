@@ -656,6 +656,40 @@ function injectAgentPrompt(content, relPath) {
   );
 }
 
+// --- Remove references to skipped pages ---
+
+// Slugs (without extension) of pages that are not emitted.
+const SKIPPED_SLUGS = new Set([
+  "sdk/example-map",
+  "sdk/research-app-example",
+  "sdk/changelog",
+  "python-sdk/changelog",
+  "mcp/changelog",
+  "openclaw/changelog",
+]);
+
+function removeSkippedPageLinks(content) {
+  // Remove markdown links on their own line: - [text](/slug) or - [text](/slug) — desc
+  let result = content.replace(
+    /^[ \t]*-\s+\[([^\]]*)\]\(\/([^)]+)\)[^\n]*\n?/gm,
+    (match, _text, target) => {
+      const clean = target.replace(/^walrus-memory\//, "").replace(/\/$/, "");
+      return SKIPPED_SLUGS.has(clean) ? "" : match;
+    },
+  );
+
+  // Remove <Card> blocks pointing to skipped pages
+  result = result.replace(
+    /<Card\s+[^>]*href="\/([^"]+)"[^>]*>[\s\S]*?<\/Card>\s*/gi,
+    (match, target) => {
+      const clean = target.replace(/^walrus-memory\//, "").replace(/\/$/, "");
+      return SKIPPED_SLUGS.has(clean) ? "" : match;
+    },
+  );
+
+  return result;
+}
+
 // --- Main pipeline ---
 
 function transformFile(content) {
@@ -674,6 +708,9 @@ function transformFile(content) {
   result = convertPrerequisites(result);
   result = fixStackedHeadings(result);
   result = fixNumberedHeadingCase(result);
+
+  // Remove links and cards pointing to skipped pages
+  result = removeSkippedPageLinks(result);
 
   // Rewrite links
   result = rewriteInternalLinks(result);
