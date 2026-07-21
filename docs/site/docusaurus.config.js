@@ -4,7 +4,6 @@
 // @ts-check
 import { themes as prismThemes } from "prism-react-renderer";
 import remarkGlossary from "./src/shared/plugins/remark-glossary.js";
-import remarkRelatedTopics from "./src/shared/plugins/remark-related-topics.js";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 
@@ -241,7 +240,6 @@ const config = {
         editUrl: "https://github.com/MystenLabs/walrus/tree/main/docs/site/",
         remarkPlugins: [
           [remarkGlossary, { glossaryFile: "static/glossary.json" }],
-          [remarkRelatedTopics, { docsDir: path.resolve(__dirname, "../content") }],
           remarkMath,
         ],
         rehypePlugins: [rehypeKatex],
