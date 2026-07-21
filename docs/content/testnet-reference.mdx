@@ -60,13 +60,7 @@ These values are also pre-filled in the client configuration file, which is the 
 Testnet uses free test tokens. You need SUI for gas and WAL for storage.
 
 1. Get Testnet SUI from the [Sui faucet](https://faucet.sui.io/). Select Testnet and paste your address from `sui client active-address`. The faucet is rate limited; see [Sui faucet alternatives](https://docs.sui.io/guides/developer/getting-started/get-coins).
-2. Exchange SUI for WAL at a 1:1 rate:
-
-   ```sh
-   $ walrus get-wal --context testnet
-   ```
-
-   You can also exchange through the [Walrus staking app](https://stake-wal.wal.app) with **Get WAL**.
+2. Exchange SUI for WAL at a 1:1 rate by running `walrus get-wal --context testnet`. You can also exchange through the [Walrus staking app](https://stake-wal.wal.app) with **Get WAL**.
 
 3. Confirm your balances:
 
@@ -100,12 +94,7 @@ When Testnet is wiped or your client stops connecting, the cause is almost alway
    $ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
    ```
 
-2. **Confirm the Sui client targets Testnet.** Check the active environment and switch if needed:
-
-   ```sh
-   $ sui client active-env
-   $ sui client switch --env testnet
-   ```
+2. **Confirm the Sui client targets Testnet.** Check the active environment with `sui client active-env`, and switch if needed with `sui client switch --env testnet`.
 
 3. **Verify connectivity.** Run `walrus info` and confirm `Epoch duration: 1day`.
 
