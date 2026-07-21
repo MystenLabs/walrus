@@ -20,7 +20,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3552/assets/css/styles.39dc939d.css">
-<script src="/walrus/pr-preview/pr-3552/assets/js/runtime~main.c1b7f4fa.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3552/assets/js/runtime~main.71211c85.js" defer="defer"></script>
 <script src="/walrus/pr-preview/pr-3552/assets/js/main.77855703.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -57,9 +57,7 @@
 <p>Get Testnet SUI from the <a href="https://faucet.sui.io/" target="_blank" rel="noopener noreferrer" class="">Sui faucet</a>. Select Testnet and paste your address from <code>sui client active-address</code>. The faucet is rate limited; see <a href="https://docs.sui.io/guides/developer/getting-started/get-coins" target="_blank" rel="noopener noreferrer" class="">Sui faucet alternatives</a>.</p>
 </li>
 <li class="">
-<p>Exchange SUI for<!-- --> <!-- -->WAL<!-- --> at a 1:1 rate:</p>
-<div><div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_p187"><span class="token-line" style="color:#F8F8F2"><span class="token select-none opacity-40 text-lg">$ </span><span class="token plain">walrus get-wal --context testnet</span><br></span></code></pre></div></div></div>
-<p>You can also exchange through the <a href="https://stake-wal.wal.app" target="_blank" rel="noopener noreferrer" class="">Walrus staking app</a> with <strong>Get<!-- --> <!-- -->WAL</strong>.</p>
+<p>Exchange SUI for<!-- --> <!-- -->WAL<!-- --> at a 1:1 rate by running <code>walrus get-wal --context testnet</code>. You can also exchange through the <a href="https://stake-wal.wal.app" target="_blank" rel="noopener noreferrer" class="">Walrus staking app</a> with <strong>Get<!-- --> <!-- -->WAL</strong>.</p>
 </li>
 <li class="">
 <p>Confirm your balances:</p>
@@ -79,8 +77,7 @@
 <div><div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_p187"><span class="token-line" style="color:#F8F8F2"><span class="token select-none opacity-40 text-lg">$ </span><span class="token plain">curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml</span><br></span></code></pre></div></div></div>
 </li>
 <li class="">
-<p><strong>Confirm the Sui<!-- --> <!-- -->client<!-- --> targets Testnet.</strong> Check the active environment and switch if needed:</p>
-<div><div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_p187"><span class="token-line" style="color:#F8F8F2"><span class="token select-none opacity-40 text-lg">$ </span><span class="token plain">sui client active-env</span><br></span><span class="token-line" style="color:#F8F8F2"><span class="token select-none opacity-40 text-lg">$ </span><span class="token plain">sui client switch --env testnet</span><br></span></code></pre></div></div></div>
+<p><strong>Confirm the Sui<!-- --> <!-- -->client<!-- --> targets Testnet.</strong> Check the active environment with <code>sui client active-env</code>, and switch if needed with <code>sui client switch --env testnet</code>.</p>
 </li>
 <li class="">
 <p><strong>Verify connectivity.</strong> Run <code>walrus info</code> and confirm <code>Epoch duration: 1day</code>.</p>
