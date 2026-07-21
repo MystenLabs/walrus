@@ -1,11 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{collections::HashSet, io::Read};
+use std::collections::HashSet;
 
 use anyhow::Result;
-use axum::{body::Bytes, http::StatusCode};
-use bytes::buf::Reader;
+use axum::http::StatusCode;
+use bytes::Bytes;
 use once_cell::sync::Lazy;
 use prometheus::{
     Counter,
@@ -107,12 +107,12 @@ pub struct NodeMetric {
 /// []byte{size, data, size, data, size, data}, etc etc
 #[allow(missing_debug_implementations)]
 pub struct ProtobufDecoder {
-    buf: Reader<Bytes>,
+    buf: Bytes,
 }
 
 impl ProtobufDecoder {
     /// create a new ProtobufDecoder
-    pub fn new(buf: Reader<Bytes>) -> Self {
+    pub fn new(buf: Bytes) -> Self {
         Self { buf }
     }
     /// parse a delimited buffer of protobufs. this is used to consume data sent
@@ -122,14 +122,9 @@ impl ProtobufDecoder {
             walrus_utils::with_label!(CONSUMER_OPERATION_DURATION, "decode_len_delim_protobuf")
                 .start_timer();
         let mut result: Vec<T> = vec![];
-        while !self.buf.get_ref().is_empty() {
-            let len = {
-                let mut is = CodedInputStream::new(&mut self.buf);
-                is.read_raw_varint32()
-            }?;
-            let mut buf = vec![0; len as usize];
-            self.buf.read_exact(&mut buf)?;
-            result.push(T::parse_from_bytes(&buf)?);
+        let mut input = CodedInputStream::from_tokio_bytes(&self.buf);
+        while !input.eof()? {
+            result.push(input.read_message()?);
         }
         timer.observe_duration();
         Ok(result)
@@ -401,6 +396,8 @@ pub async fn convert_to_remote_write(
 
 #[cfg(test)]
 mod tests {
+    use prometheus::Encoder;
+
     use super::*;
     use crate::prom_to_mimir::tests::{create_counter, create_labels, create_metric_counter};
 
@@ -410,6 +407,32 @@ mod tests {
         mf.set_field_type(proto::MetricType::COUNTER);
         mf.set_metric(metrics);
         mf
+    }
+
+    #[test]
+    fn protobuf_decoder_parses_prometheus_encoder_output() {
+        let metric = create_metric_counter(
+            create_labels(vec![("host", "test-node")]),
+            create_counter(42.0),
+        );
+        let metric_families = vec![
+            create_metric_family("test_counter_a", vec![metric.clone()]),
+            create_metric_family("test_counter_b", vec![metric]),
+        ];
+
+        let mut buf = Vec::new();
+        prometheus::ProtobufEncoder::new()
+            .encode(&metric_families, &mut buf)
+            .expect("test metric families should encode");
+
+        let mut decoder = ProtobufDecoder::new(Bytes::from(buf));
+        let decoded = decoder
+            .parse::<proto::MetricFamily>()
+            .expect("encoded metric families should decode");
+
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded[0].name(), "test_counter_a");
+        assert_eq!(decoded[1].name(), "test_counter_b");
     }
 
     #[test]
