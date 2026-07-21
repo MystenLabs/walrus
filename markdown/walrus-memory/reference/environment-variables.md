@@ -70,7 +70,8 @@ These are not all enforced at boot, but most real deployments need them.
 | `SIDECAR_WATCHDOG_MAX_FAILURES` | `6` | Consecutive failed sidecar health checks before the relayer exits so the platform restarts the container |
 | `OPENAI_API_BASE` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
 | `SUI_NETWORK` | `mainnet` | Picks the fallback RPC URL and network-driven service defaults |
-| `SUI_RPC_URL` | network default | Override the Sui fullnode URL |
+| `SUI_RPC_URL` | network default | Override the Sui fullnode JSON-RPC URL |
+| `SUI_GRPC_URL` | none (JSON-RPC) | When set to a Sui gRPC fullnode URL, the relayer uses gRPC instead of JSON-RPC for both the write path (Walrus register and certify, Seal, and Enoki build) and the blob query and restore path. Empty keeps the existing JSON-RPC behavior, so this is a no-op until you set it. Added ahead of the Sui JSON-RPC sunset in July 2026 |
 | `WALRUS_PUBLISHER_URL` | Walrus Mainnet publisher | Override upload endpoint |
 | `WALRUS_AGGREGATOR_URL` | Walrus Mainnet aggregator | Override download endpoint |
 | `WALRUS_AGGREGATOR_URLS` | none | Optional comma-separated extra aggregator/proxy endpoints for cold-read tail racing. `WALRUS_AGGREGATOR_URL` remains the primary |
@@ -108,6 +109,7 @@ These are not all enforced at boot, but most real deployments need them.
 - `WALRUS_SKIP_CONSISTENCY_CHECK=true` should only be used for trusted blobs written by the relayer. Restore keeps consistency checks enabled for onchain-discovered blobs.
 - Without `OPENAI_API_KEY`, the server can fall back to mock embeddings. That is useful for local testing, not for normal production behavior.
 - `SUI_NETWORK` drives the default RPC URL, Walrus endpoints, Walrus package ID, and upload relay selection.
+- `SUI_GRPC_URL` opts the relayer into gRPC instead of JSON-RPC. It is off by default; leaving it empty keeps the current JSON-RPC behavior. When set, both the write path (Walrus register and certify, Seal, and Enoki build) and the blob query and restore path use gRPC, so enabling it is a single reversible switch. The query and restore path uses gRPC `listOwnedObjects` and `getDynamicField` when enabled, and falls back to the JSON-RPC `getOwnedObjects`, `getDynamicFieldObject`, and transaction-block queries when it is unset. Use it to migrate ahead of the Sui JSON-RPC sunset. See [Self-Hosting](/walrus-memory/relayer/self-hosting) for setup context.
 - `SEAL_SERVER_CONFIGS` is a JSON array of `{ objectId, weight, aggregatorUrl?, apiKeyName?, apiKey? }`. Committee key server configs require `aggregatorUrl`.
 - `SEAL_KEY_SERVERS` is the legacy comma-separated independent key server list. It is only used when `SEAL_SERVER_CONFIGS` is unset, is advertised as deprecated in `/version`, and does not be removed before relayer API `2.0.0`.
 - If neither Seal variable is set, the sidecar uses built-in defaults for `SUI_NETWORK`: the original Mysten independent key server pair on `testnet`, and the legacy independent key server pair on `mainnet` until an official Mainnet committee aggregator is available.

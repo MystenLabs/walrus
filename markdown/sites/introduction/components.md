@@ -96,3 +96,12 @@ This process repeats for every resource the browser requests, such as linked CSS
 The public Mainnet portal operated by Mysten Labs is available at [https://wal.app](https://wal.app). Sites with a SuiNS name are accessible directly by name. For sites without one, use the Base36-encoded object ID as the subdomain, or run `site-builder convert` to find it.
 
 Anyone can host their own portal. For setup instructions, see [Deploy a Local Portal](/docs/sites/portals/deploy-locally).
+
+## Local development
+
+You can iterate on a Walrus Site entirely on your own machine by running each component locally, which avoids spending Testnet or Mainnet tokens on every change:
+
+- **Local portal:** Run a portal on `localhost` to resolve and serve your site in the browser. See [Deploy a Local Portal](/docs/sites/portals/deploy-locally).
+- **Local Walrus and Sui networks:** Run a local Walrus network, backed by a local Sui network, so the `site-builder` publishes to storage you control. See [Run a local Walrus network](/docs/system-overview/available-networks).
+
+Point your `sites-config.yaml` and `client_config.yaml` at the local context, deploy with `site-builder`, then open the site through the local portal. Once the site works locally, switch the context back to Testnet or Mainnet to publish it.

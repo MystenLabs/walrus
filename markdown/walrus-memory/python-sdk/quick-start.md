@@ -93,4 +93,3 @@ Prefer a synchronous style? Swap `MemWal` for `MemWalSync` and drop the `await`s
 
 - [Usage](/walrus-memory/python-sdk/usage), async vs sync, namespace rules, manual methods, and middleware
 - [API Reference](/walrus-memory/python-sdk/api-reference), full method signatures and result types
-- Changelog, release history for `memwal`

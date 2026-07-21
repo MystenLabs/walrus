@@ -129,6 +129,11 @@ Sui smart contract as the on-chain index.
     > No public Mainnet publisher > > Walrus has no public unauthenticated publisher on Mainnet.
     There are no plans to create one. On Mainnet, run your own authenticated publisher (or use the
     Upload Relay or TypeScript SDK directly).
+- [Streaming Media](https://docs.wal.app/docs/http-api/streaming-media.md):
+    You can play audio and video stored as Walrus blobs directly in a browser. Point an HTML media
+    element, such as or , at a Walrus aggregator URL, and the browser streams the blob as it plays.
+    No download step or plugin is required. Set $AGGREGATOR to an aggregator endpoint from the
+    Network Reference.
 
 ## TypeScript SDK
 
@@ -428,6 +433,10 @@ Sui smart contract as the on-chain index.
     Walrus Memory puts you in full control of your memory. Programmable permissions and explicit
     ownership define how memory is shared, accessed, and updated, with delegate access for agents
     and workflows.
+- [Verifiable Memory](https://docs.wal.app/walrus-memory/fundamentals/concepts/verifiable-memory.md):
+    An AI agent is only as trustworthy as the memory it acts on. If memory can be silently altered,
+    or if the service holding it can rewrite history or lock you out, the agent's decisions cannot
+    be trusted.
 
 ## Walrus Memory: Mcp
 
@@ -493,7 +502,7 @@ Sui smart contract as the on-chain index.
     When to use this: a gas-pool alert fires (the SUI gas pool maintenance alert), or relayer logs
     show wallet jobs aborting with or Enoki dryrunfailed plus 0x2:balance:split (ENotEnough, abort
     code 2). The relayer sponsors Walrus register transactions through Enoki.
-- [Self Hosting](https://docs.wal.app/walrus-memory/relayer/self-hosting.md):
+- [Opt the write path into gRPC (testnet example)](https://docs.wal.app/walrus-memory/relayer/self-hosting.md):
     Self-hosting means running your own relayer, either pointing at an existing Walrus Memory
     package ID or deploying an entirely new Walrus Memory instance with your own contract,
     database, and server wallet. The managed relayer provided by Walrus Foundation is a reference
@@ -753,12 +762,19 @@ Sui smart contract as the on-chain index.
     Walrus Memory runs on the Cloudflare Workers runtime, but the edge environment differs from
     Node.js in a few ways that affect bundling and reliability. This guide covers the configuration
     and patterns that make it work cleanly.
+- [Codebase Memory](https://docs.wal.app/walrus-memory/sdk/codebase-memory.md):
+    AI coding assistants like Cursor appear to remember a codebase because they retrieve relevant
+    context at query time rather than holding an entire repository in the model's context window.
 - [Cookbook Multi Tenant](https://docs.wal.app/walrus-memory/sdk/cookbook-multi-tenant.md):
     This is the pattern for SaaS-style apps where one operator runs a server that stores memory on
     behalf of many end users. For example, a Next.js app on Vercel where users connect a Sui wallet
     only for sign-in, and the server holds the credentials.
 - [Examples](https://docs.wal.app/walrus-memory/sdk/examples.md):
     The shortest working Walrus Memory example using the default relayer-backed SDK.
+- [Headless Setup](https://docs.wal.app/walrus-memory/sdk/headless-setup.md):
+    A server or agent runtime has no human to click through a wallet or paste a key at a prompt.
+    The Walrus Memory SDK initializes entirely from configuration, so you can drop it into a
+    backend service, a cron job, or an autonomous agent.
 - [Overview](https://docs.wal.app/walrus-memory/sdk/overview.md):
     Walrus Memory exposes SDK surfaces for TypeScript and Python. The SDKs give your agents
     portable memory that works across apps, sessions, and workflows, fully under your control. Use

@@ -112,6 +112,20 @@ By default, the relayer enforces rate limits and storage quotas through Redis to
 - `SERVER_SUI_PRIVATE_KEYS` is a comma-separated key pool for parallel Walrus uploads
 - if both are set, the key pool takes priority for uploads
 
+### Sui RPC Transport (gRPC)
+
+By default the relayer talks to Sui over JSON-RPC. Ahead of the **Sui JSON-RPC sunset in July 2026**, you can opt into gRPC using `SUI_GRPC_URL`. Set it to a Sui gRPC fullnode URL to route the relayer's Sui calls through gRPC. Leaving it empty keeps the existing JSON-RPC behavior, so setting it is opt-in and backward compatible.
+
+```env
+# Opt the write path into gRPC (testnet example)
+SUI_GRPC_URL=https://fullnode.testnet.sui.io
+```
+
+This one variable switches both paths. The write path (Walrus register and certify, Seal, and Enoki build) and the blob query and restore path both move to gRPC. When `SUI_GRPC_URL` is set, the query and restore path uses gRPC `listOwnedObjects` and `getDynamicField`; when it is unset, that path falls back to the JSON-RPC `getOwnedObjects`, `getDynamicFieldObject`, and transaction-block queries. `SUI_RPC_URL` configures that JSON-RPC fallback client.
+
+> **Note**
+>
+> `SUI_GRPC_URL` must point at a gRPC endpoint. When it is set, the relayer validates the URL at startup and exits if it is not a valid gRPC endpoint.
 ### Staging (testnet)
 ```env
 SUI_NETWORK=testnet
