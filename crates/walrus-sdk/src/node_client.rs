@@ -1021,6 +1021,14 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     .collect(),
             ));
 
+        // The set of sliver indices we actually requested. A (malicious or buggy) node could
+        // return symbols keyed by indices we never asked for; those must not be merged into the
+        // progress map, otherwise an unrequested key with too few symbols would permanently stall
+        // the completion check below and fail recovery even when every requested sliver already
+        // has enough symbols.
+        let requested_slivers: Arc<HashSet<SliverIndex>> =
+            Arc::new(slivers_to_recover.iter().copied().collect());
+
         let mut all_slivers_have_enough_symbols_retrieved = false;
 
         for one_node_comm in comms.into_iter() {
@@ -1035,6 +1043,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             // Clone info to be used in the tokio task. Should be cheap to make a copy of these
             // information, since they are small.
             let symbols_by_sliver_clone = symbols_by_sliver.clone();
+            let requested_slivers_clone = requested_slivers.clone();
             let blob_id = *metadata.blob_id();
             let slivers_to_recover_clone = slivers_to_recover.to_vec();
 
@@ -1046,7 +1055,12 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                     .instrument(one_node_comm.span.clone())
                     .await;
                 drop(permit);
-                Self::process_decoding_symbols_result::<E>(result, symbols_by_sliver_clone).await
+                Self::process_decoding_symbols_result::<E>(
+                    result,
+                    symbols_by_sliver_clone,
+                    requested_slivers_clone,
+                )
+                .await
             });
 
             // Stop creating more requests if all slivers have fetched enough symbols.
@@ -1133,10 +1147,22 @@ impl<T: ReadClient> WalrusNodeClient<T> {
     async fn process_decoding_symbols_result<E: EncodingAxis>(
         result: NodeResult<BTreeMap<SliverIndex, Vec<EitherDecodingSymbol>>, NodeError>,
         symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<DecodingSymbol<E>>>>>,
+        requested_slivers: Arc<HashSet<SliverIndex>>,
     ) -> Result<(), ClientError> {
         match result.result {
             Ok(node_result) => {
                 for (sliver_index, symbols) in node_result {
+                    // Ignore symbols for indices we never requested. Merging them would insert a
+                    // new key into the progress map, which the completion check scans in full; an
+                    // unrequested key with too few symbols would then stall recovery indefinitely.
+                    if !requested_slivers.contains(&sliver_index) {
+                        tracing::warn!(
+                            %sliver_index,
+                            "node returned decoding symbols for an unrequested sliver index; \
+                            ignoring them"
+                        );
+                        continue;
+                    }
                     let decoded_symbols =
                         Self::convert_either_decoding_symbols_to_decoding_symbols::<E>(symbols)?;
                     symbols_by_sliver
@@ -3430,6 +3456,64 @@ mod tests {
         };
         let result = verify_blob_status_event(&blob_id, status, &PanicReadClient).await;
         assert_eq!(result.expect("should not error"), VerifyOutcome::Skipped);
+    }
+
+    // Regression test for a read-availability defect in the recovery fallback. A single storage
+    // node returning decoding symbols keyed by a sliver index the client never requested must not
+    // poison the recovery progress map. Before the fix, the unrequested key (paired with an empty
+    // or otherwise insufficient symbol list) was merged in and, because the completion check scans
+    // the whole map, permanently stalled recovery — failing the read even when every requested
+    // sliver already had enough symbols.
+    #[tokio::test]
+    async fn recovery_ignores_symbols_for_unrequested_sliver_index() {
+        use walrus_core::encoding::Primary;
+
+        let requested_index = SliverIndex(0);
+        let unrequested_index = SliverIndex(5);
+
+        let requested_slivers: Arc<HashSet<SliverIndex>> =
+            Arc::new(std::iter::once(requested_index).collect());
+        let symbols_by_sliver: Arc<Mutex<HashMap<SliverIndex, Vec<DecodingSymbol<Primary>>>>> =
+            Arc::new(Mutex::new(HashMap::from([(requested_index, Vec::new())])));
+
+        // A malicious or buggy node returns an empty symbol list for an index we never asked for.
+        let node_response =
+            BTreeMap::from([(unrequested_index, Vec::<EitherDecodingSymbol>::new())]);
+        let node_result = NodeResult::new(0, 1, 0, Ok(node_response));
+
+        WalrusNodeClient::<PanicReadClient>::process_decoding_symbols_result::<Primary>(
+            node_result,
+            symbols_by_sliver.clone(),
+            requested_slivers,
+        )
+        .await
+        .expect("processing a valid response should succeed");
+
+        {
+            let guard = symbols_by_sliver.lock().await;
+            assert!(
+                !guard.contains_key(&unrequested_index),
+                "unrequested sliver index must not be inserted into the progress map"
+            );
+            assert_eq!(
+                guard.len(),
+                1,
+                "progress map must only contain the requested sliver index"
+            );
+        }
+
+        // The unrequested index must not appear in the set of slivers still needing symbols;
+        // otherwise it would stall the completion check and fail recovery.
+        let needs_more =
+            WalrusNodeClient::<PanicReadClient>::slivers_needs_more_symbols::<Primary>(
+                symbols_by_sliver,
+                1,
+            )
+            .await;
+        assert!(
+            !needs_more.contains(&unrequested_index),
+            "unrequested sliver index must not stall the recovery completion check"
+        );
     }
 
     // Nonexistent has no on-chain event to verify against; the caller accepts it as-is, matching
