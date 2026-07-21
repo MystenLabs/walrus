@@ -20,9 +20,10 @@ Sui smart contract as the on-chain index.
 ## Getting Started
 
 - [Advanced Setup](https://docs.wal.app/docs/getting-started/advanced-setup.md):
-    This page covers advanced setup options for Walrus, including building from source, installing
-    from binaries, or using Cargo. For standard setup instructions, see Getting Started. Walrus is
-    open source under an Apache 2 license.
+    Advanced installation options for Walrus including building from source and binary
+    installation. This page covers advanced setup options for Walrus, including building from
+    source, installing from binaries, or using Cargo. For standard setup instructions, see Getting
+    Started.
 - [Getting Started](https://docs.wal.app/docs/getting-started.md):
     Walrus is a verifiable data platform for high-stakes systems like AI and onchain finance, where
     data is stored as blobs. Walrus uses an object storage architecture, where blobs are stored in
@@ -34,14 +35,19 @@ Sui smart contract as the on-chain index.
     Walrus Mainnet operates a production-quality storage network using corresponding resources on
     the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui Testnet and is used to
     test new features before they graduate to Mainnet.
+- [Caching](https://docs.wal.app/docs/system-overview/caching.md):
+    Walrus blobs are content-addressed and immutable, which makes them well suited to caching. A
+    given blob ID always maps to the same bytes, so once a response is cached it never goes stale
+    for that blob ID.
 - [Core Concepts](https://docs.wal.app/docs/system-overview/core-concepts.md):
-    Data is stored on Walrus as blobs. Each blob is an immutable array of bytes. Any type of file,
-    such as text, video, or source code, can be stored on Walrus. All blobs uploaded to Walrus are
+    Walrus stores data as blobs. Each blob is an immutable array of bytes. Any type of file, such
+    as text, video, or source code, you can store on Walrus. All blobs uploaded to Walrus are
     publicly available. Sui is a blockchain that supports programmable transactions.
 - [System Overview](https://docs.wal.app/docs/system-overview.md):
     Available Networks: Overview of Walrus networks including Mainnet and Testnet configurations,
-    parameters, and setup instructions. Walrus Fundamentals: Technical reference for Walrus
-    fundamentals, including architecture, data storage, and data retrieval.
+    parameters, and setup instructions. Caching Hot Reads: Guidance for caching frequently read
+    Walrus blobs, including caching aggregators, CDN fronting, immutability guarantees, and
+    pitfalls to avoid.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md):
     Blobs can be interacted with through familiar file system operations such as uploading,
     reading, downloading, and deleting. Use the following command to upload a file to Walrus >
@@ -65,13 +71,17 @@ Sui smart contract as the on-chain index.
     availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated
     storage cost of $0.023/GB/month, allowing you to budget and scale with confidence.
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md):
-    This page describes the practical limits and constraints you should consider when designing
-    applications on Walrus. For current values, run walrus info. Walrus supports blobs up to
-    approximately 13.6 GiB. Check the current limit with walrus info under "Maximum blob size.
+    Storage limits, cost considerations, memory requirements, and other constraints to consider
+    when building on Walrus. This page describes the practical limits and constraints you should
+    consider when designing applications on Walrus. For current values, run walrus info.
 - [View System Info](https://docs.wal.app/docs/system-overview/view-system-info.md):
     The Walrus system object contains metadata about available and used storage and the price of
     storage per KiB in FROST. These values are determined by 2/3 agreement between storage nodes
     for each storage epoch. You can pay to purchase storage space for specified durations.
+- [Wal Tokenomics FAQ](https://docs.wal.app/docs/system-overview/wal-tokenomics-faq.md):
+    This page answers common questions about the WAL token and how value flows through Walrus. It
+    focuses on mechanics that are visible to users and integrators: what you pay, where those
+    payments go, how staking and rewards work, and what actually happens when you burn a blob.
 
 ## Walrus Client
 
@@ -135,8 +145,8 @@ Sui smart contract as the on-chain index.
     unprivileged client would have to manage dozens of parallel uploads and collect a confirmation
     from each node.
 - [Checkpoint Data](https://docs.wal.app/docs/examples/checkpoint-data.md):
-    The Sui Archival application demonstrates how Sui blockchain checkpoint data can be archived on
-    Walrus in a reliable, deterministic, and resilient manner. The application is accessible at
+    The Sui Archival application demonstrates how you can archive checkpoint data on Walrus in a
+    reliable, deterministic, and resilient manner. The application is accessible at
     https://walrus-sui-archival.wal.app/ The application's code is open source and available on
     GitHub.
 - [Examples](https://docs.wal.app/docs/examples.md):
@@ -145,17 +155,20 @@ Sui smart contract as the on-chain index.
     read them back through a CDN-backed aggregator.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md):
     The following JavaScript example shows how to upload and download a blob through a web form
-    using the HTTP API.
+    using the HTTP API. The following JavaScript example shows how to upload and download a blob
+    through a web form using the HTTP API.
 - [Move](https://docs.wal.app/docs/examples/move.md):
-    The following Move example showcases how to import and use Walrus onchain objects.
+    The following Move example showcases how to import and use Walrus onchain objects. The
+    following Move example showcases how to import and use Walrus onchain objects. The following
+    Move example showcases how to import and use Walrus onchain objects.
 - [Python](https://docs.wal.app/docs/examples/python.md):
     You can interact with Walrus from within Python code. Use the HTTP API to store and read blobs.
     Use the JSON API to store, read, and check the availability of a blob. Checking the
     certification of a blob illustrates reading the blob's corresponding Sui object.
 - [Walrus Relay](https://docs.wal.app/docs/examples/walrus-relay.md):
     Using the Walrus TypeScript SDK and the Walrus Upload Relay, the following example app creates
-    a web application that can be used for uploading and managing blobs on Walrus. View a deployed
-    instance of this example in your browser or view the entire source code.
+    a web application that uploads and manages blobs on Walrus. View a deployed instance of this
+    example in your browser or view the entire source code.
 
 ## Operator Guide
 
@@ -198,14 +211,13 @@ Sui smart contract as the on-chain index.
     updates them based on the values in the node configuration. However, authorization for contract
     upgrades and withdrawing the storage node commission is handled separately.
 - [Storage Nodes](https://docs.wal.app/docs/operator-guide/storage-nodes.md):
-    This section covers everything you need to set up and operate a Walrus storage node. Backup and
-    Restore Guide: Back up and restore Walrus storage node databases with automated and manual
-    procedures.
+    Overview of guides for setting up and operating a Walrus storage node. This section covers
+    everything you need to set up and operate a Walrus storage node. Backup and Restore Guide: Back
+    up and restore Walrus storage node databases with automated and manual procedures.
 - [Slashing Walkthrough](https://docs.wal.app/docs/operator-guide/storage-nodes/slashing-walkthrough.md):
-    This page walks through a hypothetical slashing event on Mainnet so you can see how the pieces
-    fit together. It assumes you have already read Slashing for the conceptual model and the object
-    IDs. The commands below are the ones operators actually run, with the live Mainnet object IDs
-    filled in.
+    A worked example of a slashing event on Mainnet, with the concrete vote, execute, and cleanup
+    commands operators run end to end. This page walks through a hypothetical slashing event on
+    Mainnet so you can see how the pieces fit together.
 - [Slashing](https://docs.wal.app/docs/operator-guide/storage-nodes/slashing.md):
     Walrus protects the network from misbehaving storage nodes through an onchain slashing
     mechanism. Committee members vote against a candidate node, and when a quorum of voting weight
@@ -216,17 +228,17 @@ Sui smart contract as the on-chain index.
     send transactions as part of normal operation. The walrus-node setup command creates such a
     wallet.
 - [Storage Node Maintenance](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-maintenance.md):
-    This page covers the ongoing operation of your Walrus storage node after initial setup. Back up
-    the /opt/walrus/config directory. For database backups, see the Backup and Restore Guide. The
-    following metrics are the most important for monitoring node health.
+    Monitor, update, and maintain a Walrus storage node, including key metrics, update procedures,
+    and community tools. This page covers the ongoing operation of your Walrus storage node after
+    initial setup. Back up the /opt/walrus/config directory.
 - [Storage Node Migration](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-migration.md):
-    This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node
-    (and optionally an aggregator and publisher) on the same host. [x] New host set up following
-    the Storage Node Setup guide (through the TLS setup and systemd service sections.
+    Guide for migrating a Walrus storage node to new hardware with minimal downtime. This guide
+    covers migrating a Walrus storage node to new hardware. It assumes you run the node (and
+    optionally an aggregator and publisher) on the same host.
 - [Storage Node Setup](https://docs.wal.app/docs/operator-guide/storage-nodes/storage-node-setup.md):
-    This page walks you through the full initial setup of a Walrus storage node, from system
-    preparation to registration and first startup. > Caution > > If you deviate from the standard
-    setup below (user, directories, ports), make sure to adjust later steps accordingly.
+    Step-by-step guide for setting up a Walrus storage node, including system preparation, TLS,
+    configuration, and registration. This page walks you through the full initial setup of a Walrus
+    storage node, from system preparation to registration and first startup.
 - [Upload Relay](https://docs.wal.app/docs/operator-guide/upload-relay.md):
     Walrus enables apps to store data from within end-user browsers that have low to moderate
     machine specifications (mobile devices, low-powered laptops, and so on).
@@ -297,7 +309,7 @@ Sui smart contract as the on-chain index.
     themselves. A portal bridges these systems and serves the site to the browser over standard
     HTTP.
 - [Known Restrictions](https://docs.wal.app/docs/sites/known-restrictions.md):
-    Walrus Sites can be used to deploy almost any form of traditional static Web2 website built for
+    You can use Walrus Sites to deploy almost any form of traditional static Web2 website built for
     modern browsers. There are, however, a number of restrictions that developers should keep in
     mind when creating or porting a website to Walrus Sites.
 - [Avoiding Duplicate Content SEO](https://docs.wal.app/docs/sites/linking/avoiding-duplicate-content-seo.md):
@@ -332,24 +344,24 @@ Sui smart contract as the on-chain index.
     Walrus Sites use SHA-256 hashes stored on Sui to verify that every resource served by a portal
     matches the content the site owner originally published.
 - [Troubleshooting](https://docs.wal.app/docs/sites/troubleshooting.md):
-    This page covers common errors when deploying and browsing Walrus Sites, organized by where
-    they occur. Errors in this section relate to site-builder configuration. Cause: The
-    site-builder binary is not in a directory that your shell searches when running commands.
+    Solutions to common errors when deploying and browsing Walrus Sites. This page covers common
+    errors when deploying and browsing Walrus Sites, organized by where they occur. Errors in this
+    section relate to site-builder configuration.
 
 ## Troubleshooting
 
 - [Error Handling](https://docs.wal.app/docs/troubleshooting/error-handling.md):
-    This page covers how to handle Walrus errors programmatically in your applications. For a
-    reference of specific error messages and their solutions, see Troubleshooting Common Errors.
-    Not all errors are equal.
+    Best practices for handling Walrus errors. This page covers how to handle Walrus errors
+    programmatically in your applications. For a reference of specific error messages and their
+    solutions, see Troubleshooting Common Errors. Not all errors are equal.
 - [Troubleshooting](https://docs.wal.app/docs/troubleshooting.md):
     Resolve common issues with the Walrus CLI, configuration, and network connectivity. Before
     undertaking any other steps, make sure you have the latest walrus binary. If you have multiple
     versions in different locations, find the binary that is actually used with which walrus.
 - [Network Errors](https://docs.wal.app/docs/troubleshooting/network-errors.md):
-    This page covers common errors you might encounter when using Walrus. Each entry includes the
-    error message, its cause, and how to troubleshoot it. Errors in this section occur when the
-    Walrus CLI cannot load or parse its configuration.
+    Common errors in the Walrus CLI and network, with causes and solutions. This page covers common
+    errors you might encounter when using Walrus. Each entry includes the error message, its cause,
+    and how to troubleshoot it.
 - [Reading Blobs After Upload](https://docs.wal.app/docs/troubleshooting/reading-blobs-after-upload.md):
     Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly
     from storage nodes returns it immediately. Public aggregators often sit behind a content
@@ -423,11 +435,6 @@ Sui smart contract as the on-chain index.
     Add Walrus Memory to Antigravity so the agent recalls context and saves durable facts. Install
     it as a plugin (adds automatic-memory hooks) or as MCP-only (just the tools). [x] Node.js 20+
     [x] A Walrus Memory account. The first memory tool call opens a browser sign-in (memwallogin).
-- [Changelog](https://docs.wal.app/walrus-memory/mcp/changelog.md):
-    Automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity. New memwalrememberbulk
-    and memwalhealth tools. Ship the plugin's .mcp.json in the marketplace bundle. A root gitignore
-    rule excluded it, so plugin installs loaded the lifecycle hooks but never registered the MCP
-    server.
 - [Claude Code](https://docs.wal.app/walrus-memory/mcp/claude-code.md):
     Add Walrus Memory to Claude Code so it recalls context and saves durable facts as you work.
     Install it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the
@@ -526,7 +533,6 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: Openclaw
 
-- [Changelog](https://docs.wal.app/walrus-memory/openclaw/changelog.md)
 - [How It Works](https://docs.wal.app/walrus-memory/openclaw/how-it-works.md):
     The plugin sits between OpenClaw's gateway and the Walrus Memory server. It operates through
     hooks, automatic callbacks that run on every conversation turn, and optional tools the LLM can
@@ -644,8 +650,8 @@ Sui smart contract as the on-chain index.
 ## Large Uploads
 
 - [Large Uploads](https://docs.wal.app/docs/large-uploads.md):
-    The maximum blob size on Walrus is approximately 13.6 GiB. Uploading large data sets or
-    individual blobs larger than 1 GiB require certain workarounds and planning for optimal
+    The maximum blob size on Walrus is approximately 13.6 GB. Uploading large data sets or
+    individual blobs larger than 1 GB require certain workarounds and planning for optimal
     performance and efficiency. After you plan your upload strategy, estimate the storage costs for
     your data.
 
@@ -674,6 +680,12 @@ Sui smart contract as the on-chain index.
     where your backend pays for Walrus storage and users upload without managing a wallet, you need
     to choose among several patterns.
 
+## Testnet Reference
+
+- [Testnet Reference](https://docs.wal.app/docs/testnet-reference.md):
+    Walrus Testnet is a free, non-durable network for development and testing. Read values that
+    change from the canonical Network Reference, which is the single maintained source.
+
 ## Walrus Memory: Guides
 
 - [Delete Memories Programmatically](https://docs.wal.app/walrus-memory/guides/delete-memories-programmatically.md):
@@ -692,9 +704,6 @@ Sui smart contract as the on-chain index.
 - [API Reference](https://docs.wal.app/walrus-memory/python-sdk/api-reference.md):
     See also: Configuration Relayer API MemWalSync.create(...) has the same signature and returns a
     synchronous wrapper.
-- [Changelog](https://docs.wal.app/walrus-memory/python-sdk/changelog.md):
-    Track what's new, changed, and fixed in memwal (Python). For the latest version, see the PyPI
-    project page.
 - [Colab](https://docs.wal.app/walrus-memory/python-sdk/colab.md):
     Use the runnable Walrus Memory Python SDK Colab when you want a notebook-first walkthrough.
 - [Quick Start](https://docs.wal.app/walrus-memory/python-sdk/quick-start.md):
@@ -740,11 +749,6 @@ Sui smart contract as the on-chain index.
     accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No | |
     Relayer URL | | namespace | string | No | "default" | Default namespace for memory isolation |
     For the full config surface, see Configuration.
-- [Changelog](https://docs.wal.app/walrus-memory/sdk/changelog.md):
-    Added RecallParams for object-style recall(...) calls. Marked the positional recall(...)
-    overload as deprecated in favor of . Documented restore response fields, default limit,
-    pagination behavior, and performance expectations. Added relayer compatibility metadata checks
-    before protected requests.
 - [Cloudflare Workers](https://docs.wal.app/walrus-memory/sdk/cloudflare-workers.md):
     Walrus Memory runs on the Cloudflare Workers runtime, but the edge environment differs from
     Node.js in a few ways that affect bundling and reliability. This guide covers the configuration
@@ -753,7 +757,6 @@ Sui smart contract as the on-chain index.
     This is the pattern for SaaS-style apps where one operator runs a server that stores memory on
     behalf of many end users. For example, a Next.js app on Vercel where users connect a Sui wallet
     only for sign-in, and the server holds the credentials.
-- [Example Map](https://docs.wal.app/walrus-memory/sdk/example-map.md)
 - [Examples](https://docs.wal.app/walrus-memory/sdk/examples.md):
     The shortest working Walrus Memory example using the default relayer-backed SDK.
 - [Overview](https://docs.wal.app/walrus-memory/sdk/overview.md):
@@ -768,11 +771,6 @@ Sui smart contract as the on-chain index.
 - [Quick Start](https://docs.wal.app/walrus-memory/sdk/quick-start.md):
     The Walrus Memory SDK gives your agents portable memory that works across apps, sessions, and
     workflows. Store, recall, and analyze context, fully under your control.
-- [Research App Example](https://docs.wal.app/walrus-memory/sdk/research-app-example.md):
-    you want to store structured research findings you want to recall them in later sessions save a
-    structured summary with remember generate targeted queries later use recall to pull relevant
-    findings back into context Structured summaries usually recall better than raw transcripts
-    because they keep the signal high.
 - [Usage](https://docs.wal.app/walrus-memory/sdk/usage.md)
 - [Memwal Manual](https://docs.wal.app/walrus-memory/sdk/usage/memwal-manual.md):
     Use when the client must handle embedding calls and local Seal operations. The relayer still

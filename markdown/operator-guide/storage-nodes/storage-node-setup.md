@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+Step-by-step guide for setting up a Walrus storage node, including system preparation, TLS, configuration, and registration.
+
 This page walks you through the full initial setup of a Walrus storage node, from system preparation to registration and first startup.
 
 > **Caution**

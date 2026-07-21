@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+Monitor, update, and maintain a Walrus storage node, including key metrics, update procedures, and community tools.
+
 This page covers the ongoing operation of your Walrus storage node after [initial setup](/docs/operator-guide/storage-nodes/storage-node-setup).
 
 ## Important data to back up

@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-The maximum blob size on Walrus is approximately 13.6 GiB. Uploading large data sets or individual blobs larger than 1 GiB require certain workarounds and planning for optimal performance and efficiency.
+The maximum blob size on Walrus is approximately 13.6 GB. Uploading large data sets or individual blobs larger than 1 GB require certain workarounds and planning for optimal performance and efficiency.
 
 ## Estimate storage duration and costs
 
