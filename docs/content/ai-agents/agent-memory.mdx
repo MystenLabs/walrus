@@ -1,0 +1,177 @@
+---
+title: How AI Agent Memory Works
+description: >-
+  Conceptual guide to how AI agents store and recall memory, covering
+  short-term versus long-term memory, semantic and episodic memory, the
+  difference between a context window and persistent memory, and how durable
+  storage backs the whole loop.
+keywords:
+  - ai agent memory
+  - long-term memory
+  - short-term memory
+  - semantic memory
+  - episodic memory
+  - context window
+  - llm memory
+  - agent state
+  - persistent memory
+  - walrus
+goal:
+  description: Reader can explain how AI agent memory works, distinguish short-term from long-term memory, and understand where a durable storage layer fits in the recall loop
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 500
+      label: Needs more content depth
+    - pattern: '\]\(/[^)]+\)'
+      min: 3
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How does AI agent memory work?
+  - What is the difference between short-term and long-term memory in AI agents?
+  - What is semantic memory in AI?
+  - What is the difference between a context window and memory in large language models?
+answer: >-
+  AI agent memory is the ability of an agent to retain information beyond a
+  single prompt. Short-term memory lives in the model's context window and
+  disappears when the window ends, while long-term memory is written to an
+  external store and read back on demand. Agents keep working, episodic,
+  semantic, and procedural memory, retrieving relevant items into the context
+  window at each step. A durable, verifiable storage layer such as Walrus holds
+  the long-term memory that outlives any single session.
+---
+
+<AgentPrompt
+  prompt="Explain, in plain terms, how my AI agent should keep memory across sessions. Cover what stays in the context window versus what I need to persist, and what the store-then-retrieve loop looks like."
+/>
+
+AI agent memory is the ability of an agent to retain information beyond a single
+prompt so that later reasoning can draw on earlier experience. A model on its own
+is stateless: each call sees only the text you pass in and forgets everything
+once the response is returned. Memory is the machinery you build around the model
+to carry facts, decisions, and history forward from one step to the next and from
+one session to the next.
+
+This page explains the mental model behind agent memory: the short-term memory
+that lives inside a single request, the long-term memory that survives across
+sessions, the categories of memory an agent keeps, and where a durable storage
+layer fits into the recall loop. When you are ready to build, follow the links to
+the implementation guides.
+
+## Short-term versus long-term memory
+
+Agent memory splits into two layers that work together.
+
+**Short-term memory** is the information available to the model during a single
+reasoning step. It lives in the context window, the block of tokens the model
+reads before it produces a response. Short-term memory is fast and immediate, but
+it is bounded and temporary: once the window ends, the model no longer has access
+to it. Anything the agent needs to remember past that point has to be written
+somewhere durable first.
+
+**Long-term memory** is information the agent stores outside the model and reads
+back when it becomes relevant again. It survives across steps, across sessions,
+and across restarts. Long-term memory is where an agent keeps user preferences,
+prior conversations, learned facts, and the artifacts it produces. Because it
+lives in an external store rather than in the model, its size is limited by your
+storage budget rather than by the context window.
+
+The two layers are not competitors. A capable agent holds a small, relevant slice
+of its long-term memory in short-term memory at any moment, then swaps that slice
+as the task changes.
+
+## The difference between a context window and memory
+
+The context window is often mistaken for memory, but they are different things.
+
+The context window is the working surface the model reads on a single call. It is
+finite, it is recreated on every request, and it is expensive to fill because
+every token in it is processed each time. Memory, by contrast, is the durable
+record the agent maintains between calls. You use memory to decide what to place
+into the context window, and you use the context window to reason over that
+selection right now.
+
+A useful way to hold the distinction: the context window is what the agent is
+thinking about at this instant, while memory is everything the agent could recall
+if it needed to. The engineering problem of agent memory is choosing, at each
+step, which small part of the second to load into the first.
+
+## Types of agent memory
+
+Long-term memory is usually broken down by the kind of information it holds.
+
+- **Working memory** is the scratch space for the current task: the goal, the
+  intermediate results, and the plan the agent is following. It is short-lived and
+  typically kept in the context window.
+- **Episodic memory** records specific events and interactions, such as past
+  conversations or the outcome of an earlier action. It answers "what happened
+  before?" and is usually retrieved by recency or by similarity to the current
+  situation.
+- **Semantic memory** holds general facts and knowledge that are true independent
+  of any single event, such as a user's stated preferences or domain facts the
+  agent has learned. It answers "what do I know?" Semantic memory in AI is the
+  agent's durable store of meaning rather than of episodes.
+- **Procedural memory** captures how to perform tasks: the tools, routines, and
+  skills the agent reuses. It answers "how do I do this?"
+
+Most agent frameworks map these categories onto concrete stores. Episodic and
+semantic memory are frequently embedded as vectors and retrieved by similarity,
+while the canonical, authoritative copy of each memory item is kept in durable
+storage.
+
+## The store-then-retrieve loop
+
+Persistent memory works as a loop that runs around the model on every step:
+
+1. **Capture.** After an interaction or action, the agent decides what is worth
+   remembering: a fact, a summary of the exchange, or an artifact it produced.
+2. **Store.** The agent writes that item to durable storage and records an
+   identifier for it. The stored bytes outlive the current session.
+3. **Index.** The agent adds a way to find the item later, commonly an embedding
+   in a vector index or a tag that describes the content.
+4. **Retrieve.** On a later step, the agent searches the index for items relevant
+   to the current task and loads the most relevant ones back into the context
+   window.
+5. **Reason.** The model works over the retrieved slice together with the current
+   input, then the loop repeats.
+
+The quality of an agent's memory depends far more on steps 2 through 4 than on the
+model itself. If the store loses data, or the index cannot surface the right item,
+the agent behaves as though it never learned anything.
+
+## Where a durable storage layer fits
+
+Long-term memory is only as trustworthy as the store beneath it. An agent that
+runs unattended for weeks needs a substrate that keeps data available without a
+babysitter, proves that what it reads back is exactly what it wrote, and lets the
+agent own its data rather than renting it from a single provider.
+
+[Walrus](/docs/system-overview/index) is a decentralized storage protocol that
+provides that substrate. Each memory item is stored as a blob with a
+content-derived ID, so a later read either returns the exact bytes that were
+written or fails rather than returning something altered. Blobs live for a
+storage period the agent controls and can extend, and the agent owns the
+onchain objects that represent them. This makes Walrus a natural home for the
+long-term, canonical copy of an agent's memory, with a vector index layered on
+top for similarity search.
+
+To go deeper on the concepts and mechanics, see
+[Core concepts](/docs/system-overview/core-concepts) for the blob and storage
+model, and [Batch storage with Quilt](/docs/system-overview/quilt) for storing
+many small memory items efficiently.
+
+## Next steps
+
+- Deciding where each kind of agent data belongs? Read
+  [Where to store AI agent data](/docs/ai-agents/where-to-store-agent-data).
+- Building the object model for an agent's stored data? Read
+  [Tracking agent-owned blobs and storage](/docs/ai-agents/tracking-agent-blobs).
+- Ready to write and manage data with the client? See
+  [Managing blobs](/docs/walrus-client/managing-blobs).

@@ -87,6 +87,19 @@ const sidebars = {
     },
     {
       type: 'category',
+      label: 'AI Agents',
+      collapsed: true,
+      link: {
+        type: "doc",
+        id: 'ai-agents/agent-memory',
+      },
+      items: [
+        'ai-agents/where-to-store-agent-data',
+        'ai-agents/tracking-agent-blobs',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Troubleshooting',
       link: {
         type: "doc",
