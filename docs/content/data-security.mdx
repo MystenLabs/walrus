@@ -72,17 +72,32 @@ described in the [encoding documentation](/docs/system-overview/red-stuff).
 ## Data confidentiality
 
 Walrus does not provide native encryption for data. By default, all blobs stored in Walrus
-are public and discoverable by everyone. Walrus does not currently document a
-confidentiality mechanism.
+are public and discoverable by everyone. To keep data confidential, encrypt it on the
+client before you store it, for example with [Seal](https://github.com/MystenLabs/seal), and
+treat the blob ID as public. Encryption is your responsibility. Walrus stores and serves
+whatever bytes you upload.
 
-## Nautilus: Secure and verifiable off-chain computation
+## Data sovereignty and residency
 
-Nautilus is a framework for secure and verifiable off-chain computation on Sui. It enables
+Walrus does not let you choose which storage nodes or geographic regions hold your data.
+When you store a blob, Walrus erasure-codes it into slivers and distributes them across all
+shards, and a smart contract on Sui assigns shards to storage nodes. There
+is no mechanism to pin a blob to a specific node, region, or jurisdiction.
+
+Because every blob is public and its placement is not controllable, do not store personal or
+regulated data on Walrus in the clear. If you must handle such data, encrypt it before
+storing it, keep the plaintext and any keys off Walrus, and store only what you are willing
+to make permanently public. For the distribution and encoding details, see
+[Core Concepts](/docs/system-overview/core-concepts) and [Red Stuff](/docs/system-overview/red-stuff).
+
+## Nautilus: Secure and verifiable offchain computation
+
+Nautilus is a framework for secure and verifiable offchain computation on Sui. It enables
 you to delegate sensitive or resource-intensive tasks to a self-managed trusted execution
 environment (TEE) while using smart contract verification to preserve trust onchain.
 
 Use Nautilus for hybrid apps that require private data handling, complex computations, or
-integration with external Web2 systems. The framework ensures computations are
+integration with external Web2 systems. The framework makes computations
 tamper-resistant, isolated, and cryptographically verifiable.
 
 Nautilus currently supports self-managed AWS Nitro Enclave TEEs. You can verify AWS-signed
@@ -91,7 +106,7 @@ repository](https://github.com/MystenLabs/nautilus) for the reproducible build t
 
 ### Use cases
 
-- **Trusted oracles:** Process off-chain data from Web2 services or decentralized storage
+- **Trusted oracles:** Process offchain data from Web2 services or decentralized storage
   platforms like Walrus in a tamper-resistant way.
 - **AI agents:** Securely run AI models for inference or execute agentic workflows while
   providing data and model provenance onchain.

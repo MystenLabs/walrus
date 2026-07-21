@@ -81,6 +81,7 @@ const sidebars = {
       items: [
         'http-api/storing-blobs',
         'http-api/reading-blobs',
+        'http-api/streaming-media',
         'http-api/quilt-http-apis',
       ],
     },
