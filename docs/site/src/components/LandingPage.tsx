@@ -3,104 +3,86 @@
 
 import React from 'react';
 import Head from '@docusaurus/Head';
-import WalrusLogo from '@site/static/img/Walrus_Docs.svg';
 
 const LANDING_CSS = `
-/* ── Hide Docusaurus chrome ── */
-.navbar { display: none !important; }
+/* ── Theme-aware landing palette ── */
+/* :root supplies the light-mode values; [data-theme="dark"] overrides them. */
+/* These are defined globally (the style tag only mounts on the homepage). */
+:root {
+  --l-bg: #ffffff;
+  --l-surface: #f4f5f7;
+  --l-text: #12141a;
+  --l-text-secondary: #5b5f66;
+  --l-border: rgba(0,0,0,0.10);
+  --l-border-hover: rgba(0,0,0,0.24);
+  --l-media-bg: #eceff4;
+  --l-link: #6d47ff;
+  --l-link-hover: #12b5a4;
+}
+[data-theme="dark"] {
+  --l-bg: #000000;
+  --l-surface: rgba(161,200,255,0.10);
+  --l-text: #faf8f5;
+  --l-text-secondary: #b0afac;
+  --l-border: rgba(255,255,255,0.08);
+  --l-border-hover: rgba(255,255,255,0.16);
+  --l-media-bg: #000000;
+  --l-link: #CAB1FF;
+  --l-link-hover: #98EFDD;
+}
+
+/* ── Neutralize Docusaurus chrome (theme-aware background) ── */
 #copy-page-button-container { display: none !important; }
 
 #__docusaurus_skipToContent_fallback {
-  background: #000 !important; padding: 0 !important; margin: 0 !important;
+  background: var(--l-bg) !important; padding: 0 !important; margin: 0 !important;
 }
 #__docusaurus_skipToContent_fallback > main,
 #__docusaurus_skipToContent_fallback > main.container,
 #__docusaurus_skipToContent_fallback > main.container--fluid {
-  background: #000 !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
+  background: var(--l-bg) !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
 }
 #__docusaurus_skipToContent_fallback .margin-vert--lg { margin: 0 !important; }
 #__docusaurus_skipToContent_fallback .row {
-  background: #000 !important; padding: 0 !important; margin: 0 !important;
+  background: var(--l-bg) !important; padding: 0 !important; margin: 0 !important;
 }
 #__docusaurus_skipToContent_fallback .col {
-  background: #000 !important; padding: 0 !important;
+  background: var(--l-bg) !important; padding: 0 !important;
   max-width: 100% !important; flex: none !important; width: 100% !important;
 }
 #__docusaurus_skipToContent_fallback article {
-  background: #000 !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
+  background: var(--l-bg) !important; padding: 0 !important; margin: 0 !important; max-width: 100% !important;
 }
-html, body { background: #000 !important; }
-[class*="mainWrapper"] { background: #000 !important; padding-top: 0 !important; }
-[class*="mdxPageWrapper"] { background: #000 !important; padding: 0 !important; margin: 0 !important; }
+html, body { background: var(--l-bg) !important; }
+[class*="mainWrapper"] { background: var(--l-bg) !important; padding-top: 0 !important; }
+[class*="mdxPageWrapper"] { background: var(--l-bg) !important; padding: 0 !important; margin: 0 !important; }
+
+@layer docusaurus.infima {
+  #__docusaurus_skipToContent_fallback main.container {
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+}
 
 /* ── Landing root ── */
 .landing-root {
-  --white: #faf8f5;
-  --black: #000;
-  --purple: #CAB1FF;
-  --purple-dim: rgba(202,177,255,0.1);
-  --purple-hover: rgba(202,177,255,0.16);
-  --text-secondary: #b0afac;
-  --border: rgba(255,255,255,0.08);
-  --border-hover: rgba(255,255,255,0.16);
   --sans: 'Google Sans Flex', -apple-system, sans-serif;
   --display: 'Ratch', 'Google Sans Flex', sans-serif;
   font-family: var(--sans);
-  background: var(--black);
-  color: var(--white);
+  background: var(--l-bg);
+  color: var(--l-text);
   -webkit-font-smoothing: antialiased;
   line-height: 1.6;
   min-height: 100vh;
 }
 .landing-root *, .landing-root *::before, .landing-root *::after { box-sizing: border-box; }
-.landing-root a { color: var(--purple); text-decoration: none; }
-.landing-root a:hover { color: #98EFDD; }
+.landing-root a { color: var(--l-link); text-decoration: none; }
+.landing-root a:hover { color: var(--l-link-hover); }
 .landing-root,
 .landing-root * {
-  --ifm-background-color: #000 !important;
-  --ifm-background-surface-color: #000 !important;
-}
-
-/* ── Topbar ── */
-.landing-root .topbar {
-  position: sticky; top: 0; z-index: 50;
-  background: #ffffff;
-  backdrop-filter: blur(16px) saturate(1.4);
-  border-bottom: 1px solid var(--border);
-}
-.landing-root .topbar-inner {
-  display: flex; align-items: center; justify-content: space-between;
-  height: 56px; max-width: 1120px; margin: 0 auto; padding: 0 24px;
-}
-@media (min-width: 768px) { .landing-root .topbar-inner { padding: 0 40px; } }
-.landing-root .topbar-logo {
-  display: flex; align-items: center; gap: 10px;
-  font-weight: 500; font-size: 0.95rem; letter-spacing: 0.02em; color: var(--white);
-}
-.landing-root .topbar-logo svg {
-  height: 28px; width: auto; margin-bottom: 3px; color: #000;
-}
-.landing-root .topbar-links { display: flex; gap: 6px; align-items: center; }
-.landing-root .topbar-links a {
-  font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
-  color: rgba(0,0,0,0.55); transition: all 0.2s;
-}
-.landing-root .topbar-links a:hover { color: #000; background: rgba(0,0,0,0.04); }
-.landing-root .topbar-links a.primary {
-  color: #000; background: rgba(0,0,0,0.05);
-  border: 1px solid rgba(0,0,0,0.12); font-weight: 500;
-}
-.landing-root .topbar-links a.primary:hover {
-  background: var(--purple-dim); border-color: var(--purple);
-}
-.landing-root .topbar-links .kapa-landing-btn {
-  font-size: 1.3rem; padding: 6px 14px; border-radius: 8px;
-  color: var(--purple); background: var(--purple-dim);
-  border: 1px solid rgba(97,61,255,0.15); font-weight: 500;
-  cursor: pointer; transition: all 0.2s; font-family: var(--sans);
-}
-.landing-root .topbar-links .kapa-landing-btn:hover {
-  background: var(--purple-hover); border-color: var(--purple);
+  --ifm-background-color: var(--l-bg) !important;
+  --ifm-background-surface-color: var(--l-bg) !important;
 }
 
 /* ── Hero ── */
@@ -109,8 +91,8 @@ html, body { background: #000 !important; }
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: clamp(88px, 16vh, 168px) 24px clamp(44px, 7vh, 84px);
-  background: #000;
+  padding: clamp(66px, 12vh, 168px) 24px clamp(44px, 7vh, 84px);
+  background: var(--l-bg);
 }
 .landing-root .hero-title {
   font-family: var(--display);
@@ -119,7 +101,7 @@ html, body { background: #000 !important; }
   line-height: 0.95;
   letter-spacing: -0.02em;
   margin: 0;
-  color: var(--white);
+  color: var(--l-text);
 }
 .landing-root .hero-subline {
   max-width: 672px;
@@ -129,7 +111,7 @@ html, body { background: #000 !important; }
   font-size: clamp(1rem, 2.4vw, 1.25rem);
   line-height: 1.5;
   letter-spacing: -0.01em;
-  color: var(--text-secondary);
+  color: var(--l-text-secondary);
 }
 
 /* ── Home cards ── */
@@ -147,8 +129,8 @@ html, body { background: #000 !important; }
 .landing-root .home-card {
   display: flex;
   flex-direction: column;
-  background: rgba(161, 200, 255, 0.1);
-  border: 1px solid var(--border);
+  background: var(--l-surface);
+  border: 1px solid var(--l-border);
   border-radius: 12px;
   overflow: hidden;
   color: inherit;
@@ -157,13 +139,13 @@ html, body { background: #000 !important; }
 .landing-root .home-card:hover {
   color: inherit;
   transform: scale(1.02);
-  border-color: var(--border-hover);
+  border-color: var(--l-border-hover);
 }
 .landing-root .home-card-media {
   display: block;
   width: 100%;
   height: auto;
-  background: #000;
+  background: var(--l-media-bg);
 }
 .landing-root .home-card-body {
   flex: 1;
@@ -176,7 +158,7 @@ html, body { background: #000 !important; }
   font-size: 1.75rem;
   line-height: 1.2;
   margin: 0;
-  color: var(--white);
+  color: var(--l-text);
 }
 .landing-root .home-card-body p {
   max-width: 364px;
@@ -185,7 +167,7 @@ html, body { background: #000 !important; }
   font-weight: 400;
   font-size: 1rem;
   line-height: 1.5;
-  color: var(--text-secondary);
+  color: var(--l-text-secondary);
 }
 `;
 
@@ -240,39 +222,6 @@ export default function LandingPage() {
         />
       </Head>
       <style dangerouslySetInnerHTML={{ __html: LANDING_CSS }} />
-
-      <header className="topbar">
-        <div className="topbar-inner">
-          <div className="topbar-logo">
-            <WalrusLogo />
-          </div>
-          <nav className="topbar-links">
-            <a
-              href="https://github.com/MystenLabs/walrus"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub
-            </a>
-            <a
-              href="https://discord.gg/walrusprotocol"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Discord
-            </a>
-            <button
-              className="kapa-landing-btn"
-              onClick={() => { if ((window as any).Kapa) (window as any).Kapa.open(); }}
-            >
-              Ask Walrus AI
-            </button>
-            <a href="/docs/getting-started" className="primary">
-              Get Started →
-            </a>
-          </nav>
-        </div>
-      </header>
 
       <section className="hero">
         <h1 className="hero-title">Build with Walrus</h1>

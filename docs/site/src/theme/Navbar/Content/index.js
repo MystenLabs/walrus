@@ -8,7 +8,7 @@ import {
   useNavbarMobileSidebar,
 } from "@docusaurus/theme-common/internal";
 import NavbarItem from "@theme/NavbarItem";
-import ThemeToggle from "@site/src/shared/components/ThemeToggle";
+import NavbarColorModeToggle from "@theme/Navbar/ColorModeToggle";
 import NavbarMobileSidebarToggle from "@theme/Navbar/MobileSidebar/Toggle";
 import NavbarSearch from "@theme/Navbar/Search";
 import SearchModal from "@site/src/components/Search/SearchModal";
@@ -238,7 +238,7 @@ function CustomLogo() {
       <img
         src={logoSrc}
         alt={navbar.logo?.alt || title}
-        style={{ height: "2rem", width: "auto", display: "block", flexShrink: 0 }}
+        style={{ height: "1.25rem", width: "auto", display: "block", flexShrink: 0 }}
       />
       {title && (
         <span
@@ -293,7 +293,12 @@ export default function NavbarContent() {
               </>
             );
           })()}
-          <ThemeToggle />
+          {/* Render the color-mode toggle directly (instead of the shared */}
+          {/* ThemeToggle, which hides it on the homepage) so light/dark works */}
+          {/* on every page, including "/". */}
+          <div className="theme-toggle-wrapper text-white max-[1279px]:hidden">
+            <NavbarColorModeToggle />
+          </div>
           <KapaButton />
           {!searchBarItem && (
             <NavbarSearch>
