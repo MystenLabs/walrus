@@ -24,6 +24,12 @@ const TAB_LABEL_OVERRIDES = {
   SDK: "TypeScript SDK",
 };
 
+// Pages removed during transform (consolidated into other pages)
+const REMOVED_PAGES = new Set([
+  "sdk/example-map",
+  "sdk/research-app-example",
+]);
+
 function renameSlug(slug) {
   return SLUG_RENAMES[slug] || slug;
 }
@@ -65,7 +71,10 @@ function convertPages(pages) {
   const items = [];
   for (const page of pages) {
     if (typeof page === "string") {
-      items.push(renameSlug(page));
+      const slug = renameSlug(page);
+      if (REMOVED_PAGES.has(slug)) continue;
+      if (slug.endsWith("/changelog")) continue;
+      items.push(slug);
     } else if (page.pages) {
       const category = {
         type: "category",
