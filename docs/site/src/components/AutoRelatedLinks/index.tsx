@@ -93,7 +93,7 @@ function isValidInternalLink(href: string): boolean {
   if (isExternal(href)) return false;
   const path = href.split("#")[0].split("?")[0];
   if (!path || path === "/") return false;
-  if (/\.(png|jpe?g|gif|svg|webp|pdf|zip|tar|gz|exe|dmg|pkg|css|js|woff2?)$/i.test(path))
+  if (/\.(png|jpe?g|gif|svg|webp|pdf|zip|tar|gz|exe|dmg|pkg|css|js|json|xml|ya?ml|woff2?)$/i.test(path))
     return false;
   return true;
 }
@@ -154,13 +154,15 @@ function useMetaSafe(): Meta[] | null {
 function resolveMeta(href: string, data: Meta[] | null): Meta | undefined {
   if (!data) return undefined;
   const norm = normalizePath(href);
-  const noLead = norm.startsWith("/") ? norm.slice(1) : norm;
-  const withLead = norm.startsWith("/") ? norm : "/" + norm;
+  // Strip the /docs/ route prefix so hrefs like "/docs/foo" match plugin IDs like "/foo"
+  const stripped = norm.replace(/^\/docs\//, "/");
+  const noLead = stripped.startsWith("/") ? stripped.slice(1) : stripped;
+  const withLead = stripped.startsWith("/") ? stripped : "/" + stripped;
   return data.find(
     (m) =>
       (m.id?.toLowerCase() === noLead) ||
       (m.id?.toLowerCase() === withLead) ||
-      (m.path?.toLowerCase() === norm) ||
+      (m.path?.toLowerCase() === stripped) ||
       (m.path?.toLowerCase() === withLead),
   );
 }
