@@ -62,7 +62,8 @@ html, body { background: #0d0f12 !important; }
   --border: rgba(255,255,255,0.08);
   --border-hover: rgba(255,255,255,0.16);
   --mono: 'JetBrains Mono', monospace;
-  --sans: 'DM Sans', -apple-system, sans-serif;
+  --sans: 'Google Sans Flex', -apple-system, sans-serif;
+  --display: 'Ratch', 'Google Sans Flex', sans-serif;
   --radius: 20px;
   font-family: var(--sans);
   background: var(--black);
@@ -216,6 +217,7 @@ html, body { background: #0d0f12 !important; }
   color: var(--purple); flex-shrink: 0;
 }
 .landing-root .section-head h2 {
+  font-family: var(--display);
   font-size: 1.4rem; font-weight: 500;
   letter-spacing: -0.015em; margin: 0; color: var(--white);
 }
@@ -238,6 +240,7 @@ html, body { background: #0d0f12 !important; }
   background: var(--surface-hover);
 }
 .landing-root .cap-card h3 {
+  font-family: var(--display);
   font-size: 0.9rem; font-weight: 600;
   margin: 0 0 6px 0; color: var(--white);
   display: flex; align-items: center; gap: 8px;
@@ -443,11 +446,15 @@ export default function LandingPage() {
   return (
     <div className="landing-root">
       <Head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
           href={
             'https://fonts.googleapis.com/css2?family=DM+Sans'
             + ':opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600'
-            + '&family=JetBrains+Mono:wght@400;500&display=swap'
+            + '&family=JetBrains+Mono:wght@400;500'
+            + '&family=Google+Sans+Flex:opsz@6..144'
+            + '&display=swap'
           }
           rel="stylesheet"
         />
