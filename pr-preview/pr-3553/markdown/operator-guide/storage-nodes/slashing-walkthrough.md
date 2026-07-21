@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+A worked example of a slashing event on Mainnet, with the concrete vote, execute, and cleanup commands operators run end to end.
+
 This page walks through a hypothetical slashing event on Mainnet so you can see how the pieces fit together. It assumes you have already read [Slashing](/docs/operator-guide/storage-nodes/slashing) for the conceptual model and the object IDs. The commands below are the ones operators actually run, with the live Mainnet object IDs filled in.
 
 The scenario:

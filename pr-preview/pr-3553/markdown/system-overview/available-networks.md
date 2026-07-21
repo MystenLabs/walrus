@@ -22,16 +22,7 @@ Many other parameters, including the system capacity and prices, are dynamic. Th
 
 The client parameters for the Walrus Mainnet are:
 
-```yaml title="setup/client_config_mainnet.yaml"
-# NOTE: walrus-service uses these IDs to detect network defaults. Changing them changes node
-# behavior and must be coordinated.
-system_object: 0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2
-staking_object: 0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904
-n_shards: 1000
-max_epochs_ahead: 53
-rpc_urls:
-  - https://fullnode.mainnet.sui.io:443
-```
+<!-- ImportContent: file not found in manifest: setup/client_config_mainnet.yaml -->
 
 To explore the Walrus contracts, their package IDs are:
 
@@ -56,26 +47,7 @@ See the [Testnet terms of service](/docs/legal/testnet_tos) under which this Tes
 
 The configuration parameters for the Walrus Testnet are included in the configuration file described on the [getting started guide](/docs/getting-started#step-2-configure-tooling-for-walrus-testnet). If you want only the Testnet configuration, you can get the Testnet-only configuration file. The parameters are:
 
-```yaml title="setup/client_config_testnet.yaml"
-# NOTE: walrus-service uses these IDs to detect network defaults. Changing them changes node
-# behavior and must be coordinated.
-system_object: 0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af
-staking_object: 0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3
-exchange_objects:
-  - 0xf4d164ea2def5fe07dc573992a029e010dba09b1a8dcbc44c5c2e79567f39073
-  - 0x19825121c52080bb1073662231cfea5c0e4d905fd13e95f21e9a018f2ef41862
-  - 0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5
-  - 0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1
-n_shards: 1000
-max_epochs_ahead: 53
-rpc_urls:
-  - https://fullnode.testnet.sui.io:443
-communication_config:
-  tail_handling: detached
-  upload_mode: aggressive
-  data_in_flight_auto_tune:
-    enabled: true
-```
+<!-- ImportContent: file not found in manifest: setup/client_config_testnet.yaml -->
 
 You can find the current Testnet package IDs in the `Move.lock` files in the subdirectories of the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts).
 

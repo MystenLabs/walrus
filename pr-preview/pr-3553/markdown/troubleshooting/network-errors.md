@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+Common errors in the Walrus CLI and network, with causes and solutions.
+
 This page covers common errors you might encounter when using Walrus. Each entry includes the error message, its cause, and how to troubleshoot it.
 
 ## Configuration errors

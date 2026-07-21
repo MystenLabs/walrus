@@ -114,7 +114,7 @@ platform.
   wallet connector. A mobile app signs through its wallet integration, such as a deep-linked wallet
   or an embedded signer. The transactions the flow produces are identical either way.
 
-> **WalrusFile buffer error**
+> **`WalrusFile` buffer error**
 >
 > If `WalrusFile.from` throws `Cannot read properties of undefined (reading 'buffer')`, it
 > received something other than a typed array for `contents`. The SDK expects a `Uint8Array`, not a
