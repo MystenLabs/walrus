@@ -1,9 +1,48 @@
 ---
 title: Verify Blob Availability Before Acting
 sidebar_label: Verifying availability
-description: A pattern for confirming a blob is durably stored on Walrus and that the bytes you read
-  match the onchain commitment, by checking Walrus state on Sui before depending on it.
-keywords: [Walrus, blob, availability, integrity, consistency check, certified, Sui object, verify before act, durability]
+description: >-
+  A pattern for confirming a blob is durably stored on Walrus and that the bytes
+  you read match the onchain commitment, by checking Walrus state on Sui before
+  depending on it.
+keywords:
+  - Walrus
+  - blob
+  - availability
+  - integrity
+  - consistency check
+  - certified
+  - Sui object
+  - verify before act
+  - durability
+goal:
+  description: Reader can confirm a blob is durably stored and matches its on-chain commitment before depending on it
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What durable storage means on Walrus?
+  - Why verify before acting?
+  - How do I verify blob availability and integrity?
+answer: >-
+  A pattern for confirming a blob is durably stored on Walrus and that the bytes
+  you read match the onchain commitment, by checking Walrus state on Sui before
+  depending on it.
 ---
 
 When an agent stores data on Walrus, or receives a blob ID and plans to build on it, it needs to confirm the data is durably stored before depending on it. The authoritative signal is Walrus state recorded on Sui: a certified, unexpired, non-deletable `Blob` object, or a verified blob-status result backed by the onchain certification event. A write call returning or an aggregator read succeeding is not enough. This page describes the verify-before-act pattern and the checks to run.

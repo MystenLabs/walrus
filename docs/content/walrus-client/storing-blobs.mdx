@@ -1,7 +1,43 @@
 ---
 title: Storing Blobs
 description: Use the Walrus client to store blobs and set lifetimes.
-keywords: [ walrus, cli, client, command line, store, blob, permanence, lifetimes, optimizations ]
+keywords:
+  - walrus
+  - cli
+  - client
+  - command line
+  - store
+  - blob
+  - permanence
+  - lifetimes
+  - optimizations
+goal:
+  description: Reader can store blobs and set their lifetime and permanence with the Walrus client
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I store a blob using the Walrus CLI?
+  - How do I set the storage duration for a blob?
+  - How do I use a Walrus upload relay?
+answer: >-
+  All blobs stored in Walrus are public and discoverable by all. Do not store
+  sensitive data on Walrus without additional protection.
 ---
 
 All blobs stored in Walrus are public and discoverable by all. Do not store sensitive data on Walrus without additional protection.

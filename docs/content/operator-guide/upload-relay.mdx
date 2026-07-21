@@ -1,7 +1,40 @@
 ---
 title: Operate an Upload Relay
-description: "Guide to operating Walrus upload relays for facilitating browser-based blob storage with tip configuration and payment systems."
-keywords: ["walrus", "upload relay", "browser", "blob storage", "tip", "payment", "operations"]
+description: >-
+  Guide to operating Walrus upload relays for facilitating browser-based blob
+  storage with tip configuration and payment systems.
+keywords:
+  - walrus
+  - upload relay
+  - browser
+  - blob storage
+  - tip
+  - payment
+  - operations
+goal:
+  description: Operator can install, configure, and run a Walrus upload relay, including tip and payment settings
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - pattern: '```'
+      min: 1
+      label: Has configuration or command examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I operate an upload relay?
+  - How do I install the relay?
+  - How do I configure the relay?
+answer: >-
+  Guide to operating Walrus upload relays for facilitating browser-based blob
+  storage with tip configuration and payment systems.
 ---
 
 Walrus enables apps to store data from within end-user browsers that have low to moderate machine specifications (mobile devices, low-powered laptops, and so on). This browser-based scenario is difficult to achieve in practice with an in-browser process that directly communicates with the storage nodes because of the high number of network connections required to upload all slivers to all shards.

@@ -1,5 +1,22 @@
 ---
 draft: true
+goal:
+  description: Reader can find community-built Walrus projects and examples to learn from
+  requires:
+    - pattern: '```'
+      min: 3
+      label: 'Has code blocks for setup, source, and output'
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 100
+      label: Has enough content to describe the example
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
 ---
 
 https://github.com/MystenLabs/awesome-walrus

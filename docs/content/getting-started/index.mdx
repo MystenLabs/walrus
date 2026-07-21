@@ -1,7 +1,46 @@
 ---
 title: Getting Started with Walrus
-description: "Complete getting started guide for Walrus including installation, configuration, storing and retrieving blobs on Testnet and Mainnet."
-keywords: ["walrus", "getting started", "tutorial", "installation", "sui", "testnet", "mainnet", "store blob", "retrieve blob", "setup"]
+description: >-
+  Complete getting started guide for Walrus including installation,
+  configuration, storing and retrieving blobs on Testnet and Mainnet.
+keywords:
+  - walrus
+  - getting started
+  - tutorial
+  - installation
+  - sui
+  - testnet
+  - mainnet
+  - store blob
+  - retrieve blob
+  - setup
+goal:
+  description: Reader can install Walrus, choose an upload path, and store and retrieve their first blob on Testnet or Mainnet
+  requires:
+    - pattern: '```'
+      min: 2
+      label: Has command or code examples
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - pattern: walrus --version|walrus -V|walrus --help
+      min: 1
+      label: Shows how to verify installation
+    - min_words: 300
+      label: Needs more walkthrough depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I install and set up Walrus?
+  - How do I store my first blob on Walrus?
+  - How do I retrieve a blob from Walrus?
+answer: >-
+  Complete getting started guide for Walrus including installation,
+  configuration, storing and retrieving blobs on Testnet and Mainnet.
 ---
 
 <AgentPrompt
