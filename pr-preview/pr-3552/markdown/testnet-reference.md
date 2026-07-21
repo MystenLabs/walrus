@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-This page consolidates everything you need to work on Walrus Testnet in one place: network parameters, endpoints, object and package IDs, faucets, configuration, and recovery procedures. It links to the canonical [Network Reference](/docs/network-reference) for values that change so that you always read those from a single maintained source.
+Walrus Testnet is a free, non-durable network for development and testing. Read values that change from the canonical [Network Reference](/docs/network-reference), which is the single maintained source.
 
 > **Testnet is not durable**
 >
@@ -29,7 +29,7 @@ The Mysten Labs reference endpoints for Testnet are:
 | Publisher | `https://publisher.walrus-testnet.walrus.space` |
 | Upload relay | `https://upload-relay.testnet.walrus.space` |
 
-> **Note**
+> **Info**
 >
 > `https://fullnode.testnet.sui.io:443` is the Sui full node that the Walrus client and `sui client` use, and it is the value in the pre-filled Walrus configuration and the [Network Reference](/docs/network-reference#sui-rpc-endpoints). It serves Sui client and SDK traffic, not JSON-RPC method discovery, so a direct `rpc.discover` call against it can return `404` even though normal client calls succeed. Configure it through `sui client` and the Walrus configuration file rather than calling JSON-RPC methods against it by hand.
 Many community operators also run public Testnet aggregators and publishers. For the maintained community list and the canonical copy of the endpoints above, see [Aggregators and publishers](/docs/network-reference#aggregators-and-publishers) and [Upload relays](/docs/network-reference#upload-relays) in the Network Reference. Most public endpoints limit requests to 10 MiB.
@@ -96,7 +96,7 @@ Common errors and what they mean:
 | `walrus info` fails | Stale config or wrong network | Re-download config, switch Sui env to Testnet |
 | `could not retrieve enough confirmations to certify the blob` | Config points at an old committee | Re-download config |
 | `the specified Walrus system object does not exist` | System object changed after a redeploy | Re-download config |
-| `404` reading a blob just after upload | CDN cached a pre-propagation `404` | Retry with backoff; see [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload) |
+| `404` reading a blob just after upload | CDN cached a pre-propagation `404` | Retry with backoff, see [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload) |
 
 For the full list of errors and fixes, see the [Troubleshooting guide](/docs/troubleshooting).
 

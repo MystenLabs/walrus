@@ -249,9 +249,11 @@ $ walrus read <blob-id> --out file.txt --context testnet
 
 Replace `<blob-id>` with the blob identifier the `walrus store` command returns in its output, and replace `file.txt` with the name and file extension for storing the file locally.
 
-> **You have completed the core loop**
+> **You completed the core loop**
 >
-> Storing and reading a blob is the full Walrus write-and-read cycle. The next two steps cover lifecycle management (extending and deleting). If you would rather start building now, jump to [Next steps](#next-steps) to branch into a CLI, application, Walrus Sites, or agent-memory workflow.
+> Storing and reading a blob is the full Walrus write-and-read cycle. The next two steps cover lifecycle management: extending and deleting a blob.
+> 
+> To start building now, go to [Next steps](#next-steps) and refer to resources for using the CLI, building an application or Walrus Sites, or using an agent-memory workflow.
 ##step Extend a blob storage duration
 
 To extend a blob storage duration, you must reference the Sui object ID and indicate how many epochs you want to extend the blob storage for.
@@ -278,17 +280,21 @@ Replace `<blob-id>` with the blob identifier the `walrus store` command returns 
 
 ## Next steps
 
-Now that you have stored and read your first blob, choose where to go next based on what you want to build.
+With your first blob stored and read, choose where to go next based on what you want to build.
 
 #### Keep working from the command line
+
+Continue with the Walrus client for more control:
 
 - [Store blobs with the Walrus client](/docs/walrus-client/storing-blobs) covers batch uploads, blob attributes, and other advanced options.
 - [Managing blobs](/docs/walrus-client/managing-blobs) covers extending, deleting, sharing, and burning blobs across their lifecycle.
 
 #### Integrate Walrus in an application
 
+Choose the interface that fits your stack:
+
 - Use the [TypeScript SDK](/docs/typescript-sdk/sdks) to store and read blobs directly from code.
-- Use the [HTTP API](/docs/http-api/storing-blobs) if your service already speaks HTTP.
+- Use the [HTTP API](/docs/http-api/storing-blobs) if your service already uses HTTP.
 - For browser or mobile clients and sponsored uploads, review [Choose your upload path](#choose-your-upload-path) and [Sponsored and walletless uploads](/docs/sponsored-uploads).
 
 #### Build a website on Walrus
@@ -301,7 +307,7 @@ Now that you have stored and read your first blob, choose where to go next based
 
 #### Understand the architecture and costs
 
-Dig into how Walrus works and what it costs before you scale up:
+Learn how Walrus works and what it costs before you scale up:
 
 - [System Overview](/docs/system-overview) explains how Walrus uses erasure coding and Sui to store data.
 - [Storage Costs](/docs/system-overview/storage-costs) and the [WAL Tokenomics FAQ](/docs/system-overview/wal-tokenomics-faq) explain what you pay and why.
