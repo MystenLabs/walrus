@@ -24,9 +24,26 @@ const OUTPUT_DIR = path.resolve(SITE_ROOT, "../walrus-memory-content");
 
 // Known pages and rename mappings, built dynamically from cache files.
 // knownPageSet: all page slugs (post-rename) that exist in the cache.
+// droppedSlugSet: slugs of pages intentionally dropped from the site (see
+//   isDroppedPage). Links pointing at these are stripped to plain text so the
+//   build's broken-link check does not fail on a page we did not publish.
 // slugRenameMap: original slug → renamed slug for files in RENAME_MAP.
 let knownPageSet = new Set();
+let droppedSlugSet = new Set();
 let slugRenameMap = {};
+
+// Pages consolidated into other pages (content is redundant).
+const DROPPED_PAGES = new Set([
+  "sdk/example-map.md", // just 3 links, no unique content
+  "sdk/research-app-example.md", // subset of sdk/examples.md
+]);
+
+// A page dropped from the published site: never written to output. Upstream
+// changelog pages are excluded site-wide, and the consolidated pages above.
+function isDroppedPage(relPath) {
+  if (DROPPED_PAGES.has(relPath)) return true;
+  return /^changelog\.(mdx?)$/i.test(path.basename(relPath));
+}
 
 function buildKnownPages(cacheDir) {
   const files = collectFiles(cacheDir);
@@ -39,6 +56,12 @@ function buildKnownPages(cacheDir) {
     if (relPath.startsWith("src/")) continue;
 
     const originalSlug = relPath.replace(/\.(mdx?)$/, "");
+    // Dropped pages are not published, so they must not be treated as known
+    // link targets. Record their slugs so inbound links can be neutralized.
+    if (isDroppedPage(relPath)) {
+      droppedSlugSet.add(originalSlug);
+      continue;
+    }
     const renamedPath = RENAME_MAP[relPath];
     if (renamedPath) {
       const renamedSlug = renamedPath.replace(/\.(mdx?)$/, "");
@@ -244,6 +267,12 @@ function rewriteInternalLinks(content) {
       const renamed = slugRenameMap[cleanPath];
       if (renamed) {
         return `${prefix}/walrus-memory/${renamed}${anchor || ""})`;
+      }
+      // Link to a page we deliberately did not publish (for example an upstream
+      // changelog). Strip the link to plain text so the build's broken-link
+      // check does not fail on a dangling internal path.
+      if (droppedSlugSet.has(cleanPath)) {
+        return text;
       }
       // Not a known page — leave as-is (could be an external docs link)
       return match;
@@ -748,18 +777,12 @@ function main() {
     "llms-full.txt",
   ]);
 
-  // Pages consolidated into other pages (content is redundant)
-  const skipPages = new Set([
-    "sdk/example-map.md",       // just 3 links, no unique content
-    "sdk/research-app-example.md", // subset of sdk/examples.md
-  ]);
-
   let count = 0;
   for (const { fullPath, relPath } of files) {
     const basename = path.basename(relPath);
     if (skipFiles.has(basename)) continue;
-    if (skipPages.has(relPath)) continue;
-    if (/^changelog\.(mdx?)$/i.test(basename)) continue;
+    // Pages dropped from the published site (changelog, consolidated pages).
+    if (isDroppedPage(relPath)) continue;
     // Skip files in src/ directory (CSS, assets)
     if (relPath.startsWith("src/")) continue;
 
