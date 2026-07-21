@@ -6,25 +6,25 @@ keywords: ["walrus", "wal token", "tokenomics", "staking", "re-delegation", "rew
 
 This page answers common questions about the WAL token and how value flows through Walrus. It focuses on mechanics that are visible to users and integrators: what you pay, where those payments go, how staking and rewards work, and what actually happens when you burn a blob.
 
-For the authoritative economic model, including token supply and long-term incentive design, see the [Walrus whitepaper](/walrus.pdf). Where a rumor or a third-party summary disagrees with the whitepaper or with `walrus info`, treat those two as the source of truth.
+For the authoritative economic model, including token supply and long-term incentive design, see the [Walrus whitepaper](/walrus.pdf). Where a third-party summary disagrees with the whitepaper or with `walrus info`, treat those two as the source of truth.
 
 ## Fees and fee flows
 
-These questions cover what you pay when you use Walrus and where those payments go.
+You pay for Walrus in two tokens: WAL covers storage and write fees, and SUI covers the onchain gas for Sui transactions.
 
 ### What is WAL used for?
 
 WAL is the native token of Walrus. You use it to pay for storage and to stake with storage nodes. Storage is priced at a fixed **$0.023/GB/month** and paid in WAL, with the WAL amount adjusting automatically as the WAL price changes. See [Storage Costs](/docs/system-overview/storage-costs) for the full pricing model.
 
-You also pay **SUI**, not WAL, for the Sui transactions that register, certify, and extend blobs. WAL covers storage and write fees; SUI covers onchain gas.
+You also pay SUI, not WAL, for the Sui transactions that register, certify, and extend blobs. WAL covers storage and write fees, and SUI covers onchain gas.
 
 ### Where do my storage fees go?
 
-When you buy storage, your WAL is paid into the **storage fund**, which holds WAL for the epochs your blob is stored across. At the end of each epoch, the fund distributes WAL to storage nodes based on their measured performance, which nodes determine through light audits of each other. Stakers receive a share of these fees as rewards. See [Storage Costs](/docs/system-overview/storage-costs#storage-fund).
+When you buy storage, your WAL is paid into the **storage fund**, which holds WAL for the epochs your blob is stored across. At the end of each epoch, the fund distributes WAL to storage nodes based on their measured performance, which is determined through light audits of each other. Stakers receive a share of these fees as rewards. See [Storage Costs](/docs/system-overview/storage-costs#storage-fund).
 
 ### What is the write fee?
 
-Registering a blob costs a WAL write fee in addition to the storage payment. This fee keeps deleting blobs and reusing storage resources sustainable for the system, so that write-heavy workloads pay for the work they create.
+Registering a blob costs a WAL write fee in addition to the storage payment. This fee keeps blob deletion and storage reuse sustainable, so write-heavy workloads pay for the work they create.
 
 ### What are subsidies?
 
@@ -55,7 +55,7 @@ Walrus never slashes your delegated principal. If a storage node misbehaves, com
 
 ## Burning and supply
 
-These questions address the most common points of confusion about WAL, including what the word "burn" means in Walrus.
+The term burn refers to two different actions in Walrus: protocol-level WAL burns, and burning a blob's Sui object. These are not the same, and neither happens simply because you store or delete data.
 
 ### Does Walrus burn WAL when I store or delete data?
 
@@ -65,17 +65,17 @@ When you store a blob, your WAL goes into the storage fund, which distributes it
 
 Users commonly mistake two things for burning WAL, but neither is:
 
-- **Deleting a blob** does not burn WAL and does not refund your storage payment.
-- **Burning a blob's Sui object** removes an onchain object to reclaim a SUI storage rebate. It does not touch the WAL token. See the next question.
+- **Deleting a blob:** Does not burn WAL and does not refund your storage payment.
+- **Burning a blob's Sui object:** Removes an onchain object to reclaim a SUI storage rebate. It does not touch the WAL token. See the next question.
 
 For the full economic model, including the token supply, see the [Walrus whitepaper](/walrus.pdf). Do not rely on social media summaries for supply claims.
 
 ### What does burning a blob actually do?
 
-Burning a blob removes the blob's corresponding **Sui object**, which reclaims most of that object's SUI storage cost through a [Sui storage rebate](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-rebates). Burning the Sui object:
+Burning a blob removes the blob's corresponding Sui object, which reclaims most of that object's SUI storage cost through a [Sui storage rebate](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-rebates). Burning the Sui object:
 
-- Does **not** delete the blob data from Walrus.
-- Does **not** refund the WAL you paid for storage.
+- Does not delete the blob data from Walrus.
+- Does not refund the WAL you paid for storage.
 - Forfeits lifecycle control of the blob, so you can no longer extend a permanent blob or extend or delete a deletable blob.
 
 See [Burn blobs](/docs/walrus-client/managing-blobs#burn-blobs) for the CLI workflow, and [Storage Costs](/docs/system-overview/storage-costs#manage-blob-object-lifecycle) for when burning saves money.
