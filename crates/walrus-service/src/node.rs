@@ -2360,14 +2360,16 @@ impl StorageNode {
         shard_map_lock: StorageShardLock,
         status_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> anyhow::Result<()> {
-        // The status guard (acquired by the caller, before the shard map lock) serializes this
-        // restart against the completion of a possibly still-running recovery task from before
-        // the node started catching up. Such a task only scanned blobs certified before its own
-        // start epoch, and blob certified events were skipped while catching up, so it must not
-        // complete the recovery target written below. Holding the status mutex guarantees that:
-        // if the old task's completion runs first, it observes the RecoveryCatchUp status and
-        // exits without attesting; otherwise, it is aborted by `start_node_recovery` below
-        // before it can complete.
+        // A recovery task from before the node started catching up may still be running. Such a
+        // task only scanned blobs certified before its own start epoch, and blob certified
+        // events were skipped while catching up, so it must not complete the recovery target
+        // written below. The status guard (acquired by the caller, before the shard map lock)
+        // keeps any completion attempt of that task parked on the mutex, and aborting the task
+        // here — before the new target is written — guarantees that no stale task survives to
+        // observe it, even if a later step in this function fails and returns before reaching
+        // `start_node_recovery` (which would otherwise perform the abort).
+        self.node_recovery_handler.abort_recovery_task().await;
+
         self.inner
             .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
 

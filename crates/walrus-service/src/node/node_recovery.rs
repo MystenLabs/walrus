@@ -96,6 +96,16 @@ impl NodeRecoveryHandler {
         self.status_mutex.lock().await
     }
 
+    /// Aborts the running recovery task, if any, and waits for it to exit.
+    ///
+    /// The catch-up path calls this while holding the status mutex, before writing its new
+    /// recovery target: the stale task must be gone before the target becomes visible, so that
+    /// it cannot complete the target even if the caller fails and returns before reaching
+    /// [`Self::start_node_recovery`] (which would otherwise perform the abort).
+    pub async fn abort_recovery_task(&self) {
+        abort_task(self.task_handle.lock().await.take()).await;
+    }
+
     /// Ensures a recovery task is running to recover to the given epoch.
     ///
     /// The recovery task keeps running across epoch changes and picks up the advanced recovery
@@ -147,13 +157,8 @@ impl NodeRecoveryHandler {
     ) -> Result<(), TypedStoreError> {
         let mut locked_task_handle = self.task_handle.lock().await;
 
-        // Cancel any existing recovery task
-        if let Some(old_task) = locked_task_handle.take() {
-            tracing::info!("canceling existing node recovery task");
-            old_task.abort();
-            // Wait for the old task to complete (it will return a JoinError due to cancellation)
-            let _ = old_task.await;
-        }
+        // Cancel any existing recovery task.
+        abort_task(locked_task_handle.take()).await;
 
         let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();
@@ -560,6 +565,16 @@ async fn complete_recovery_once_shards_synced(
             );
             tokio::time::sleep(UNSYNCED_SHARD_RECHECK_INTERVAL).await;
         }
+    }
+}
+
+/// Aborts the given recovery task, if any, and waits for it to exit.
+async fn abort_task(task: Option<tokio::task::JoinHandle<()>>) {
+    if let Some(old_task) = task {
+        tracing::info!("canceling existing node recovery task");
+        old_task.abort();
+        // Wait for the old task to finish (it will return a JoinError due to cancellation).
+        let _ = old_task.await;
     }
 }
 
