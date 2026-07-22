@@ -715,6 +715,16 @@ impl DualClient {
 
         let mut fields = Vec::new();
         for df in response.dynamic_fields {
+            // The server leaves all requested fields except `field_id` unset when it
+            // cannot load the field object, for example when the field was removed
+            // while the listing is served; skip such placeholder entries.
+            if df.name.is_none() && df.kind.is_none() {
+                tracing::debug!(
+                    field_id = ?df.field_id,
+                    "skipping dynamic field entry without loaded content"
+                );
+                continue;
+            }
             fields.push(
                 dynamic_field_info_from_grpc(df)
                     .context("converting gRPC DynamicField to DynamicFieldInfo")?,
