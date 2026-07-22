@@ -221,11 +221,13 @@ important rules are:
   Testnet/Mainnet differences or prerequisites checklists. Wrap in
   `<div className="outlined-tabs">` for the outlined style.
 
-**Enforcement:** Treat the style guide as a required step, not a suggestion. Before writing or
-editing any file under `docs/content/`, apply every rule above; after editing, self-check the
-changed prose against the same list and fix violations before finishing. Run `pnpm build` from
-`docs/site/` to catch broken links and anchors. Do not defer style fixes to review — non-compliant
-documentation is not complete.
+**Enforcement:** The bullets above are only a summary. Before writing or editing any file under
+`docs/content/`, load the `sui-documentation-style-guide` skill and follow the full skill — not
+just the abbreviated list here — because most of the guide (heading hierarchy, inline code rules,
+list formatting, capitalization word lists, and more) is not captured above. After editing,
+re-check the changed files against the full skill and fix violations before finishing. Run
+`pnpm build` from `docs/site/` to catch broken links and anchors. Do not defer style fixes to
+review — non-compliant documentation is not complete.
 
 ## Key Patterns
 
