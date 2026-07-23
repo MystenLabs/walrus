@@ -209,7 +209,7 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The xxhash64 digest of the in-process blob info snapshot, for cross-node \
         comparison. Note that the label is epoch % EPOCH_BUCKET_COUNT (see consistency_check.rs)."]
-        blob_info_snapshot_digest: IntGaugeVec["epoch"],
+        per_object_blob_info_snapshot_digest: IntGaugeVec["epoch"],
 
         #[help = "The number of certified per-object blobs scanned during the per-object blob info \
         consistency check."]
