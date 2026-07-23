@@ -5,8 +5,6 @@
 > documentation covers setup, usage, the client CLI, SDKs, on-chain integration, and Walrus Sites
 > (decentralized web hosting).
 
-> For the complete, unabridged page index see [llms-full.txt](https://docs.wal.app/llms-full.txt).
-
 Important notes:
 
 - Walrus stores data as **blobs** (immutable byte arrays). All blobs are public; use an encryption
