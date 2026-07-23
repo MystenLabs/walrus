@@ -263,17 +263,16 @@ Navbar
 position: sticky !important;
 top: 0 !important;
 z-index: var(--ifm-z-index-fixed) !important;
-background: #f4f5f7 !important;
+background: #fff !important;
 color: #000 !important;
-border-bottom: 1px solid rgba(0, 0, 0, 0.06) !important;
+border-bottom: none !important;
 box-shadow: none !important;
 height: 4.25rem;
 }
 
 [data-theme="dark"] .navbar {
-background: #53575a !important;
+background: #000 !important;
 color: #faf8f5 !important;
-border-bottom-color: rgba(255, 255, 255, 0.06) !important;
 }
 
 .navbar .navbar__title,
@@ -297,25 +296,34 @@ white-space: nowrap !important;
 }
 
 .navbar__item.navbar__link {
-border-radius: 6px;
-padding: 0.3rem 0.65rem;
-transition: all 0.15s ease;
-font-size: 0.9rem;
+position: relative;
+padding: 0.3rem 0.15rem;
+margin: 0 0.4rem;
+border-radius: 0;
+font-family: "Google Sans Flex", -apple-system, BlinkMacSystemFont, sans-serif;
+font-size: 15px;
+line-height: 24px;
+letter-spacing: 0.15px;
+font-weight: 400;
+transition: color 0.15s ease;
 }
 
-.navbar__item.navbar__link:hover {
-background: rgba(0, 0, 0, 0.04);
+/* Hover/active state: 2px underline in the accent color (per design) */
+.navbar__item.navbar__link::after {
+content: "";
+position: absolute;
+left: 0.15rem;
+right: 0.15rem;
+bottom: 0;
+height: 2px;
+background: #6876ff;
+opacity: 0;
+transition: opacity 0.15s ease;
 }
 
-[data-theme="dark"] .navbar__item.navbar__link:hover {
-background: rgba(255, 255, 255, 0.06);
-}
-
-.navbar__link--active {
-color: #613dff !important;
-}
-[data-theme="dark"] .navbar__link--active {
-color: #98EFDD !important;
+.navbar__item.navbar__link:hover::after,
+.navbar__item.navbar__link.navbar__link--active::after {
+opacity: 1;
 }
 
 
@@ -620,38 +628,32 @@ DocSearch button
 ══════════════════════════════════════════════ */
 
 .DocSearch-Button {
-height: 2.25rem !important;
-border: solid 1px #dadad6 !important;
-border-radius: 2rem !important;
-padding: 0 0.875rem !important;
-color: #53575a !important;
-font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
-font-size: 0.78rem;
-background-color: #fff !important;
+height: 2rem !important;
+width: 2rem !important;
+min-width: 2rem !important;
+border: none !important;
+border-radius: 9999px !important;
+padding: 0 !important;
+color: inherit !important;
+background-color: transparent !important;
 margin: 0;
-transition: all 0.15s ease;
-}
-
-[data-theme="dark"] .DocSearch-Button {
-color: #b0b4b6 !important;
-border-color: #53575a !important;
-background-color: #1c2228 !important;
+display: inline-flex !important;
+align-items: center !important;
+justify-content: center !important;
+transition: background-color 0.15s ease;
 }
 
 .DocSearch-Button:hover,
 .DocSearch-Button:focus,
 .DocSearch-Button:active {
-box-shadow: inset 0 0 0 2px #613dff;
+background-color: rgba(0, 0, 0, 0.06) !important;
+box-shadow: none;
 outline: 0;
 }
 [data-theme="dark"] .DocSearch-Button:hover,
 [data-theme="dark"] .DocSearch-Button:focus,
 [data-theme="dark"] .DocSearch-Button:active {
-box-shadow: inset 0 0 0 2px #98EFDD;
-}
-
-@media screen and (max-width: 599px) {
-.DocSearch-Button { width: initial; }
+background-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 .DocSearch-Search-Icon {
@@ -659,10 +661,7 @@ stroke-width: 1.6;
 }
 
 .DocSearch-Search-Icon path {
-stroke: #53575a;
-}
-[data-theme="dark"] .DocSearch-Search-Icon path {
-stroke: #98EFDD;
+stroke: currentColor;
 }
 
 .DocSearch-Button-Placeholder {
@@ -678,6 +677,7 @@ display: none !important;
 [class*="navbarSearchContainer"] {
 display: flex;
 gap: 0.5rem;
+padding: 0 !important;
 }
 
 /* ══════════════════════════════════════════════
@@ -869,34 +869,35 @@ background: rgba(255, 255, 255, 0.03) !important;
 Theme toggle
 ══════════════════════════════════════════════ */
 
-.toggleButton_ZKVd,
-.theme-toggle-wrapper .toggleButton_GAkl,
-.theme-toggle-wrapper .toggleButton_GAkl svg {
-color: #000 !important;
-}
-
-[data-theme="dark"] .lightToggleIcon_pgEs {
-color: #fff;
-}
+/* The toggle inherits the navbar's currentColor (black in light mode,
+  off-white in dark mode) — no forced color here. */
 
 /* ══════════════════════════════════════════════
 Kapa button
 ══════════════════════════════════════════════ */
 
 .navbar .kapa-trigger-btn {
-background: #fff !important;
-color: #53575a !important;
-border-color: #dadad6 !important;
-border-radius: 2rem !important;
-transition: all 0.15s ease;
-font-size: 0.78rem;
+background: #613dff !important;
+color: #faf8f5 !important;
+border: none !important;
+border-radius: 100px !important;
+padding: 10px 24px !important;
+font-family: "Google Sans Code", ui-monospace, "JetBrains Mono", monospace !important;
+font-size: 13px !important;
+line-height: 24px !important;
+letter-spacing: 0.13px !important;
+font-weight: 400 !important;
+text-transform: uppercase !important;
+transition: background 0.15s ease;
 }
 
-[data-theme="dark"] .navbar .kapa-trigger-btn {
-background: #252b31 !important;
-color: #b0b4b6 !important;
-border-color: #53575a !important;
+.navbar .kapa-trigger-btn:hover {
+background: #5232e6 !important;
 }
+
+/* The 'W' icon is hidden on the full pill; it only appears in the collapsed
+  circular button at the smallest breakpoint (see bottom of file). */
+.navbar .kapa-trigger-btn img { display: none !important; }
 
 /* ══════════════════════════════════════════════
 Mobile sidebar
@@ -1305,6 +1306,10 @@ color: #000 !important;
 Scrollbar
 ══════════════════════════════════════════════ */
 
+/* Reserve space for the scrollbar so opening the search modal (which locks
+  page scroll and hides the scrollbar) doesn't cause a horizontal layout shift. */
+html { scrollbar-gutter: stable; }
+
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.1); border-radius: 3px; }
@@ -1344,8 +1349,6 @@ flex: 0 0 auto !important;
 .navbar [class*="DocSearch"],
 .navbar [class*="kapa"] {
 position: static !important;
-inset: auto !important;
-transform: none !important;
 }
 
 .navbar .DocSearch-Button {
@@ -1369,29 +1372,34 @@ width: 16px !important;
 height: 16px !important;
 margin: 0 !important;
 order: 0 !important;
-color: #53575a !important;
+color: inherit !important;
+}
 }
 
-[data-theme="dark"] .navbar .DocSearch-Search-Icon {
-color: #98EFDD !important;
-}
-
+@media (max-width: 480px) {
 .navbar .kapa-trigger-btn {
 width: 32px !important;
 height: 32px !important;
 min-width: 32px !important;
 padding: 0 !important;
 margin: 0 !important;
+gap: 0 !important;
 border-radius: 9999px !important;
 overflow: hidden !important;
 font-size: 0 !important;
 line-height: 0 !important;
+display: inline-flex !important;
+align-items: center !important;
+justify-content: center !important;
 }
 
-.navbar .kapa-trigger-btn img,
-.navbar .kapa-trigger-btn svg {
+.navbar .kapa-trigger-btn .kapa-label { display: none !important; }
+
+.navbar .kapa-trigger-btn img {
+display: block !important;
 width: 18px !important;
 height: 18px !important;
+margin: 0 !important;
 }
 }
 
@@ -1403,7 +1411,7 @@ Responsive — Tight desktop (997px–1150px)
 .navbar__inner { flex-wrap: nowrap !important; }
 
 .navbar__item.navbar__link {
-font-size: 0.7rem !important;
+font-size: 15px !important;
 padding-left: 0.3rem !important;
 padding-right: 0.3rem !important;
 }
@@ -1416,24 +1424,6 @@ border-radius: 9999px !important;
 }
 
 .navbar .DocSearch-Button-Placeholder { display: none !important; }
-
-.navbar .kapa-trigger-btn {
-width: 32px !important;
-height: 32px !important;
-min-width: 32px !important;
-padding: 0 !important;
-font-size: 0 !important;
-border-radius: 9999px !important;
-overflow: hidden !important;
-}
-
-.navbar .kapa-trigger-btn .kapa-label { display: none !important; }
-
-.navbar .kapa-trigger-btn img,
-.navbar .kapa-trigger-btn svg {
-width: 18px !important;
-height: 18px !important;
-}
 }
 
 /* ══════════════════════════════════════════════
@@ -1444,13 +1434,10 @@ Responsive — Mid desktop (1151px–1430px)
 .navbar__inner { flex-wrap: nowrap !important; }
 
 .navbar__item.navbar__link {
-font-size: 0.72rem !important;
+font-size: 15px !important;
 padding-left: 0.3rem !important;
 padding-right: 0.3rem !important;
 }
-
-.navbar .DocSearch-Button { width: 7rem !important; }
-.navbar .DocSearch-Button-Placeholder { font-size: 0.72rem !important; }
 }
 
 /* Force code block buttons to always be visible (not just on hover) */

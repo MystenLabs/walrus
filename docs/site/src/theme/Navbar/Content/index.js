@@ -14,8 +14,8 @@ import NavbarSearch from "@theme/Navbar/Search";
 import SearchModal from "@site/src/components/Search/SearchModal";
 import Link from "@docusaurus/Link";
 import useBaseUrl from "@docusaurus/useBaseUrl";
-import { useLocation } from "@docusaurus/router";
 import { useThemeConfig as useThemeConfigFull } from "@docusaurus/theme-common";
+import WalrusLogo from "@site/static/img/Walrus_Docs.svg";
 
 function useNavbarItems() {
   return useThemeConfig().navbar.items;
@@ -28,90 +28,6 @@ function useMobileSidebarSafe() {
   } catch {
     return { disabled: true, toggle: () => {} };
   }
-}
-
-function AppsDropdown({ items }) {
-  const [open, setOpen] = React.useState(false);
-  const ref = React.useRef(null);
-  const location = useLocation();
-  const isActive = items.some((item) => location.pathname.startsWith(item.href));
-
-  React.useEffect(() => {
-    function handleClickOutside(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const menuStyle = {
-    position: "absolute",
-    top: "100%",
-    left: 0,
-    minWidth: "11rem",
-    padding: "0.4rem 0",
-    margin: 0,
-    listStyle: "none",
-    background: "var(--ifm-background-surface-color, #fff)",
-    border: "1px solid rgba(0,0,0,0.08)",
-    borderRadius: "0.5rem",
-    boxShadow: "0 4px 16px rgba(0,0,0,0.1)",
-    zIndex: 200,
-    opacity: open ? 1 : 0,
-    visibility: open ? "visible" : "hidden",
-    pointerEvents: open ? "auto" : "none",
-    transform: open ? "translateY(0)" : "translateY(4px)",
-    transition: "opacity 0.15s ease, visibility 0.15s ease, transform 0.15s ease",
-  };
-
-  return (
-    <div
-      ref={ref}
-      style={{ position: "relative" }}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-    >
-      <span
-        role="button"
-        tabIndex={0}
-        className={`navbar__item navbar__link ${isActive ? "navbar__link--active" : ""}`}
-        onClick={() => setOpen(!open)}
-        onKeyDown={(e) => { if (e.key === "Enter") setOpen(!open); }}
-        style={{ cursor: "pointer" }}
-      >
-        Apps ▾
-      </span>
-      <ul style={menuStyle}>
-        {items.map((item, i) => (
-          <li key={i} style={{ margin: 0, padding: 0, listStyle: "none" }}>
-            <Link
-              to={item.href || item.to}
-              style={{
-                display: "block",
-                padding: "0.45rem 1rem",
-                color: "var(--ifm-font-color-base, #000)",
-                textDecoration: "none",
-                fontSize: "0.88rem",
-                fontWeight: 500,
-                whiteSpace: "nowrap",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(0,0,0,0.04)";
-                e.currentTarget.style.color = "#613dff";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "transparent";
-                e.currentTarget.style.color = "var(--ifm-font-color-base, #000)";
-              }}
-              onClick={() => setOpen(false)}
-            >
-              {item.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
 }
 
 function NavbarItems({ items }) {
@@ -141,7 +57,7 @@ function NavbarContentLayout({ left, right }) {
     <div className="navbar__inner" style={{ flexWrap: "nowrap", gap: "0.5rem" }}>
       <div
         className="navbar__items"
-        style={{ flexShrink: 1, minWidth: 0, overflow: "hidden" }}
+        style={{ flexShrink: 1, minWidth: 0, overflow: "hidden", gap: "1rem" }}
       >
         {left}
       </div>
@@ -162,7 +78,8 @@ function SearchLauncher() {
     <>
       <button
         type="button"
-        className="DocSearch DocSearch-Button flex items-center cursor-pointer shrink-0"
+        aria-label="Search"
+        className="DocSearch DocSearch-Button flex items-center justify-center cursor-pointer shrink-0"
         onClick={() => setOpen(true)}
       >
         <span className="DocSearch-Button-Container flex">
@@ -183,9 +100,6 @@ function SearchLauncher() {
               strokeLinejoin="round"
             />
           </svg>
-          <span className="DocSearch-Button-Placeholder font-semibold">
-            Search
-          </span>
         </span>
       </button>
       <SearchModal isOpen={open} onClose={() => setOpen(false)} />
@@ -204,10 +118,11 @@ function KapaButton() {
     <button
       type="button"
       onClick={handleClick}
-      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer bg-white text-gray-900 font-semibold
-      text-base px-5 py-2.5 rounded-full border border-gray-200 hover:bg-gray-50 transition-colors mx-0 min-[1100px]:mx-1 min-[1300px]:mx-2 shrink-0"
+      className="kapa-trigger-btn flex items-center gap-2.5 cursor-pointer transition-colors mx-0 min-[1100px]:mx-1 min-[1300px]:mx-2 shrink-0"
     >
-      <img src="/img/logo.svg" alt="" width="25" height="25" />
+      {/* Text-only pill at all widths except the smallest breakpoint, where the
+          button collapses to a circular 'W' icon — see custom.css. */}
+      <img src="/img/logo.svg" alt="" width="18" height="18" />
       <span className="kapa-label">Ask Walrus AI</span>
     </button>
   );
@@ -216,13 +131,13 @@ function KapaButton() {
 // Fully custom logo with inline styles — immune to any stylesheet overrides
 function CustomLogo() {
   const { navbar } = useThemeConfigFull();
-  const logoSrc = useBaseUrl(navbar.logo?.src || "/img/logo.svg");
   const logoHref = useBaseUrl(navbar.logo?.href || "/");
   const title = navbar.title || "";
 
   return (
     <Link
       to={logoHref}
+      aria-label={navbar.logo?.alt || title || "Home"}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -235,9 +150,9 @@ function CustomLogo() {
         minWidth: "fit-content",
       }}
     >
-      <img
-        src={logoSrc}
-        alt={navbar.logo?.alt || title}
+      {/* Inline SVG (fill: currentColor) so the logo adapts to light/dark mode */}
+      <WalrusLogo
+        aria-hidden="true"
         style={{ height: "1.25rem", width: "auto", display: "block", flexShrink: 0 }}
       />
       {title && (
@@ -275,36 +190,20 @@ export default function NavbarContent() {
         </>
       }
       right={
-        <div className="flex items-center gap-1 min-[1100px]:gap-2 min-[1300px]:gap-3 min-[1430px]:gap-4 shrink-0">
-          {(() => {
-            // Insert Apps dropdown between Walrus Sites and Service Providers
-            const insertAfter = rightItems.findIndex(
-              (item) => item.sidebarId === "sitesSidebar" || item.label === "Walrus Sites"
-            );
-            const before = rightItems.slice(0, insertAfter + 1);
-            const after = rightItems.slice(insertAfter + 1);
-            return (
-              <>
-                <NavbarItems items={before} />
-                <AppsDropdown items={[
-                  { label: "Walrus Memory", href: "/walrus-memory/getting-started/what-is-walrus-memory" },
-                ]} />
-                <NavbarItems items={after} />
-              </>
-            );
-          })()}
-          {/* Render the color-mode toggle directly (instead of the shared */}
-          {/* ThemeToggle, which hides it on the homepage) so light/dark works */}
-          {/* on every page, including "/". */}
-          <div className="theme-toggle-wrapper text-white max-[1279px]:hidden">
-            <NavbarColorModeToggle />
-          </div>
+        <div className="flex items-center gap-1 min-[1100px]:gap-2 shrink-0">
+          <NavbarItems items={rightItems} />
           <KapaButton />
           {!searchBarItem && (
             <NavbarSearch>
               <SearchLauncher />
             </NavbarSearch>
           )}
+          {/* Render the color-mode toggle directly (instead of the shared */}
+          {/* ThemeToggle, which hides it on the homepage) so light/dark works */}
+          {/* on every page, including "/". Placed last so it sits far right. */}
+          <div className="theme-toggle-wrapper">
+            <NavbarColorModeToggle />
+          </div>
         </div>
       }
     />

@@ -89,6 +89,28 @@ const config = {
         type: "application/xml",
       },
     },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "preconnect",
+        href: "https://fonts.googleapis.com",
+      },
+    },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "preconnect",
+        href: "https://fonts.gstatic.com",
+        crossorigin: "anonymous",
+      },
+    },
+    {
+      tagName: "link",
+      attributes: {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Google+Sans+Code&family=Google+Sans+Flex:opsz@6..144&display=swap",
+      },
+    },
   ],
 
   clientModules: [
@@ -317,28 +339,20 @@ const config = {
           {
             type: "docSidebar",
             sidebarId: "docsSidebar",
-            position: "right",
-            label: "Data Storage",
+            position: "left",
+            label: "Protocol",
           },
+          {
+            to: "/walrus-memory/getting-started/what-is-walrus-memory",
+            label: "Memory",
+            position: "left",
+          },
+          { to: "/skills", label: "Skills", position: "left" },
           {
             type: "docSidebar",
             sidebarId: "sitesSidebar",
-            label: "Walrus Sites",
-            position: "right",
-          },
-          {
-            type: "docSidebar",
-            sidebarId: "operatorSidebar",
-            label: "Service Providers",
-            position: "right",
-          },
-          { to: "/skills", label: "Skills", position: "right" },
-          { to: "/docs/release-notes", label: "Release Notes", position: "right" },
-          {
-            href: "https://github.com/MystenLabs/walrus",
-            position: "right",
-            className: "header-github-link",
-            "aria-label": "GitHub repository",
+            label: "Sites",
+            position: "left",
           },
         ],
       },
