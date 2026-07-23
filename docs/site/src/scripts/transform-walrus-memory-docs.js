@@ -350,13 +350,16 @@ function renameMemwal(content) {
 
 // --- Sui Documentation Style Guide enforcement ---
 
-function enforceStyleGuide(content) {
+function enforceStyleGuide(content, relPath) {
   const lines = content.split("\n");
   let inCodeBlock = false;
   let inBashBlock = false;
   let inFrontmatter = false;
   let frontmatterCount = 0;
   const result = [];
+  const sourceUrl = relPath
+    ? `https://github.com/MystenLabs/MemWal/blob/dev/docs/${relPath}`
+    : null;
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
@@ -387,6 +390,18 @@ function enforceStyleGuide(content) {
       if (!inCodeBlock) {
         inCodeBlock = true;
         inBashBlock = /^```(bash|shell|sh)\b/.test(line);
+        // Convert Mintlify filename convention (```lang filename.ext)
+        // to Docusaurus title attribute (```lang title="filename.ext")
+        const fenceMatch = line.match(/^```(\w+)\s+(\S+.+)$/);
+        if (fenceMatch && !line.includes('title=')) {
+          const lang = fenceMatch[1];
+          const filename = fenceMatch[2].trim();
+          line = `\`\`\`${lang} title="${filename}"`;
+        }
+        // Add source link before every code block
+        if (sourceUrl) {
+          result.push(`<a href="${sourceUrl}" target="_blank" className="code-source-link">Source: ${relPath}</a>\n`);
+        }
       } else {
         inCodeBlock = false;
         inBashBlock = false;
@@ -721,7 +736,7 @@ function removeSkippedPageLinks(content) {
 
 // --- Main pipeline ---
 
-function transformFile(content) {
+function transformFile(content, relPath) {
   let result = content;
 
   // Order matters: convert components before link rewriting
@@ -760,7 +775,7 @@ function transformFile(content) {
   result = result.replace(/\bmemwal\.ai\b/g, "memory.walrus.xyz");
 
   // Enforce Sui Documentation Style Guide
-  result = enforceStyleGuide(result);
+  result = enforceStyleGuide(result, relPath);
 
   return result;
 }
@@ -824,7 +839,7 @@ function main() {
     if (relPath.startsWith("src/")) continue;
 
     const content = fs.readFileSync(fullPath, "utf8");
-    let transformed = transformFile(content);
+    let transformed = transformFile(content, relPath);
     transformed = injectAgentPrompt(transformed, relPath);
 
     // Apply file renames if configured
