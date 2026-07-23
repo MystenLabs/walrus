@@ -497,6 +497,34 @@ div[class*="codeBlock"]:hover button[class*="copyButton"] {
 opacity: 1;
 }
 
+/* Source link above code blocks (Walrus Memory) */
+a.code-source-link {
+  display: block;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  color: #7c7c78;
+  text-decoration: none;
+  margin-bottom: 0;
+  padding: 4px 14px;
+  background: #f4f5f7;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+}
+a.code-source-link:hover {
+  color: var(--ifm-color-primary);
+  text-decoration: underline;
+}
+a.code-source-link + div pre {
+  border-top-left-radius: 0 !important;
+  border-top-right-radius: 0 !important;
+}
+[data-theme="dark"] a.code-source-link {
+  color: #b0b4b6;
+  background: #252b31;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
 /* ══════════════════════════════════════════════
 Tables — compact
 ══════════════════════════════════════════════ */
