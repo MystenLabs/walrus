@@ -1,7 +1,41 @@
 ---
 title: Slashing
-description: Vote to slash misbehaving storage nodes through quorum-based governance that burns the offender's accumulated commission.
-keywords: [ slashing, governance, commission, misbehavior, quorum, SlashingManager, vote_for_slashing, execute_slashing ]
+description: >-
+  Vote to slash misbehaving storage nodes through quorum-based governance that
+  burns the offender's accumulated commission.
+keywords:
+  - slashing
+  - governance
+  - commission
+  - misbehavior
+  - quorum
+  - SlashingManager
+  - vote_for_slashing
+  - execute_slashing
+goal:
+  description: Operator can understand how slashing works and cast a vote to slash a misbehaving storage node
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - pattern: '```'
+      min: 1
+      label: Has configuration or command examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is slashing on Walrus?
+  - How does the slashing process work?
+  - When can a storage node be slashed?
+answer: >-
+  Vote to slash misbehaving storage nodes through quorum-based governance that
+  burns the offender's accumulated commission.
 ---
 
 Walrus protects the network from misbehaving storage nodes through an onchain slashing mechanism. Committee members vote against a candidate node, and when a quorum of voting weight is reached, anyone can finalize the slashing to burn the candidate's accumulated commission. The penalty is paid by the operator and never by the delegators staking with that pool.

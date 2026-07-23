@@ -12,7 +12,6 @@ use axum::{
 };
 use axum_extra::{headers::ContentLength, typed_header::TypedHeader};
 use base64::Engine;
-use bytes::Buf;
 use fastcrypto::{
     secp256r1,
     traits::{EncodeDecodeBase64, RecoverableSignature},
@@ -212,7 +211,7 @@ where
             (StatusCode::BAD_REQUEST, msg.into())
         })?;
 
-        let mut decoder = ProtobufDecoder::new(Bytes::from(metric_payload.buf).reader());
+        let mut decoder = ProtobufDecoder::new(Bytes::from(metric_payload.buf));
         let metric_families = decoder.parse::<MetricFamily>().map_err(|e| {
             let msg = format!("unable to decode len delimited protobufs; {e}");
             error!(msg);

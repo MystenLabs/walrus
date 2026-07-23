@@ -82,7 +82,7 @@ public fun migrate(_staking: &mut Staking, _system: &mut System) {
 ///   - Create the slashing manager shared object.
 ///   - Do not use migration epoch.
 /// Migrate to version 4:
-///   - No additional steps beyond version bump.
+///   - Increase the max size of the active set to the updated `TEMP_ACTIVE_SET_SIZE_LIMIT`.
 entry fun migrate_v2(staking: &mut Staking, system: &mut System, _ctx: &mut TxContext) {
     staking.migrate();
     system.migrate();

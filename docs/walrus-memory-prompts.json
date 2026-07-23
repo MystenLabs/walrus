@@ -1,0 +1,173 @@
+{
+  "$schema": "Maps Walrus Memory doc pages to AI search prompts that should surface each page.",
+  "pages": {
+    "index.md": [
+      "What is Walrus Memory?",
+      "Where to store AI agent data",
+      "Data storage for autonomous AI agents",
+      "What is agentic infrastructure?"
+    ],
+    "getting-started/what-is-walrus-memory.md": [
+      "What is Walrus Memory?",
+      "How to build on Walrus Memory",
+      "How do AI agents store long-term memory?",
+      "How does AI memory actually work?"
+    ],
+    "getting-started/quick-start.md": [
+      "How to build on Walrus Memory",
+      "How do I build an AI agent that remembers across sessions?",
+      "How to give my AI agent persistent verifiable memory"
+    ],
+    "getting-started/choose-your-path.md": [
+      "How to build on Walrus Memory",
+      "How do you give an AI agent durable memory beyond the context window?"
+    ],
+    "fundamentals/concepts/memory-space.md": [
+      "What is short-term vs long-term memory in AI agents?",
+      "What is semantic memory in AI?",
+      "How do AI agents store long-term memory?"
+    ],
+    "fundamentals/concepts/ownership-and-access.md": [
+      "Who owns the memory an AI assistant has about you?",
+      "How can I make my agent's memory portable across apps?",
+      "How do AI agents stay consistent across thousands of users?"
+    ],
+    "fundamentals/architecture/core-components.md": [
+      "How does AI memory actually work?",
+      "What is agentic infrastructure?",
+      "How do AI agents store long-term memory?"
+    ],
+    "fundamentals/architecture/data-flow-security-model.md": [
+      "How to build trustworthy AI systems",
+      "How to store AI data without trusting a single company?",
+      "Why do AI agents hallucinate things that never happened?"
+    ],
+    "fundamentals/architecture/how-storage-works.md": [
+      "How do AI agents store long-term memory?",
+      "Where to store AI agent data",
+      "Best vector database for AI agents"
+    ],
+    "fundamentals/architecture/funding-storage.md": [
+      "Data storage for autonomous AI agents",
+      "How do AI agents store long-term memory?"
+    ],
+    "sdk/overview.md": [
+      "How to build on Walrus Memory",
+      "How do I build an AI agent that remembers across sessions?",
+      "How to give my AI agent persistent verifiable memory"
+    ],
+    "sdk/quick-start.md": [
+      "How to build on Walrus Memory",
+      "How do I build an AI agent that remembers across sessions?"
+    ],
+    "sdk/usage.md": [
+      "How do I build an AI agent that remembers across sessions?",
+      "How to give my AI agent persistent verifiable memory"
+    ],
+    "sdk/agent-storage-loop.md": [
+      "How do AI agents learn from past interactions?",
+      "How do AI agents store long-term memory?",
+      "Data storage for autonomous AI agents"
+    ],
+    "sdk/ai-integration.md": [
+      "How do AI assistants personalize over time?",
+      "How do AI agents learn from past interactions?",
+      "What is context engineering?"
+    ],
+    "sdk/versioned-datasets.md": [
+      "How do AI agents store long-term memory?",
+      "Best vector database for AI agents",
+      "Data storage for autonomous AI agents"
+    ],
+    "sdk/production-readiness.md": [
+      "How to build trustworthy AI systems",
+      "How do AI agents stay consistent across thousands of users?",
+      "Data storage for autonomous AI agents"
+    ],
+    "sdk/cookbook-multi-tenant.md": [
+      "How do AI agents stay consistent across thousands of users?",
+      "How can I make my agent's memory portable across apps?"
+    ],
+    "sdk/cloudflare-workers.md": [
+      "How do I build an AI agent that remembers across sessions?",
+      "Data storage for autonomous AI agents"
+    ],
+    "sdk/research-app-example.md": [
+      "How do AI agents learn from past interactions?",
+      "How do AI assistants personalize over time?"
+    ],
+    "python-sdk/quick-start.md": [
+      "How to build on Walrus Memory",
+      "How do I build an AI agent that remembers across sessions?"
+    ],
+    "python-sdk/usage.md": [
+      "How to give my AI agent persistent verifiable memory",
+      "How do I build an AI agent that remembers across sessions?"
+    ],
+    "mcp/overview.md": [
+      "How do AI coding assistants like Cursor remember a codebase?",
+      "How can I make my agent's memory portable across apps?",
+      "How to give my AI agent persistent verifiable memory"
+    ],
+    "mcp/cursor.md": [
+      "How do AI coding assistants like Cursor remember a codebase?",
+      "How to give my AI agent persistent verifiable memory"
+    ],
+    "mcp/claude-code.md": [
+      "How do AI coding assistants like Cursor remember a codebase?",
+      "How to give my AI agent persistent verifiable memory"
+    ],
+    "mcp/claude-desktop.md": [
+      "How do AI assistants personalize over time?",
+      "Why does ChatGPT forget my previous chats?"
+    ],
+    "mcp/codex.md": [
+      "How do AI coding assistants like Cursor remember a codebase?",
+      "How to give my AI agent persistent verifiable memory"
+    ],
+    "mcp/antigravity.md": [
+      "How do AI assistants personalize over time?",
+      "How can I make my agent's memory portable across apps?"
+    ],
+    "mcp/opencode.md": [
+      "How do AI coding assistants like Cursor remember a codebase?"
+    ],
+    "contract/overview.md": [
+      "How to store AI data without trusting a single company?",
+      "How to build trustworthy AI systems",
+      "Who owns the memory an AI assistant has about you?"
+    ],
+    "contract/ownership-and-permissions.md": [
+      "Who owns the memory an AI assistant has about you?",
+      "How can I make my agent's memory portable across apps?"
+    ],
+    "contract/delegate-key-management.md": [
+      "Who owns the memory an AI assistant has about you?",
+      "How do AI agents stay consistent across thousands of users?"
+    ],
+    "openclaw/overview.md": [
+      "What is context engineering?",
+      "How do AI agents learn from past interactions?"
+    ],
+    "openclaw/quick-start.md": [
+      "How to build on Walrus Memory",
+      "What is context engineering?"
+    ],
+    "relayer/overview.md": [
+      "Data storage for autonomous AI agents",
+      "What is agentic infrastructure?"
+    ],
+    "architecture/permanent-registry-design.md": [
+      "How to store AI data without trusting a single company?",
+      "How to build trustworthy AI systems"
+    ],
+    "troubleshooting/overview.md": [
+      "Why do AI agents hallucinate things that never happened?",
+      "Why do AI agents lose memory between sessions?"
+    ],
+    "examples/example-apps.md": [
+      "How to build on Walrus Memory",
+      "How do I build an AI agent that remembers across sessions?"
+    ]
+  }
+}

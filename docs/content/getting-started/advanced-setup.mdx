@@ -1,8 +1,46 @@
 ---
 title: Advanced Installation
-description: Advanced installation options for Walrus including building from source and binary installation.
-keywords: ["walrus", "installation", "configuration", "build from source", "cargo", "binaries", "advanced setup"]
+description: >-
+  Advanced installation options for Walrus including building from source and
+  binary installation.
+keywords:
+  - walrus
+  - installation
+  - configuration
+  - build from source
+  - cargo
+  - binaries
+  - advanced setup
+goal:
+  description: Reader can install Walrus through Nix, Cargo, source, or on Windows when the standard installer does not fit their environment
+  requires:
+    - pattern: '```'
+      min: 2
+      label: Has command or code examples
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - pattern: walrus --version|walrus -V|walrus --help
+      min: 1
+      label: Shows how to verify installation
+    - min_words: 300
+      label: Needs more walkthrough depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I install Walrus on Windows?
+  - How do I install Walrus from source or Nix?
+  - How do I configure Walrus after installation?
+answer: >-
+  Advanced installation options for Walrus including building from source and
+  binary installation.
 ---
+
+Advanced installation options for Walrus including building from source and binary installation.
 
 This page covers advanced setup options for Walrus, including building from source, installing from binaries, or using Cargo. For standard setup instructions, see [Getting Started](/docs/getting-started).
 

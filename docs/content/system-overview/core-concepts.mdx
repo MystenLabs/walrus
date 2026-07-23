@@ -1,10 +1,46 @@
 ---
 title: Walrus Fundamentals
-description: "Technical reference for Walrus fundamentals, including architecture, data storage, and data retrieval."
-keywords: [ users, storage nodes, ptbs, sui, walrus, events ]
+description: >-
+  Technical reference for Walrus fundamentals, including architecture, data
+  storage, and data retrieval.
+keywords:
+  - users
+  - storage nodes
+  - ptbs
+  - sui
+  - walrus
+  - events
+goal:
+  description: Reader can explain the Walrus architecture and how data is stored and retrieved
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What are blobs and how does Walrus store them?
+  - What infrastructure does Walrus use?
+  - How does Walrus ensure data availability?
+answer: >-
+  Walrus stores data as blobs. Each blob is an immutable array of bytes. Any
+  type of file, such as text, video, or source code, you can store on Walrus.
+  All blobs uploaded to Walrus are publicly available.
 ---
 
-Data is stored on Walrus as blobs. Each blob is an immutable array of bytes. Any type of file, such as text, video, or source code, can be stored on Walrus. All blobs uploaded to Walrus are publicly available. 
+Walrus stores data as blobs. Each blob is an immutable array of bytes. Any type of file, such as text, video, or source code, you can store on Walrus. All blobs uploaded to Walrus are publicly available.
 
 Sui is a blockchain that supports [programmable transactions](https://docs.sui.io/concepts/transactions/prog-txn-blocks). Walrus binds all blobs to objects on Sui. Walrus blobs are represented as Sui objects of type `Blob`.
 

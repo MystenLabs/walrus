@@ -4,148 +4,12 @@
 // @ts-check
 
 /**
- * Docs sidebars — structured around 4 product areas.
- * Icons on category labels follow the Mintlify/Mem0 pattern.
+ * Docs sidebars — structured around product areas.
  *
  * @type {import('@docusaurus/plugin-content-docs').SidebarsConfig}
  */
 
 const sidebars = {
-  // ── Walrus Console ────────────────────────────────────────────────
-  consoleSidebar: [
-    {
-      type: "category",
-      label: "Get Started",
-      collapsed: false,
-      link: { type: "doc", id: "console/index" },
-      items: [
-        "console/get-started/what-is-console",
-        "console/get-started/create-account",
-        "console/get-started/dashboard-tour",
-        "console/get-started/first-upload",
-      ],
-    },
-    {
-      type: "category",
-      label: "Files and Storage",
-      collapsed: true,
-      items: [
-        "console/files/upload-browse",
-        "console/files/manage-files",
-        "console/files/epoch-renewal",
-        "console/files/storage-limits",
-      ],
-    },
-    {
-      type: "category",
-      label: "Walrus Memory",
-      collapsed: true,
-      items: [
-        "console/memory/namespaces",
-        "console/memory/browse-objects",
-        "console/memory/epoch-renewal",
-      ],
-    },
-    {
-      type: "category",
-      label: "Datasets",
-      collapsed: true,
-      items: [
-        "console/datasets/what-are-datasets",
-        "console/datasets/upload-dataset",
-        "console/datasets/access-models",
-        "console/datasets/list-on-marketplace",
-      ],
-    },
-    {
-      type: "category",
-      label: "API and MCP",
-      collapsed: true,
-      items: [
-        "console/api/api-keys",
-        "console/api/mcp-server",
-        "console/api/api-reference",
-      ],
-    },
-    {
-      type: "category",
-      label: "Team Spaces",
-      collapsed: true,
-      items: [
-        "console/teams/create-team",
-        "console/teams/invite-members",
-        "console/teams/shared-api-keys",
-      ],
-    },
-    {
-      type: "category",
-      label: "Billing",
-      collapsed: true,
-      items: [
-        "console/billing/free-tier",
-        "console/billing/usage-pricing",
-        "console/billing/plans-pricing",
-      ],
-    },
-    {
-      type: "category",
-      label: "Security",
-      collapsed: true,
-      items: [
-        "console/security/authentication",
-        "console/security/security-audit",
-      ],
-    },
-  ],
-
-  // ── Walrus Marketplace ──────────────────────────────────────────
-  marketplaceSidebar: [
-    {
-      type: "category",
-      label: "Get Started",
-      collapsed: false,
-      link: { type: "doc", id: "marketplace/index" },
-      items: [
-        "marketplace/get-started/what-is-marketplace",
-        "marketplace/get-started/browse-listings",
-        "marketplace/get-started/first-purchase",
-      ],
-    },
-    {
-      type: "category",
-      label: "For Publishers",
-      collapsed: true,
-      items: [
-        "marketplace/publishers/create-listing",
-        "marketplace/publishers/pricing-royalties",
-        "marketplace/publishers/access-control",
-        "marketplace/publishers/manage-listings",
-        "marketplace/publishers/analytics",
-      ],
-    },
-    {
-      type: "category",
-      label: "For Consumers",
-      collapsed: true,
-      items: [
-        "marketplace/consumers/license-dataset",
-        "marketplace/consumers/access-licensed-data",
-        "marketplace/consumers/renewals",
-      ],
-    },
-    {
-      type: "category",
-      label: "Build Integrations",
-      collapsed: true,
-      items: [
-        "marketplace/build-integrations/api-reference",
-        "marketplace/build-integrations/embed-widgets",
-        "marketplace/build-integrations/webhooks-events",
-        "marketplace/build-integrations/console-sync",
-      ],
-    },
-  ],
-
   // ── Data Storage (core platform docs) ────────────────────────────
   docsSidebar: [
     {
@@ -155,8 +19,10 @@ const sidebars = {
       link: { type: "doc", id: "getting-started/index" },
       items: [
         "getting-started/advanced-setup",
+        "blob-operations-quickstart",
         "system-overview/available-networks",
         "network-reference",
+        "testnet-reference",
       ],
     },
     {
@@ -168,7 +34,9 @@ const sidebars = {
         "system-overview/core-concepts",
         "system-overview/operations",
         "system-overview/storage-costs",
+        "system-overview/caching",
         "system-overview/quilt",
+        "system-overview/wal-tokenomics-faq",
         "data-security",
       ],
     },
@@ -182,6 +50,7 @@ const sidebars = {
         "walrus-client/reading-blobs",
         "walrus-client/managing-blobs",
         "large-uploads",
+        "sponsored-uploads",
         "walrus-client/quilts",
       ],
     },
@@ -212,21 +81,11 @@ const sidebars = {
           items: [
             "http-api/storing-blobs",
             "http-api/reading-blobs",
+            "http-api/streaming-media",
             "http-api/quilt-http-apis",
           ],
         },
         "walrus-client/json-mode",
-      ],
-    },
-    {
-      type: "category",
-      label: "Costs and Billing",
-      collapsed: true,
-      link: { type: "doc", id: "costs/index" },
-      items: [
-        "costs/storage-pricing",
-        "costs/cost-calculator",
-        "costs/billing-faq",
       ],
     },
     {
@@ -280,6 +139,7 @@ const sidebars = {
         "system-overview/system-constraints",
         "system-overview/public-aggregators-and-publishers",
         "system-overview/view-system-info",
+        "production-readiness",
         "glossary",
       ],
     },

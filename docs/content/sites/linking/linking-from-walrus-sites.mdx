@@ -1,7 +1,39 @@
 ---
 title: Linking from Walrus Sites to External URLs
-description: How to link from Walrus Sites to external URLs, including absolute URL requirements, resource loading, and common outbound linking patterns.
-keywords: [Walrus Sites, external links, absolute URL, navigation, anchor, CORS]
+description: >-
+  How to link from Walrus Sites to external URLs, including absolute URL
+  requirements, resource loading, and common outbound linking patterns.
+keywords:
+  - Walrus Sites
+  - external links
+  - absolute URL
+  - navigation
+  - anchor
+  - CORS
+goal:
+  description: Reader can link from a Walrus Site to external URLs and load external resources correctly
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Linking from Walrus Sites to External URLs?
+  - How do I get started with linking from walrus sites to external urls?
+  - What are the requirements for linking from walrus sites to external urls?
+answer: >-
+  How to link from Walrus Sites to external URLs, including absolute URL
+  requirements, resource loading, and common outbound linking patterns.
 ---
 
 Walrus Sites serves content stored on Walrus through a [portal](/docs/sites/portals/mainnet-testnet). All relative URLs in your site resolve against the onchain site object. Anything outside that object, such as third-party pages, APIs, CDN assets, other Walrus Sites, requires an absolute URL.

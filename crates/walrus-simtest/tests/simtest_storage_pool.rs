@@ -22,7 +22,7 @@ mod tests {
         messages::ConfirmationCertificate,
     };
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::{node_client::WalrusNodeClient, uploader::TailHandling};
+    use walrus_sdk::{error::ClientError, node_client::WalrusNodeClient, uploader::TailHandling};
     use walrus_service::{
         client::ClientCommunicationConfig,
         test_utils::{SimStorageNodeHandle, TestCluster, TestNodesConfig, test_cluster},
@@ -144,24 +144,55 @@ mod tests {
         let obj_id = pooled_blob.id;
 
         let blob_persistence_type = pooled_blob.blob_persistence_type();
-        let cert: ConfirmationCertificate = client
-            .as_ref()
-            .send_blob_data_and_get_certificate(
-                &metadata,
-                Arc::new(sliver_pairs),
-                &blob_persistence_type,
-                None,
-                TailHandling::Blocking,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await?;
+        let sliver_pairs = Arc::new(sliver_pairs);
 
-        sui_client
-            .certify_pooled_blobs(bucket_id, &[(&pooled_blob, cert)])
-            .await?;
+        // An epoch change concurrent with the upload can invalidate the confirmations or
+        // the certificate; refresh the committees and retry in that case.
+        let mut attempt = 1;
+        loop {
+            let result: anyhow::Result<()> = async {
+                let cert: ConfirmationCertificate = client
+                    .as_ref()
+                    .send_blob_data_and_get_certificate(
+                        &metadata,
+                        sliver_pairs.clone(),
+                        &blob_persistence_type,
+                        None,
+                        TailHandling::Blocking,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?;
+
+                sui_client
+                    .certify_pooled_blobs(bucket_id, &[(&pooled_blob, cert)])
+                    .await?;
+                Ok(())
+            }
+            .await;
+
+            match result {
+                Ok(()) => break,
+                Err(error)
+                    if attempt < 3
+                        && (error
+                            .downcast_ref::<ClientError>()
+                            .is_some_and(|error| error.may_be_caused_by_epoch_change())
+                            || format!("{error:#}").contains("EIncorrectEpoch")) =>
+                {
+                    tracing::info!(
+                        %error,
+                        attempt,
+                        "storing pooled blob failed, possibly due to an epoch change; retrying"
+                    );
+                    client.as_ref().force_refresh_committees().await?;
+                    attempt += 1;
+                }
+                Err(error) => return Err(error),
+            }
+        }
 
         tracing::info!(%blob_id, %obj_id, "stored pooled blob");
         Ok((blob_id, obj_id))

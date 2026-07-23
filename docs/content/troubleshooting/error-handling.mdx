@@ -1,8 +1,39 @@
 ---
 title: Error Handling
 description: Best practices for handling Walrus errors.
-keywords: [walrus, error handling, retry, backoff, TypeScript, SDK, debugging]
+keywords:
+  - walrus
+  - error handling
+  - retry
+  - backoff
+  - TypeScript
+  - SDK
+  - debugging
+goal:
+  description: Reader can handle Walrus errors robustly with retries, on-chain verification, and consistency checks
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 2
+      label: Has code examples showing fixes
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I verify on-chain state after timeouts?
+  - How do I implement retry logic with exponential backoff?
+  - How do I use strict consistency checks for critical data?
+answer: Best practices for handling Walrus errors.
 ---
+
+Best practices for handling Walrus errors.
 
 This page covers how to handle Walrus errors programmatically in your applications. For a reference of specific error messages and their solutions, see [Troubleshooting Common Errors](/docs/troubleshooting/network-errors).
 

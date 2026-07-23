@@ -1,7 +1,40 @@
 ---
 title: Operate an Upload Relay
-description: "Guide to operating Walrus upload relays for facilitating browser-based blob storage with tip configuration and payment systems."
-keywords: ["walrus", "upload relay", "browser", "blob storage", "tip", "payment", "operations"]
+description: >-
+  Guide to operating Walrus upload relays for facilitating browser-based blob
+  storage with tip configuration and payment systems.
+keywords:
+  - walrus
+  - upload relay
+  - browser
+  - blob storage
+  - tip
+  - payment
+  - operations
+goal:
+  description: Operator can install, configure, and run a Walrus upload relay, including tip and payment settings
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - pattern: '```'
+      min: 1
+      label: Has configuration or command examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I operate an upload relay?
+  - How do I install the relay?
+  - How do I configure the relay?
+answer: >-
+  Guide to operating Walrus upload relays for facilitating browser-based blob
+  storage with tip configuration and payment systems.
 ---
 
 Walrus enables apps to store data from within end-user browsers that have low to moderate machine specifications (mobile devices, low-powered laptops, and so on). This browser-based scenario is difficult to achieve in practice with an in-browser process that directly communicates with the storage nodes because of the high number of network connections required to upload all slivers to all shards.
@@ -29,6 +62,12 @@ At a high level, a client stores a blob using an upload relay as follows:
 1. The client uses the confirmation certificate to certify the blob on Sui.
 
 The upload relay does not perform any onchain operation and only helps clients distribute the slivers of their blobs to storage nodes.
+
+:::info Blobs and quilts
+
+The relay operates on a single blob per request. A blob is one immutable unit of data, whereas a [quilt](/docs/system-overview/quilt) is a batch of many small blobs stored together to amortize per-blob overhead. Batch small files into a quilt on the client before you store, then relay the resulting blob. For the distinction and when to use each, see [Batch Storage with Quilt](/docs/system-overview/quilt).
+
+:::
 
 The flow between clients and the upload relay is already implemented in the Walrus CLI, Rust SDK, and TypeScript SDK. Developers do not need to implement it themselves. To compare upload paths, see [Choose your upload path](/docs/getting-started#choose-your-upload-path). For completeness, the following sections discuss how the service is implemented, paid for, and used by clients.
 
@@ -130,6 +169,12 @@ $ docker run \
     --server-address 0.0.0.0:3000 \
     --relay-config /opt/walrus/walrus_upload_relay_config.yaml
 ```
+
+:::tip Pointing the relay at a local network
+
+The relay talks to whichever network its client configuration defines. The `--context` flag selects a context from the `--walrus-config` file, so there is no separate flag for a local network. To relay against a locally run Walrus network, add a context for it to your `client_config.yaml`, then pass that context name with `--context`. For how to run a local network, see [Run a local Walrus network](/docs/system-overview/available-networks).
+
+:::
 
 ### Configure relay-specific settings
 
