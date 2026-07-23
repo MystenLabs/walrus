@@ -91,12 +91,18 @@ use walrus_sui::{
         ReadClient,
         SuiClientError,
         SuiContractClient,
+        dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     coin::Coin,
     config::WalletConfig,
     dynamic_field_info::DynamicFieldKind,
-    test_utils::{self, fund_addresses, wallet_for_testing},
+    test_utils::{
+        self,
+        fund_addresses,
+        new_wallet_on_sui_test_cluster_with_rpc_url,
+        wallet_for_testing,
+    },
     types::{
         Blob,
         move_errors::MoveExecutionError,
@@ -4379,4 +4385,80 @@ async fn test_list_dynamic_fields_pagination() -> TestResult {
     }
 
     Ok(())
+}
+
+/// Tests that the client works end to end against a Sui fullnode that serves only gRPC.
+///
+/// Public Sui fullnodes no longer serve JSON-RPC. This test is the regression fence for the
+/// incident where every released binary failed at startup against such endpoints, because
+/// constructing the Sui client performed a JSON-RPC handshake regardless of the migration
+/// level. The walrus client under test here can only reach the gRPC-only fullnode, through
+/// both its wallet configuration and its RPC URL list.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
+    // Box the test body: together with the e2e setup it forms a future that is too large for
+    // the test thread's stack.
+    Box::pin(store_and_read_with_grpc_only_sui_fullnode()).await
+}
+
+async fn store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
+    walrus_test_utils::init_tracing();
+    let (sui_cluster_handle, _cluster, admin_client, system_ctx, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    let Some(grpc_only_rpc_url) = sui_cluster_handle
+        .lock()
+        .await
+        .grpc_only_rpc_url()
+        .map(str::to_owned)
+    else {
+        tracing::warn!("skipping test: no gRPC-only fullnode is available on an external cluster");
+        return Ok(());
+    };
+    let rpc_urls = [grpc_only_rpc_url.clone()];
+
+    // Create a wallet whose Sui environment points only at the gRPC-only fullnode, and fund it
+    // with WAL so that it can store blobs.
+    let wallet =
+        new_wallet_on_sui_test_cluster_with_rpc_url(sui_cluster_handle.clone(), &grpc_only_rpc_url)
+            .await?;
+    admin_client
+        .as_ref()
+        .sui_client()
+        .send_wal(FROST_PER_NODE_WEIGHT, wallet.as_ref().active_address())
+        .await?;
+
+    let contract_client = wallet
+        .and_then_async(async |wallet| {
+            system_ctx
+                .new_contract_client(
+                    wallet,
+                    &rpc_urls,
+                    Default::default(),
+                    None,
+                    DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+                )
+                .await
+        })
+        .await?;
+
+    let config = ClientConfig {
+        contract_config: system_ctx.contract_config(),
+        exchange_objects: vec![],
+        wallet_config: None,
+        rpc_urls: vec![grpc_only_rpc_url],
+        communication_config: ClientCommunicationConfig::default_for_test(),
+        refresh_config: Default::default(),
+        quilt_client_config: Default::default(),
+        byte_range_read_client_config: Default::default(),
+        streaming_config: Default::default(),
+    };
+    let client = contract_client
+        .and_then_async(|contract_client| {
+            WalrusNodeClient::new_contract_client_with_refresher(config, contract_client)
+        })
+        .await?;
+
+    basic_store_and_read(&client, 2, 31415, None, || Ok(())).await
 }
