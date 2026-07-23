@@ -9,7 +9,10 @@
 
 use super::*;
 
+pub(crate) mod attestation;
 pub(crate) mod plan;
+
+use attestation::EpochSyncDoneToken;
 
 /// Threshold above which we emit a warning that the foreground portion of an
 /// `EpochChangeStart` event took unexpectedly long to process. The shard-sync work
@@ -520,6 +523,9 @@ impl StorageNode {
                     "node is not in the current committee, set node status to 'Standby'"
                 );
                 self.inner.set_node_status(NodeStatus::Standby)?;
+                // A standby node makes no epoch-sync claim: invalidate any unconsumed token.
+                self.shard_sync_handler.clear_epoch_sync_done_token();
+                self.node_recovery_handler.clear_epoch_sync_done_token();
                 event_handle.mark_as_complete();
                 return Ok(());
             }
@@ -585,6 +591,29 @@ impl StorageNode {
         }
         if matches!(transition.recovery, plan::RecoveryAction::EnsureRunning(_)) {
             sui_macros::fail_point!("fail_point_shard_changes_in_new_epoch_while_recovering");
+        }
+
+        // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand it
+        // to the owner named in the plan, invalidating any token held by the other components.
+        // This runs while the status guard is still held (for recovery-owned attestations, the
+        // token placement is thereby atomic with the target advancement above) and before any
+        // shard sync is started (so a completing sync cannot miss its token).
+        let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
+        let mut finisher_attestation = None;
+        match transition.sync_done_owner {
+            plan::AttestationOwner::Finisher => {
+                self.shard_sync_handler.clear_epoch_sync_done_token();
+                self.node_recovery_handler.clear_epoch_sync_done_token();
+                finisher_attestation = Some(token);
+            }
+            plan::AttestationOwner::ShardSync => {
+                self.node_recovery_handler.clear_epoch_sync_done_token();
+                self.shard_sync_handler.set_epoch_sync_done_token(token);
+            }
+            plan::AttestationOwner::RecoveryTask => {
+                self.shard_sync_handler.clear_epoch_sync_done_token();
+                self.node_recovery_handler.set_epoch_sync_done_token(token);
+            }
         }
 
         // For plans without a recovery action, the remaining steps perform no recovery-related
@@ -697,11 +726,9 @@ impl StorageNode {
         drop(status_guard);
 
         // Step 9: hand off completion. The finisher removes old shards in the background, and —
-        // if it is the attestation owner — attests `epoch_sync_done` for the new epoch before
+        // if it holds the attestation token — attests `epoch_sync_done` for the new epoch before
         // marking the event as complete. When another component owns the attestation and there
         // is nothing to remove, the event is completed directly.
-        let ongoing_shard_sync =
-            !matches!(transition.sync_done_owner, plan::AttestationOwner::Finisher);
         let complete_directly = !matches!(transition.recovery, plan::RecoveryAction::None)
             && transition.remove.is_empty();
         if complete_directly {
@@ -713,7 +740,7 @@ impl StorageNode {
                     event,
                     transition.remove.clone(),
                     committees,
-                    ongoing_shard_sync,
+                    finisher_attestation,
                 );
         }
 

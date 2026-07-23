@@ -14,7 +14,10 @@ use walrus_sui::types::EpochChangeStart;
 use walrus_utils::backoff::{self, ExponentialBackoff};
 
 use super::{StorageNodeInner, system_events::EventHandle};
-use crate::node::system_events::CompletableHandle;
+use crate::node::{
+    epoch_change::attestation::EpochSyncDoneToken,
+    system_events::CompletableHandle,
+};
 
 #[derive(Debug, Clone)]
 pub struct StartEpochChangeFinisher {
@@ -35,7 +38,8 @@ impl StartEpochChangeFinisher {
     /// Starts background tasks to finish the epoch change.
     ///
     /// This includes the following:
-    /// - Sending epoch sync done if there is no newly scheduled shard syncs.
+    /// - Attesting epoch sync done if the finisher was handed the attestation token (that is, no
+    ///   shard syncs were started and node recovery is not in progress).
     /// - Removing no longer owned storage for shards.
     /// - Marking the event as completed.
     pub fn start_finish_epoch_change_tasks(
@@ -44,7 +48,7 @@ impl StartEpochChangeFinisher {
         event: &EpochChangeStart,
         shards: Vec<ShardIndex>,
         committees: ActiveCommittees,
-        ongoing_shard_sync: bool,
+        attestation: Option<EpochSyncDoneToken>,
     ) {
         let self_clone = self.clone();
         let event_clone = event.clone();
@@ -68,10 +72,16 @@ impl StartEpochChangeFinisher {
 
             fail_point_async!("blocking_finishing_epoch_change_start");
 
+            // The attestation is not part of the retry loop: the token is consumed by attesting,
+            // and the underlying contract call already retries internally until the attestation
+            // succeeds or becomes stale.
+            if let Some(token) = attestation {
+                self_clone
+                    .epoch_sync_done(token, &committees, &event_clone)
+                    .await;
+            }
+
             if let Err(error) = backoff::retry(backoff, || async {
-                if !ongoing_shard_sync {
-                    self_clone.epoch_sync_done(&committees, &event_clone).await;
-                }
                 self_clone
                     .remove_storage_for_shards(event_clone.clone(), &shards.clone())
                     .await?;
@@ -98,8 +108,14 @@ impl StartEpochChangeFinisher {
         *locked_task_handle = Some(handle);
     }
 
-    /// Signals that the epoch sync is done if the node is in the current committee and no shards.
-    async fn epoch_sync_done(&self, committees: &ActiveCommittees, event: &EpochChangeStart) {
+    /// Attests that the epoch sync is done if the node is in the current committee; otherwise
+    /// the token is dropped without attesting.
+    async fn epoch_sync_done(
+        &self,
+        token: EpochSyncDoneToken,
+        committees: &ActiveCommittees,
+        event: &EpochChangeStart,
+    ) {
         let is_node_in_committee = committees
             .current_committee()
             .contains(self.node.public_key());
@@ -107,10 +123,8 @@ impl StartEpochChangeFinisher {
             // We are in the current committee, but no shards were gained. Directly signal that
             // the epoch sync is done.
             tracing::info!("no shards gained, so signalling that epoch sync is done");
-            self.node
-                .contract_service
-                .epoch_sync_done(event.epoch, self.node.node_capability())
-                .await;
+            debug_assert_eq!(token.epoch(), event.epoch);
+            token.attest(&self.node).await;
             tracing::info!("epoch sync done signaled");
         } else {
             // Since we just refreshed the committee after receiving the event, the committees'
