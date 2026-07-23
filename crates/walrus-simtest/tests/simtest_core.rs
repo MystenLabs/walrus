@@ -1083,8 +1083,9 @@ mod tests {
     }
 
     // Tests that an epoch change occurring while node recovery is in progress fills newly
-    // gained shards using shard sync, and that node recovery does not start any blob syncs
-    // while shard syncs are running.
+    // gained shards using shard sync, that node recovery does not start any blob syncs while
+    // shard syncs are running, and that the recovery task keeps running across the epoch
+    // changes instead of being restarted.
     //
     // The test crashes a node long enough for it to enter RecoveryInProgress state, holds the
     // recovery task using a fail point, stakes additional weight on the node so that it gains
@@ -1184,15 +1185,21 @@ mod tests {
 
         // Holds the recovery task of the target node so that the recovery reliably spans
         // multiple epoch changes; released once the node has gained shards while recovering.
+        // Also counts how many recovery tasks are spawned on the target node: epoch changes
+        // processed while recovering must not restart the recovery task.
         let hold_recovery = Arc::new(AtomicBool::new(true));
+        let recovery_task_spawn_count = Arc::new(AtomicU64::new(0));
         {
             let hold_recovery = hold_recovery.clone();
+            let recovery_task_spawn_count = recovery_task_spawn_count.clone();
             register_fail_point_async("start_node_recovery_entry", move || {
                 let hold_recovery = hold_recovery.clone();
+                let recovery_task_spawn_count = recovery_task_spawn_count.clone();
                 async move {
                     if sui_simulator::current_simnode_id() != target_node_id {
                         return;
                     }
+                    recovery_task_spawn_count.fetch_add(1, Ordering::SeqCst);
                     tracing::info!("holding node recovery until released by the test");
                     while hold_recovery.load(Ordering::SeqCst) {
                         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -1273,6 +1280,11 @@ mod tests {
         assert!(
             !ordering_violation.load(Ordering::SeqCst),
             "node recovery must not start blob syncs while shard syncs are running"
+        );
+        assert_eq!(
+            recovery_task_spawn_count.load(Ordering::SeqCst),
+            1,
+            "the recovery task must not be restarted by epoch changes processed while recovering"
         );
 
         // The gained shards should be owned by the node and be ready to serve traffic.
