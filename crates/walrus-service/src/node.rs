@@ -2930,8 +2930,39 @@ impl StorageNodeInner {
         false
     }
 
-    /// Sets the status of the node.
+    /// Sets the status of the node, validating the transition against the node-status state
+    /// machine ([`NodeStatus::can_transition_to`]).
+    ///
+    /// An illegal transition indicates a bug in the epoch-change or recovery logic: it panics in
+    /// debug builds (including simtests) and is logged as an error — but still performed, to
+    /// avoid wedging the node — in release builds.
     pub fn set_node_status(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
+        let current_status = self.storage.node_status()?;
+        if !current_status.can_transition_to(&status) {
+            debug_assert!(
+                false,
+                "illegal node status transition: {current_status} -> {status}"
+            );
+            tracing::error!(
+                %current_status,
+                new_status = %status,
+                "illegal node status transition; proceeding anyway"
+            );
+        } else {
+            tracing::info!(
+                %current_status,
+                new_status = %status,
+                "node status transition"
+            );
+        }
+        self.metrics.current_node_status.set(status.to_i64());
+        self.storage.set_node_status(status)
+    }
+
+    /// Sets the status of the node without validating the transition. Only for tests that need
+    /// to force the node into a specific state.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn set_node_status_unchecked(&self, status: NodeStatus) -> Result<(), TypedStoreError> {
         self.metrics.current_node_status.set(status.to_i64());
         self.storage.set_node_status(status)
     }
@@ -7489,7 +7520,7 @@ mod tests {
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
-            node_inner.set_node_status(NodeStatus::RecoverMetadata)?;
+            node_inner.set_node_status_unchecked(NodeStatus::RecoverMetadata)?;
         }
 
         cluster.nodes[1]
@@ -7568,7 +7599,7 @@ mod tests {
 
         if wipe_metadata_before_transfer_in_dst {
             node_inner.storage.clear_metadata_in_test()?;
-            node_inner.set_node_status(NodeStatus::RecoverMetadata)?;
+            node_inner.set_node_status_unchecked(NodeStatus::RecoverMetadata)?;
         }
 
         cluster.nodes[1]
@@ -8762,7 +8793,7 @@ mod tests {
             cluster.nodes[1]
                 .storage_node
                 .inner
-                .set_node_status(NodeStatus::RecoveryCatchUp)?;
+                .set_node_status_unchecked(NodeStatus::RecoveryCatchUp)?;
 
             // Release the paused metadata recovery and let the task finish.
             release_metadata_sync.store(true, Ordering::SeqCst);
@@ -9106,7 +9137,7 @@ mod tests {
                 .create_storage_for_shards_for_testing(&[ShardIndex(0)])
                 .await?;
             node_inner.storage.clear_metadata_in_test()?;
-            node_inner.set_node_status(NodeStatus::RecoverMetadata)?;
+            node_inner.set_node_status_unchecked(NodeStatus::RecoverMetadata)?;
 
             let shard_storage_dst = node_inner
                 .storage

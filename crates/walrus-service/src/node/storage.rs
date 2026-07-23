@@ -161,6 +161,53 @@ impl NodeStatus {
             NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. }
         )
     }
+
+    /// Returns `true` if a transition from `self` to `new` is a legal node-status transition.
+    ///
+    /// This is the single source of truth for the node-status state machine. The legal
+    /// transitions, besides writing the same variant again (which includes advancing the
+    /// [`RecoveryInProgress`][Self::RecoveryInProgress] target epoch), are:
+    ///
+    /// | From                                 | To                | Trigger                       |
+    /// |--------------------------------------|-------------------|-------------------------------|
+    /// | `Standby`                            | `RecoverMetadata` | joined the committee          |
+    /// | `Standby`                            | `RecoveryCatchUp` | lag detected                  |
+    /// | `Standby`                            | `RecoveryCatchUpWithIncompleteHistory` | fresh node with expired event history |
+    /// | `Active`                             | `Standby`         | dropped out of the committee  |
+    /// | `Active`                             | `RecoveryCatchUp` | lag detected                  |
+    /// | `RecoverMetadata`                    | `Active`          | metadata recovery finished    |
+    /// | `RecoverMetadata`                    | `Standby`         | dropped out of the committee  |
+    /// | `RecoverMetadata`                    | `RecoveryCatchUp` | lag detected                  |
+    /// | `RecoveryCatchUp` (and incomplete-history variant) | `Standby` | caught up; not a committee member |
+    /// | `RecoveryCatchUp` (and incomplete-history variant) | `RecoverMetadata` | caught up; new committee member |
+    /// | `RecoveryCatchUp` (and incomplete-history variant) | `RecoveryInProgress` | caught up; continuing committee member |
+    /// | `RecoveryInProgress`                 | `Active`          | node recovery completed       |
+    /// | `RecoveryInProgress`                 | `Standby`         | dropped out of the committee  |
+    /// | `RecoveryInProgress`                 | `RecoveryCatchUp` | lag detected                  |
+    pub fn can_transition_to(&self, new: &NodeStatus) -> bool {
+        use NodeStatus::*;
+
+        // Writing the same variant again is always legal: status writes are idempotent under
+        // event replay, and the epoch-change path advances the `RecoveryInProgress` target by
+        // rewriting the variant with a newer epoch.
+        if std::mem::discriminant(self) == std::mem::discriminant(new) {
+            return true;
+        }
+
+        matches!(
+            (self, new),
+            (
+                Standby,
+                RecoverMetadata | RecoveryCatchUp | RecoveryCatchUpWithIncompleteHistory { .. }
+            ) | (Active, Standby | RecoveryCatchUp)
+                | (RecoverMetadata, Active | Standby | RecoveryCatchUp)
+                | (
+                    RecoveryCatchUp | RecoveryCatchUpWithIncompleteHistory { .. },
+                    Standby | RecoverMetadata | RecoveryInProgress(_)
+                )
+                | (RecoveryInProgress(_), Active | Standby | RecoveryCatchUp)
+        )
+    }
 }
 
 impl Display for NodeStatus {
