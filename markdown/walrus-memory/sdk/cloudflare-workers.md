@@ -6,7 +6,9 @@ Walrus Memory runs on the [Cloudflare Workers](https://developers.cloudflare.com
 
 The SDK relies on the Node.js `crypto` built-in, and `@mysten/seal` and `@mysten/sui` pull in more Node APIs. Enable the Node.js compatibility flag in your `wrangler.toml`:
 
-```toml wrangler.toml
+[Source: sdk/cloudflare-workers.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/cloudflare-workers.md)
+
+```toml title="wrangler.toml"
 compatibility_flags = ["nodejs_compat"]
 ```
 
@@ -22,6 +24,8 @@ Even the default `MemWal` client requires `@mysten/seal` and `@mysten/sui` as pe
 ## Crash isolation with dynamic import
 
 To keep a Walrus Memory bundling or runtime issue from taking down the rest of your agent, load it behind a defensive dynamic import and feature-flag it off when config is missing or the client fails to come up. This way the app keeps serving requests even if memory is unavailable for a cycle:
+
+[Source: sdk/cloudflare-workers.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/cloudflare-workers.md)
 
 ```ts
 let memwal: any = null;

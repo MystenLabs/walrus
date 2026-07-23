@@ -5,6 +5,8 @@ This page focuses on app-level patterns,the basic SDK flow covered in [Quick Sta
 
 ## Run locally
 
+[Source: examples/example-apps.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/examples/example-apps.md)
+
 ```bash
 $ pnpm dev:app
 $ pnpm dev:chatbot
@@ -15,6 +17,8 @@ $ pnpm dev:researcher
 ## [Playground](https://github.com/MystenLabs/MemWal/tree/main/apps/app)
 
 Dashboard, playground, and interactive demo for Walrus Memory.
+
+[Source: examples/example-apps.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/examples/example-apps.md)
 
 ```ts
 const memwal = MemWal.create({
@@ -36,6 +40,8 @@ This app covers the full getting-started flow in one place. It signs users in, s
 
 AI chat app with persistent memory across sessions.
 
+[Source: examples/example-apps.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/examples/example-apps.md)
+
 ```ts
 import { withMemWal } from "@mysten-incubation/memwal/ai";
 
@@ -54,6 +60,8 @@ This app shows AI middleware integration in a production-style chat app. The UI 
 
 Note-taking app that stores insights as encrypted, searchable memory.
 
+[Source: examples/example-apps.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/examples/example-apps.md)
+
 ```ts
 export const extractMemories = async (text: string): Promise<string[]> => {
   const memwal = getMemWalClient();
@@ -67,6 +75,8 @@ This app shows note-to-memory extraction. Noter keeps a shared server-side Walru
 ## [Researcher](https://github.com/MystenLabs/MemWal/tree/main/apps/researcher)
 
 Research assistant that saves and recalls findings across sessions.
+
+[Source: examples/example-apps.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/examples/example-apps.md)
 
 ```ts
 const fullText =

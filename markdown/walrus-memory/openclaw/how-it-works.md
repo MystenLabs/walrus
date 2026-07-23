@@ -4,6 +4,8 @@ The plugin sits between OpenClaw's gateway and the Walrus Memory server. It oper
 
 ## Architecture
 
+[Source: openclaw/how-it-works.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/how-it-works.md)
+
 ```mermaid
 graph TB
     subgraph "OpenClaw Gateway"
@@ -59,6 +61,8 @@ graph TB
 ## Message flow
 
 Every conversation turn follows this sequence:
+
+[Source: openclaw/how-it-works.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/how-it-works.md)
 
 ```mermaid
 sequenceDiagram
@@ -153,6 +157,8 @@ Capture runs **after** the response is sent, the user never waits for it.
 ## Multi-agent isolation
 
 Each OpenClaw agent gets its own memory namespace, derived from the session key:
+
+[Source: openclaw/how-it-works.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/how-it-works.md)
 
 ```
 Session key: "agent:researcher:uuid-456" → namespace: "researcher"

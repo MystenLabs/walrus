@@ -7,6 +7,8 @@ See also:
 
 ## `MemWal.create(...)`
 
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
+
 ```python
 MemWal.create(
     key: str,
@@ -37,6 +39,8 @@ All methods are coroutines on `MemWal`; `MemWalSync` exposes the same names with
 
 Submit one memory. Returns after the relayer accepts a background job; embedding, Seal encryption, Walrus upload, and indexing continue asynchronously. `remember_async` is an alias.
 
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
+
 ```python
 RememberAcceptedResult(job_id: str, status: str)
 ```
@@ -44,6 +48,8 @@ RememberAcceptedResult(job_id: str, status: str)
 ### `remember_and_wait(text, namespace=None, poll_interval_ms=1500, timeout_ms=60_000) -> RememberResult`
 
 Submit one memory and poll until the job completes.
+
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
 
 ```python
 RememberResult(id: str, blob_id: str, owner: str, namespace: str)
@@ -57,6 +63,8 @@ Poll a previously accepted job until `done` or `failed`. Raises `MemWalRememberJ
 
 Submit up to 20 `RememberBulkItem` in one request. `remember_bulk` is an alias.
 
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
+
 ```python
 RememberBulkAcceptedResult(job_ids: list[str], total: int, status: str)
 ```
@@ -68,6 +76,8 @@ One `RememberBulkStatusItem(job_id, status, blob_id?, error?)` per requested job
 ### `wait_for_remember_jobs(job_ids, opts=None) -> RememberBulkResult`
 
 Poll a batch until every job is terminal. `opts` is a `RememberBulkOptions(poll_interval_ms=1500, timeout_ms=120_000)`.
+
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
 
 ```python
 RememberBulkResult(
@@ -87,6 +97,8 @@ When `max_distance` is set, the client drops weak matches where `distance >= max
 
 Preferred form:
 
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
+
 ```python
 from memwal import RecallParams
 
@@ -96,6 +108,8 @@ result = await memwal.recall(
 ```
 
 The legacy positional form `recall(query, limit=10, namespace=None, max_distance=None)` remains supported for backwards compatibility.
+
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
 
 ```python
 RecallResult(
@@ -109,6 +123,8 @@ RecallResult(
 ### `analyze(text, namespace=None) -> AnalyzeResult`
 
 Extract memorable facts through an LLM and enqueue one background remember job per fact.
+
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
 
 ```python
 AnalyzeResult(
@@ -126,6 +142,8 @@ AnalyzeResult(
 
 Answer a question using your memories as context.
 
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
+
 ```python
 AskResult(
     answer: str,
@@ -142,6 +160,8 @@ Rebuild missing indexed entries for one namespace from Walrus. Incremental.
 - `restored` counts blobs re-indexed in this call; `skipped` counts blobs already in the local index
 - There is no pagination cursor; use a larger `limit` for larger one-shot restores
 
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
+
 ```python
 RestoreResult(restored: int, skipped: int, total: int, namespace: str, owner: str)
 ```
@@ -149,6 +169,8 @@ RestoreResult(restored: int, skipped: int, total: int, namespace: str, owner: st
 ### `health() -> HealthResult`
 
 Check relayer health. No authentication. Raises `MemWalError` on non-200.
+
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
 
 ```python
 HealthResult(
@@ -184,6 +206,8 @@ See [Manual methods](/walrus-memory/python-sdk/usage/memwal-manual).
 
 ## Middleware
 
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
+
 ```python
 from memwal import with_memwal_langchain, with_memwal_openai
 ```
@@ -191,6 +215,8 @@ from memwal import with_memwal_langchain, with_memwal_openai
 Both wrap an existing LLM client with automatic recall + save and accept: `key`, `account_id`, `server_url`, `namespace`, `env`, `max_memories` (5), `auto_save` (True), `min_relevance` (0.3), `debug` (False). The alias `withMemWal` maps to `with_memwal_langchain`. See [with_memwal](/walrus-memory/python-sdk/usage/with-memwal).
 
 ## Exceptions
+
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
 
 ```python
 from memwal import (
@@ -210,6 +236,8 @@ from memwal import (
 
 ## Utility functions
 
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
+
 ```python
 from memwal import delegate_key_to_sui_address, delegate_key_to_public_key
 ```
@@ -222,6 +250,8 @@ from memwal import delegate_key_to_sui_address, delegate_key_to_public_key
 ## Authentication
 
 Every request is signed with Ed25519 (PyNaCl). Canonical message:
+
+[Source: python-sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md)
 
 ```
 {timestamp}.{method}.{path_and_query}.{body_sha256}.{nonce}.{account_id}

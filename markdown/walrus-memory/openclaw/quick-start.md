@@ -101,6 +101,8 @@ If you see `health check failed`, check that your relayer URL is reachable and y
 
 Run the stats command to confirm the plugin is connected:
 
+[Source: openclaw/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/quick-start.md)
+
 ```bash
 $ openclaw memwal stats
 ```
@@ -113,28 +115,38 @@ The core value of the plugin is the automatic recall/capture cycle. Test it end-
 
 **1. Store a fact**, start a conversation and share something memorable:
 
+[Source: openclaw/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/quick-start.md)
+
 ```
 You: I prefer TypeScript over JavaScript for backend work
 Bot: (responds normally)
 ```
 
 Check logs, you should see:
+[Source: openclaw/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/quick-start.md)
+
 ```
 oc-memwal: auto-captured 1 facts (agent: main, namespace: default)
 ```
 
 **2. Recall it**, in a **new conversation**, ask about it:
 
+[Source: openclaw/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/quick-start.md)
+
 ```
 You: What programming languages do I like?
 ```
 
 Check logs, you should see:
+[Source: openclaw/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/quick-start.md)
+
 ```
 oc-memwal: auto-recall injected 1 memories (agent: main, namespace: default)
 ```
 
 **3. Search from terminal**, confirm the memory exists through CLI:
+
+[Source: openclaw/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/quick-start.md)
 
 ```bash
 $ openclaw memwal search "programming"
@@ -145,6 +157,8 @@ If all three steps work, the plugin is fully operational.
 ### Enable LLM tools (optional)
 
 By default, the plugin works entirely through hooks, the LLM doesn't know about memory tools. To give the LLM explicit control, add tools to your agent profile:
+
+[Source: openclaw/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/quick-start.md)
 
 ```json
 {

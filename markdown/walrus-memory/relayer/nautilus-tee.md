@@ -36,6 +36,8 @@ plaintext boundary moves from a normal host process into the enclave.
 
 ## Architecture flow
 
+[Source: relayer/nautilus-tee.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/nautilus-tee.md)
+
 ```mermaid
 flowchart LR
     Client["Client / SDK<br/>plaintext remember/recall"]
@@ -93,6 +95,8 @@ Template files:
 
 Copy the template before editing:
 
+[Source: relayer/nautilus-tee.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/nautilus-tee.md)
+
 ```bash
 $ cp services/server/deploy/nautilus/nautilus.toml.example .nautilus.toml
 $ cp services/server/deploy/nautilus/runtime.env.example .env.nautilus
@@ -102,6 +106,8 @@ Then replace placeholder values and wire `.env.nautilus` into your Nautilus or
 CI secret mechanism. Do not bake secrets into the enclave image.
 
 Build the reference image from the repo root:
+
+[Source: relayer/nautilus-tee.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/nautilus-tee.md)
 
 ```bash
 $ make -C services/server/deploy/nautilus build
@@ -115,6 +121,8 @@ commands are Nautilus-version specific; the Walrus Memory requirements are the r
 variables and external endpoints listed below.
 
 For a local container smoke test with a filled env file:
+
+[Source: relayer/nautilus-tee.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/nautilus-tee.md)
 
 ```bash
 $ make -C services/server/deploy/nautilus run-local ENV_FILE=.env.nautilus
@@ -202,11 +210,15 @@ needs to perform the platform-specific steps for the Nautilus version in use:
 
 After any local or TEE deployment, check the public health endpoint:
 
+[Source: relayer/nautilus-tee.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/nautilus-tee.md)
+
 ```bash
 $ curl "$TEE_RELAYER_URL/health"
 ```
 
 Check metrics if your ingress exposes them to trusted operators:
+
+[Source: relayer/nautilus-tee.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/nautilus-tee.md)
 
 ```bash
 $ curl "$TEE_RELAYER_URL/metrics"
@@ -216,6 +228,8 @@ For Nautilus/TEE deployments, also verify the platform-specific attestation or
 measurement output. The local Docker smoke test does not cover this step.
 
 Run a remember/recall smoke test through the TEE endpoint:
+
+[Source: relayer/nautilus-tee.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/nautilus-tee.md)
 
 ```bash
 TEE_RELAYER_URL=https://tee-relayer.example.com \

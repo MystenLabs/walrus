@@ -7,6 +7,8 @@ See also:
 
 ## `MemWal.create(config)`
 
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
+
 ```ts
 MemWal.create(config: MemWalConfig): MemWal
 ```
@@ -28,6 +30,8 @@ Submit one memory through the relayer. The method returns after the relayer crea
 
 **Returns:**
 
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
+
 ```ts
 {
   job_id: string; // Polling id
@@ -40,6 +44,8 @@ Submit one memory through the relayer. The method returns after the relayer crea
 Submit one memory and poll until the background job completes.
 
 **Returns:**
+
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
 
 ```ts
 {
@@ -60,6 +66,8 @@ Poll a previously accepted remember job until it reaches `done` or `failed`.
 Submit up to 20 memories in one request and return the accepted job IDs immediately.
 
 **Returns:**
+
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
 
 ```ts
 {
@@ -84,6 +92,8 @@ Search for memories matching a natural language query, scoped to `owner + namesp
 
 **Returns:**
 
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
+
 ```ts
 {
   results: Array<{
@@ -102,6 +112,8 @@ Search for memories matching a natural language query, scoped to `owner + namesp
 Extract memorable facts from text using an LLM, then return accepted background jobs for storing each fact.
 
 **Returns:**
+
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
 
 ```ts
 {
@@ -126,6 +138,8 @@ Rebuild missing indexed entries for one namespace from Walrus. Incremental, only
 - `limit` defaults to `10`
 
 **Returns:**
+
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
 
 ```ts
 {
@@ -163,6 +177,8 @@ These exist on the `MemWal` class for advanced use cases:
 
 ## `MemWalManual`
 
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
+
 ```ts
 import { MemWalManual } from "@mysten-incubation/memwal/manual";
 ```
@@ -194,6 +210,8 @@ Whether this client uses a connected wallet signer (vs. raw keypair).
 
 ## `withMemWal`
 
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
+
 ```ts
 import { withMemWal } from "@mysten-incubation/memwal/ai";
 ```
@@ -223,6 +241,8 @@ See [Configuration](/walrus-memory/reference/configuration) for all options.
 
 ## Account management
 
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
+
 ```ts
 import {
   createAccount,
@@ -240,6 +260,8 @@ import {
 | `removeDelegateKey(opts)` | Remove a delegate key from an account (owner only) |
 
 ## Utility functions
+
+[Source: sdk/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/api-reference.md)
 
 ```ts
 import { delegateKeyToSuiAddress, delegateKeyToPublicKey } from "@mysten-incubation/memwal";

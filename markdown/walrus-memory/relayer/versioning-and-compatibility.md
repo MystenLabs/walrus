@@ -32,6 +32,8 @@ SDKs and MCP clients read `/version` before protected requests and fail with an 
 
 Modern relayers expose compatibility metadata at `GET /version` and include the same block in `GET /health`.
 
+[Source: relayer/versioning-and-compatibility.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/versioning-and-compatibility.md)
+
 ```json
 {
   "relayerVersion": "0.1.0",

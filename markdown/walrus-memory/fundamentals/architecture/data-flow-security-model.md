@@ -42,6 +42,8 @@ You have options depending on your trust requirements:
 
 ## What lives where
 
+[Source: fundamentals/architecture/data-flow-security-model.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/architecture/data-flow-security-model.md)
+
 ```mermaid
 flowchart LR
     subgraph Onchain [Onchain — trustless]

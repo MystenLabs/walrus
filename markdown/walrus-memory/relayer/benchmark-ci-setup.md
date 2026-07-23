@@ -75,6 +75,8 @@ For each environment, set these Secrets:
 
 Remember and recall against staging:
 
+[Source: relayer/benchmark-ci-setup.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/benchmark-ci-setup.md)
+
 ```bash
 $ cd services/server/scripts
 

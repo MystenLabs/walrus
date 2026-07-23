@@ -11,6 +11,8 @@ This is the pattern for SaaS-style apps where **one operator** runs a server tha
 | **End user** | A connected Sui wallet, used for **auth only** | The wallet proves identity. The user does **not** create a MemWalAccount. |
 | **Isolation** | One **namespace per wallet**, for example `myapp-{walletAddress}` | Keeps each user's memories in a separate logical bucket under the shared account. |
 
+[Source: sdk/cookbook-multi-tenant.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/cookbook-multi-tenant.md)
+
 ```
                   ┌─────────────────────────────────────┐
   End user wallet │  Server (Next.js API route, Vercel)  │   Relayer + Walrus
@@ -37,7 +39,9 @@ Create the account and a delegate key once, on the [Walrus Memory dashboard](htt
 > Use a **delegate key**, never the **owner** wallet key. The owner key can transfer the account and manage delegates; a delegate key can only read and write memory. If a delegate key leaks, you revoke it without touching the owner wallet. See [Delegate Key Management](/walrus-memory/contract/delegate-key-management).
 Store both as server-side environment variables:
 
-```bash .env.local
+[Source: sdk/cookbook-multi-tenant.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/cookbook-multi-tenant.md)
+
+```bash title=".env.local"
 MEMWAL_PRIVATE_KEY=<delegate-private-key-hex>
 MEMWAL_ACCOUNT_ID=0x<memwal-account-object-id>
 ```
@@ -45,6 +49,8 @@ MEMWAL_ACCOUNT_ID=0x<memwal-account-object-id>
 ### Revoke flow
 
 If a delegate key is compromised, revoke it from the [dashboard](https://memory.walrus.xyz), or programmatically with the **owner** credentials:
+
+[Source: sdk/cookbook-multi-tenant.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/cookbook-multi-tenant.md)
 
 ```ts
 import { removeDelegateKey } from "@mysten-incubation/memwal/account";
@@ -62,6 +68,8 @@ Then generate a fresh delegate key, register it with `addDelegateKey`, and rotat
 ## 2. Namespace naming for multi-user apps
 
 Derive a deterministic namespace from the authenticated wallet address. Normalize it so the same wallet always maps to the same namespace:
+
+[Source: sdk/cookbook-multi-tenant.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/cookbook-multi-tenant.md)
 
 ```ts
 // lib/memory/namespace.ts
@@ -83,6 +91,8 @@ Guidelines:
 
 Create one client per request (or memoize per warm Lambda) and pass the per-user namespace into each call.
 
+[Source: sdk/cookbook-multi-tenant.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/cookbook-multi-tenant.md)
+
 ```ts
 // lib/memory/client.ts
 import { MemWal } from "@mysten-incubation/memwal";
@@ -95,6 +105,8 @@ export function getMemWal() {
   });
 }
 ```
+
+[Source: sdk/cookbook-multi-tenant.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/cookbook-multi-tenant.md)
 
 ```ts
 // app/api/chat/route.ts  (Next.js App Router)

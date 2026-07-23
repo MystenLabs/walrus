@@ -22,6 +22,8 @@ Searches Walrus Memory for memories relevant to the user's prompt and injects th
 
 Memories are wrapped in `<memwal-memories>` tags with a security header:
 
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
+
 ```
 <memwal-memories>
 Relevant memories from long-term storage.
@@ -85,6 +87,8 @@ Semantic search across the agent's memory space.
 - Returns ranked results with relevance percentages
 
 **Example response to the LLM:**
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
+
 ```
 Found 2 memories:
 
@@ -108,6 +112,8 @@ Save information through server-side fact extraction.
 - Returns the number of facts stored and a preview
 
 **Example response to the LLM:**
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
+
 ```
 Stored 2 facts: User prefers dark mode; User works in TypeScript
 ```
@@ -115,6 +121,8 @@ Stored 2 facts: User prefers dark mode; User works in TypeScript
 ### Enabling tools
 
 Add to your OpenClaw agent profile:
+
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
 
 ```json
 {
@@ -135,6 +143,8 @@ Terminal commands for debugging and inspection. Available when the OpenClaw gate
 
 Search memories with JSON output:
 
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
+
 ```bash
 $ openclaw memwal search "programming preferences"
 $ openclaw memwal search "tech stack" --limit 10
@@ -149,6 +159,8 @@ $ openclaw memwal search "research notes" --agent researcher
 ### Stats
 
 Show server health and plugin configuration:
+
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
 
 ```bash
 $ openclaw memwal stats

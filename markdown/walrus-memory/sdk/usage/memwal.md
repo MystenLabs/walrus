@@ -9,6 +9,8 @@ The recommended default client. The relayer handles embeddings, Seal encryption,
 3. `remember` returns an accepted job while the relayer encrypts, uploads, and indexes in the background
 4. `recall` searches by Memory Space and returns decrypted matches
 
+[Source: sdk/usage/memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal.md)
+
 ```ts
 import { MemWal } from "@mysten-incubation/memwal";
 
@@ -21,6 +23,8 @@ const memwal = MemWal.create({
 ```
 
 ## Core methods
+
+[Source: sdk/usage/memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal.md)
 
 ```ts
 // Store a memory
@@ -44,6 +48,8 @@ await memwal.health();
 
 Rebuild missing indexed entries for one namespace. Incremental, namespace-scoped, and meant to
 repair PostgreSQL vector state from Walrus-backed memory.
+
+[Source: sdk/usage/memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal.md)
 
 ```ts
 const result = await memwal.restore("chatbot-prod", 10);

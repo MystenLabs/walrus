@@ -9,6 +9,8 @@ Add Walrus Memory to Cursor so the agent can save and recall durable facts. The 
 
 Add the server to `~/.cursor/mcp.json`:
 
+[Source: mcp/cursor.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/cursor.md)
+
 ```json
 {
   "mcpServers": {

@@ -43,6 +43,8 @@ The indexer reads these environment variables:
 
 ## Running
 
+[Source: indexer/purpose.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/indexer/purpose.md)
+
 ```bash
 $ cd services/indexer
 $ cargo run

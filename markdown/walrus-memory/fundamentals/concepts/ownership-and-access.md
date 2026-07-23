@@ -6,6 +6,8 @@ Walrus Memory puts you in full control of your memory. Programmable permissions 
 
 Memory content in Walrus Memory is stored on Walrus and cryptographically owned by a user identified by their private key. When you pass a `key` to the SDK, it is translated into a Sui wallet address, this address is the owner.
 
+[Source: fundamentals/concepts/ownership-and-access.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/concepts/ownership-and-access.md)
+
 ```ts
 const memwal = MemWal.create({
   key: process.env.MEMWAL_PRIVATE_KEY!, // delegate private key
@@ -27,6 +29,8 @@ This enables two key use cases:
 
 - **Shared access**, users (human or AI agents) can grant other users access to their memories. An agent could share its knowledge base with another agent, or a user could give a service read access to specific data.
 - **Service delegation**, users can delegate privileges to services that act on their behalf, such as paying for transaction fees or storage costs, without handing over ownership.
+
+[Source: fundamentals/concepts/ownership-and-access.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/concepts/ownership-and-access.md)
 
 ```mermaid
 flowchart TD

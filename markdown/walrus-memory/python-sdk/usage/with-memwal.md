@@ -4,11 +4,15 @@
 
 Both integrations import their dependency lazily, install only what you use:
 
+[Source: python-sdk/usage/with-memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/with-memwal.md)
+
 ```bash
 $ pip install memwal[langchain]
 ```
 
 ## LangChain
+
+[Source: python-sdk/usage/with-memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/with-memwal.md)
 
 ```python
 import os
@@ -35,6 +39,8 @@ Patches both `_agenerate` (async) and `_generate` (sync) on the model instance.
 ## OpenAI SDK
 
 Works with both `openai.OpenAI` (sync) and `openai.AsyncOpenAI` (async), the wrapper detects which and patches `chat.completions.create` accordingly.
+
+[Source: python-sdk/usage/with-memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/with-memwal.md)
 
 ```python
 import os

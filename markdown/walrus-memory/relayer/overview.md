@@ -17,6 +17,8 @@ The relayer is the backend that turns SDK calls into memory operations. Using a 
 
 The relayer is a Rust service (Axum) that manages a TypeScript sidecar process for Seal and Walrus operations that require the `@mysten/seal` and `@mysten/walrus` SDKs.
 
+[Source: relayer/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/overview.md)
+
 ```mermaid
 flowchart LR
     Client["SDK / App"]

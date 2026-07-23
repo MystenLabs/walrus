@@ -18,6 +18,8 @@ Detailed pages:
 
 `MemWal` is async-native. Every API method is a coroutine:
 
+[Source: python-sdk/usage.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage.md)
+
 ```python
 from memwal import MemWal, RecallParams
 
@@ -28,6 +30,8 @@ await memwal.close()
 ```
 
 `MemWalSync` wraps it through `asyncio.run()`, identical methods, no `await`. It is notebook-safe (detects a running loop and offloads to a worker thread):
+
+[Source: python-sdk/usage.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage.md)
 
 ```python
 from memwal import MemWalSync, RecallParams
@@ -51,6 +55,8 @@ Good namespace examples: `todo`, `personal`, `password`, `project-x`. Avoid keep
 ## Async remember model
 
 `remember` returns a `RememberAcceptedResult` (`job_id`, `status`) as soon as the relayer accepts the request, the Walrus upload and onchain commit happen in a background worker. Three ways to consume it:
+
+[Source: python-sdk/usage.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage.md)
 
 ```python
 # 1. Fire and forget the wait — poll later if you need the blob_id

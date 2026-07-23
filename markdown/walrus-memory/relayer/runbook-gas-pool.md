@@ -26,6 +26,8 @@ Pool signing keys come from `SERVER_SUI_PRIVATE_KEYS` (comma-separated
 `suiprivkey1...`), or the single `SERVER_SUI_PRIVATE_KEY`. Each key maps to one
 Sui address. Derive the addresses (per key):
 
+[Source: relayer/runbook-gas-pool.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/runbook-gas-pool.md)
+
 ```bash
 $ sui keytool import "$KEY" ed25519        # then `sui keytool list`, or:
 $ sui keytool list                          # shows addresses for imported keys
@@ -34,6 +36,8 @@ $ sui keytool list                          # shows addresses for imported keys
 ## Diagnose (per pool wallet)
 
 Check total SUI, the **largest single coin**, and fragmentation (coin count):
+
+[Source: relayer/runbook-gas-pool.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/runbook-gas-pool.md)
 
 ```bash
 # All SUI coins for an address, largest first:
@@ -57,6 +61,8 @@ There are two operational fixes, depending on the diagnosis.
 
 Merge all SUI coins on a wallet into one (gas budgeting picks the largest coin):
 
+[Source: relayer/runbook-gas-pool.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/runbook-gas-pool.md)
+
 ```bash
 $ sui client switch --address <POOL_ADDRESS>
 # Merge every other SUI coin into the primary one:
@@ -64,6 +70,8 @@ $ sui client merge-coin --primary-coin <BIGGEST_COIN_ID> --coin-to-merge <COIN_I
 ```
 
 For many coins, a PTB or `sui client pay-all-sui` to self consolidates in one transaction:
+
+[Source: relayer/runbook-gas-pool.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/runbook-gas-pool.md)
 
 ```bash
 $ sui client pay-all-sui --input-coins <COIN_ID_1> <COIN_ID_2> ... --recipient <POOL_ADDRESS> --gas-budget 5000000

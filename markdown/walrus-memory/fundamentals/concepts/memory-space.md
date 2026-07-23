@@ -27,6 +27,8 @@ For example:
 
 Namespaces are set in the SDK when you create a client:
 
+[Source: fundamentals/concepts/memory-space.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/concepts/memory-space.md)
+
 ```ts
 const memwal = MemWal.create({
   key: process.env.MEMWAL_PRIVATE_KEY!,
@@ -43,6 +45,8 @@ The **app ID** is the Walrus Memory package ID deployed on Sui (`MEMWAL_PACKAGE_
 Two separate Walrus Memory deployments can each have a user with a `personal` namespace, and their memories will never mix, because the app ID (package ID) is different. This means the vector database scopes queries by `owner + namespace`, while the encryption and blob discovery layer provides an additional isolation boundary through the package ID.
 
 ## How it works in practice
+
+[Source: fundamentals/concepts/memory-space.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/concepts/memory-space.md)
 
 ```mermaid
 flowchart TD

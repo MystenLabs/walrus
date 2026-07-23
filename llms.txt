@@ -411,9 +411,9 @@ Sui smart contract as the on-chain index.
 
 - [Core Components](https://docs.wal.app/walrus-memory/fundamentals/architecture/core-components.md):
     Walrus Memory is made up of six core components that work together to give your agents
-    portable, verifiable memory that they fully control. The TypeScript SDK is the main entry point
-    for developers. It wraps all Walrus Memory operations into a basic client that your app calls
-    directly.
+    portable, verifiable memory that they fully control. Source:
+    fundamentals/architecture/core-components.md The TypeScript SDK is the main entry point for
+    developers.
 - [Data Flow Security Model](https://docs.wal.app/walrus-memory/fundamentals/architecture/data-flow-security-model.md):
     Walrus Memory's security model is split between onchain enforcement and offchain operations.
     Understanding where trust lives helps you make informed decisions about your deployment.
@@ -423,8 +423,9 @@ Sui smart contract as the on-chain index.
     an agent holding WAL itself and having a third party sponsor the cost.
 - [How Storage Works](https://docs.wal.app/walrus-memory/fundamentals/architecture/how-storage-works.md):
     When you call memwal.remember(...), the relayer accepts a background job immediately and then
-    stores the memory asynchronously. Here's what happens. The relayer generates a vector embedding
-    from your plaintext content.
+    stores the memory asynchronously. Here's what happens. Source:
+    fundamentals/architecture/how-storage-works.md The relayer generates a vector embedding from
+    your plaintext content.
 - [Memory Space](https://docs.wal.app/walrus-memory/fundamentals/concepts/memory-space.md):
     A memory space is the isolated unit of storage in Walrus Memory. Think of it as a folder or
     bucket for your memories, you choose which memory space to store into and which to retrieve
@@ -519,9 +520,7 @@ Sui smart contract as the on-chain index.
     onchain in a MemWalAccount and verified by the relayer on every request.
 - [Overview](https://docs.wal.app/walrus-memory/contract/overview.md):
     The smart contract (memwal:account) defines the onchain account model for Walrus Memory. It is
-    a Move module deployed on Sui. These are the onchain IDs for the current public Walrus Memory
-    deployments: For relayer setup and environment variable usage, see Self-Hosting and Environment
-    Variables.
+    a Move module deployed on Sui.
 - [Ownership And Permissions](https://docs.wal.app/walrus-memory/contract/ownership-and-permissions.md):
     The owner is the Sui wallet address that created the MemWalAccount.
 
@@ -590,8 +589,9 @@ Sui smart contract as the on-chain index.
     see unclear guidance, outdated flows, or missing examples, contributions are welcome. The docs
     source of truth is the markdown content under docs/ in this repository.
 - [Run Docs Locally](https://docs.wal.app/walrus-memory/contributing/run-docs-locally.md):
-    Run these commands from the repository root: This starts the Mintlify site using the docs in
-    this repository. Use Node 20 LTS for Mintlify local preview. Mintlify fails on Node 25+.
+    Run these commands from the repository root: Source: contributing/run-docs-locally.md This
+    starts the Mintlify site using the docs in this repository. Use Node 20 LTS for Mintlify local
+    preview. Mintlify fails on Node 25+.
 - [Docs site (Mintlify)](https://docs.wal.app/walrus-memory/contributing/run-repo-locally.md):
     | Tool | Version | Check | |------|---------|-------| | Node.js | ≥ 20 | node -v | | pnpm | ≥
     9.12 | pnpm -v | | Rust | latest stable (only for backend services) | rustc --version | > Tip >
@@ -602,7 +602,7 @@ Sui smart contract as the on-chain index.
 - [Example Apps](https://docs.wal.app/walrus-memory/examples/example-apps.md):
     The repo includes ready-to-run apps in apps/ that show different Walrus Memory integration
     patterns. This page focuses on app-level patterns,the basic SDK flow covered in Quick Start and
-    Walrus Memory Usage. Dashboard, playground, and interactive demo for Walrus Memory.
+    Walrus Memory Usage.
 
 ## 01 Announcing Walrus
 
@@ -711,8 +711,8 @@ Sui smart contract as the on-chain index.
 ## Walrus Memory: Python SDK
 
 - [API Reference](https://docs.wal.app/walrus-memory/python-sdk/api-reference.md):
-    See also: Configuration Relayer API MemWalSync.create(...) has the same signature and returns a
-    synchronous wrapper.
+    See also: Configuration Relayer API Source: python-sdk/api-reference.md MemWalSync.create(...)
+    has the same signature and returns a synchronous wrapper.
 - [Colab](https://docs.wal.app/walrus-memory/python-sdk/colab.md):
     Use the runnable Walrus Memory Python SDK Colab when you want a notebook-first walkthrough.
 - [Quick Start](https://docs.wal.app/walrus-memory/python-sdk/quick-start.md):
@@ -753,11 +753,11 @@ Sui smart contract as the on-chain index.
     Walrus Memory includes an AI SDK integration for applications that already use model
     middleware.
 - [API Reference](https://docs.wal.app/walrus-memory/sdk/api-reference.md):
-    See also: Configuration Relayer API Config: | Property | Type | Required | Default | Notes | |
-    --- | --- | --- | --- | --- | | key | string | Yes | | Ed25519 delegate private key in hex | |
-    accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No | |
-    Relayer URL | | namespace | string | No | "default" | Default namespace for memory isolation |
-    For the full config surface, see Configuration.
+    See also: Configuration Relayer API Source: sdk/api-reference.md Config: | Property | Type |
+    Required | Default | Notes | | --- | --- | --- | --- | --- | | key | string | Yes | | Ed25519
+    delegate private key in hex | | accountId | string | Yes | | MemWalAccount object ID on Sui | |
+    serverUrl | string | No | | Relayer URL | | namespace | string | No | "default" | Default
+    namespace for memory isolation | For the full config surface, see Configuration.
 - [Cloudflare Workers](https://docs.wal.app/walrus-memory/sdk/cloudflare-workers.md):
     Walrus Memory runs on the Cloudflare Workers runtime, but the edge environment differs from
     Node.js in a few ways that affect bundling and reliability. This guide covers the configuration
