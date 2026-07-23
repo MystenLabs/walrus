@@ -18,6 +18,7 @@ use super::{
 };
 use crate::node::{
     NodeStatus,
+    epoch_change::attestation::{AttestationSlot, EpochSyncDoneToken},
     storage::{ShardStatus, blob_info::CertifiedBlobInfoApi},
 };
 
@@ -56,6 +57,11 @@ pub struct NodeRecoveryHandler {
     // events are skipped while catching up).
     status_mutex: Arc<Mutex<()>>,
 
+    // Holds the `epoch_sync_done` attestation token while node recovery owns the attestation
+    // (that is, while the node status is `RecoveryInProgress`). The recovery task consumes it on
+    // completion.
+    epoch_sync_done_token: AttestationSlot,
+
     // Configuration for node recovery.
     config: NodeRecoveryConfig,
 }
@@ -73,8 +79,22 @@ impl NodeRecoveryHandler {
             shard_sync_handler,
             task_handle: Arc::new(Mutex::new(None)),
             status_mutex: Arc::new(Mutex::new(())),
+            epoch_sync_done_token: AttestationSlot::default(),
             config,
         }
+    }
+
+    /// Hands the `epoch_sync_done` attestation token to node recovery: the recovery task
+    /// consumes it on completion. Called by the epoch-change apply step, while holding the
+    /// status mutex, whenever it sets or advances the recovery target.
+    pub(crate) fn set_epoch_sync_done_token(&self, token: EpochSyncDoneToken) {
+        self.epoch_sync_done_token.put(token);
+    }
+
+    /// Invalidates any unconsumed attestation token held by node recovery. Called by the
+    /// epoch-change apply step when another component owns the attestation.
+    pub(crate) fn clear_epoch_sync_done_token(&self) {
+        self.epoch_sync_done_token.clear();
     }
 
     /// Locks the recovery status mutex.
@@ -164,6 +184,7 @@ impl NodeRecoveryHandler {
         let blob_sync_handler = self.blob_sync_handler.clone();
         let shard_sync_handler = self.shard_sync_handler.clone();
         let status_mutex = self.status_mutex.clone();
+        let epoch_sync_done_token = self.epoch_sync_done_token.clone();
         let max_concurrent_blob_syncs_during_recovery =
             self.config.max_concurrent_blob_syncs_during_recovery;
         let task_handle = tokio::spawn(async move {
@@ -361,8 +382,13 @@ impl NodeRecoveryHandler {
 
                 // Blob recovery (this task's scan) is done; wait for shard sync to deliver
                 // every owned shard and then complete the recovery.
-                complete_recovery_once_shards_synced(&node, &shard_sync_handler, &status_mutex)
-                    .await;
+                complete_recovery_once_shards_synced(
+                    &node,
+                    &shard_sync_handler,
+                    &status_mutex,
+                    &epoch_sync_done_token,
+                )
+                .await;
                 return;
             }
         });
@@ -379,6 +405,10 @@ impl NodeRecoveryHandler {
                 recovering_epoch
             );
 
+            // The node restarted while recovering, whose epoch change handed the attestation to
+            // node recovery: re-mint the token for the persisted recovery target (the slot is
+            // in-memory and was lost with the restart).
+            self.set_epoch_sync_done_token(EpochSyncDoneToken::new_for_epoch(recovering_epoch));
             self.start_node_recovery(recovering_epoch).await?;
         }
 
@@ -505,6 +535,7 @@ async fn complete_recovery_once_shards_synced(
     node: &StorageNodeInner,
     shard_sync_handler: &ShardSyncHandler,
     status_mutex: &Mutex<()>,
+    epoch_sync_done_token: &AttestationSlot,
 ) {
     loop {
         let status_guard = status_mutex.lock().await;
@@ -532,17 +563,30 @@ async fn complete_recovery_once_shards_synced(
                 tracing::error!(?error, "failed to set node status to active");
                 return;
             }
+            // Take the token while still holding the status mutex, so that it belongs to the
+            // recovery target read above: the epoch-change path replaces the token and the
+            // target atomically under the same mutex.
+            let token = epoch_sync_done_token.take();
             drop(status_guard);
 
-            // While the node is recovering, this is the only place that attests epoch sync
-            // done: shard sync skips its own attestation in RecoveryInProgress state (see the
-            // epoch_sync_done handling in shard_sync.rs), so that the attestation covers both
-            // the recovered blobs and all synced shards. The attested epoch is the recovery
-            // target currently recorded in the node status, which may be newer than the epoch
-            // this task was started with.
-            node.contract_service
-                .epoch_sync_done(target_epoch, node.node_capability())
-                .await;
+            // While the node is recovering, node recovery holds the attestation token, so this
+            // is the only place that attests epoch sync done (shard sync has no token to
+            // consume), and the attestation covers both the recovered blobs and all synced
+            // shards. The attested epoch is the recovery target currently recorded in the node
+            // status, which may be newer than the epoch this task was started with.
+            match token {
+                Some(token) => {
+                    debug_assert_eq!(token.epoch(), target_epoch);
+                    token.attest(node).await;
+                }
+                None => {
+                    tracing::warn!(
+                        walrus.epoch = target_epoch,
+                        "node recovery completed without an epoch sync done token; \
+                        skipping attestation"
+                    );
+                }
+            }
             return;
         }
         drop(status_guard);
