@@ -10,6 +10,8 @@
 .cache-walrus-memory
 src/.generated/*
 /static/markdown/*
+/static/llms.txt
+/static/llms-full.txt
 ws-resources.json
 .markdown/
 

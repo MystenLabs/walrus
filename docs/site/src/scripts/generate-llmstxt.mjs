@@ -537,7 +537,7 @@ function wrapText(text, maxLen, indent) {
 const requiredSections = sectionOrder.filter((s) => !OPTIONAL_SECTIONS.has(s));
 const optionalSections = sectionOrder.filter((s) => OPTIONAL_SECTIONS.has(s));
 
-function buildOutput(includeDescriptions, includeOptional) {
+function buildOutput(includeDescriptions, includeOptional, { includeFull = false } = {}) {
   const lines = [`# ${resolvedName}`, ""];
 
   const bqText = `> ${introDesc}`;
@@ -557,6 +557,13 @@ function buildOutput(includeDescriptions, includeOptional) {
     if (current.trim().length > 1) lines.push(current.trimEnd());
   }
   lines.push("");
+
+  if (includeFull && resolvedBaseUrl) {
+    lines.push(
+      ...wrapLine(`> For the complete, unabridged page index see [llms-full.txt](${resolvedBaseUrl}/llms-full.txt).`, 0),
+      ""
+    );
+  }
 
   lines.push("Important notes:", "");
   for (const note of contextNotes) {
@@ -588,20 +595,30 @@ function buildOutput(includeDescriptions, includeOptional) {
   return lines.join("\n");
 }
 
-let output = buildOutput(true, true);
+// ── Build full listing (llms-full.txt) ────────────────────────────────────────
+const fullOutput = buildOutput(true, true);
+
+// ── Build trimmed listing (llms.txt, under TARGET_CHARS) ─────────────────────
+let output = buildOutput(true, true, { includeFull: true });
 
 if (output.length > TARGET_CHARS) {
-  output = buildOutput(true, false);
+  output = buildOutput(true, false, { includeFull: true });
 }
 
 if (output.length > TARGET_CHARS) {
-  output = buildOutput(false, false);
+  output = buildOutput(false, false, { includeFull: true });
 }
 
 if (output.length > TARGET_CHARS) {
   const ratio = TARGET_CHARS / output.length;
   const finalLines = [`# ${resolvedName}`, ""];
   finalLines.push(...wrapLine(`> ${introDesc}`, 0), "");
+  if (resolvedBaseUrl) {
+    finalLines.push(
+      ...wrapLine(`> For the complete, unabridged page index see [llms-full.txt](${resolvedBaseUrl}/llms-full.txt).`, 0),
+      ""
+    );
+  }
   for (const section of requiredSections) {
     const sectionPages = grouped[section];
     const keep = Math.max(1, Math.floor(sectionPages.length * ratio));
@@ -614,8 +631,13 @@ if (output.length > TARGET_CHARS) {
   output = finalLines.join("\n");
 }
 
+// ── Write files ──────────────────────────────────────────────────────────────
 const outDir = path.dirname(path.resolve(outputFile));
 fs.mkdirSync(outDir, { recursive: true });
 
 fs.writeFileSync(outputFile, output, "utf8");
-console.log(`✓ Generated ${outputFile} with ${pages.length} pages across ${sectionOrder.length} sections (${output.length.toLocaleString()} chars)`);
+console.log(`✓ Generated ${outputFile} (${output.length.toLocaleString()} chars, ${pages.length} pages, ${sectionOrder.length} sections)`);
+
+const fullOutputFile = outputFile.replace(/llms\.txt$/, "llms-full.txt");
+fs.writeFileSync(fullOutputFile, fullOutput, "utf8");
+console.log(`✓ Generated ${fullOutputFile} (${fullOutput.length.toLocaleString()} chars)`);
