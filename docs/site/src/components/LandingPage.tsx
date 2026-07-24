@@ -173,20 +173,20 @@ html, body { background: var(--l-bg) !important; }
 
 const HOME_CARDS = [
   {
+    image: '/img/home/walrus-protocol.webp',
+    title: 'Walrus',
+    description:
+      'Open-source decentralized storage infrastructure for '
+      + 'building your own data layer.',
+    href: '/docs/getting-started',
+  },
+  {
     image: '/img/home/walrus-memory.webp',
     title: 'Walrus Memory',
     description:
       'Portable memory layer for AI agents that persists context '
       + 'across apps and sessions.',
-    href: '/walrus-memory/getting-started/what-is-walrus-memory',
-  },
-  {
-    image: '/img/home/walrus-protocol.webp',
-    title: 'Walrus Protocol',
-    description:
-      'Open-source decentralized storage infrastructure for '
-      + 'building your own data layer.',
-    href: '/docs/getting-started',
+    href: '/walrus-memory',
   },
   {
     image: '/img/home/walrus-skills.webp',
