@@ -18,8 +18,8 @@ The upload relay is a downloadable program that community members, Mysten Labs, 
     The upload relay offloads erasure coding and sliver fan-out from the browser. The
     client sends a blob and a tip to the relay; the relay distributes slivers to the
     storage node committee, collects confirmations, and returns an availability
-    certificate. The client registers, certifies, and pays on Sui, so ownership always
-    stays with the client.
+    certificate. The client registers, certifies, and pays on Sui, and always retains
+    ownership.
   
 
 ## Understand the design

@@ -388,13 +388,6 @@ Sui smart contract as the on-chain index.
     concepts, erasure coding, cryptographic primitives, token economics, and network roles. Storage
     node: Entity storing data for Walrus; holds one or several shards.
 
-## Walrus Memory
-
-- [Walrus Memory](https://docs.wal.app/walrus-memory.md):
-    Walrus Memory gives AI agents persistent, portable memory that works across apps, sessions, and
-    workflows. Ownership and access are enforced onchain through Sui smart contracts, and all
-    content is encrypted through Seal before reaching Walrus.
-
 ## Walrus Memory: Getting Started
 
 - [Choose Your Path](https://docs.wal.app/walrus-memory/getting-started/choose-your-path.md):
@@ -426,6 +419,9 @@ Sui smart contract as the on-chain index.
     stores the memory asynchronously. Here's what happens. Source:
     fundamentals/architecture/how-storage-works.md The relayer generates a vector embedding from
     your plaintext content.
+- [How Agent Memory Works](https://docs.wal.app/walrus-memory/fundamentals/concepts/how-agent-memory-works.md):
+    AI agent memory is a durable, searchable store of what an agent has learned, kept outside the
+    model so it survives across sessions, apps, and workflows.
 - [Memory Space](https://docs.wal.app/walrus-memory/fundamentals/concepts/memory-space.md):
     A memory space is the isolated unit of storage in Walrus Memory. Think of it as a folder or
     bucket for your memories, you choose which memory space to store into and which to retrieve
@@ -438,6 +434,11 @@ Sui smart contract as the on-chain index.
     An AI agent is only as trustworthy as the memory it acts on. If memory can be silently altered,
     or if the service holding it can rewrite history or lock you out, the agent's decisions cannot
     be trusted.
+- [Where To Store Agent Data](https://docs.wal.app/walrus-memory/fundamentals/concepts/where-to-store-agent-data.md):
+    When you give an AI agent long-term memory, you have to decide where that data lives. The
+    choice shapes what the agent can do later: whether its memory survives a restart, moves with
+    the user to another app, stays under the user's control, and can be trusted. Most teams choose
+    among four approaches.
 
 ## Walrus Memory: Mcp
 
