@@ -37,7 +37,7 @@ answer: >-
   storage with tip configuration and payment systems.
 ---
 
-Walrus enables apps to store data from within end-user browsers that have low to moderate machine specifications (mobile devices, low-powered laptops, and so on). This browser-based scenario is difficult to achieve in practice with an in-browser process that directly communicates with the storage nodes because of the high number of network connections required to upload all slivers to all shards.
+Walrus enables apps to store data from within end-user browsers that have low to moderate machine specifications (mobile devices, low-powered laptops, and so on). In practice, an in-browser process that directly communicates with the storage nodes cannot easily achieve this because of the high number of network connections required to upload all slivers to all shards.
 
 The upload relay is a downloadable program that community members, Mysten Labs, and app developers can run on internet-facing hosts to facilitate storing blob slivers onto the storage nodes on behalf of end users. This mitigates browser resource consumption and enables web-based store operations.
 
@@ -54,7 +54,7 @@ These endpoints are also listed in the [Network Reference](/docs/network-referen
 
 <figure>
   <iframe src="/diagrams/interactive_upload-relay-flow_v1.html"
-    style={{width:'100%',height:'700px',border:'0'}}
+    style={{width:'100%',height:'710px',border:'0'}}
     title="Upload relay flow: the client sends a blob and tip to the relay, which encodes and distributes slivers to storage nodes, collects confirmations, and returns a certificate; the client then registers, certifies, and pays on Sui, keeping ownership."
     loading="lazy"></iframe>
   <figcaption>
@@ -83,7 +83,7 @@ The relay operates on a single blob per request. A blob is one immutable unit of
 
 :::
 
-The flow between clients and the upload relay is already implemented in the Walrus CLI, Rust SDK, and TypeScript SDK. Developers do not need to implement it themselves. To compare upload paths, see [Choose your upload path](/docs/getting-started#choose-your-upload-path). For completeness, the following sections discuss how the service is implemented, paid for, and used by clients.
+The Walrus CLI, Rust SDK, and TypeScript SDK already implement the flow between clients and the upload relay. Developers do not need to implement it themselves. To compare upload paths, see [Choose your upload path](/docs/getting-started#choose-your-upload-path). For completeness, the following sections discuss how the service works, how clients pay for it, and how they use it.
 
 ### Operation modes
 
@@ -119,7 +119,7 @@ To pay the tip, the client proceeds as follows:
 
 Then, the client creates a [programmable transaction block (PTB)](https://docs.sui.io/concepts/transactions/prog-txn-blocks), where the first input `0` is the `bcs` encoded representation of `blob_digest || nonce_digest || unencoded_length`. The relay later uses this to authenticate the sender of the store request. In the same PTB, the client transfers the appropriate tip amount to the wallet of the relay. You can also find this address through the `/v1/tip-config` endpoint. Usually, the client also registers the blob in this transaction. This is not mandatory, and you can register the blob in another transaction, but it is commonly convenient and cheaper to perform all these operations together.
 
-After the transaction executes, the client keeps the transaction ID `tx_id`, the `nonce`, and the `blob_id`, which are required for the next phase.
+After the transaction executes, the client keeps the transaction ID `tx_id`, the `nonce`, and the `blob_id`, which the next phase requires.
 
 The relay enforces a freshness check on the transaction that paid the tip. The default threshold is 1 hour, but each relay can independently configure this value.
 
@@ -134,7 +134,7 @@ You must specify the following parameters in the query string of the URL:
 - `blob_id`: Required. The blob ID of the blob to be stored. Example: `blob_id=E7_nNXvFU_3qZVu3OH1yycRG7LZlyn1-UxEDCDDqGGU`
 - `tx_id`: Required if the relay requires a tip. The transaction ID (base58 encoded) of the transaction that transferred the tip to the relay. Example: `tx_id=EmcFpdozbobqH61w76T4UehhC4UGaAv32uZpv6c4CNyg`
 - `nonce`: Required if the relay requires a tip. The nonce (the pre-image of the hash added to the transaction inputs created above) as a base64 URL-encoded string without padding. Example: `nonce=rw8xIuqxwMpdOcF_3jOprsD9TtPWfXK97tT_lWr1teQ`
-- `deletable_blob_object`: Required if the blob is registered as deletable. The object ID of the blob as a hexadecimal string. If the blob is to be stored as a permanent one, do not specify this parameter. Example: `deletable_blob_object=0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60`
+- `deletable_blob_object`: Required if the blob is registered as deletable. The object ID of the blob as a hexadecimal string. If you store the blob as a permanent one, do not specify this parameter. Example: `deletable_blob_object=0x56ae1c86e17db174ea002f8340e28880bc8a8587c56e8604a4fa6b1170b23a60`
 - `encoding_type`: Optional. The encoding type to be used for the blob. The default value (and currently the only value) is `RS2`.
 
 ## Receive the certificate
@@ -149,7 +149,7 @@ To download a pre-built binary of `walrus-upload-relay`, go to the [releases pag
 
 ### Use Docker
 
-The Docker image for `walrus-upload-relay` is available on Docker Hub as `mysten/walrus-upload-relay`.
+Docker Hub hosts the image for `walrus-upload-relay` as `mysten/walrus-upload-relay`.
 
 ```sh
 $ docker run -it --rm mysten/walrus-upload-relay --help
@@ -157,7 +157,7 @@ $ docker run -it --rm mysten/walrus-upload-relay --help
 
 ### Build from source
 
-The sources for `walrus-upload-relay` are available on [GitHub](https://github.com/MystenLabs/walrus) in the `crates/walrus-upload-relay` subdirectory. Run the following from the root of the Walrus repository:
+The sources for `walrus-upload-relay` live on [GitHub](https://github.com/MystenLabs/walrus) in the `crates/walrus-upload-relay` subdirectory. Run the following from the root of the Walrus repository:
 
 ```sh
 $ cargo build --release --bin walrus-upload-relay
@@ -166,11 +166,11 @@ $ cargo build --release --bin walrus-upload-relay
 
 ## Configure the relay
 
-The following example shows how to place the configuration so that it is reachable when invoking Docker to run the relay. This example assumes the following:
+The following example shows how to place the configuration so that the relay can reach it when you invoke Docker. This example assumes the following:
 
 - `$HOME/.config/walrus/walrus_upload_relay_config.yaml` exists on the host machine and contains the configuration for `walrus-upload-relay`, as described in [Configure relay-specific settings](#configure-relay-specific-settings).
 - `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client configuration as specified in the [CLI setup section](/docs/getting-started/advanced-setup#configuration).
-- **Port 3000** is available for the relay to bind to. Change this to whichever port you want to expose from your host.
+- The relay can bind to **port 3000**. Change this to whichever port you want to expose from your host.
 
 ```sh
 $ docker run \
