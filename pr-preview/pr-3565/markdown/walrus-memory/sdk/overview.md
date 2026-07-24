@@ -10,6 +10,8 @@ Use this first.
 - best path for most teams
 - main methods: `remember`, `recall`, `analyze`, `restore`, `health`
 
+[Source: sdk/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/overview.md)
+
 ```ts
 import { MemWal } from "@mysten-incubation/memwal";
 ```
@@ -20,6 +22,8 @@ Use this when the client must handle embeddings and local Seal operations.
 
 - relayer still handles upload relay, registration, search, and restore
 
+[Source: sdk/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/overview.md)
+
 ```ts
 import { MemWalManual } from "@mysten-incubation/memwal/manual";
 ```
@@ -27,6 +31,8 @@ import { MemWalManual } from "@mysten-incubation/memwal/manual";
 ### `@mysten-incubation/memwal/ai`
 
 Use this when you already use the AI SDK.
+
+[Source: sdk/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/overview.md)
 
 ```ts
 import { withMemWal } from "@mysten-incubation/memwal/ai";
@@ -43,12 +49,16 @@ The Python SDK mirrors the TypeScript `MemWal` client exactly, same methods, sam
 - async-native with a sync convenience wrapper
 - LangChain and OpenAI SDK middleware included
 
+[Source: sdk/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/overview.md)
+
 ```bash
 $ pip install memwal
 $ pip install memwal[langchain]   # LangChain middleware
 $ pip install memwal[openai]      # OpenAI SDK middleware
 $ pip install memwal[all]         # everything
 ```
+
+[Source: sdk/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/overview.md)
 
 ```python
 from memwal import MemWal

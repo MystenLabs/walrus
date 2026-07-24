@@ -15,7 +15,9 @@ This is the only step that involves a browser. Your runtime never opens one.
 
 Load the credentials from environment variables and construct the client at startup. Call `health()` to confirm the relayer is reachable before your service starts serving traffic:
 
-```ts service.ts
+[Source: sdk/headless-setup.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/headless-setup.md)
+
+```ts title="service.ts"
 import { MemWal } from "@mysten-incubation/memwal";
 
 function requireEnv(name: string): string {
@@ -57,6 +59,8 @@ The `MemWal.create` config takes 4 fields:
 ## When to use the manual client
 
 The default `MemWal` client lets the relayer handle embedding and Seal encryption on your behalf, which is the right choice for most runtimes. Use `MemWalManual` only when the runtime must hold its own keys and keep plaintext entirely client-side. With the manual client, the runtime embeds and Seal-encrypts locally, then the relayer uploads the resulting ciphertext to Walrus and stores the vector row, so the relayer never sees plaintext. It requires a few more fields, including a Sui key that authorizes Seal:
+
+[Source: sdk/headless-setup.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/headless-setup.md)
 
 ```ts
 import { MemWalManual } from "@mysten-incubation/memwal/manual";

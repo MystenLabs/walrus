@@ -25,11 +25,15 @@ The agent has its own Sui address (key pair) that holds both SUI and WAL, and it
 
 Store through the CLI:
 
+[Source: fundamentals/architecture/funding-storage.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/architecture/funding-storage.md)
+
 ```bash
 $ walrus store memory.json --epochs 10
 ```
 
 Store through the TypeScript SDK, where the agent's key pair is the `signer` that pays both gas and storage fees:
+
+[Source: fundamentals/architecture/funding-storage.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/architecture/funding-storage.md)
 
 ```ts
 await client.walrus.writeFiles({
@@ -41,6 +45,8 @@ await client.walrus.writeFiles({
 ```
 
 The agent's address needs WAL before it can write. The most basic path swaps SUI for WAL onchain:
+
+[Source: fundamentals/architecture/funding-storage.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/architecture/funding-storage.md)
 
 ```bash
 $ walrus get-wal --amount AMOUNT_IN_FROST

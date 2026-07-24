@@ -126,6 +126,8 @@ flag in the table above.
 > fallback if the agent calls `memwal_restore` without a namespace.
 Example, pin every memory call to a `work` namespace:
 
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
+
 ```json
 {
   "mcpServers": {
@@ -140,6 +142,8 @@ Example, pin every memory call to a `work` namespace:
 ## Credential file
 
 The stdio package stores credentials at:
+
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
 
 ```text
 ~/.memwal/credentials.json
@@ -196,6 +200,8 @@ Walrus Memory supports two MCP connection modes.
 
 Use HTTP transport when your client supports remote MCP servers natively. Authentication is bearer-token + account ID per request:
 
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
+
 ```json
 {
   "mcpServers": {
@@ -216,6 +222,8 @@ The bearer token is the `delegatePrivateKey` from `~/.memwal/credentials.json`. 
 >
 > The bearer token is a long-lived credential equivalent to an API key. **Never commit MCP configs with a real `Authorization` header to source control.** Treat it like any other secret.
 For Claude Code, the equivalent registration command is:
+
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
 
 ```bash
 $ claude mcp add --transport http memwal https://relayer.memory.walrus.xyz/api/mcp
