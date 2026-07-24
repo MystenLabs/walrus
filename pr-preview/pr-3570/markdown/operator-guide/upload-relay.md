@@ -33,8 +33,8 @@ The flow between clients and the upload relay is already implemented in the Walr
 
 You can operate the upload relay as a free or paid service:
 
-- **Free service:** The relay accepts HTTP POST requests with blobs from clients and relays them to the storage nodes for free.
-- **Paid service:** In this configuration, the upload relay requires a tip to relay a blob. You can use the tip to cover the costs of running the infrastructure and earn revenue on the service. The relay currently supports a constant tip and a tip that scales linearly with the unencoded data size.
+1. **Free service:** The relay accepts HTTP POST requests with blobs from clients and relays them to the storage nodes for free.
+2. **Paid service:** In this configuration, the upload relay requires a tip to relay a blob. You can use the tip to cover the costs of running the infrastructure and earn revenue on the service. The relay currently supports a constant tip and a tip that scales linearly with the unencoded data size.
 
 Upload relays expose a tip-configuration endpoint `/v1/tip-config` that returns the tipping configuration. For example:
 
