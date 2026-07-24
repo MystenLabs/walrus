@@ -59,6 +59,14 @@ Sui smart contract as the on-chain index.
     Quilt is a batch storage feature designed to optimize the storage cost and efficiency of large
     numbers of small blobs. Before Quilt, storing small blobs (less than 10 MB) on Walrus involved
     higher per-byte costs due to internal system data overhead.
+- [Red Stuff Details](https://docs.wal.app/docs/system-overview/red-stuff-details.md):
+    This page continues from the RedStuff encoding algorithm overview with a concrete worked
+    example. Consider a Walrus instance with $N = 7 = 3f + 1$ shards. This means the number of
+    primary source symbols is $N - 2f = 3$, and secondary $N - f = 5$.
+- [Red Stuff Parameters](https://docs.wal.app/docs/system-overview/red-stuff-parameters.md):
+    RedStuff has specific properties, Walrus-specific parameters, and authentication mechanisms
+    described in the RedStuff encoding algorithm. The following sections describe key design
+    decisions, fault-tolerance properties, and storage overhead of the RedStuff encoding.
 - [Red Stuff](https://docs.wal.app/docs/system-overview/red-stuff.md):
     The RedStuff encoding algorithm used in Walrus is an adaptation of the Twin-Code framework
     presented by Rashmi et al. [[1]](https://doi.org/10.1109/ISIT.2011.6033732).
