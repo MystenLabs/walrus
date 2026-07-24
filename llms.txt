@@ -390,13 +390,6 @@ Sui smart contract as the on-chain index.
     concepts, erasure coding, cryptographic primitives, token economics, and network roles. Storage
     node: Entity storing data for Walrus; holds one or several shards.
 
-## Walrus Memory
-
-- [Walrus Memory](https://docs.wal.app/walrus-memory.md):
-    Walrus Memory gives AI agents persistent, portable memory that works across apps, sessions, and
-    workflows. Ownership and access are enforced onchain through Sui smart contracts, and all
-    content is encrypted through Seal before reaching Walrus.
-
 ## Walrus Memory: Getting Started
 
 - [Choose Your Path](https://docs.wal.app/walrus-memory/getting-started/choose-your-path.md):
