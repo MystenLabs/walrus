@@ -12,6 +12,8 @@ Add the server to your Claude Desktop config:
 - **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
 
+[Source: mcp/claude-desktop.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/claude-desktop.md)
+
 ```json
 {
   "mcpServers": {

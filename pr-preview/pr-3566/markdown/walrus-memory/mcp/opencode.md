@@ -9,6 +9,8 @@ Add Walrus Memory to OpenCode so the agent can save and recall durable facts. Op
 
 Add the server to `~/.config/opencode/opencode.json` as a local (stdio) MCP server:
 
+[Source: mcp/opencode.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/opencode.md)
+
 ```json
 {
   "mcp": {

@@ -51,11 +51,15 @@ The Rust relayer starts the TypeScript sidecar as a child process on boot. They 
 
 If you do not already have PostgreSQL + pgvector running, start it with:
 
+[Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
+
 ```bash
 $ docker compose -f services/server/docker-compose.yml up -d postgres
 ```
 
 Then run the relayer:
+
+[Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
 
 ```bash
 $ cp services/server/.env.example services/server/.env
@@ -66,6 +70,8 @@ $ cargo run
 ```
 
 Then check:
+
+[Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
 
 ```bash
 $ curl http://localhost:8000/health
@@ -116,6 +122,8 @@ By default, the relayer enforces rate limits and storage quotas through Redis to
 
 By default the relayer talks to Sui over JSON-RPC. Ahead of the **Sui JSON-RPC sunset in July 2026**, you can opt into gRPC using `SUI_GRPC_URL`. Set it to a Sui gRPC fullnode URL to route the relayer's Sui calls through gRPC. Leaving it empty keeps the existing JSON-RPC behavior, so setting it is opt-in and backward compatible.
 
+[Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
+
 ```env
 # Opt the write path into gRPC (testnet example)
 SUI_GRPC_URL=https://fullnode.testnet.sui.io
@@ -127,6 +135,8 @@ This one variable switches both paths. The write path (Walrus register and certi
 >
 > `SUI_GRPC_URL` must point at a gRPC endpoint. When it is set, the relayer validates the URL at startup and exits if it is not a valid gRPC endpoint.
 ### Staging (testnet)
+[Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
+
 ```env
 SUI_NETWORK=testnet
 MEMWAL_PACKAGE_ID=0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6
@@ -134,6 +144,8 @@ MEMWAL_REGISTRY_ID=0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f758
 
 ```
 ### Production (mainnet)
+[Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
+
 ```env
 SUI_NETWORK=mainnet
 MEMWAL_PACKAGE_ID=0xcee7a6fd8de52ce645c38332bde23d4a30fd9426bc4681409733dd50958a24c6
@@ -141,6 +153,8 @@ MEMWAL_REGISTRY_ID=0x0da982cefa26864ae834a8a0504b904233d49e20fcc17c373c8bed99c75
 ```
 
 If neither `SEAL_SERVER_CONFIGS` nor `SEAL_KEY_SERVERS` is set, the sidecar uses built-in defaults for the selected `SUI_NETWORK`. On `testnet`, the default remains Mysten's original independent key server pair so existing encrypted memories remain decryptable:
+
+[Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
 
 ```env
 SEAL_KEY_SERVERS=0x73d05d62c18d9374e3ea529e8e0ed6161da1a141a94d3f76ae3fe4e99356db75,0xf5d14a81a982144ae441cd7d64b09027f116a468bd36e7eca494f750591623c8
@@ -150,11 +164,15 @@ On `mainnet`, the default remains the legacy independent key server pair until M
 
 Use `SEAL_SERVER_CONFIGS` to opt into a committee key server. Committee entries require an `aggregatorUrl`, for example:
 
+[Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
+
 ```env
 SEAL_SERVER_CONFIGS=[{"objectId":"0x...","weight":1,"aggregatorUrl":"https://seal-aggregator.example.com"}]
 ```
 
 Mysten's official Testnet committee aggregator is:
+
+[Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
 
 ```env
 SEAL_SERVER_CONFIGS=[{"objectId":"0xb012378c9f3799fb5b1a7083da74a4069e3c3f1c93de0b27212a5799ce1e1e98","weight":1,"aggregatorUrl":"https://seal-aggregator-testnet.mystenlabs.com"}]
