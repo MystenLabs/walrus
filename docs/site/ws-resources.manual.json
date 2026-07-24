@@ -1,5 +1,8 @@
 {
   "headers": {
+    "/**/*.html": {
+      "Cache-Control": "public, max-age=300, must-revalidate"
+    },
     "/llms.txt": {
       "Cache-Control": "public, max-age=3600, must-revalidate",
       "content-type": "text/plain; charset=utf-8"
