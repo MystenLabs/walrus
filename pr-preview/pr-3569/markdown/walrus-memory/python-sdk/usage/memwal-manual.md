@@ -9,6 +9,8 @@ Use these when you want to control indexing or do your own vector math. For the 
 
 Compute the embedding vector for text without storing anything.
 
+[Source: python-sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/memwal-manual.md)
+
 ```python
 from memwal import MemWal
 
@@ -21,6 +23,8 @@ print(len(vec.vector))
 ## `remember_manual`
 
 Register a pre-uploaded Walrus blob with a pre-computed vector. The relayer stores the `{blob_id, vector, owner, namespace}` mapping; it does not upload for you here.
+
+[Source: python-sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/memwal-manual.md)
 
 ```python
 from memwal import RememberManualOptions
@@ -38,6 +42,8 @@ print(result.id, result.blob_id, result.owner, result.namespace)
 ## `recall_manual`
 
 Search with a pre-computed query vector. Returns `{blob_id, distance}` hits only, no decrypted text (you fetch/decrypt the blobs yourself).
+
+[Source: python-sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/memwal-manual.md)
 
 ```python
 from memwal import RecallManualOptions

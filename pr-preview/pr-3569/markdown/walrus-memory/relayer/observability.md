@@ -18,6 +18,8 @@ Use this ID when searching logs across the Rust relayer and TypeScript sidecar.
 
 For production, run with JSON logs:
 
+[Source: relayer/observability.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/observability.md)
+
 ```bash
 RUST_LOG=memwal_server=info,tower_http=info
 LOG_FORMAT=json
@@ -40,11 +42,15 @@ The relayer avoids logging memory text, recall queries, and ask/analyze prompts.
 
 The Rust relayer exposes Prometheus metrics at:
 
+[Source: relayer/observability.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/observability.md)
+
 ```text
 GET /metrics
 ```
 
 The TypeScript sidecar also exposes wallet-specific counters at:
+
+[Source: relayer/observability.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/observability.md)
 
 ```text
 GET <SIDECAR_URL>/metrics/wallet
@@ -66,6 +72,8 @@ Core relayer metrics:
 | `memwal_db_pool_connections` | `state` | PostgreSQL pool `open` and `idle` gauges |
 
 Example Prometheus scrape config:
+
+[Source: relayer/observability.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/observability.md)
 
 ```yaml
 scrape_configs:

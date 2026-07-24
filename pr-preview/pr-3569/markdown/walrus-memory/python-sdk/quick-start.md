@@ -10,6 +10,8 @@ The Walrus Memory Python SDK (`memwal` on PyPI) gives your agents portable memor
 
 ## Installation
 
+[Source: python-sdk/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/quick-start.md)
+
 ```bash
 $ pip install memwal
 ```
@@ -19,6 +21,8 @@ $ pip install memwal
 Open the runnable [Walrus Memory Python SDK Colab](https://colab.research.google.com/drive/1SaKjkSp0DXnM_nktWSiEC-l9qGtVr6ph) for a notebook walkthrough covering installation, secure configuration, health checks, `remember`, `remember_async`, async job waiting, `recall`, bulk remember, `remember_bulk_async`, `remember_bulk_and_wait`, optional SDK utilities, OpenAI/LangChain middleware, OpenAI-compatible provider settings such as `OPENAI_BASE_URL`, and basic troubleshooting. It defaults to `staging` for test credentials and can switch to `prod` for production credentials.
 
 Optional integrations:
+
+[Source: python-sdk/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/quick-start.md)
 
 ```bash
 $ pip install memwal[langchain]
@@ -61,6 +65,8 @@ Precedence: an explicit non-default `server_url` > `env` > the default. An unkno
 ## First memory
 
 `remember` returns as soon as the relayer accepts the job (~500ms); the upload + onchain commit run in the background. Use `remember_and_wait` to block until it is fully persisted.
+
+[Source: python-sdk/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/quick-start.md)
 
 ```python
 import asyncio

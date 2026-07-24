@@ -34,6 +34,8 @@ wallet's `signPersonalMessage` and `signTransaction` methods instead.
 
 Create a small Node.js project and install the Sui SDK:
 
+[Source: guides/delete-memories-programmatically.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/guides/delete-memories-programmatically.md)
+
 ```bash
 $ npm install @mysten/sui
 $ npm install --save-dev tsx
@@ -42,6 +44,8 @@ $ npm install --save-dev tsx
 ## Create the deletion script
 
 Create `delete-old-memories.ts`:
+
+[Source: guides/delete-memories-programmatically.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/guides/delete-memories-programmatically.md)
 
 ```ts
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography'
@@ -252,6 +256,8 @@ await main()
 Set the API URL, wallet key, and age cutoff. The script only lists candidates unless
 `CONFIRM_DELETE` is exactly `true`.
 
+[Source: guides/delete-memories-programmatically.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/guides/delete-memories-programmatically.md)
+
 ```bash
 $ export MEMWAL_URL="https://your-memwal-deployment.example"
 $ export SUI_PRIVATE_KEY="suiprivkey1..."
@@ -267,6 +273,8 @@ the output.
 
 After you confirm the dry-run output, enable deletion and run the same script again:
 
+[Source: guides/delete-memories-programmatically.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/guides/delete-memories-programmatically.md)
+
 ```bash
 $ export CONFIRM_DELETE="true"
 $ npx tsx delete-old-memories.ts
@@ -280,6 +288,8 @@ requires a newly prepared transaction and wallet signature.
 Run the script again without `CONFIRM_DELETE`. Successfully deleted blobs no longer appear
 in the default `deletable` list. To inspect terminal states directly, request them with the
 same Bearer token:
+
+[Source: guides/delete-memories-programmatically.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/guides/delete-memories-programmatically.md)
 
 ```http
 GET /api/security-deletable-blobs?state=deleted,deleted_external&limit=200

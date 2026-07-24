@@ -8,6 +8,8 @@ These are the onchain IDs for the current public Walrus Memory deployments:
 
 ### Staging (testnet)
 
+[Source: contract/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contract/overview.md)
+
 ```env
 SUI_NETWORK=testnet
 MEMWAL_PACKAGE_ID=0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b582047229c6
@@ -15,6 +17,8 @@ MEMWAL_REGISTRY_ID=0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f758
 ```
 
 ### Production (mainnet)
+
+[Source: contract/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contract/overview.md)
 
 ```env
 SUI_NETWORK=mainnet

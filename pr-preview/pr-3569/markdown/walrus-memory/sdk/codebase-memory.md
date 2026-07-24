@@ -16,6 +16,8 @@ Set up the client first. In an editor extension or a backend service, initialize
 
 Give each repository its own namespace so recall never crosses codebases. Derive the namespace deterministically from the repository identity, so the same repo always maps to the same space:
 
+[Source: sdk/codebase-memory.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/codebase-memory.md)
+
 ```ts
 import { MemWal } from "@mysten-incubation/memwal";
 
@@ -37,6 +39,8 @@ Break code and project knowledge into focused chunks, then write them in batches
 
 `rememberBulk` accepts up to 20 items per call, so chunk your input and send it in batches:
 
+[Source: sdk/codebase-memory.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/codebase-memory.md)
+
 ```ts
 const chunks = [
   { text: "src/auth/session.ts - createSession(userId): issues a signed session token, 30 min TTL. Uses jose for signing." },
@@ -50,6 +54,8 @@ const result = await memwal.rememberBulkAndWait(chunks);
 
 For longer material such as a design document or a pull request description, `analyze` extracts discrete facts from the text and stores them as separate memories, which recall better than one large blob:
 
+[Source: sdk/codebase-memory.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/codebase-memory.md)
+
 ```ts
 await memwal.analyzeAndWait(pullRequestDescription);
 ```
@@ -57,6 +63,8 @@ await memwal.analyzeAndWait(pullRequestDescription);
 ## Recall relevant context at query time
 
 When the assistant is about to answer, recall the most relevant memories for the current question and add them to the prompt. `recall` embeds the query, searches the repository's namespace, and returns the closest matches by cosine distance, where a lower distance means a closer match:
+
+[Source: sdk/codebase-memory.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/codebase-memory.md)
 
 ```ts
 const recalled = await memwal.recall({

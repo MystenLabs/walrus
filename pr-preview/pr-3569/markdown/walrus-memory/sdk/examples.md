@@ -4,6 +4,8 @@
 
 The shortest working Walrus Memory example using the default relayer-backed SDK.
 
+[Source: sdk/examples.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/examples.md)
+
 ```ts
 import { MemWal } from "@mysten-incubation/memwal";
 
@@ -46,6 +48,8 @@ when you already have a query vector.
 
 Use `analyze()` when you want the relayer to extract facts from longer text and store them as
 memories.
+
+[Source: sdk/examples.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/examples.md)
 
 ```ts
 const analyzed = await memwal.analyze(
