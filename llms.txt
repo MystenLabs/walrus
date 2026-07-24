@@ -426,9 +426,7 @@ Sui smart contract as the on-chain index.
     an agent holding WAL itself and having a third party sponsor the cost.
 - [How Storage Works](https://docs.wal.app/walrus-memory/fundamentals/architecture/how-storage-works.md):
     When you call memwal.remember(...), the relayer accepts a background job immediately and then
-    stores the memory asynchronously. Here's what happens. Source:
-    fundamentals/architecture/how-storage-works.md The relayer generates a vector embedding from
-    your plaintext content.
+    stores the memory asynchronously. Here's what happens.
 - [How Agent Memory Works](https://docs.wal.app/walrus-memory/fundamentals/concepts/how-agent-memory-works.md):
     AI agent memory is a durable, searchable store of what an agent has learned, kept outside the
     model so it survives across sessions, apps, and workflows.
