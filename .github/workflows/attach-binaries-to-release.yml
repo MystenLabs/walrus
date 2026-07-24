@@ -91,7 +91,7 @@ jobs:
           echo "walrus_version=${walrus_version}" >> $GITHUB_ENV
 
       - name: Check out ${{ env.walrus_tag }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # pin@v7.0.0
         with:
           ref: ${{ env.walrus_tag }}
 
@@ -244,7 +244,7 @@ jobs:
 
       - name: Setup sccache
         if: ${{ !startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
+        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # pin@v0.0.10
 
       - name: Cargo build for ${{ matrix.os }} platform
         if: ${{ !startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
@@ -282,7 +282,7 @@ jobs:
           parent: false
 
       - name: Upload release artifacts for ${{ matrix.os }} platform
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # pin@7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@7.0.1
         with:
           name: walrus-binaries-${{ matrix.os }}
           if-no-files-found: error
@@ -290,7 +290,7 @@ jobs:
             ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
 
       - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # pin@v2.5.0
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # pin@v3.0.1
         with:
           tag_name: ${{ env.walrus_tag }}
           files: |
