@@ -1,0 +1,194 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+This page is the single canonical reference for the volatile values you need to integrate with Walrus: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and staking object IDs, token units, and configuration snippets. Other documentation pages link here instead of repeating these values, so that you always read them from one place.
+
+> **Info**
+>
+> This page mirrors the canonical sources. The configuration snippets and the operator list on this page are imported directly from the Walrus repository and the maintained operator list, so they stay current. The authoritative sources are the [client configuration files](https://docs.wal.app/setup/client_config.yaml), the operator list in [JSON format](pathname:///operators.json), and the `Move.lock` files in the [`contracts`](https://github.com/MystenLabs/walrus/tree/main/contracts) and [`testnet-contracts`](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) directories on GitHub.
+## Network parameters
+
+Walrus operates a production Mainnet on Sui Mainnet and a Testnet on Sui Testnet. The following fixed system parameters apply to each network:
+
+| **Parameter** | **Mainnet** | **Testnet** |
+|---|---|---|
+| Sui network | Mainnet | Testnet |
+| Number of shards | 1000 | 1000 |
+| Epoch duration | 2 weeks | 1 day |
+| Maximum number of epochs for which storage can be bought | 53 | 53 |
+
+Other parameters, including system capacity, storage price, and the per-write fee, are dynamic. Read the current values with `walrus info`, or view them in the [Walruscan explorer](https://walruscan.com/). Do not hardcode dynamic values in integrations.
+
+Walrus does not operate a public Devnet. Use Mainnet for production and Testnet for testing.
+
+## Sui RPC endpoints
+
+The Walrus client and SDKs read Walrus state from a Sui full node. The default RPC URLs are:
+
+| **Network** | **Sui RPC URL** |
+|---|---|
+| Mainnet | `https://fullnode.mainnet.sui.io:443` |
+| Testnet | `https://fullnode.testnet.sui.io:443` |
+
+## Package IDs
+
+The Walrus client and the TypeScript SDK infer package IDs automatically from the system and staking objects, so you do not need to set them manually in most configurations. The values below are provided for contract exploration and for advanced setups that pin a specific deployment.
+
+### Walrus and WAL packages on Mainnet
+
+| **Package** | **ID** |
+|---|---|
+| WAL token | [`0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59`](https://suiscan.xyz/mainnet/object/0x356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59/tx-blocks) |
+| Walrus system | [`0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77`](https://suiscan.xyz/mainnet/object/0xfdc88f7d7cf30afab2f82e8380d11ee8f70efb90e863d1de8616fae1bb09ea77/tx-blocks) |
+| Subsidies | [`0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc`](https://suiscan.xyz/mainnet/object/0xd843c37d213ea683ec3519abe4646fd618f52d7fce1c4e9875a4144d53e21ebc/tx-blocks) |
+
+Testnet package IDs change when contracts are redeployed. Read the current Testnet package IDs from the `Move.lock` files in the subdirectories of the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) rather than pinning a copied value.
+
+### Walrus Sites packages
+
+The `site-builder` tool uses these package IDs, which are set in the `sites-config.yaml` file:
+
+| **Network** | **Walrus Sites package ID** |
+|---|---|
+| Mainnet | `0x5a0c509a659ba982f91ff1189872b8d528f8c02b5f6285a3931fc4c2869ccc9c` |
+| Testnet | `0x22b8c1496650eb45fbcca0f8f37fae77ed33b7d4eaab4da5f0bb9b62a8708dcb` |
+
+## System and staking object IDs
+
+The Walrus client configuration identifies the network through its system object and staking object. These objects track the state of the Walrus network on Sui.
+
+| **Object** | **Network** | **ID** |
+|---|---|---|
+| System object | Mainnet | `0x2134d52768ea07e8c43570ef975eb3e4c27a39fa6396bef985b5abc58d03ddd2` |
+| Staking object | Mainnet | `0x10b9d30c28448939ce6c4d6c6e0ffce4a7f8a4ada8248bdad09ef8b70e4a3904` |
+| System object | Testnet | `0x6c2547cbbc38025cf3adac45f63cb0a8d12ecf777cdc75a4971612bf97fdf6af` |
+| Staking object | Testnet | `0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3` |
+
+On Testnet, the SUI/WAL exchange objects used by `walrus get-wal` are:
+
+- `0xf4d164ea2def5fe07dc573992a029e010dba09b1a8dcbc44c5c2e79567f39073`
+- `0x19825121c52080bb1073662231cfea5c0e4d905fd13e95f21e9a018f2ef41862`
+- `0x83b454e524c71f30803f4d6c302a86fb6a39e96cdfb873c2d1e93bc1c26a3bc5`
+- `0x8d63209cf8589ce7aef8f262437163c67577ed09f3e636a9d8e0813843fb8bf1`
+
+These object IDs are pre-filled in the [client configuration files](#walrus-cli). The configuration file is the authoritative source if a value here differs.
+
+## Aggregators and publishers
+
+An aggregator exposes an HTTP interface to read blobs. A publisher exposes an HTTP interface to store blobs. Both expose their API specification at the path `/v1/api`, for example at `https://aggregator.walrus-testnet.walrus.space/v1/api`.
+
+The reference endpoints operated by Mysten Labs are:
+
+| **Service** | **Network** | **Endpoint** |
+|---|---|---|
+| Aggregator | Mainnet | `https://aggregator.walrus-mainnet.walrus.space` |
+| Aggregator | Testnet | `https://aggregator.walrus-testnet.walrus.space` |
+| Publisher | Testnet | `https://publisher.walrus-testnet.walrus.space` |
+
+> **Caution**
+>
+> Walrus does not provide a public unauthenticated publisher on Mainnet, because a publisher consumes both SUI and WAL on the service side. For production Mainnet uploads, run a [private authenticated publisher](/docs/operator-guide/publishers/mainnet-production-guide), use an [upload relay](#upload-relays), or integrate the [TypeScript SDK](#typescript-sdk) directly.
+Many community operators run public aggregators and publishers on Testnet, and public aggregators on Mainnet. The complete, maintained list follows. The list is updated weekly and is the canonical source for community endpoints.
+
+Most public aggregators and publishers limit requests to 10 MiB. To upload larger files, [run your own publisher](/docs/operator-guide/publishers/operating-publisher) or use the [CLI](/docs/walrus-client/storing-blobs).
+
+> **Tip**
+>
+> Do not hardcode a single community endpoint in production code. Community endpoints change over time. Use the operator list above, run your own service, or use the Mysten Labs reference endpoints.
+### HTTP API paths
+
+These paths are stable across all aggregators and publishers. Set `PUBLISHER` and `AGGREGATOR` to an endpoint from the tables above.
+
+| **Operation** | **Method and path**                              |
+|---------------|--------------------------------------------------|
+| Store a blob  | `PUT $PUBLISHER/v1/blobs`                         |
+| Read a blob   | `GET $AGGREGATOR/v1/blobs/<BLOB_ID>`              |
+| Read by object| `GET $AGGREGATOR/v1/blobs/by-object-id/<OBJECT_ID>` |
+| API spec      | `GET <ENDPOINT>/v1/api`                           |
+
+For the full request and response details, see [Storing Blobs with the HTTP API](/docs/http-api/storing-blobs) and [Reading Blobs with the HTTP API](/docs/http-api/reading-blobs).
+
+## Upload relays
+
+An upload relay stores blob slivers on behalf of clients that cannot open many connections, such as browsers and mobile devices. Mysten Labs operates the following public upload relays:
+
+| **Network** | **Upload relay endpoint** |
+|---|---|
+| Mainnet | `https://upload-relay.mainnet.walrus.space` |
+| Testnet | `https://upload-relay.testnet.walrus.space` |
+
+An upload relay exposes its tip configuration at `/v1/tip-config` and accepts blobs at `/v1/blob-upload-relay`. For details, see [Operate an Upload Relay](/docs/operator-guide/upload-relay).
+
+## Token units
+
+Walrus uses WAL for storage and Sui uses SUI for gas. Each token has a smallest indivisible unit:
+
+| **Token** | **Smallest unit** | **Conversion** |
+|---|---|---|
+| WAL | FROST | 1 WAL = 1,000,000,000 FROST |
+| SUI | MIST | 1 SUI = 1,000,000,000 MIST |
+
+Storage is paid in WAL but priced at a fixed rate of $0.023/GB/month. The amount of WAL adjusts automatically as the WAL price changes. CLI options that take a raw amount, such as `--amount` on `walrus get-wal` and `--gas-budget`, use the smallest unit (FROST or MIST). For current prices and the per-write fee, run `walrus info`. For full cost details, see [Storage Costs](/docs/system-overview/storage-costs).
+
+## Configuration snippets
+
+### Walrus CLI
+
+Download the pre-filled client configuration, which includes both the Mainnet and Testnet contexts, to a default location:
+
+```sh
+$ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+```
+
+The configuration file contents are:
+
+<!-- ImportContent: file not found in manifest: setup/client_config.yaml -->
+
+Mainnet-only and Testnet-only versions are available at `https://docs.wal.app/setup/client_config_mainnet.yaml` and `https://docs.wal.app/setup/client_config_testnet.yaml`. For more options, see the [Walrus Client](/docs/walrus-client/walrus-cli) page.
+
+### Walrus Sites site-builder
+
+The `site-builder` tool reads `sites-config.yaml`. Download the maintained configuration for both networks:
+
+```sh
+$ curl https://raw.githubusercontent.com/MystenLabs/walrus-sites/main/sites-config.yaml -o ~/.config/walrus/sites-config.yaml
+```
+
+For the full configuration reference, see the [Site Builder Reference](/docs/sites/getting-started/using-the-site-builder).
+
+### TypeScript SDK
+
+The TypeScript SDK bundles the package and object IDs for each network. Select the network with the `network` option, and the SDK applies the correct values:
+
+```ts
+import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { WalrusClient } from '@mysten/walrus';
+
+const suiClient = new SuiClient({
+  url: getFullnodeUrl('mainnet'),
+});
+
+const walrusClient = new WalrusClient({
+  network: 'mainnet',
+  suiClient,
+});
+```
+
+To connect to a custom or updated deployment, pass an explicit package configuration using the system and staking object IDs from this page. For full details, see the [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus) and the [SDKs](/docs/typescript-sdk/sdks) page.
+
+## Deprecated and stale endpoint patterns
+
+Stale endpoints and package IDs are a common cause of integration failures. Avoid the following patterns:
+
+| **Pattern**                                          | **Status**                                                | **Use instead**                                                                 |
+|------------------------------------------------------|-----------------------------------------------------------|---------------------------------------------------------------------------------|
+| `docs.walrus.site` documentation domain              | Retired                                                   | `docs.wal.app`                                                                  |
+| `mystenlabs.github.io/walrus-docs` and the `walrus-docs` repository | Retired                                    | The [`MystenLabs/walrus`](https://github.com/MystenLabs/walrus) repository      |
+| Devnet endpoints and configuration                   | Discontinued                                              | Mainnet or Testnet values on this page                                          |
+| A single hardcoded community aggregator or publisher | Unstable, endpoints change                                | The operator list above or a Mysten Labs reference endpoint                     |
+| A Mainnet publisher URL                              | No public unauthenticated Mainnet publisher exists        | A private authenticated publisher, an upload relay, or the TypeScript SDK       |
+| Copied Testnet package IDs pinned in code            | Change when Testnet contracts are redeployed              | IDs inferred from the system object, or read from `testnet-contracts` `Move.lock` |
+| Third-party WAL faucets on Testnet                   | Might distribute WAL from a package the client rejects    | `walrus get-wal`                                                                |
+
+> **Danger**
+>
+> The Testnet state can be wiped at any point, possibly without warning. Testnet provides no availability or persistence guarantees, and Testnet package IDs change on redeployment. Do not use Testnet for production.
