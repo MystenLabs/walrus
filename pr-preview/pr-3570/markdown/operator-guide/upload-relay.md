@@ -34,7 +34,7 @@ The flow between clients and the upload relay is already implemented in the Walr
 You can operate the upload relay as a free or paid service:
 
 - **Free service:** The relay accepts HTTP POST requests with blobs from clients and relays them to the storage nodes for free.
-- **Paid service:** In this configuration, the upload relay requires a tip to relay a blob. You can use the tip to cover the costs of running the infrastructure and earn revenue on the service. Currently, a constant tip and a tip that is linear in the unencoded data size are supported.
+- **Paid service:** In this configuration, the upload relay requires a tip to relay a blob. You can use the tip to cover the costs of running the infrastructure and earn revenue on the service. The relay currently supports a constant tip and a tip that scales linearly with the unencoded data size.
 
 Upload relays expose a tip-configuration endpoint `/v1/tip-config` that returns the tipping configuration. For example:
 
@@ -148,5 +148,5 @@ tx_max_future_threshold:
 The available options are:
 
 - `tip_config`: The configuration for the tip to be paid. Set this to `!no_tip` for the free service, or `!send_tip` to configure the requested tip. When using `!send_tip`, `address` contains the hex-encoded address of the upload relay owner where the tip should be sent, and `kind` specifies the type of tip. Set `kind` to `!const` for a constant tip for each store, or `!linear` for a tip that is linear in the unencoded blob size.
-- `tx_freshness_threshold_secs`: The maximum amount of time in seconds for which a transaction that pays the tip is considered valid.
-- `tx_max_future_threshold_secs`: The maximum amount of time in the future for which the tip-paying transaction is considered valid. This accounts for some clock skew.
+- `tx_freshness_threshold_secs`: The maximum number of seconds the relay considers a transaction that pays the tip valid.
+- `tx_max_future_threshold_secs`: The maximum amount of time in the future for which the relay accepts a tip-paying transaction as valid. This accounts for some clock skew.
