@@ -2,6 +2,8 @@
 
 Drop-in memory middleware for Vercel AI SDK apps.
 
+[Source: sdk/usage/with-memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/with-memwal.md)
+
 ```ts
 import { generateText } from "ai";
 import { withMemWal } from "@mysten-incubation/memwal/ai";

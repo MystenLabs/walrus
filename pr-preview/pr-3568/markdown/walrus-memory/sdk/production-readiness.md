@@ -8,6 +8,8 @@ Several of these are patterns you implement around the client today. Where a cap
 
 The relayer does not deduplicate writes. A `remember` call that retries after a network blip, or fired twice by an at-least-once job queue, stores the same text twice and pollutes later recall. Until content-based deduplication is available natively, gate writes on a key your agent controls so a repeat is a no-op.
 
+[Source: sdk/production-readiness.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/production-readiness.md)
+
 ```ts
 import { createHash } from "crypto";
 
@@ -29,6 +31,8 @@ async function rememberOnce(memwal: MemWal, text: string, namespace?: string) {
 ## Retry with backoff, but only retryable failures
 
 The client does not retry for you. Wrap calls in exponential backoff, and be careful to retry only failures that a retry can fix. A transient network error or relayer timeout is worth retrying. A `401 AUTH_REJECTED` is a configuration problem that fails identically on every attempt, so retrying it just delays the real fix.
+
+[Source: sdk/production-readiness.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/production-readiness.md)
 
 ```ts
 async function withRetry<T>(fn: () => Promise<T>, attempts = 4): Promise<T> {
@@ -59,6 +63,8 @@ Pairing retry with the idempotency guard above is deliberate: a retry that fires
 
 An autonomous agent should not make a decision that assumes a write persisted until it confirms the write reached a terminal state. The `*AndWait` helpers block until each job reports `done`; when you write without blocking, capture the job IDs and wait on them before depending on the data.
 
+[Source: sdk/production-readiness.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/production-readiness.md)
+
 ```ts
 const accepted = await memwal.rememberBulkAsync(items);
 const settled = await memwal.waitForRememberJobs(accepted.job_ids);
@@ -81,6 +87,8 @@ Every write registers storage on Walrus and costs gas and WAL. An agent in a tig
 - **Batch with Quilt.** `rememberBulkAndWait` (up to 20 items) collapses many small writes into far fewer transactions. Buffer small state blobs and flush them as a batch instead of writing one at a time.
 - **Do not store what you never recall.** Ephemeral scratch state that never feeds a future `recall` does not belong in durable storage. Keep it in process memory.
 - **Cap writes per cycle.** Give the agent loop a budget, for example a maximum number of memories per run or per hour, and have it drop or summarize past the cap rather than write unbounded.
+
+[Source: sdk/production-readiness.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/production-readiness.md)
 
 ```ts
 let writesThisCycle = 0;
@@ -107,6 +115,8 @@ Load both from a secret manager, never from source or logs. Scope each agent to 
 
 A memory layer that is down should slow your agent, not stop it. Check reachability at startup and guard the memory paths so the agent keeps serving when the relayer is unreachable for a cycle.
 
+[Source: sdk/production-readiness.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/production-readiness.md)
+
 ```ts
 let memory: MemWal | null = null;
 try {
@@ -128,6 +138,8 @@ This is the same defensive pattern the [Cloudflare Workers guide](/walrus-memory
 ## Mind the recall result cap
 
 `recall` returns up to `limit` results, defaulting to `10`. When more memories match than the cap, the relayer does not return the extra results, with no signal that it truncated the set. If a decision depends on seeing every match, set `limit` explicitly to a value above what you expect, and treat a result count equal to `limit` as a sign there might be more.
+
+[Source: sdk/production-readiness.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/production-readiness.md)
 
 ```ts
 const result = await memwal.recall({ query: "open incidents", limit: 50 });

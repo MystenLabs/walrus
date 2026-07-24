@@ -36,6 +36,8 @@ See [Reference](/walrus-memory/mcp/reference) for full parameters, CLI flags, an
 
 The npm package (`@mysten-incubation/memwal-mcp`) runs locally next to your MCP client and bridges every memory tool call to the Walrus Memory relayer, which handles embeddings, Seal encryption, and Walrus storage.
 
+[Source: mcp/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/overview.md)
+
 ```mermaid
 flowchart TD
   A["MCP client starts memwal-mcp"] --> B{"~/.memwal/credentials.json exists?"}

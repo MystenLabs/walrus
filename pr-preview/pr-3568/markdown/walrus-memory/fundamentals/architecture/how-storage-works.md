@@ -4,6 +4,8 @@ When you call `memwal.remember(...)`, the relayer accepts a background job immed
 
 ## Storing a memory
 
+[Source: fundamentals/architecture/how-storage-works.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/architecture/how-storage-works.md)
+
 ```mermaid
 sequenceDiagram
     participant App as Your App
@@ -42,6 +44,8 @@ sequenceDiagram
 
 ## Recalling a memory
 
+[Source: fundamentals/architecture/how-storage-works.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/architecture/how-storage-works.md)
+
 ```mermaid
 sequenceDiagram
     participant App as Your App
@@ -73,6 +77,8 @@ sequenceDiagram
 ## Restoring a memory space
 
 If the local database is lost or incomplete, the restore flow rebuilds it from Walrus, the permanent source of truth.
+
+[Source: fundamentals/architecture/how-storage-works.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/architecture/how-storage-works.md)
 
 ```mermaid
 sequenceDiagram

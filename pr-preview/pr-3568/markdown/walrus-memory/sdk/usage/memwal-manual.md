@@ -19,6 +19,8 @@ This is the recommended path for Web3-native users who want to minimize trust in
 
 ## Setup
 
+[Source: sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal-manual.md)
+
 ```ts
 import { MemWalManual } from "@mysten-incubation/memwal/manual";
 
@@ -34,6 +36,8 @@ const manual = MemWalManual.create({
 ```
 
 ## Core methods
+
+[Source: sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal-manual.md)
 
 ```ts
 // Embed locally, encrypt locally, relay encrypted payload + vector
@@ -73,6 +77,8 @@ console.log(manual.isWalletMode);
 
 Use `walletSigner` instead of `suiPrivateKey` when integrating with a connected wallet (for example, `@mysten/dapp-kit`):
 
+[Source: sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal-manual.md)
+
 ```ts
 const manual = MemWalManual.create({
   key: "<your-ed25519-delegate-key>",
@@ -102,6 +108,8 @@ const manual = MemWalManual.create({
 Every blob on Walrus is public, so you must encrypt private agent state before storing it. For an autonomous agent that has no human to approve a wallet popup, `MemWalManual` is the path that keeps the agent in control of its own key material: encryption happens client-side, and the relayer never receives plaintext.
 
 A headless agent signs Seal and Walrus operations with its own Sui key rather than a connected wallet. Provide `suiPrivateKey` instead of `walletSigner`, set `suiNetwork` for your environment, and load every secret from the environment:
+
+[Source: sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal-manual.md)
 
 ```ts
 import { MemWalManual } from "@mysten-incubation/memwal/manual";

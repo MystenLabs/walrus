@@ -9,6 +9,8 @@ The recommended default client. The relayer handles embeddings, Seal encryption,
 3. `remember` returns an accepted job while the relayer encrypts, uploads, and indexes in the background
 4. `recall` searches by namespace and returns decrypted matches
 
+[Source: python-sdk/usage/memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/memwal.md)
+
 ```python
 from memwal import MemWal, RecallParams
 
@@ -23,6 +25,8 @@ memwal = MemWal.create(
 `MemWalSync.create(...)` takes the same arguments for synchronous code.
 
 ## Core methods
+
+[Source: python-sdk/usage/memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/memwal.md)
 
 ```python
 # Store a memory (async-accept; poll to completion)
@@ -53,6 +57,8 @@ Every memory method accepts an optional `namespace=` override that wins over the
 ## Restore
 
 Rebuild missing indexed entries for one namespace from Walrus. Incremental and namespace-scoped, meant to repair PostgreSQL vector state from Walrus-backed memory.
+
+[Source: python-sdk/usage/memwal.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/memwal.md)
 
 ```python
 result = await memwal.restore("chatbot-prod", limit=10)
