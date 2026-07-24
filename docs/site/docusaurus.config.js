@@ -28,7 +28,7 @@ async function tailwindPlugin() {
 const config = {
   title: "Walrus Docs",
   tagline: "Where the world's data becomes reliable, valuable, and governable",
-  favicon: "img/favicon.ico",
+  favicon: "img/favicon.png",
   trailingSlash: false,
 
   future: {
@@ -223,6 +223,7 @@ const config = {
         path: "../walrus-memory-content",
         routeBasePath: "walrus-memory",
         sidebarPath: "./sidebarsWalrusMemory.js",
+        exclude: ["contributing/**"],
         remarkPlugins: [remarkMath],
         rehypePlugins: [rehypeKatex],
       },
@@ -258,6 +259,22 @@ const config = {
           '/docs/operator-guide/aggregator',
           '/docs/snippets/**',
         ],
+      },
+      blog: {
+        path: "../blog",
+        postsPerPage: "ALL",
+        blogSidebarTitle: "All posts",
+        blogSidebarCount: "ALL",
+        showReadingTime: true,
+        feedOptions: {
+          type: ["rss", "atom"],
+          xslt: true,
+        },
+        onInlineTags: "warn",
+        onInlineAuthors: "warn",
+        onUntruncatedBlogPosts: "warn",
+        remarkPlugins: [remarkMath],
+        rehypePlugins: [rehypeKatex],
       },
       pages: {
         remarkPlugins: [
@@ -317,23 +334,26 @@ const config = {
           {
             type: "docSidebar",
             sidebarId: "docsSidebar",
-            position: "right",
-            label: "Data Storage",
+            position: "left",
+            label: "Walrus Platform",
           },
+          {
+            to: "/walrus-memory/getting-started/what-is-walrus-memory",
+            label: "Walrus Memory",
+            position: "left",
+          },
+          { to: "/skills", label: "Walrus Skills", position: "left" },
           {
             type: "docSidebar",
             sidebarId: "sitesSidebar",
             label: "Walrus Sites",
-            position: "right",
+            position: "left",
           },
           {
-            type: "docSidebar",
-            sidebarId: "operatorSidebar",
-            label: "Service Providers",
+            to: "/docs/release-notes",
+            label: "Release Notes",
             position: "right",
           },
-          { to: "/skills", label: "Skills", position: "right" },
-          { to: "/docs/release-notes", label: "Release Notes", position: "right" },
           {
             href: "https://github.com/MystenLabs/walrus",
             position: "right",

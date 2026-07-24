@@ -171,6 +171,14 @@ pub(super) async fn serialize_snapshot_at_epoch_boundary(
     node.metrics
         .blob_info_snapshot_size_bytes
         .set(saturating_i64(size_bytes));
+    // Expose the digest per epoch so an off-node observer can compare it across nodes; the label is
+    // bucketed like the consistency-check hashes to keep Prometheus cardinality bounded.
+    #[allow(clippy::cast_possible_wrap)] // reinterpreting the hash bits as i64 is fine
+    walrus_utils::with_label!(
+        node.metrics.per_object_blob_info_snapshot_digest,
+        super::consistency_check::get_epoch_bucket(epoch)
+    )
+    .set(digest as i64);
     let digest_hex = format!("{digest:016x}");
     tracing::info!(
         walrus.epoch = epoch,
