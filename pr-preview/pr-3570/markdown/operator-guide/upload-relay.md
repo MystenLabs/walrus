@@ -13,6 +13,15 @@ The upload relay is a downloadable program that community members, Mysten Labs, 
 > 
 > These endpoints are also listed in the [Network Reference](/docs/network-reference#upload-relays).
 
+  
+  
+    The upload relay offloads erasure coding and sliver fan-out from the browser. The
+    client sends a blob and a tip to the relay; the relay distributes slivers to the
+    storage node committee, collects confirmations, and returns an availability
+    certificate. The client registers, certifies, and pays on Sui, so ownership always
+    stays with the client.
+  
+
 ## Understand the design
 
 At a high level, a client stores a blob using an upload relay as follows:
@@ -31,7 +40,7 @@ The flow between clients and the upload relay is already implemented in the Walr
 
 ### Operation modes
 
-You can operate the upload relay as a free or paid service:
+You can operate the upload relay in two ways:
 
 1. **Free service:** The relay accepts HTTP POST requests with blobs from clients and relays them to the storage nodes for free.
 2. **Paid service:** In this configuration, the upload relay requires a tip to relay a blob. You can use the tip to cover the costs of running the infrastructure and earn revenue on the service. The relay currently supports a constant tip and a tip that scales linearly with the unencoded data size.
