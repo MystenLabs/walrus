@@ -11,6 +11,8 @@ A managed relayer is a simpler experience for teams that want to get started wit
 
 ## Minimal config
 
+[Source: relayer/public-relayer.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/public-relayer.md)
+
 ```ts
 import { MemWal } from "@mysten-incubation/memwal";
 

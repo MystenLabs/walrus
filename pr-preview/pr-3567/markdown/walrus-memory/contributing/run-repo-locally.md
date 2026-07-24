@@ -13,6 +13,8 @@
 > If you only work on TypeScript apps or docs, you don't need Rust.
 ## Step 1, clone and install
 
+[Source: contributing/run-repo-locally.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contributing/run-repo-locally.md)
+
 ```bash
 $ git clone https://github.com/MystenLabs/MemWal.git
 $ cd MemWal
@@ -24,6 +26,8 @@ $ pnpm install
 > **Warning**
 >
 > The apps depend on the SDK's compiled output. If you skip this step, apps fails to start with import errors.
+[Source: contributing/run-repo-locally.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contributing/run-repo-locally.md)
+
 ```bash
 $ pnpm build:sdk
 ```
@@ -33,6 +37,8 @@ This compiles `packages/sdk` → `packages/sdk/dist/`. The apps import from `@my
 ## Step 3, run what you need
 
 Run individual surfaces from the repository root:
+
+[Source: contributing/run-repo-locally.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contributing/run-repo-locally.md)
 
 ```bash
 # Docs site (Mintlify)
@@ -62,6 +68,8 @@ Requires:
 
 Quick start:
 
+[Source: contributing/run-repo-locally.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contributing/run-repo-locally.md)
+
 ```bash
 # Start PostgreSQL with pgvector
 $ docker compose -f services/server/docker-compose.yml up -d postgres
@@ -81,6 +89,8 @@ For the full relayer setup guide, see [Self-Hosting](/walrus-memory/relayer/self
 
 ### Indexer (`services/indexer`)
 
+[Source: contributing/run-repo-locally.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contributing/run-repo-locally.md)
+
 ```bash
 $ cd services/indexer
 $ cargo run
@@ -89,6 +99,8 @@ $ cargo run
 The indexer polls Sui events and syncs account data into PostgreSQL.
 
 ## Monorepo structure
+
+[Source: contributing/run-repo-locally.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contributing/run-repo-locally.md)
 
 ```
 MemWal/

@@ -2,6 +2,8 @@
 
 Walrus Memory is made up of six core components that work together to give your agents portable, verifiable memory that they fully control.
 
+[Source: fundamentals/architecture/core-components.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/architecture/core-components.md)
+
 ```mermaid
 sequenceDiagram
     participant App as Your App
@@ -31,6 +33,8 @@ The TypeScript SDK is the main entry point for developers. It wraps all Walrus M
 - Signs every request with the configured key
 - Sends requests to the relayer
 - Exposes `remember`, `recall`, `analyze`, `ask`, and `restore` methods
+
+[Source: fundamentals/architecture/core-components.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/fundamentals/architecture/core-components.md)
 
 ```ts
 const memwal = MemWal.create({

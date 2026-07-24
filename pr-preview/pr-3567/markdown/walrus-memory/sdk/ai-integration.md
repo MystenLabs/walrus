@@ -4,6 +4,8 @@ Walrus Memory includes an AI SDK integration for applications that already use m
 
 ## `withMemWal`
 
+[Source: sdk/ai-integration.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/ai-integration.md)
+
 ```ts
 import { generateText } from "ai";
 import { withMemWal } from "@mysten-incubation/memwal/ai";

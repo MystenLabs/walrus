@@ -67,6 +67,8 @@ Tracks the indexer's cursor position so it can resume from where it left off aft
 
 Recall queries use pgvector's cosine distance operator (`<=>`) against the HNSW index:
 
+[Source: indexer/database-sync.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/indexer/database-sync.md)
+
 ```sql
 SELECT blob_id, (embedding <=> $1)::float8 AS distance
 FROM vector_entries
