@@ -10,6 +10,28 @@ keywords:
   - encoding example
   - primary sliver
   - secondary sliver
+goal:
+  description: Reader can trace through a concrete RedStuff encoding and recovery scenario
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How does RedStuff encoding work step by step?
+  - How does sliver recovery work in RedStuff?
+  - What is the fully expanded message matrix?
+answer: >-
+  Walk through a concrete RedStuff encoding and recovery example with matrix
+  illustrations showing how primary and secondary slivers are created,
+  distributed, and recovered after shard failure.
 ---
 
 This page continues from the [RedStuff encoding algorithm overview](red-stuff) with a concrete worked example.

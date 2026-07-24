@@ -11,6 +11,28 @@ keywords:
   - Merkle tree
   - metadata overhead
   - storage overhead
+goal:
+  description: Reader understands RedStuff storage overhead, blob size limits, and sliver authentication
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is the storage overhead of RedStuff encoding?
+  - What are the blob size limits in Walrus?
+  - How does sliver authentication work?
+answer: >-
+  RedStuff has a 4.5x storage overhead. Blob sizes depend on shard count and
+  symbol size limits. Slivers are authenticated using Merkle trees, and blob
+  IDs are derived from the Merkle root of sliver hashes.
 ---
 
 This page covers the properties, Walrus-specific parameters, and authentication mechanisms of the [RedStuff encoding algorithm](red-stuff).
