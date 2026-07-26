@@ -21,7 +21,12 @@ const sidebars = {
       "items": [
         "getting-started/quick-start",
         "getting-started/choose-your-path",
-        "examples/example-apps"
+        "examples/example-apps",
+        {
+          "type": "link",
+          "label": "GitHub",
+          "href": "https://github.com/MystenLabs/MemWal"
+        }
       ]
     },
     {

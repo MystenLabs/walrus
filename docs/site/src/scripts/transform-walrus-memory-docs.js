@@ -687,6 +687,12 @@ function fixNumberedHeadingCase(content) {
 const AGENT_PROMPTS = {
   "getting-started/quick-start.md":
     "Run `curl -sL https://memory.walrus.xyz/skills/setup` and use the returned instructions to set up Walrus Memory in this AI client.",
+  "sdk/quick-start.md":
+    "Install @mysten-incubation/memwal in this project, create a MemWal client from the MEMWAL_PRIVATE_KEY, MEMWAL_ACCOUNT_ID, and MEMWAL_SERVER_URL environment variables, then store and recall a test memory to verify the setup.",
+  "sdk/headless-setup.md":
+    "Set up the Walrus Memory SDK headlessly in this server codebase: load the delegate key, account ID, and relayer URL from the environment, create the client at startup, and add a health check that calls memwal.health() on boot.",
+  "mcp/overview.md":
+    "Add the Walrus Memory MCP server to this client. On Claude Code run `claude mcp add --scope user memwal -- npx -y @mysten-incubation/memwal-mcp`; on other clients add the equivalent mcp.json entry. Then ask the agent to run memwal_login to sign in.",
 };
 
 function injectAgentPrompt(content, relPath) {

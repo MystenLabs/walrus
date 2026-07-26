@@ -71,6 +71,11 @@ const STRUCTURE = [
       "getting-started/quick-start",
       "getting-started/choose-your-path",
       "examples/example-apps",
+      {
+        type: "link",
+        label: "GitHub",
+        href: "https://github.com/MystenLabs/MemWal",
+      },
     ],
     autoDirs: ["getting-started", "examples"],
   },
@@ -279,6 +284,9 @@ function buildCategory(def, availableSlugs, placedSlugs) {
       } else {
         console.warn(`  \u26a0\ufe0f  Page listed but not found on disk: ${item}`);
       }
+    } else if (item.type === "link") {
+      // External link item (e.g. the MemWal GitHub repo) — pass through as-is
+      items.push(item);
     } else if (item.items) {
       // Subcategory — recurse
       const sub = buildCategory(item, availableSlugs, placedSlugs);
