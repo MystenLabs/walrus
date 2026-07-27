@@ -106,6 +106,14 @@ Publishers are clients that help end users store blobs through protocols like HT
 
 ## Data storage process
 
+  
+  
+    Writing a blob: the client erasure-codes the blob into slivers locally, registers the
+    blob and its metadata as an object on Sui, sends the slivers directly to the storage
+    node committee, and posts the availability certificate to Sui once a write quorum has
+    stored them. No publisher or aggregator is required.
+  
+
 When data is uploaded to Walrus, the following process occurs:
 
 1. A user sends a request to upload data to Walrus through a Walrus client. A client binary can be run locally and provides the following tools to perform Walrus operations:
@@ -157,6 +165,13 @@ When data is uploaded to Walrus, the following process occurs:
 1. 2/3 of the receipt signatures are aggregated into an availability certificate. The blob is certified, indicating that a sufficient number of slivers have been stored to guarantee the blob's availability. When a blob is certified, its `certified_epoch` field contains the epoch in which it was certified. A certified blob remains available for the duration specified by its associated storage resource.
 
 ## Data retrieval process
+
+  
+  
+    Reading a blob: the client reads the blob metadata from its object on Sui, fetches enough
+    slivers directly from the storage node committee to meet the reconstruction threshold, and
+    reconstructs and verifies the blob locally.
+  
 
 When data is retrieved from Walrus, the following process occurs:
 

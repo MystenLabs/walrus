@@ -6,6 +6,8 @@
 - [Operations](/docs/system-overview/operations): Developer guide to Walrus operations for blob management.
 - [Public Aggregators and Publishers](/docs/system-overview/public-aggregators-and-publishers)
 - [Batch Storage with Quilt](/docs/system-overview/quilt): Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.
+- [RedStuff Worked Example](/docs/system-overview/red-stuff-details): Step-by-step worked example of RedStuff encoding and sliver recovery with matrix illustrations showing primary and secondary slivers.
+- [RedStuff Properties and Parameters](/docs/system-overview/red-stuff-parameters): RedStuff encoding properties, Walrus-specific parameters, blob size limits, sliver-to-shard mapping, sliver authentication, and metadata overhead.
 - [RedStuff Encoding Algorithm](/docs/system-overview/red-stuff): Learn how the RedStuff encoding algorithm works in Walrus, including erasure coding, RaptorQ fountain codes, sliver encoding, recovery, and blob metadata.
 - [Upload Relay](/docs/system-overview/relay): Learn how the Walrus upload relay simplifies blob uploads by batching requests, handling retries, and generating certificates on behalf of your application.
 - [Storage Costs](/docs/system-overview/storage-costs): Comprehensive guide to Walrus storage costs including fixed USD-denominated pricing, WAL tokens, SUI gas fees, and cost optimization strategies.
