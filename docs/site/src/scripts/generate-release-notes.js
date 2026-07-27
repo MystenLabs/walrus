@@ -17,10 +17,10 @@ const https = require("https");
 
 const BLOG_DIR = path.resolve(__dirname, "../../../blog");
 const EDITORIAL_DIR = path.resolve(__dirname, "../../../editorial");
-const OUTPUT_PATH = path.resolve(
-  __dirname,
-  "../../../content/release-notes.mdx",
-);
+const OUTPUT_DIR = path.resolve(__dirname, "../../../content/release-notes");
+const OUTPUT_HUB = path.resolve(__dirname, "../../../content/release-notes.mdx");
+const OUTPUT_WALRUS = path.resolve(OUTPUT_DIR, "walrus-platform.mdx");
+const OUTPUT_MEMORY = path.resolve(OUTPUT_DIR, "walrus-memory.mdx");
 
 // ── GitHub API helpers ─────────────────────────────────────────────
 
@@ -390,25 +390,49 @@ async function main() {
     );
   }
 
-  // ── Build MDX output ──
+  // ── Build MDX output (split across three files) ──
 
-  let mdx = `---
-title: "Release Notes"
-description: "Release notes for Walrus, Walrus Memory, and related tools."
+  if (!fs.existsSync(OUTPUT_DIR)) {
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  }
+
+  // ── Hub page ──
+  const hub = `---
+title: Release Notes
+description: 'Release notes for Walrus, Walrus Memory, and related tools.'
 displayed_sidebar: null
 hide_table_of_contents: true
+questions:
+  - What changed in the latest Walrus release?
+  - Where can I find Walrus release history?
+  - What breaking changes should I be aware of?
+answer: 'Release notes for Walrus, Walrus Memory, and related tools.'
 ---
 
 # Release Notes
 
-Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [Walrus Memory](https://github.com/MystenLabs/MemWal/releases).
+- [**Walrus Platform**](release-notes/walrus-platform) — Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases).
+- [**Walrus Memory**](release-notes/walrus-memory) — Release notes from [Walrus Memory](https://github.com/MystenLabs/MemWal/releases), including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+`;
 
-<Tabs>
+  fs.writeFileSync(OUTPUT_HUB, hub, "utf8");
+  console.log(`\nWrote ${OUTPUT_HUB}`);
+
+  // ── Walrus Platform page ──
+  let walrusMdx = `---
+title: Walrus Platform Release Notes
+description: Release notes for the Walrus decentralized storage platform.
+displayed_sidebar: null
+hide_table_of_contents: true
+questions:
+  - What changed in the latest Walrus release?
+  - Where can I find Walrus release history?
+  - What breaking changes should I be aware of?
+answer: Release notes for the Walrus decentralized storage platform.
+---
 
 `;
 
-  // ── Tab 1: Walrus platform releases ──
-  mdx += `<TabItem value="walrus" label="Walrus Platform" default>\n\n`;
   if (walrusReleases.length > 0) {
     for (const rel of walrusReleases) {
       const networkBadge =
@@ -416,28 +440,43 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
       const dateStr = formatDate(rel.date);
       const link = `[GitHub](${rel.url})`;
 
-      mdx += `### ${rel.title}\n\n`;
-      mdx += `\`${networkBadge}\` ${dateStr} | ${link}\n\n`;
+      walrusMdx += `### ${rel.title}\n\n`;
+      walrusMdx += `\`${networkBadge}\` ${dateStr} | ${link}\n\n`;
 
       // Prepend editorial summary if available
       const vKey = `${rel.version.major}.${rel.version.minor}.${rel.version.patch}`;
       const walrusEditorial = editorial.walrus.get(vKey);
       if (walrusEditorial) {
-        mdx += `<div className="release-editorial">\n\n${walrusEditorial}\n\n</div>\n\n`;
+        walrusMdx += `<div className="release-editorial">\n\n${walrusEditorial}\n\n</div>\n\n`;
       }
 
       let body = sanitizeForMDX(rel.body);
       body = bumpHeadings(body);
       body = body.replace(/\n{3,}/g, "\n\n").trim();
-      mdx += body + "\n\n---\n\n";
+      walrusMdx += body + "\n\n---\n\n";
     }
   } else {
-    mdx += `No Walrus platform releases found.\n\n`;
+    walrusMdx += `No Walrus platform releases found.\n\n`;
   }
-  mdx += `</TabItem>\n\n`;
 
-  // ── Tab 2: Walrus Memory releases (with sub-tabs) ──
-  mdx += `<TabItem value="memory" label="Walrus Memory">\n\n`;
+  fs.writeFileSync(OUTPUT_WALRUS, walrusMdx, "utf8");
+  console.log(`Wrote ${OUTPUT_WALRUS}`);
+
+  // ── Walrus Memory page (with sub-tabs) ──
+  let memoryMdx = `---
+title: Walrus Memory Release Notes
+description: 'Release notes for Walrus Memory, MCP, TypeScript SDK, Python SDK, and OpenClaw.'
+displayed_sidebar: null
+hide_table_of_contents: true
+questions:
+  - What changed in the latest Walrus Memory release?
+  - Where can I find Walrus Memory MCP release notes?
+  - What is new in the Walrus Memory TypeScript SDK?
+answer: 'Release notes for Walrus Memory, MCP, TypeScript SDK, Python SDK, and OpenClaw.'
+---
+
+`;
+
   if (memwalReleases.length > 0) {
     // Group by package category
     const categories = {
@@ -468,52 +507,43 @@ Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases) and [
       ([, cat]) => cat.releases.length > 0,
     );
 
-    mdx += `<Tabs groupId="memory-sub">\n\n`;
+    memoryMdx += `<Tabs groupId="memory-sub">\n\n`;
 
     for (const [key, cat] of activeCats) {
       const isFirst = key === activeCats[0][0];
-      mdx += `<TabItem value="${key}" label="${cat.label}"${isFirst ? " default" : ""}>\n\n`;
+      memoryMdx += `<TabItem value="${key}" label="${cat.label}"${isFirst ? " default" : ""}>\n\n`;
 
       for (const rel of cat.releases) {
         const dateStr = formatDate(rel.date);
         const link = `[GitHub](${rel.url})`;
 
-        mdx += `### ${rel.title}\n\n`;
-        mdx += `${dateStr} | ${link}\n\n`;
+        memoryMdx += `### ${rel.title}\n\n`;
+        memoryMdx += `${dateStr} | ${link}\n\n`;
 
         // Prepend editorial summary if available
         const memwalEditorial = editorial.memwal.get(
           `${key}|${rel.version}`,
         );
         if (memwalEditorial) {
-          mdx += `<div className="release-editorial">\n\n${memwalEditorial}\n\n</div>\n\n`;
+          memoryMdx += `<div className="release-editorial">\n\n${memwalEditorial}\n\n</div>\n\n`;
         }
 
         let body = sanitizeForMDX(rel.body);
         body = bumpHeadings(body);
         body = body.replace(/\n{3,}/g, "\n\n").trim();
-        mdx += body + "\n\n---\n\n";
+        memoryMdx += body + "\n\n---\n\n";
       }
 
-      mdx += `</TabItem>\n\n`;
+      memoryMdx += `</TabItem>\n\n`;
     }
 
-    mdx += `</Tabs>\n\n`;
+    memoryMdx += `</Tabs>\n\n`;
   } else {
-    mdx += `No Walrus Memory releases found.\n\n`;
-  }
-  mdx += `</TabItem>\n\n`;
-
-  mdx += `</Tabs>\n\n`;
-
-  // Write output
-  const outputDir = path.dirname(OUTPUT_PATH);
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+    memoryMdx += `No Walrus Memory releases found.\n\n`;
   }
 
-  fs.writeFileSync(OUTPUT_PATH, mdx, "utf8");
-  console.log(`\nWrote ${OUTPUT_PATH}`);
+  fs.writeFileSync(OUTPUT_MEMORY, memoryMdx, "utf8");
+  console.log(`Wrote ${OUTPUT_MEMORY}`);
   console.log(
     `  ${walrusReleases.length} Walrus releases + ${memwalReleases.length} Memory releases`,
   );
