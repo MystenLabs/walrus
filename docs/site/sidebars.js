@@ -137,6 +137,7 @@ const sidebars = {
       items: [
         "system-overview/red-stuff",
         "system-overview/red-stuff-details",
+        "system-overview/red-stuff-recovery",
         "system-overview/red-stuff-parameters",
         "system-overview/system-constraints",
         "system-overview/public-aggregators-and-publishers",
