@@ -79,6 +79,12 @@ async function fetchAllPages(basePath) {
 // ── Content processing ─────────────────────────────────────────────
 
 function sanitizeForMDX(content) {
+  // Normalize line endings from GitHub API responses
+  content = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  // Fix common typos from upstream release bodies
+  content = content.replace(/\boverriden\b/g, "overridden");
+
   // Convert raw GitHub PR URLs to links
   content = content.replace(
     /(?<!\[#\d+\]\()https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)(?!\))/g,
@@ -412,7 +418,9 @@ answer: 'Release notes for Walrus, Walrus Memory, and related tools.'
 # Release Notes
 
 - [**Walrus Platform**](release-notes/walrus-platform) — Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases).
-- [**Walrus Memory**](release-notes/walrus-memory) — Release notes from [Walrus Memory](https://github.com/MystenLabs/MemWal/releases), including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+- [**Walrus Memory**](release-notes/walrus-memory) — Release notes from
+  [Walrus Memory](https://github.com/MystenLabs/MemWal/releases),
+  including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
 `;
 
   fs.writeFileSync(OUTPUT_HUB, hub, "utf8");
