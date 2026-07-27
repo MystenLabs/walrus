@@ -69,6 +69,10 @@ Sui smart contract as the on-chain index.
     RedStuff has specific properties, Walrus-specific parameters, and authentication mechanisms
     described in the RedStuff encoding algorithm. The following sections describe key design
     decisions, fault-tolerance properties, and storage overhead of the RedStuff encoding.
+- [Red Stuff Recovery](https://docs.wal.app/docs/system-overview/red-stuff-recovery.md):
+    This page continues from the RedStuff encoding example with a recovery scenario. Consider that
+    shard 3 fails, losing its slivers, and needs to recover them. In the following, the symbols of
+    the lost slivers are highlighted in red (the lower quadrant is never stored).
 - [Red Stuff](https://docs.wal.app/docs/system-overview/red-stuff.md):
     The RedStuff encoding algorithm used in Walrus is an adaptation of the Twin-Code framework
     presented by Rashmi et al. [[1]](https://doi.org/10.1109/ISIT.2011.6033732).
@@ -689,7 +693,17 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Release notes from Walrus and Walrus Memory.
+    Walrus Platform — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory,
+    including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+- [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
+    June 12, 2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and
+    Antigravity, along with new memwalrememberbulk and memwalhealth tools and proactive memory
+    behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
+- [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
+    Mainnet July 22, 2026 | GitHub --- --- Testnet July 15, 2026 | GitHub --- --- Mainnet July 9,
+    2026 | GitHub #3479: walrus info committee gains a --commission-receivers flag that prints, as
+    CSV, the commission receiver of every node in the previous, current, and next committees
+    (including the owning address for object receivers).
 
 ## Sponsored Uploads
 
