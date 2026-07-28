@@ -69,6 +69,10 @@ Sui smart contract as the on-chain index.
     RedStuff has specific properties, Walrus-specific parameters, and authentication mechanisms
     described in the RedStuff encoding algorithm. The following sections describe key design
     decisions, fault-tolerance properties, and storage overhead of the RedStuff encoding.
+- [Red Stuff Recovery](https://docs.wal.app/docs/system-overview/red-stuff-recovery.md):
+    This page continues from the RedStuff encoding example with a recovery scenario. Consider that
+    shard 3 fails, losing its slivers, and needs to recover them. In the following, the symbols of
+    the lost slivers are highlighted in red (the lower quadrant is never stored).
 - [Red Stuff](https://docs.wal.app/docs/system-overview/red-stuff.md):
     The RedStuff encoding algorithm used in Walrus is an adaptation of the Twin-Code framework
     presented by Rashmi et al. [[1]](https://doi.org/10.1109/ISIT.2011.6033732).
@@ -406,9 +410,9 @@ Sui smart contract as the on-chain index.
 - [Quick Start](https://docs.wal.app/walrus-memory/getting-started/quick-start.md):
     The fastest way to get Walrus Memory running is through the TypeScript SDK.
 - [What Is Walrus Memory](https://docs.wal.app/walrus-memory/getting-started/what-is-walrus-memory.md):
-    > Note > > Walrus Memory is currently in beta and actively evolving. While fully usable today,
-    the team continues to refine the developer experience and operational guidance. the team
-    welcomes feedback from early builders as the team continues to improve the product.
+    > Note > > Walrus Memory is in beta and actively evolving. It is fully usable today, and the
+    developer experience and operational guidance keep improving. Feedback from early builders
+    helps shape the product.
 
 ## Walrus Memory: Fundamentals
 
@@ -608,10 +612,22 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: Examples
 
+- [Chatbot](https://docs.wal.app/walrus-memory/examples/chatbot.md):
+    The chatbot example (apps/chatbot) is a production-style AI chat app built on Next.js and the
+    Vercel AI SDK. It shows the lightest-touch Walrus Memory integration: wrap the model once, and
+    memory works for every conversation turn.
 - [Example Apps](https://docs.wal.app/walrus-memory/examples/example-apps.md):
     The repo includes ready-to-run apps in apps/ that show different Walrus Memory integration
-    patterns. This page focuses on app-level patterns,the basic SDK flow covered in Quick Start and
-    Walrus Memory Usage.
+    patterns. Start here for app-level patterns; Quick Start and Walrus Memory Usage cover the
+    basic SDK flow.
+- [Noter](https://docs.wal.app/walrus-memory/examples/noter.md):
+    The noter example (apps/noter) is a note-taking app with zkLogin sign-in, so users authenticate
+    with OAuth instead of managing a wallet. It shows the note-to-memory pattern: free-form writing
+    becomes structured facts that recall can find later.
+- [Researcher](https://docs.wal.app/walrus-memory/examples/researcher.md):
+    The researcher example (apps/researcher) is a research assistant that works in sprints. It
+    shows long-form memory and session rehydration: each sprint's findings persist as a structured
+    report, and a fresh session pulls back the relevant history before it starts.
 
 ## 01 Announcing Walrus
 
@@ -689,7 +705,17 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Release notes from Walrus and Walrus Memory.
+    Walrus Platform — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory,
+    including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+- [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
+    June 12, 2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and
+    Antigravity, along with new memwalrememberbulk and memwalhealth tools and proactive memory
+    behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
+- [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
+    Mainnet July 22, 2026 | GitHub --- --- Testnet July 15, 2026 | GitHub --- --- Mainnet July 9,
+    2026 | GitHub #3479: walrus info committee gains a --commission-receivers flag that prints, as
+    CSV, the commission receiver of every node in the previous, current, and next committees
+    (including the owning address for object receivers).
 
 ## Sponsored Uploads
 
