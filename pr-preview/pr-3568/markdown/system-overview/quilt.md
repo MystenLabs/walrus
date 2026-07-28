@@ -12,6 +12,15 @@ Quilt introduces custom, immutable Walrus-native blob metadata, allowing you to 
 > 
 > The total size of all tags combined must not exceed 64 KB.
 
+  
+  
+    Every Walrus blob carries a fixed 64 MB metadata charge, whatever the file inside it
+    weighs. Storing six small files separately creates six blobs and pays that charge six
+    times, for 384 MB of metadata. Packing them into one quilt pays it once, and you can still
+    retrieve each file as a separately addressable patch by its patch identifier.
+    Batching saves the most when each file is far smaller than 64 MB.
+  
+
 ## Important considerations
 
 ### Per-blob size limit
