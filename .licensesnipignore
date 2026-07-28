@@ -18,3 +18,4 @@ crates/walrus-upload-relay/upload_relay_openapi.html
 crates/walrus-upload-relay/upload_relay_openapi.yaml
 scripts/cache-inference/eslint.config.mjs
 docs/site/static/diagrams/interactive_upload-relay-flow_v1.html
+docs/site/static/diagrams/interactive_redstuff-encoding_v2.html
