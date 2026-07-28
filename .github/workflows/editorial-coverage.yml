@@ -1,0 +1,98 @@
+# Copyright (c) Walrus Foundation
+# SPDX-License-Identifier: Apache-2.0
+#
+# Opens a tracking issue for every Walrus platform release that has no
+# editorial summary in docs/editorial/, so releases without GTM content
+# no longer slip past the release-notes page unnoticed. Runs on each
+# published release, weekly as a safety net, and on demand.
+
+name: Editorial coverage
+
+on:
+  release:
+    types: [published]
+  schedule:
+    - cron: "17 14 * * 1" # Mondays 14:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-editorial-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+
+      - uses: actions/setup-node@a309ff8b426b58ec0e2a45f0f869d46889d02405 # pin@v6.2.0
+        with:
+          node-version: "22"
+
+      - name: Find releases without editorial summaries
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node docs/site/src/scripts/check-editorial-coverage.js \
+            --json editorial-coverage.json
+
+      - name: Open tracking issues for uncovered releases
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # pin@v8.0.0
+        with:
+          script: |
+            const fs = require("fs");
+            const { missing } = JSON.parse(
+              fs.readFileSync("editorial-coverage.json", "utf8"),
+            );
+            if (missing.length === 0) {
+              core.info("All releases have editorial summaries.");
+              return;
+            }
+
+            // Dedup against every existing issue with the label, open or
+            // closed: a closed issue means the team already handled or
+            // dismissed that release, so it is not reopened.
+            const label = "release-notes-editorial";
+            const existing = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, labels: label, state: "all", per_page: 100 },
+            );
+            const existingTitles = new Set(existing.map((i) => i.title));
+
+            for (const m of missing) {
+              const title = `[editorial] Walrus v${m.version} needs a release summary`;
+              if (existingTitles.has(title)) {
+                core.info(`Skipping v${m.version}: issue already exists.`);
+                continue;
+              }
+
+              const kind = m.hasContent
+                ? "The GitHub release has a raw body but no editorial summary, so the release-notes page shows an unedited dump."
+                : "The GitHub release has no content beyond the Full Log link, so the release-notes page has nothing editorial to show.";
+
+              const body = [
+                `Walrus \`${m.tag}\` (${m.network}, published ${m.date}) has no editorial summary in \`docs/editorial/\`.`,
+                "",
+                kind,
+                "",
+                `- Release: ${m.url}`,
+                `- Create: \`${m.editorialFile}\``,
+                "",
+                "Follow the release-notes editorial SOP, or start from this draft:",
+                "",
+                "````markdown",
+                m.draft,
+                "````",
+                "",
+                "After adding the file, run `npm run gen:release-notes` in `docs/site` and open a docs PR. Close this issue when the entry is live.",
+              ].join("\n");
+
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: [label, "documentation"],
+              });
+              core.info(`Opened issue for v${m.version}.`);
+            }

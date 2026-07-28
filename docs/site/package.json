@@ -10,6 +10,7 @@
         "gen:import": "node src/scripts/generate-import-context.js",
         "gen:yaml": "node src/scripts/copy-yaml-files.js",
         "gen:release-notes": "node src/scripts/generate-release-notes.js",
+        "check:editorial": "node src/scripts/check-editorial-coverage.js",
         "prestart": "npm run gen:skills && npm run gen:memory && npm run gen:import && npm run gen:yaml && npm run gen:release-notes",
         "start": "docusaurus start",
         "prebuild": "FORCE_FETCH=1 npm run prestart",
