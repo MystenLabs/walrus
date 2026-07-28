@@ -1,14 +1,5 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-<!--
-Source: BEDU-612, seeded from a Walrus Memory Discord support thread.
-The 401 reporter self-resolved without recording the exact fix, so the AUTH_REJECTED
-entry documents all known causes from the authentication model rather than a single
-confirmed one. Confirm the specific fix with the reporter before treating that entry
-as final. Grounded in: contract/delegate-key-management, relayer/api-reference,
-sdk/api-reference, mcp/reference, getting-started/quick-start.
--->
-
 This page collects the support questions that come up most often and the fastest way to resolve each one. Every entry lists the symptom you observe, the cause behind it, and the fix to apply.
 
 If your issue is not here, set `MEMWAL_MCP_DEBUG=1` for the Model Context Protocol (MCP) server, or, if you use the `withMemWal()` AI middleware, pass `debug: true` in its options, to get verbose logs, then open an issue on the repository with that output.
