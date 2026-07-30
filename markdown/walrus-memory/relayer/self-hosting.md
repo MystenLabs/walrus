@@ -2,33 +2,31 @@
 
 Self-hosting means running your own relayer, either pointing at an existing Walrus Memory package ID or deploying an entirely new Walrus Memory instance with your own contract, database, and server wallet.
 
-The managed relayer provided by Walrus Foundation is a reference implementation. You can also build your own implementation that fits the same API surface with custom logic. This guide covers how to run the reference implementation as your own self-hosted relayer.
+The managed relayer provided by Walrus Foundation is a reference implementation. You can also build your own implementation that fits the same API surface with custom logic. The sections below cover running the reference implementation as your own self-hosted relayer.
 
-If you want the default relayer-handled SDK flow while reducing trust in the
-host operator, see the [TEE Deployment Pattern](/walrus-memory/relayer/nautilus-tee).
+If you want the default relayer-handled SDK flow while reducing trust in the host operator, see the [TEE Deployment Pattern](/walrus-memory/relayer/nautilus-tee).
 
-## Personas  and  when to self-host
+## Who self-hosts and when
 
-There are two primary personas who typically self-host the relayer:
+Two primary personas typically self-host the relayer:
 
-1. **Builders  and  Teams**: Self-hosting for their own agentic needs or internal team usage, keeping the trust boundary, encryption, and embeddings under their control.
-2. **Infra Operators / Managed Service Providers (MSPs)**: Hosting the relayer as a reliable platform or service for *other* external development teams and agentic builders.
+1. **Builders and teams:** Self-hosting for their own agentic needs or internal team usage, keeping the trust boundary, encryption, and embeddings under their control.
+2. **Infra operators and managed service providers (MSPs):** Hosting the relayer as a reliable platform or service for other external development teams and agentic builders.
 
 The most common reasons to self-host include:
 
-- **Control the trust boundary**, keeping plaintext, encryption, and embedding under your own control rather than trusting a third-party.
-- **Run your own Walrus Memory instance**, deploying your own contract with a separate package ID, Seal encryption keys, and hard data isolation.
-- **Choose your own embedding provider**, using your own OpenAI-compatible API and credentials.
-- **Guarantee availability**, the managed relayer is a beta service with no SLA.
+- **Control the trust boundary:** Keep plaintext, encryption, and embedding under your own control rather than trusting a third party.
+- **Run your own Walrus Memory instance:** Deploy your own contract with a separate package ID, Seal encryption keys, and hard data isolation.
+- **Choose your own embedding provider:** Use your own OpenAI-compatible API and credentials.
+- **Guarantee availability:** The managed relayer is a beta service with no SLA.
 
-## Data isolation (namespaces)
+## Data isolation with namespaces
 
-With the current architecture, Walrus Memory isolates data strictly by **User (Owner address)** and **Namespace**.
-Because the relayer inherently scopes all vector searches and storage operations by `owner + namespace`, multiple agents or applications can safely share the same relayer deployment simply by using different namespaces or operating under different delegate keys.
+With the current architecture, Walrus Memory isolates data strictly by **User (Owner address)** and **Namespace**. The relayer scopes all vector searches and storage operations by `owner + namespace`, so multiple agents or applications can safely share the same relayer deployment by using different namespaces or operating under different delegate keys.
 
 ## Horizontal scaling
 
-If you are a Managed Service Provider or need to handle high agentic throughput, you can horizontally scale your hosted relayer natively. To run multiple instances of the relayer behind a load balancer for the *same* account/package ID:
+If you are a managed service provider or need to handle high agentic throughput, you can horizontally scale your hosted relayer natively. To run multiple instances of the relayer behind a load balancer for the same account and package ID:
 
 1. Point all relayer instances to the **same PostgreSQL database**.
 2. Supply the **same `SERVER_SUI_PRIVATE_KEYS` pool** to all instances so they can seamlessly execute concurrent Walrus uploads.
@@ -38,10 +36,10 @@ If you are a Managed Service Provider or need to handle high agentic throughput,
 
 A self-hosted Walrus Memory backend has:
 
-| Component | Location | Description |
+| **Component** | **Location** | **Description** |
 |-----------|----------|-------------|
-| **Rust relayer** | `services/server` | Axum HTTP server, auth, routing, embedding, vector search |
-| **TypeScript sidecar** | `services/server/scripts` | Seal encrypt/decrypt, Walrus upload, blob query (uses `@mysten/seal` and `@mysten/walrus`) |
+| **Rust relayer** | `services/server` | Axum HTTP server for auth, routing, embedding, and vector search |
+| **TypeScript sidecar** | `services/server/scripts` | Seal encrypt and decrypt, Walrus upload, blob query (uses `@mysten/seal` and `@mysten/walrus`) |
 | **PostgreSQL + pgvector** | External | Vector storage, auth cache, indexer state |
 | **Indexer** (recommended) | `services/indexer` | Polls Sui events, syncs account data into PostgreSQL |
 
@@ -77,28 +75,32 @@ Then check:
 $ curl http://localhost:8000/health
 ```
 
+## Environment variables
+
+The relayer reads its configuration from environment variables, grouped below by how likely you are to need them.
+
 ### Required
 
 - `DATABASE_URL`
 - `MEMWAL_PACKAGE_ID`
 - `MEMWAL_REGISTRY_ID`
 - `SERVER_SUI_PRIVATE_KEY` or `SERVER_SUI_PRIVATE_KEYS`
-- `SIDECAR_AUTH_TOKEN`, shared secret for Rust-to-sidecar calls. The sidecar refuses to start without it.
+- `SIDECAR_AUTH_TOKEN`: Shared secret for Rust-to-sidecar calls. The sidecar refuses to start without it.
 
 ### Recommended
 
-- `OPENAI_API_KEY`, enables real embeddings (falls back to mock embeddings without it)
-- `OPENAI_API_BASE`, point to an OpenAI-compatible provider like OpenRouter
+- `OPENAI_API_KEY`: Enables real embeddings (falls back to mock embeddings without it).
+- `OPENAI_API_BASE`: Point to an OpenAI-compatible provider like OpenRouter.
 
-### Rate limits  and  storage (optional)
+### Optional rate limits and storage
 
 By default, the relayer enforces rate limits and storage quotas through Redis to prevent abuse. You can customize these limits:
 
-- `RATE_LIMIT_REQUESTS_PER_MINUTE`, max burst weighted-requests per minute per user (default: 60)
-- `RATE_LIMIT_REQUESTS_PER_HOUR`, max sustained weighted-requests per hour per user (default: 500)
-- `RATE_LIMIT_DELEGATE_KEY_PER_MINUTE`, max weighted-requests per minute per delegate key (default: 30)
-- `RATE_LIMIT_STORAGE_BYTES`, max storage per user in bytes (default: 1 GB, `1073741824`)
-- `REDIS_URL`, required to track sliding windows for rate limits (default: `redis://localhost:6379`)
+- `RATE_LIMIT_REQUESTS_PER_MINUTE`: Max burst weighted-requests per minute per user (default: 60).
+- `RATE_LIMIT_REQUESTS_PER_HOUR`: Max sustained weighted-requests per hour per user (default: 500).
+- `RATE_LIMIT_DELEGATE_KEY_PER_MINUTE`: Max weighted-requests per minute per delegate key (default: 30).
+- `RATE_LIMIT_STORAGE_BYTES`: Max storage per user in bytes (default: 1 GB, `1073741824`).
+- `REDIS_URL`: Required to track sliding windows for rate limits (default: `redis://localhost:6379`).
 
 ### Defaults
 
@@ -106,17 +108,17 @@ By default, the relayer enforces rate limits and storage quotas through Redis to
 - `SIDECAR_URL` defaults to `http://localhost:9000`
 - `SUI_NETWORK` defaults to `mainnet`
 - `SUI_RPC_URL`, Walrus endpoints, and `WALRUS_PACKAGE_ID` fall back to network defaults based on `SUI_NETWORK`
-- `SEAL_SERVER_CONFIGS` and `SEAL_KEY_SERVERS` are optional overrides for encrypt/decrypt; prefer `SEAL_SERVER_CONFIGS` for custom committees
-- `WALRUS_AGGREGATOR_URLS` can add comma-separated proxy/aggregator candidates for cold-read tail racing after Redis cache misses
+- `SEAL_SERVER_CONFIGS` and `SEAL_KEY_SERVERS` are optional overrides for encrypt and decrypt; prefer `SEAL_SERVER_CONFIGS` for custom committees
+- `WALRUS_AGGREGATOR_URLS` can add comma-separated proxy or aggregator candidates for cold-read tail racing after Redis cache misses
 - `WALRUS_SKIP_CONSISTENCY_CHECK=false` by default; enable only for trusted Walrus Memory-written cold reads after accepting the consistency tradeoff
-- The sidecar Walrus upload route defaults storage `epochs` by network: `50` on `testnet`, `2` on `mainnet` (unless the request passes `epochs`)
+- The sidecar Walrus upload route defaults storage `epochs` by network: `5` on `testnet`, `3` on `mainnet` (unless the request passes `epochs`). Both the request value and the `WALRUS_STORAGE_EPOCHS` override cap at `15`; an over-cap override falls back to the network default
 - `SEAL_THRESHOLD` defaults to `min(2, total configured server weight)`. A single committee server config defaults to threshold `1`.
 
 ### Server keys
 
 - `SERVER_SUI_PRIVATE_KEY` is the main server key
 - `SERVER_SUI_PRIVATE_KEYS` is a comma-separated key pool for parallel Walrus uploads
-- if both are set, the key pool takes priority for uploads
+- If both are set, the key pool takes priority for uploads
 
 ### Sui RPC Transport (gRPC)
 
@@ -133,8 +135,13 @@ This one variable switches both paths. The write path (Walrus register and certi
 
 > **Note**
 >
-> `SUI_GRPC_URL` must point at a gRPC endpoint. When it is set, the relayer validates the URL at startup and exits if it is not a valid gRPC endpoint.
+> `SUI_GRPC_URL` must point at a gRPC endpoint. The relayer parses the URL at startup and exits if the URL is malformed. A well-formed URL that points at a host that does not serve gRPC passes startup, because the client connects lazily, and the failure surfaces on the first gRPC call. Verify the endpoint before you deploy.
+## Package contract IDs
+
+Use the IDs that match your target network.
+
 ### Staging (testnet)
+
 [Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
 
 ```env
@@ -143,7 +150,9 @@ MEMWAL_PACKAGE_ID=0xcf6ad755a1cdff7217865c796778fabe5aa399cb0cf2eba986f4b5820472
 MEMWAL_REGISTRY_ID=0xe80f2feec1c139616a86c9f71210152e2a7ca552b20841f2e192f99f75864437
 
 ```
+
 ### Production (mainnet)
+
 [Source: relayer/self-hosting.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/self-hosting.md)
 
 ```env
@@ -182,8 +191,8 @@ Although that committee is 3-of-5 internally, Seal exposes it to the SDK as one 
 
 > **Warning**
 >
-> Changing Seal key server defaults only affects new encryption. If a deployment already has memories encrypted with the Testnet independent key servers, keep those servers as the default or pin them with `SEAL_KEY_SERVERS` until the data has been migrated or re-encrypted. Otherwise, recall and restore for older blobs might fail to decrypt.
-Using official key server of SDK is recommended. 
+> Changing Seal key server defaults only affects new encryption. If a deployment has already encrypted memories with the Testnet independent key servers, keep those servers as the default or pin them with `SEAL_KEY_SERVERS` until you migrate or re-encrypt the data. Otherwise, recall and restore for older blobs might fail to decrypt.
+Use the official key server configuration where possible.
 
 > **Note**
 >
@@ -192,29 +201,19 @@ Using official key server of SDK is recommended.
 
 The relayer requires PostgreSQL with the `pgvector` extension. The relayer runs migrations automatically on boot, creating these tables:
 
-- `vector_entries`, 1536-dimensional embeddings with HNSW index for cosine similarity search
-- `delegate_key_cache`, auth optimization (delegate key → account mapping)
-- `accounts`, populated by the indexer (account → owner mapping)
-- `indexer_state`, indexer cursor tracking
+- `vector_entries`: 1536-dimensional embeddings with HNSW index for cosine similarity search.
+- `delegate_key_cache`: Auth optimization (delegate key to account mapping).
+- `accounts`: The indexer populates this table (account to owner mapping).
+- `indexer_state`: Indexer cursor tracking.
 
 See [Database Sync](/walrus-memory/indexer/database-sync) for the full schema.
 
 ## Operational notes
 
-- The server starts the sidecar automatically on boot, if sidecar startup fails, the relayer exits
-- DB migrations run automatically on boot (`pgvector` must already be installed as a PostgreSQL extension)
-- Connection pool: 10 max connections (relayer), 3 max connections (indexer)
-- `/health` is the basic service check, `/metrics` exposes Prometheus metrics, API routes live under `/api/*`
-- The indexer is recommended for fast account lookup in production, without it, the relayer falls back to onchain registry scans
-- Without `OPENAI_API_KEY`, the server uses deterministic mock embeddings (hash-based), useful for local testing but not production
-- Use `LOG_FORMAT=json` in production and see [Observability](/walrus-memory/relayer/observability) for dashboards and alerts
-
-## Docker
-
-- `services/server/Dockerfile` for the relayer
-- `services/indexer/Dockerfile` for the indexer
-
-## Read next
-
-- [TEE Deployment Pattern](/walrus-memory/relayer/nautilus-tee)
-- [Relayer API](/walrus-memory/relayer/api-reference)
+- The server starts the sidecar automatically on boot. If sidecar startup fails, the relayer exits.
+- DB migrations run automatically on boot (`pgvector` must already be installed as a PostgreSQL extension).
+- Connection pool: 10 max connections (relayer), 3 max connections (indexer).
+- `/health` is the basic service check, `/metrics` exposes Prometheus metrics, and API routes live under `/api/*`.
+- The indexer is recommended for fast account lookup in production. Without it, the relayer falls back to onchain registry scans.
+- Without `OPENAI_API_KEY`, the server uses deterministic mock embeddings (hash-based), useful for local testing but not production.
+- Use `LOG_FORMAT=json` in production and see [Observability](/walrus-memory/relayer/observability) for dashboards and alerts.

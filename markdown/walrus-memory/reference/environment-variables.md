@@ -80,6 +80,8 @@ These are not all enforced at boot, but most real deployments need them.
 | `BLOB_CACHE_TTL_SECS` | `1209600` | Redis TTL for cached Seal ciphertext by `blob_id`. `0` disables blob cache use |
 | `BLOB_CACHE_MAX_BYTES` | `524288` | Maximum Seal ciphertext bytes cached in Redis. Larger blobs stay Walrus-only; `0` disables blob cache use |
 | `SERVER_SUI_PRIVATE_KEYS` | none | Comma-separated upload key pool. Takes priority over `SERVER_SUI_PRIVATE_KEY` for uploads |
+| `SECURITY_DELETE_EXECUTE_MAX_IN_FLIGHT` | `1` | Process-local concurrency for security-deletion PTBs that mutate the Walrus System shared object. Shared by API submit and reconciler replay; coordinate the aggregate across replicas |
+| `SECURITY_DELETE_CRASH_TEST_SECRET` | unset | Localnet-only secret enabling the deletion submit crash-after-CAS failpoint. Load-test stacks generate it; never set it in production |
 | `MEMWAL_ACCOUNT_ID` | none | Optional account ID in server config |
 | `WALRUS_PACKAGE_ID` | network default | Override the Walrus onchain package used by the sidecar |
 | `WALRUS_UPLOAD_RELAY_URL` | network default | Override the Walrus upload relay used by the sidecar |

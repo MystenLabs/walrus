@@ -490,9 +490,9 @@ Sui smart contract as the on-chain index.
 ## Walrus Memory: Relayer
 
 - [API Reference](https://docs.wal.app/walrus-memory/relayer/api-reference.md):
-    The Rust relayer exposes these routes. Routes are defined in services/server/src/main.rs. See
-    also: Environment Variables Configuration Versioning and Compatibility All /api/ routes require
-    signed headers. The SDK handles this automatically.
+    The Rust relayer exposes these routes. The route table lives in services/server/src/main.rs.
+    See also: Environment Variables Configuration Versioning and Compatibility All /api/ routes
+    except the MCP transports require signed headers. The SDK handles this automatically.
 - [Benchmark CI Setup](https://docs.wal.app/walrus-memory/relayer/benchmark-ci-setup.md):
     This document records how to configure the relayer benchmark workflows. The live benchmark
     intentionally runs only the public relayer /api/recall path.
@@ -712,10 +712,10 @@ Sui smart contract as the on-chain index.
     Antigravity, along with new memwalrememberbulk and memwalhealth tools and proactive memory
     behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Mainnet July 22, 2026 | GitHub --- --- Testnet July 15, 2026 | GitHub --- --- Mainnet July 9,
-    2026 | GitHub #3479: walrus info committee gains a --commission-receivers flag that prints, as
-    CSV, the commission receiver of every node in the previous, current, and next committees
-    (including the owning address for object receivers).
+    Testnet July 29, 2026 | GitHub --- --- Mainnet July 22, 2026 | GitHub --- --- Testnet July 15,
+    2026 | GitHub --- --- Mainnet July 9, 2026 | GitHub #3479: walrus info committee gains a
+    --commission-receivers flag that prints, as CSV, the commission receiver of every node in the
+    previous, current, and next committees (including the owning address for object receivers).
 
 ## Sponsored Uploads
 
@@ -729,6 +729,13 @@ Sui smart contract as the on-chain index.
 - [Testnet Reference](https://docs.wal.app/docs/testnet-reference.md):
     Walrus Testnet is a free, non-durable network for development and testing. Read values that
     change from the canonical Network Reference, which is the single maintained source.
+
+## Walrus Memory: API
+
+- [1. Request and sign the returned personal-message challenge in the wallet.](https://docs.wal.app/walrus-memory/api/security-delete.md):
+    The Security Delete API permanently deletes legacy Walrus Blob objects that were tracked in
+    Walrus Memory's old-V1 database. The server selects and verifies the objects, builds and
+    sponsors the Sui transaction, and executes it.
 
 ## Walrus Memory: Guides
 

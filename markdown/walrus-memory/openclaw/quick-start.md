@@ -40,7 +40,7 @@ These managed relayer endpoints are provided as a public good by Walrus Foundati
     Store your delegate key as an environment variable so it's never hardcoded in config files:
 
     ```bash
-    # Add to your shell profile (.zshrc, .bashrc, and so on. )
+    # Add to your shell profile (.zshrc, .bashrc, etc.)
     export MEMWAL_PRIVATE_KEY="your-64-char-hex-key"
     ```
 
