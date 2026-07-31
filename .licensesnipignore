@@ -17,9 +17,11 @@ crates/typed-store/src/rocks/tests.rs
 crates/walrus-upload-relay/upload_relay_openapi.html
 crates/walrus-upload-relay/upload_relay_openapi.yaml
 scripts/cache-inference/eslint.config.mjs
+docs/site/static/diagrams/interactive_blob-lifecycle_v2.html
 docs/site/static/diagrams/interactive_upload-relay-flow_v1.html
 docs/site/static/diagrams/interactive_walrus-memory-remember_v1.html
 docs/site/static/diagrams/interactive_walrus-memory-recall_v1.html
 docs/site/static/diagrams/interactive_walrus-memory-restore_v1.html
 docs/site/static/diagrams/interactive_trust-boundary_v1.html
-docs/site/static/diagrams/interactive_blob-lifecycle_v2.html
+docs/site/static/diagrams/interactive_walrus-write-path_v1.html
+docs/site/static/diagrams/interactive_walrus-read-path_v1.html
