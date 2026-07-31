@@ -50,8 +50,8 @@ Sui smart contract as the on-chain index.
     pitfalls to avoid.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md):
     Blobs can be interacted with through familiar file system operations such as uploading,
-    reading, downloading, and deleting. Use the following command to upload a file to Walrus >
-    Danger > > All blobs stored in Walrus are public and discoverable by all.
+    reading, downloading, and deleting. You buy storage on Walrus for a fixed number of epochs, so
+    every blob has a lifetime.
 - [Public Aggregators And Publishers](https://docs.wal.app/docs/system-overview/public-aggregators-and-publishers.md):
     The Walrus client offers a daemon mode that runs a simple web server that provides HTTP
     interfaces you can use to store and read blobs in an aggregator or publisher role respectively.
