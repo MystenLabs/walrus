@@ -4,7 +4,7 @@ description: What Walrus Console is, how it relates to Walrus, and the core conc
 keywords: [walrus console, spaces, buckets, files, asset types, zklogin, api keys, seal]
 ---
 
-Walrus Console is the developer-first interface for interacting with the Walrus network. It gives you a hosted place to store, manage, and serve data without running your own Walrus client or handling wallets and tokens directly. You sign in, get an API key, and upload your first file in minutes, then manage everything from one place.
+Walrus Console is the developer-first interface for interacting with the Walrus network. It gives you a hosted place to store, manage, and serve data without running your own Walrus client or handling wallets and tokens directly. You sign in and upload your first file in minutes, then manage everything from one place; when you want programmatic access, you mint an API key.
 
 :::info
 
@@ -44,13 +44,13 @@ Console is built around a single navigation shell that treats your data as typed
 
 **Files** are general-purpose objects you upload and retrieve. This is the asset type available in the current beta.
 
-**Memory** refers to Walrus Memory namespaces, the portable memory layer for AI agents. At GA you can browse, search, and manage your agent memory and renew its storage directly in Console, without touching the SDK.
+**Memory** refers to Walrus Memory namespaces, the portable memory layer for AI agents. At GA you can browse, search, and manage your agent memory directly in Console, without touching the SDK. Renewing memory storage in Console is planned for a post-GA release.
 
-**Datasets** are published collections with metadata and an access model. You can set a dataset to public, time-gated, or perpetually gated access, and later list it on the Walrus Marketplace.
+**Datasets** are a planned asset type for published collections with metadata and an access model. Their scope and availability are still being defined.
 
 ## Accounts and sign-in
 
-You sign in through Google, with Apple joining soon, using Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin) capabilities. Console derives a Sui address from your identity and silently provisions a Pearl wallet (the embedded wallet Console manages for you), so you do not manage private keys or hold tokens to get started.
+You sign in through Google or Apple using Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin) capabilities. Console derives a Sui address from your identity and silently provisions a Pearl wallet (the embedded wallet Console manages for you), so you do not manage private keys or hold tokens to get started.
 
 Identities from different providers map to separate accounts. Console shows an account-separation notice the first time you sign in so it is clear which identity owns which data.
 
@@ -70,11 +70,11 @@ Console publishes an open-source [MCP](https://modelcontextprotocol.io/) server 
 
 Walrus storage is time-bound. You pay to store data for a number of storage epochs, and data expires when its storage runs out. Console manages epochs and payment for you rather than asking you to track them by hand.
 
-After GA, storage renews automatically for wallets that stayed active, meaning at least one Walrus transaction within a recent activity window. Active developers keep their data without manual renewal, and dormant accounts expire naturally.
+Storage renews automatically for wallets that stayed active, meaning at least one Walrus transaction within a recent activity window. Active developers keep their data without manual renewal, and dormant accounts expire naturally.
 
 ## Billing and the free tier
 
-Console keeps a perpetual free tier so new developers are not paywalled. A free storage cap, tentatively 5 GB, is planned pending analysis of real Mainnet usage. Usage-based billing for reads and egress, along with a paid top-up path, follows at and after GA. Console manages WAL token handling on your behalf.
+Console keeps a perpetual free tier so new developers are not paywalled. A free storage cap, tentatively 5 GB, is planned pending analysis of real Mainnet usage. Usage-based billing for reads and egress, along with a paid top-up path, follows after GA. Console manages WAL token handling on your behalf.
 
 ## What is available in beta
 
@@ -82,10 +82,12 @@ Capabilities roll out in phases. The current beta is a subset of the full produc
 
 | Capability | Availability |
 | --- | --- |
-| Google sign-in, Personal Space | Beta |
-| Apple sign-in | Soon |
+| Google and Apple sign-in, Personal Space | Beta |
 | Private, Seal-encrypted buckets and file upload or download | Beta |
 | API keys and the MCP server | Beta |
-| Memory and datasets as asset types | GA |
-| Mainnet billing and free tier | GA |
-| Auto-renewal, existing-blob discovery, Team Spaces, Marketplace sync | After GA |
+| Automatic storage renewal | Beta |
+| Memory as an asset type | GA |
+| Memory storage renewal in Console | After GA |
+| Mainnet billing and free tier | After GA |
+| Existing-blob discovery, Team Spaces | After GA |
+| Datasets as an asset type | Planned |
