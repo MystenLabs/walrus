@@ -34,6 +34,7 @@ import { addDelegateKey } from "@mysten-incubation/memwal/account";
 
 await addDelegateKey({
   packageId: "0x...",
+  registryId: "0x...",
   accountId: "0x...",
   publicKey: delegate.publicKey,
   label: "MacBook Pro",
@@ -65,6 +66,7 @@ import { removeDelegateKey } from "@mysten-incubation/memwal/account";
 
 await removeDelegateKey({
   packageId: "0x...",
+  registryId: "0x...",
   accountId: "0x...",
   publicKey: delegate.publicKey,
   suiPrivateKey: "suiprivkey1...", // or walletSigner
@@ -83,7 +85,7 @@ await removeDelegateKey({
 An account owner can deactivate (freeze) their account. When deactivated:
 
 - Seal decryption access is denied for all keys (owner and delegates)
-- Delegate keys cannot be added or removed
-- The owner can reactivate the account at any time
+- New delegate keys cannot be added; the owner might still remove compromised keys
+- The owner can reactivate the account unless an AdminCap quarantine is active
 
 This is useful as an emergency kill switch if a key is compromised.

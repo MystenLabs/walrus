@@ -27,8 +27,8 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3592/assets/css/styles.b509808f.css">
-<script src="/walrus/pr-preview/pr-3592/assets/js/runtime~main.2f6f4aa6.js" defer="defer"></script>
-<script src="/walrus/pr-preview/pr-3592/assets/js/main.69bb141f.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3592/assets/js/runtime~main.faeebb1b.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3592/assets/js/main.d52cad4f.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -147,6 +147,10 @@
 </li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="data-storage-process">Data storage process<a href="#data-storage-process" class="hash-link" aria-label="Direct link to Data storage process" title="Direct link to Data storage process" translate="no">​</a></h2>
+<figure><iframe src="/diagrams/interactive_walrus-write-path_v1.html" style="width:100%;height:620px;border:0" title="Walrus write path: the client erasure-codes a blob itself, registers it directly on Sui, sends slivers straight to the storage node committee, and posts the availability certificate to Sui." loading="lazy"></iframe><figcaption><p>Writing a<!-- --> <!-- -->blob<!-- -->: the<!-- --> <!-- -->client<!-- --> erasure-codes the<!-- --> <!-- -->blob<!-- --> into slivers locally, registers the<!-- -->
+<!-- -->blob<!-- --> and its metadata as an object on Sui, sends the slivers directly to the storage
+node committee, and posts the availability certificate to Sui once a write quorum has
+stored them. No<!-- --> <!-- -->publisher<!-- --> or<!-- --> <!-- -->aggregator<!-- --> is required.</p></figcaption></figure>
 <p>When data is uploaded to Walrus, the following process occurs:</p>
 <ol>
 <li class="">
@@ -186,6 +190,9 @@
 </li>
 </ol>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="data-retrieval-process">Data retrieval process<a href="#data-retrieval-process" class="hash-link" aria-label="Direct link to Data retrieval process" title="Direct link to Data retrieval process" translate="no">​</a></h2>
+<figure><iframe src="/diagrams/interactive_walrus-read-path_v1.html" style="width:100%;height:620px;border:0" title="Walrus read path: the client reads blob metadata directly from Sui, fetches slivers straight from the storage node committee, and reconstructs the blob locally." loading="lazy"></iframe><figcaption><p>Reading a<!-- --> <!-- -->blob<!-- -->: the<!-- --> <!-- -->client<!-- --> reads the<!-- --> <!-- -->blob metadata<!-- --> from its object on Sui, fetches enough
+slivers directly from the<!-- --> <!-- -->storage node<!-- --> committee to meet the<!-- --> <!-- -->reconstruction<!-- --> threshold, and
+reconstructs and verifies the<!-- --> <!-- -->blob<!-- --> locally.</p></figcaption></figure>
 <p>When data is retrieved from Walrus, the following process occurs:</p>
 <ol>
 <li class="">

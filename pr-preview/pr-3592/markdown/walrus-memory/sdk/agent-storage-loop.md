@@ -88,6 +88,7 @@ const manual = MemWalManual.create({
   key: requireEnv("MEMWAL_KEY"),
   accountId: requireEnv("MEMWAL_ACCOUNT_ID"),
   packageId: requireEnv("MEMWAL_PACKAGE_ID"),
+  registryId: requireEnv("MEMWAL_REGISTRY_ID"),
   serverUrl: "https://relayer-staging.memory.walrus.xyz",
   // The agent signs SEAL and Walrus operations with its own Sui key, no wallet popup.
   suiPrivateKey: requireEnv("SUI_PRIVATE_KEY"),

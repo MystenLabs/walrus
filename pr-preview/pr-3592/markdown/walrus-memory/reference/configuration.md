@@ -32,6 +32,7 @@ Core fields:
 | `embeddingApiBase` | no | Default: `https://api.openai.com/v1` |
 | `embeddingModel` | no | Default: `text-embedding-3-small` |
 | `packageId` | yes | Walrus Memory package ID on Sui |
+| `registryId` | yes | `AccountRegistry` shared object ID on Sui |
 | `accountId` | yes | `MemWalAccount` object ID |
 | `namespace` | no | Default namespace |
 
