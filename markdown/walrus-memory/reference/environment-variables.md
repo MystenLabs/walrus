@@ -101,6 +101,7 @@ These are not all enforced at boot, but most real deployments need them.
 | `MCP_MAX_TOTAL_SESSIONS` | `1000` | Maximum active MCP sessions across SSE and Streamable HTTP transports |
 | `MCP_MAX_SESSIONS_PER_IP` | `16` | Maximum active MCP sessions from one source IP |
 | `MCP_MAX_NEW_SESSIONS_PER_IP_PER_MIN` | `30` | Maximum new MCP sessions opened by one source IP per minute |
+| `TRUSTED_PROXY_HOPS` | `0` | Number of trusted reverse-proxy hops to walk from the right of `X-Forwarded-For`; `0` ignores XFF and uses the TCP peer |
 
 ### Notes
 
@@ -110,6 +111,7 @@ These are not all enforced at boot, but most real deployments need them.
 - `WALRUS_AGGREGATOR_URLS` is only used after the Redis ciphertext cache misses. Put low-latency cache/proxy endpoints first after the primary and keep 404/5xx cache TTLs short in your proxy.
 - `WALRUS_SKIP_CONSISTENCY_CHECK=true` should only be used for trusted blobs written by the relayer. Restore keeps consistency checks enabled for onchain-discovered blobs.
 - Without `OPENAI_API_KEY`, the server can fall back to mock embeddings. That is useful for local testing, not for normal production behavior.
+- Set `TRUSTED_PROXY_HOPS` only when the listed hops are controlled and append or sanitize `X-Forwarded-For`. For a single Railway ingress use `1`; direct/self-hosted deployments should keep the safe default `0`.
 - `SUI_NETWORK` drives the default RPC URL, Walrus endpoints, Walrus package ID, and upload relay selection.
 - `SUI_GRPC_URL` opts the relayer into gRPC instead of JSON-RPC. It is off by default; leaving it empty keeps the current JSON-RPC behavior. When set, both the write path (Walrus register and certify, Seal, and Enoki build) and the blob query and restore path use gRPC, so enabling it is a single reversible switch. The query and restore path uses gRPC `listOwnedObjects` and `getDynamicField` when enabled, and falls back to the JSON-RPC `getOwnedObjects`, `getDynamicFieldObject`, and transaction-block queries when it is unset. Use it to migrate ahead of the Sui JSON-RPC sunset. See [Self-Hosting](/walrus-memory/relayer/self-hosting) for setup context.
 - `SEAL_SERVER_CONFIGS` is a JSON array of `{ objectId, weight, aggregatorUrl?, apiKeyName?, apiKey? }`. Committee key server configs require `aggregatorUrl`.

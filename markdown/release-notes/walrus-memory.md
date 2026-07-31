@@ -1,5 +1,22 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+### Walrus Memory MCP v0.0.6
+
+July 31, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.6)
+
+#### 0.0.6
+
+#### Security
+
+- Require a localhost preflight handshake proving the exact state, public key, and relayer before accepting a delegate-key login callback.
+
+#### Fixed
+
+- Authenticate MCP SSE POST messages and replayed requests with the delegate credentials.
+- Keep the canonical login label from the verified local flow instead of trusting the browser callback.
+
+---
+
 ### Walrus Memory MCP v0.0.5
 
 June 12, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.5)

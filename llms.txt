@@ -468,9 +468,8 @@ Sui smart contract as the on-chain index.
     on Claude Code, Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
 - [Codex](https://docs.wal.app/walrus-memory/mcp/codex.md):
     Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
-    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools). [x]
-    Node.js 20+ [x] A Walrus Memory account. The first memory tool call opens a browser sign-in
-    (memwallogin).
+    it as MCP-only (recommended; just the tools, one config block, no repo to clone) or as a full
+    plugin (adds automatic-memory hooks, but currently requires cloning the repo).
 - [Cursor](https://docs.wal.app/walrus-memory/mcp/cursor.md):
     Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
     (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
@@ -490,9 +489,9 @@ Sui smart contract as the on-chain index.
 ## Walrus Memory: Relayer
 
 - [API Reference](https://docs.wal.app/walrus-memory/relayer/api-reference.md):
-    The Rust relayer exposes these routes. The route table lives in services/server/src/main.rs.
-    See also: Environment Variables Configuration Versioning and Compatibility All /api/ routes
-    except the MCP transports require signed headers. The SDK handles this automatically.
+    The Rust relayer exposes these routes. Routes are defined in services/server/src/main.rs. See
+    also: Environment Variables Configuration Versioning and Compatibility All /api/ routes require
+    signed headers. The SDK handles this automatically.
 - [Benchmark CI Setup](https://docs.wal.app/walrus-memory/relayer/benchmark-ci-setup.md):
     This document records how to configure the relayer benchmark workflows. The live benchmark
     intentionally runs only the public relayer /api/recall path.
@@ -535,7 +534,7 @@ Sui smart contract as the on-chain index.
     The smart contract (memwal:account) defines the onchain account model for Walrus Memory. It is
     a Move module deployed on Sui.
 - [Ownership And Permissions](https://docs.wal.app/walrus-memory/contract/ownership-and-permissions.md):
-    The owner is the Sui wallet address that created the MemWalAccount.
+    The owner is the Sui wallet address recorded by the MemWalAccount.
 
 ## Walrus Memory: Indexer
 
@@ -708,9 +707,9 @@ Sui smart contract as the on-chain index.
     Walrus Platform — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory,
     including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    June 12, 2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and
-    Antigravity, along with new memwalrememberbulk and memwalhealth tools and proactive memory
-    behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
+    July 31, 2026 | GitHub Require a localhost preflight handshake proving the exact state, public
+    key, and relayer before accepting a delegate-key login callback. Authenticate MCP SSE POST
+    messages and replayed requests with the delegate credentials.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
     Testnet July 29, 2026 | GitHub --- --- Mainnet July 22, 2026 | GitHub --- --- Testnet July 15,
     2026 | GitHub --- --- Mainnet July 9, 2026 | GitHub #3479: walrus info committee gains a

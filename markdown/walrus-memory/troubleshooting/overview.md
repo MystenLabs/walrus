@@ -40,7 +40,7 @@ This section covers credential and authorization errors.
 > To triage quickly, confirm 3 things in order: the key is listed under the correct account in the dashboard, your account ID matches that account exactly, and your relayer environment matches where you created the account.
 > **Info**
 >
-> A version mismatch is rarely the cause here. The relayer reports its minimum supported SDK version, which is TypeScript 0.0.4 at the time of writing, so 0.0.7 is supported. A true version mismatch surfaces as `MemWalCompatibilityError` rather than `AUTH_REJECTED`.
+> A version mismatch is rarely the cause here. The relayer reports its minimum supported SDK version, which is TypeScript 0.0.4 at the time of writing, so 0.1.0 is supported. A true version mismatch surfaces as `MemWalCompatibilityError` rather than `AUTH_REJECTED`.
 ## MCP Connection issues
 
 This section covers problems that appear before the memory tools work.
