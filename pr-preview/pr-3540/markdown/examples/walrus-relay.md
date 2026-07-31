@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Using the Walrus TypeScript SDK and the Walrus Upload Relay, the following example app creates a web application that can be used for uploading and managing blobs on Walrus. 
+Using the Walrus TypeScript SDK and the Walrus Upload Relay, the following example app creates a web application that uploads and manages blobs on Walrus.
 
 [View a deployed instance of this example in your browser](https://relay.wal.app) or [view the entire source code](https://github.com/MystenLabs/walrus-sdk-relay-example-app).
 

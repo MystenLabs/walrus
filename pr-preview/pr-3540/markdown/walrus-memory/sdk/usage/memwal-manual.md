@@ -19,6 +19,8 @@ This is the recommended path for Web3-native users who want to minimize trust in
 
 ## Setup
 
+[Source: sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal-manual.md)
+
 ```ts
 import { MemWalManual } from "@mysten-incubation/memwal/manual";
 
@@ -28,12 +30,15 @@ const manual = MemWalManual.create({
   suiPrivateKey: "<your-sui-private-key>",    // OR walletSigner
   embeddingApiKey: "<your-openai-api-key>",
   packageId: "<memwal-package-id>",
+  registryId: "<account-registry-id>",
   accountId: "<memwal-account-id>",
   namespace: "chatbot-prod",
 });
 ```
 
 ## Core methods
+
+[Source: sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal-manual.md)
 
 ```ts
 // Embed locally, encrypt locally, relay encrypted payload + vector
@@ -73,6 +78,8 @@ console.log(manual.isWalletMode);
 
 Use `walletSigner` instead of `suiPrivateKey` when integrating with a connected wallet (for example, `@mysten/dapp-kit`):
 
+[Source: sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal-manual.md)
+
 ```ts
 const manual = MemWalManual.create({
   key: "<your-ed25519-delegate-key>",
@@ -83,6 +90,7 @@ const manual = MemWalManual.create({
   },
   embeddingApiKey: "<your-openai-api-key>",
   packageId: "<memwal-package-id>",
+  registryId: "<account-registry-id>",
   accountId: "<memwal-account-id>",
 });
 ```
@@ -90,6 +98,8 @@ const manual = MemWalManual.create({
 ## Config notes
 
 - `suiNetwork` defaults to `mainnet`
+- `packageId` is the immutable first-published package used by Seal; after a
+  compatible upgrade, set `sealPolicyPackageId` to the current policy package
 - `sealServerConfigs` lets the client configure independent or committee Seal servers; committee entries require `aggregatorUrl`
 - `sealKeyServers` remains supported as a legacy independent key server object ID override
 - Walrus publisher, aggregator, and upload relay defaults follow `suiNetwork`
@@ -103,6 +113,8 @@ Every blob on Walrus is public, so you must encrypt private agent state before s
 
 A headless agent signs Seal and Walrus operations with its own Sui key rather than a connected wallet. Provide `suiPrivateKey` instead of `walletSigner`, set `suiNetwork` for your environment, and load every secret from the environment:
 
+[Source: sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/usage/memwal-manual.md)
+
 ```ts
 import { MemWalManual } from "@mysten-incubation/memwal/manual";
 
@@ -110,6 +122,8 @@ const manual = MemWalManual.create({
   key: process.env.MEMWAL_KEY!,
   accountId: process.env.MEMWAL_ACCOUNT_ID!,
   packageId: process.env.MEMWAL_PACKAGE_ID!,
+  sealPolicyPackageId: process.env.MEMWAL_SEAL_POLICY_PACKAGE_ID,
+  registryId: process.env.MEMWAL_REGISTRY_ID!,
   serverUrl: "https://relayer-staging.memory.walrus.xyz",
   suiPrivateKey: process.env.SUI_PRIVATE_KEY!,
   embeddingApiKey: process.env.OPENAI_API_KEY!,

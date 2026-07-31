@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+Guide for migrating a Walrus storage node to new hardware with minimal downtime.
+
 This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node (and optionally an aggregator and publisher) on the same host.
 
 - [x] New host set up following the [Storage Node Setup](/docs/operator-guide/storage-nodes/storage-node-setup)

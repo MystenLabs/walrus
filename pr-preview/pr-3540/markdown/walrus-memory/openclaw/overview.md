@@ -71,7 +71,4 @@ Optional `memory_search` and `memory_store` tools for explicit LLM control
     Hooks, tools, CLI, configuration, and troubleshooting
   
   
-    Release history for the `@mysten-incubation/oc-memwal` package
-  
-  
     Browse the source on GitHub

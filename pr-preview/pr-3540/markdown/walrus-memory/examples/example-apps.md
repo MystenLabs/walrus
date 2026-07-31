@@ -1,9 +1,12 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-The repo includes ready-to-run apps in `apps/` that show different Walrus Memory integration patterns.
-This page focuses on app-level patterns,the basic SDK flow covered in [Quick Start](/walrus-memory/sdk/quick-start) and [Walrus Memory Usage](/walrus-memory/sdk/usage/memwal).
+The repo includes ready-to-run apps in `apps/` that show different Walrus Memory integration patterns. Start here for app-level patterns; [Quick Start](/walrus-memory/sdk/quick-start) and [Walrus Memory Usage](/walrus-memory/sdk/usage/memwal) cover the basic SDK flow.
 
 ## Run locally
+
+Each app needs its own environment file and database setup before it starts; the chatbot, noter, and researcher pages below cover the exact steps. After configuring an app, run it from the repo root:
+
+[Source: examples/example-apps.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/examples/example-apps.md)
 
 ```bash
 $ pnpm dev:app
@@ -15,6 +18,8 @@ $ pnpm dev:researcher
 ## [Playground](https://github.com/MystenLabs/MemWal/tree/main/apps/app)
 
 Dashboard, playground, and interactive demo for Walrus Memory.
+
+[Source: examples/example-apps.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/examples/example-apps.md)
 
 ```ts
 const memwal = MemWal.create({
@@ -32,52 +37,10 @@ await memwal.analyze(analyzeText);
 
 This app covers the full getting-started flow in one place. It signs users in, sets up delegate keys, shows SDK credentials, and includes a live playground for `remember()`, `recall()`, `analyze()`, `restore()`, AI middleware, and manual mode.
 
-## [Chatbot](https://github.com/MystenLabs/MemWal/tree/main/apps/chatbot)
+## The demo apps
 
-AI chat app with persistent memory across sessions.
+Each demo app has its own page with the integration pattern it shows, the key code, and run instructions:
 
-```ts
-import { withMemWal } from "@mysten-incubation/memwal/ai";
-
-const model = withMemWal(baseModel, {
-  key,
-  accountId,
-  serverUrl,
-  maxMemories: 5,
-  autoSave: true,
-});
-```
-
-This app shows AI middleware integration in a production-style chat app. The UI can enable Walrus Memory, collect a delegate key and account ID, and pass them to the chat API. The server wraps the selected model with `withMemWal`, so recall happens before generation and new context can be auto-saved after each turn.
-
-## [Noter](https://github.com/MystenLabs/MemWal/tree/main/apps/noter)
-
-Note-taking app that stores insights as encrypted, searchable memory.
-
-```ts
-export const extractMemories = async (text: string): Promise<string[]> => {
-  const memwal = getMemWalClient();
-  const result = await memwal.analyze(text);
-  return (result.facts ?? []).map((f) => f.text);
-};
-```
-
-This app shows note-to-memory extraction. Noter keeps a shared server-side Walrus Memory client, lets the user configure the key and account at runtime, and uses `analyze()` to turn note content into structured facts while the relayer stores them asynchronously.
-
-## [Researcher](https://github.com/MystenLabs/MemWal/tree/main/apps/researcher)
-
-Research assistant that saves and recalls findings across sessions.
-
-```ts
-const fullText =
-  `Sprint Report: ${title}\n\n` +
-  `${content}\n\n` +
-  `References:\n${references}\n\n` +
-  `Sources: ${sourceList}`;
-
-const job = await memwal.remember(fullText);
-await memwal.waitForRememberJob(job.job_id);
-const { results } = await memwal.recall({ query, limit: 5 });
-```
-
-This app shows long-form research memory and session rehydration. Researcher saves each sprint as a structured report in Walrus Memory, then generates recall queries from sprint metadata, pulls back the most relevant findings, and rebuilds context for a fresh session.
+- **Chatbot:** [An AI chat app](/walrus-memory/examples/chatbot) that wraps its model with the AI middleware, so recall runs before each generation and new context saves automatically.
+- **Noter:** [A note-taking app](/walrus-memory/examples/noter) with zkLogin sign-in that turns note content into structured, searchable facts through `analyze`.
+- **Researcher:** [A research assistant](/walrus-memory/examples/researcher) that saves each sprint as a structured report and rebuilds context for fresh sessions through recall.

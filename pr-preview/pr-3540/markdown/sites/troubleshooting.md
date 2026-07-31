@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+Solutions to common errors when deploying and browsing Walrus Sites.
+
 This page covers common errors when deploying and browsing Walrus Sites, organized by where they occur.
 
 ## Configuration errors

@@ -17,6 +17,8 @@ The relayer is the backend that turns SDK calls into memory operations. Using a 
 
 The relayer is a Rust service (Axum) that manages a TypeScript sidecar process for Seal and Walrus operations that require the `@mysten/seal` and `@mysten/walrus` SDKs.
 
+[Source: relayer/overview.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/overview.md)
+
 ```mermaid
 flowchart LR
     Client["SDK / App"]
@@ -54,6 +56,10 @@ flowchart LR
 ```
 
 The sidecar is started automatically when the Rust server boots and communicates over HTTP on `localhost:9000` (configurable through `SIDECAR_URL`). If the sidecar fails to start, the relayer exits immediately.
+
+### Sui RPC Transport
+
+The relayer reaches Sui over JSON-RPC by default. Ahead of the Sui JSON-RPC sunset in July 2026, setting `SUI_GRPC_URL` to a Sui gRPC fullnode URL switches the relayer to gRPC. This is opt-in and off by default: with `SUI_GRPC_URL` empty, the relayer keeps using JSON-RPC. When set, both the write path (Walrus register and certify, Seal, and Enoki build) and the blob query and restore path run on gRPC, so it is a single reversible switch. For configuration details, see [Self-Hosting](/walrus-memory/relayer/self-hosting) and the [Environment Variables](/walrus-memory/reference/environment-variables) reference.
 
 ## Key pool
 

@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+Best practices for handling Walrus errors.
+
 This page covers how to handle Walrus errors programmatically in your applications. For a reference of specific error messages and their solutions, see [Troubleshooting Common Errors](/docs/troubleshooting/network-errors).
 
 ## Error categories

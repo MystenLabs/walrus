@@ -9,11 +9,15 @@ Add Walrus Memory to Claude Code so it recalls context and saves durable facts a
 
 ### Add the marketplace
 
+[Source: mcp/claude-code.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/claude-code.md)
+
 ```
         /plugin marketplace add MystenLabs/MemWal
         ```
 
       ### Install the plugin
+
+[Source: mcp/claude-code.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/claude-code.md)
 
 ```
         /plugin install memwal@memwal-plugins
@@ -58,12 +62,16 @@ See [Reference](/walrus-memory/mcp/reference) for full parameters.
 
 **Session 1**
 
+[Source: mcp/claude-code.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/claude-code.md)
+
 ```
 You:   I prefer pnpm and always use TypeScript strict mode.
 Agent: (calls memwal_remember on its own to store both preferences)
 ```
 
 **Session 2: a brand-new chat**
+
+[Source: mcp/claude-code.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/claude-code.md)
 
 ```
 You:   set up a new package in this repo
@@ -72,6 +80,8 @@ Agent: (calls memwal_recall, finds your preferences)
 ```
 
 ## Verify
+
+[Source: mcp/claude-code.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/claude-code.md)
 
 ```
 /mcp          → "memwal" should be Connected

@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+Overview of guides for setting up and operating a Walrus storage node.
+
 This section covers everything you need to set up and operate a Walrus storage node.
 
 - [Backup and Restore Guide](/docs/operator-guide/storage-nodes/backup-restore-guide): Back up and restore Walrus storage node databases with automated and manual procedures.

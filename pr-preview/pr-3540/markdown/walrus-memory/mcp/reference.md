@@ -126,6 +126,8 @@ flag in the table above.
 > fallback if the agent calls `memwal_restore` without a namespace.
 Example, pin every memory call to a `work` namespace:
 
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
+
 ```json
 {
   "mcpServers": {
@@ -140,6 +142,8 @@ Example, pin every memory call to a `work` namespace:
 ## Credential file
 
 The stdio package stores credentials at:
+
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
 
 ```text
 ~/.memwal/credentials.json
@@ -196,6 +200,8 @@ Walrus Memory supports two MCP connection modes.
 
 Use HTTP transport when your client supports remote MCP servers natively. Authentication is bearer-token + account ID per request:
 
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
+
 ```json
 {
   "mcpServers": {
@@ -216,6 +222,8 @@ The bearer token is the `delegatePrivateKey` from `~/.memwal/credentials.json`. 
 >
 > The bearer token is a long-lived credential equivalent to an API key. **Never commit MCP configs with a real `Authorization` header to source control.** Treat it like any other secret.
 For Claude Code, the equivalent registration command is:
+
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
 
 ```bash
 $ claude mcp add --transport http memwal https://relayer.memory.walrus.xyz/api/mcp
@@ -273,6 +281,7 @@ Self-hosted relayers expose the same public MCP routes as the hosted relayer. Th
 | `MCP_MAX_TOTAL_SESSIONS` | `1000` | Cap on concurrent MCP sessions across SSE and Streamable HTTP |
 | `MCP_MAX_SESSIONS_PER_IP` | `16` | Cap on concurrent sessions from one source IP |
 | `MCP_MAX_NEW_SESSIONS_PER_IP_PER_MIN` | `30` | Rate cap on new sessions per source IP per minute |
+| `TRUSTED_PROXY_HOPS` | `0` | Trusted reverse-proxy hops used to resolve the canonical client IP; keep `0` for direct deployments |
 
 See [Environment Variables](/walrus-memory/reference/environment-variables) for the full list including Seal, Walrus, embeddings, and database settings.
 

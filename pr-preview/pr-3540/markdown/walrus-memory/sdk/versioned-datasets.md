@@ -18,6 +18,8 @@ Put together, you get an append-only version history without building one: each 
 
 `rememberAndWait` returns the blob ID once the write is durable, and every recalled memory carries the blob ID it came from. Those are the two places you collect the permanent handle for a version.
 
+[Source: sdk/versioned-datasets.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/versioned-datasets.md)
+
 ```ts
 // On write: capture the blob ID as the version's permanent handle.
 const v1 = await memwal.rememberAndWait(JSON.stringify(datasetV1), "dataset");
@@ -33,6 +35,8 @@ for (const memory of result.results) {
 ## Worked example: a versioned agent dataset
 
 This agent revises a dataset over time and keeps an auditable lineage. Each revision is written as a new immutable blob, and the agent records a small lineage entry that links the new version to its parent. The dataset content lives in one namespace; the lineage records live in another, so the history is queryable on its own.
+
+[Source: sdk/versioned-datasets.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/sdk/versioned-datasets.md)
 
 ```ts
 import { MemWal } from "@mysten-incubation/memwal";

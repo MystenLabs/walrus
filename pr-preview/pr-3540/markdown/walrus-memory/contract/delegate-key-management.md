@@ -12,6 +12,8 @@ Delegate keys are lightweight Ed25519 keys used for SDK authentication. They are
 
 Use the SDK's `generateDelegateKey()` helper to create a new Ed25519 keypair:
 
+[Source: contract/delegate-key-management.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contract/delegate-key-management.md)
+
 ```ts
 import { generateDelegateKey } from "@mysten-incubation/memwal/account";
 
@@ -25,11 +27,14 @@ const delegate = await generateDelegateKey();
 
 Only the account owner can add delegate keys:
 
+[Source: contract/delegate-key-management.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contract/delegate-key-management.md)
+
 ```ts
 import { addDelegateKey } from "@mysten-incubation/memwal/account";
 
 await addDelegateKey({
   packageId: "0x...",
+  registryId: "0x...",
   accountId: "0x...",
   publicKey: delegate.publicKey,
   label: "MacBook Pro",
@@ -38,6 +43,8 @@ await addDelegateKey({
 ```
 
 ### 3. Use the private key in the SDK
+
+[Source: contract/delegate-key-management.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contract/delegate-key-management.md)
 
 ```ts
 import { MemWal } from "@mysten-incubation/memwal";
@@ -52,11 +59,14 @@ const memwal = MemWal.create({
 
 Removing a delegate key prevents future relayer access from that key:
 
+[Source: contract/delegate-key-management.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/contract/delegate-key-management.md)
+
 ```ts
 import { removeDelegateKey } from "@mysten-incubation/memwal/account";
 
 await removeDelegateKey({
   packageId: "0x...",
+  registryId: "0x...",
   accountId: "0x...",
   publicKey: delegate.publicKey,
   suiPrivateKey: "suiprivkey1...", // or walletSigner
@@ -75,7 +85,7 @@ await removeDelegateKey({
 An account owner can deactivate (freeze) their account. When deactivated:
 
 - Seal decryption access is denied for all keys (owner and delegates)
-- Delegate keys cannot be added or removed
-- The owner can reactivate the account at any time
+- New delegate keys cannot be added; the owner might still remove compromised keys
+- The owner can reactivate the account unless an AdminCap quarantine is active
 
 This is useful as an emergency kill switch if a key is compromised.

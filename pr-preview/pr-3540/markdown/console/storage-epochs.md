@@ -4,7 +4,7 @@ Walrus storage is time-bound. Your data stays available for a set amount of stor
 
 > **Info**
 >
-> Storage and epochs work today. Automatic renewal ships at and after GA. This page explains both so you understand how your data's lifetime works and how to avoid losing it. For related cost details, see the [concepts and overview](./overview).
+> The current beta includes storage, epochs, and automatic renewal. This page explains how your data's lifetime works and how to avoid losing it. For related cost details, see the [concepts and overview](./overview).
 ## How storage epochs work
 
 Walrus measures storage in epochs, which are fixed periods defined by the Walrus network. When you store a file, you reserve storage for a number of epochs. While that storage is funded, the network keeps your data available. When it runs out and you do not renew it, the data expires and is no longer retrievable.
@@ -15,7 +15,7 @@ Console handles the underlying payment and epoch accounting for you through your
 
 To keep active developers from losing data because they forgot to renew, Console renews storage automatically for wallets that stayed active. A wallet counts as active when it has at least one Walrus transaction within a recent activity window, planned as 14 days. Renewal runs on your behalf, so data you keep using stays available without any manual step.
 
-Automatic renewal ships at and after GA, alongside Mainnet billing.
+The current beta includes automatic renewal.
 
 ## Dormant accounts and expiry
 
@@ -26,8 +26,8 @@ Expiring dormant storage is deliberate. It keeps the network from paying indefin
 
 ## Checking storage status
 
-Your dashboard shows how much storage each space is using and surfaces upcoming expiry so you can act before data lapses. Storage used and your storage cap also appear per space when you list spaces through the API.
+Your dashboard shows how much storage each space is using. Storage used and your storage cap also appear per space when you list spaces through the API.
 
 ## Storage and the free tier
 
-Console keeps a perpetual free tier with a storage cap, tentatively 5 GB, so new developers are not paywalled. Usage-based billing for reads and egress, along with a paid path, follows at and after GA. Console manages WAL token handling for storage on your behalf. For the model behind spaces and storage, see the [concepts and overview](./overview).
+Console keeps a perpetual free tier with a storage cap, tentatively 5 GB, so new developers are not paywalled. Usage-based billing for reads and egress, along with a paid path, follows after GA. Console manages WAL token handling for storage on your behalf. For the model behind spaces and storage, see the [concepts and overview](./overview).

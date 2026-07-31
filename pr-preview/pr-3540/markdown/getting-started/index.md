@@ -36,7 +36,27 @@ Walrus supports several upload paths. Choose the best path for your use case bas
 > **Mainnet publisher availability**
 >
 > Walrus does not provide a public unauthenticated publisher on Mainnet. For production Mainnet uploads, run a private authenticated publisher, use an upload relay, or integrate directly with the TypeScript SDK.
+If your app design includes storage payment on behalf of its users, or letting users upload without a wallet, see [Sponsored and walletless uploads](/docs/sponsored-uploads) for information on implementation, the reference architecture, and common pitfalls.
+
 The rest of this guide uses the Walrus CLI on Testnet because it shows the full setup flow: installing tools, configuring a wallet, getting Testnet tokens, storing a blob, and reading it back.
+
+## Before you begin
+
+This walkthrough uses Testnet, so you spend free test tokens rather than real funds. You do not need to write any code, and you do not need to install Sui separately, because the `suiup` tool in the next step installs both `sui` and `walrus`.
+
+> **Already have the tools installed?**
+>
+> If `sui` and `walrus` are already on your `$PATH`, skip to [Configure tooling for Walrus Testnet](#configure-tooling). To confirm, run `walrus --version` and `sui --version`. For alternative installation methods, such as building from source or installing a specific binary, see [Advanced Installation](/docs/getting-started/advanced-setup).
+The guide covers the following steps:
+
+1. **Install tooling:** Get the `sui` and `walrus` command-line tools.
+2. **Configure tooling for Walrus Testnet:** Point the client at Testnet and verify the connection.
+3. **Understand your Sui account:** Learn about the address and account created during setup.
+4. **Fund your Sui account with tokens:** Get free Testnet SUI, then swap some for WAL.
+5. **Store a blob:** Upload your first file to Walrus.
+6. **Retrieve a blob:** Read the file back.
+7. **Extend a blob storage duration:** Keep a blob stored for longer.
+8. **Delete a blob:** Release a blob you no longer need.
 
 ##step Install tooling
 
@@ -55,7 +75,7 @@ $ suiup install sui
 $ suiup install walrus
 ```
 
-##step Configure tooling for Walrus Testnet
+##step Configure tooling for Walrus Testnet {#configure-tooling}
 
 After installing Walrus, configure the Walrus client. The client configuration tells Walrus which RPC URLs to use to access Testnet or Mainnet and which Sui objects track the state of the Walrus network. The easiest way to configure Walrus is to download the following pre-filled configuration file.
 
@@ -94,8 +114,16 @@ $ walrus info
 
 Make sure that the output of this command includes `Epoch duration: 1day` to indicate connection to Testnet. The same output also includes current storage pricing information. For interactive cost estimates, use the [Walrus Cost Calculator](https://costcalculator.wal.app/).
 
+> **About the context flag**
+>
+> The pre-filled configuration file defines both a `testnet` and a `mainnet` context and sets `default_context: testnet`. Because Testnet is the default, you do not need to pass `--context testnet` on every command. This guide includes the flag on each command to make the target network explicit, but you can omit it while you work on Testnet.
+> 
+> To store on Mainnet later, either pass `--context mainnet` on individual commands or change `default_context` to `mainnet` in `~/.config/walrus/client_config.yaml`. For the full list of contexts and endpoints, see the [Network Reference](/docs/network-reference).
 For detailed information about the `walrus` CLI, use `walrus --help`. Append `--help` to any `walrus` subcommand to get details about that specific command.
 
+> **Setup not connecting?**
+>
+> If `walrus info` fails or `walrus store` later returns `could not retrieve enough confirmations to certify the blob` or `the specified Walrus system object does not exist`, your configuration is most likely outdated or points at the wrong network. Re-download the configuration file shown previously and confirm the Sui client uses Testnet. See the [Troubleshooting guide](/docs/troubleshooting) for these and other common errors.
 ##step Understand your Sui account
 
 When you ran `sui client` during setup, the system automatically created a Sui account for you. Sui uses addresses and accounts. When you store blobs on Walrus, Walrus binds them to an object on Sui that an address owns.
@@ -206,6 +234,9 @@ Sui object ID: 0x1c086e216c4d35bf4c1ea493aea701260ffa5b0070622b17271e4495a030fe8
 
 You use blob IDs to read blob data, while you use Sui object IDs to make modifications to the blob's metadata, such as its storage duration. You might also use them to read blob data.
 
+> **Keep both identifiers**
+>
+> Record both identifiers from the `walrus store` output before you continue. You read a blob with its **blob ID**, and you extend a blob's storage duration with its **Sui object ID** (the `walrus extend` command does not accept a blob ID). The `walrus delete` command accepts either. Keeping both identifiers on hand avoids the most common error in the following steps.
 You can use [Walrus Explorer](https://walruscan.com/) to view more information about a blob ID.
 
 ##step Retrieve a blob
@@ -218,6 +249,11 @@ $ walrus read <blob-id> --out file.txt --context testnet
 
 Replace `<blob-id>` with the blob identifier the `walrus store` command returns in its output, and replace `file.txt` with the name and file extension for storing the file locally.
 
+> **You completed the core loop**
+>
+> Storing and reading a blob is the full Walrus write-and-read cycle. The next two steps cover lifecycle management: extending and deleting a blob.
+> 
+> To start building now, go to [Next steps](#next-steps) and refer to resources for using the CLI, building an application or Walrus Sites, or using an agent-memory workflow.
 ##step Extend a blob storage duration
 
 To extend a blob storage duration, you must reference the Sui object ID and indicate how many epochs you want to extend the blob storage for.
@@ -244,7 +280,40 @@ Replace `<blob-id>` with the blob identifier the `walrus store` command returns 
 
 ## Next steps
 
-[Build your first Walrus application](/docs/getting-started). Explore working examples:
+With your first blob stored and read, choose where to go next based on what you want to build.
+
+#### Keep working from the command line
+
+Continue with the Walrus client for more control:
+
+- [Store blobs with the Walrus client](/docs/walrus-client/storing-blobs) covers batch uploads, blob attributes, and other advanced options.
+- [Managing blobs](/docs/walrus-client/managing-blobs) covers extending, deleting, sharing, and burning blobs across their lifecycle.
+
+#### Integrate Walrus in an application
+
+Choose the interface that fits your stack:
+
+- Use the [TypeScript SDK](/docs/typescript-sdk/sdks) to store and read blobs directly from code.
+- Use the [HTTP API](/docs/http-api/storing-blobs) if your service already uses HTTP.
+- For browser or mobile clients and sponsored uploads, review [Choose your upload path](#choose-your-upload-path) and [Sponsored and walletless uploads](/docs/sponsored-uploads).
+
+#### Build a website on Walrus
+
+- [Walrus Sites](/docs/sites) lets you host a full website whose files live on Walrus, served through a portal and named with SuiNS.
+
+#### Give an AI agent persistent memory
+
+- Batch many small agent writes cheaply with [Walrus Quilt](/docs/system-overview/quilt), and cache frequently read data with [Caching hot reads](/docs/system-overview/caching).
+
+#### Understand the architecture and costs
+
+Learn how Walrus works and what it costs before you scale up:
+
+- [System Overview](/docs/system-overview) explains how Walrus uses erasure coding and Sui to store data.
+- [Storage Costs](/docs/system-overview/storage-costs) and the [WAL Tokenomics FAQ](/docs/system-overview/wal-tokenomics-faq) explain what you pay and why.
+- Keep the [Testnet Reference](/docs/testnet-reference) handy for endpoints, faucets, and recovery steps while you build.
+
+Explore working examples:
 
 - [Python examples](https://github.com/MystenLabs/walrus/tree/main/docs/examples/python)
 - [JavaScript web form](https://github.com/MystenLabs/walrus/tree/main/docs/examples/javascript)

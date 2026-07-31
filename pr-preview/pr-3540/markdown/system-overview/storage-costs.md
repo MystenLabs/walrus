@@ -23,6 +23,23 @@ You also pay **SUI** for executing transactions on Sui Mainnet. Each operation t
 > **Tip**
 >
 > Walrus bills you on the blob's **encoded size**, not the size of your original file. The encoded size is about 4.5x the original blob plus a fixed 64 MB of per-blob metadata. The cost calculator and `walrus info` already account for this, so you do not need to compute it yourself. Run `walrus store --dry-run ...` to see the exact encoded size for a file.
+#### Estimate cost by hand
+
+For a quick estimate without the calculator, work in two steps. First find the encoded size, then apply the fixed monthly rate:
+
+```text
+encoded_size_GB = 4.5 * original_size_GB + 0.064
+monthly_cost_USD = encoded_size_GB * 0.023
+```
+
+For example, to keep a 50 GB file for 1 year:
+
+- Encoded size: `4.5 * 50 + 0.064`, roughly `225 GB`.
+- Monthly cost: `225 * 0.023`, roughly `$5.18`.
+- Yearly cost: `$5.18 * 12`, roughly `$62`.
+
+The result is USD-denominated. Storage is paid in WAL, so the WAL amount changes with the WAL price. Use `walrus info` or the [Walrus Cost Calculator](https://costcalculator.wal.app/) to convert to a current WAL figure, and `walrus store --dry-run ...` to confirm the exact encoded size before you spend anything.
+
 ## What you get for $0.023/GB/month
 
 At $0.023 per GB per month, Walrus is in line with centralized storage providers but includes additional capabilities and lower configuration requirements.

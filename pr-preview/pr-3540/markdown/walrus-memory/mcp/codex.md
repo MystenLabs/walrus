@@ -1,31 +1,20 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install it as a **plugin** (recommended; adds automatic-memory hooks) or as **MCP-only** (just the tools).
+Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install it as **MCP-only** (recommended; just the tools, one config block, no repo to clone) or as a full **plugin** (adds automatic-memory hooks, but currently requires cloning the repo).
 
 - [x] Node.js 20+
 - [x] A Walrus Memory account. The first memory tool call opens a browser sign-in (`memwal_login`).
 
 ## Installation
 
-### Install the hooks + MCP server
-
-From a cloned repo:
-        ```bash
-        node packages/mcp/plugin/scripts/install_codex_hooks.mjs
-        ```
-        This merges the Walrus Memory hooks into `~/.codex/hooks.json` and registers `[mcp_servers.memwal]` in `~/.codex/config.toml`. Re-running is safe (idempotent); add `--uninstall` to remove the hooks.
-
-      ### Enable the hooks feature flag
-
 Add to `~/.codex/config.toml`:
-        ```toml
-        [features]
-        codex_hooks = true
-        ```
-
-      ### Restart and sign in
-
-Restart Codex. On first use the agent runs `memwal_login` to connect your wallet.
+    ```toml
+    [mcp_servers.memwal]
+    command = "npx"
+    args = ["-y", "@mysten-incubation/memwal-mcp"]
+    ```
+    Restart Codex, then ask the agent to run `memwal_login` on first use. The
+    memory tools are proactive, so this is enough for automatic save and recall.
 
 > **Warning**
 >

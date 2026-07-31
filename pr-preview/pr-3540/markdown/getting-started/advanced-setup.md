@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+Advanced installation options for Walrus including building from source and binary installation.
+
 This page covers advanced setup options for Walrus, including building from source, installing from binaries, or using Cargo. For standard setup instructions, see [Getting Started](/docs/getting-started).
 
 Walrus is open source under an Apache 2 license. You can download and install it through [`suiup`](https://github.com/MystenLabs/suiup) on GitHub, or you can build and install it from the Rust source code through Cargo.

@@ -4,6 +4,8 @@ The plugin sits between OpenClaw's gateway and the Walrus Memory server. It oper
 
 ## Architecture
 
+[Source: openclaw/how-it-works.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/how-it-works.md)
+
 ```mermaid
 graph TB
     subgraph "OpenClaw Gateway"
@@ -59,6 +61,8 @@ graph TB
 ## Message flow
 
 Every conversation turn follows this sequence:
+
+[Source: openclaw/how-it-works.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/how-it-works.md)
 
 ```mermaid
 sequenceDiagram
@@ -154,15 +158,17 @@ Capture runs **after** the response is sent, the user never waits for it.
 
 Each OpenClaw agent gets its own memory namespace, derived from the session key:
 
+[Source: openclaw/how-it-works.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/how-it-works.md)
+
 ```
 Session key: "agent:researcher:uuid-456" → namespace: "researcher"
 Session key: "agent:coder:uuid-789"      → namespace: "coder"
 Session key: "main:uuid-123"             → namespace: "default"
 ```
 
-All recall and capture operations are scoped to the current namespace. One agent's memories are invisible to another.
+All recall and capture operations are scoped to the current namespace by the plugin and server. Namespaces organize data; they are not an onchain authorization boundary.
 
-The plugin also supports **cryptographic isolation**, assigning different Ed25519 keys to different agents. With separate keys, agents literally cannot decrypt each other's memories. This is stronger than namespace isolation (which uses the same key with server-side filtering) and is unique to Walrus Memory.
+Delegate keys are authorized for the whole Walrus Memory account, so assigning a different delegate to each agent does not prevent one delegate from requesting another namespace's Seal key. Use separate Walrus Memory accounts when agents require cryptographic isolation.
 
 ### Prompt injection protection
 

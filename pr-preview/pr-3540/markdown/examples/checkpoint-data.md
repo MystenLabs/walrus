@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-The Sui Archival application demonstrates how Sui blockchain checkpoint data can be archived on Walrus in a reliable, deterministic, and resilient manner.
+The Sui Archival application demonstrates how you can archive checkpoint data on Walrus in a reliable, deterministic, and resilient manner.
 
 The application is accessible at https://walrus-sui-archival.wal.app/
 

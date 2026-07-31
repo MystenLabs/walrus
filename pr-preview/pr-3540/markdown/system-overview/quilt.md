@@ -82,3 +82,27 @@ Use a regular blob instead when:
 - A single item is large on its own. Store data that approaches or exceeds the per-blob size limit as a regular blob. For more information, see [Important considerations](#important-considerations).
 - Items need independent, one-at-a-time lifetimes. The `delete`, `extend`, and `share` operations apply to the whole quilt rather than to individual items within it, so an item you need to delete, extend, or share on its own schedule should be a regular blob.
 - You need each item addressed by a content-derived blob ID. An item inside a quilt is retrieved by its `QuiltPatchId`, which depends on the composition of the whole quilt and is not derived from the item's contents.
+
+## Decision guide
+
+Use the following matrix to decide between a quilt and regular blobs. Quilt is the right choice only when every row points to it. If any row points to a regular blob, store that item as a regular blob.
+
+| **Dimension** | **Use Quilt when** | **Use a regular blob when** |
+|---|---|---|
+| **File count** | You write many items you can group into a batch (tens to hundreds, up to 666 per QuiltV1). | You write one item, or items that never arrive together in a batch. |
+| **Individual size** | Each item is small, typically under 10MiB, where fixed per-blob overhead dominates. | A single item approaches or exceeds the ~4GiB per-blob limit in a quilt, or is already large enough that overhead is negligible. |
+| **Lifecycle** | The items in a batch share a lifetime, so you store, extend, and retire them together. | An item needs its own delete, extend, or share schedule. These operations apply to the whole quilt, not to individual patches. |
+| **Addressing** | Retrieving items by identifier or tag is acceptable. | You need each item addressed by a content-derived `BlobId`. A `QuiltPatchId` depends on the whole quilt and is not derived from item contents. |
+| **Retrieval** | You read items back individually and occasionally, by identifier or tag. | Every item is a hot, independently cached object. See [Caching hot reads](/docs/system-overview/caching). |
+
+### Cost impact at a glance
+
+The savings grow as files get smaller, because Quilt amortizes the fixed per-blob overhead (onchain registration, blob metadata, and the minimum erasure-coding overhead) across the batch. For 600 blobs stored for 1 epoch, the [cost comparison table](#lower-cost) shows the effect: roughly **409x** cheaper at 10 KiB per file, falling to about **13x** at 1 MiB per file. Sui gas savings depend only on the number of files per quilt, not their sizes. Test runs of 600 files showed about **238x** lower Sui fees than storing them individually.
+
+If your files are larger than about 1 MiB each, the storage savings shrink quickly, so batch mainly for the reduced transaction count rather than for storage cost. Above the per-blob size limit, Quilt is not an option at all.
+
+### Common pitfalls
+
+- **Single-file quilts:** Wrapping one blob in a quilt adds `QuiltPatchId` indirection with no cost benefit. Store a lone blob as a regular blob.
+- **Mismatched lifetimes:** Grouping items you need to delete or extend on different schedules forces you to carry the whole quilt for the longest-lived item. Group by shared lifetime.
+- **Expecting content-addressed IDs:** If your application looks items up by a hash of their contents, Quilt's `QuiltPatchId` does not provide that. Use regular blobs, or maintain your own identifier-to-content mapping.

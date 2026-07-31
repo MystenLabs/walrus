@@ -1,5 +1,7 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+Storage limits, cost considerations, memory requirements, and other constraints to consider when building on Walrus.
+
 This page describes the practical limits and constraints you should consider when designing applications on Walrus. For current values, run `walrus info`.
 
 ## Blob size

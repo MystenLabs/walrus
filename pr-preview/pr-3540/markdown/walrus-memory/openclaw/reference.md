@@ -22,6 +22,8 @@ Searches Walrus Memory for memories relevant to the user's prompt and injects th
 
 Memories are wrapped in `<memwal-memories>` tags with a security header:
 
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
+
 ```
 <memwal-memories>
 Relevant memories from long-term storage.
@@ -85,6 +87,8 @@ Semantic search across the agent's memory space.
 - Returns ranked results with relevance percentages
 
 **Example response to the LLM:**
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
+
 ```
 Found 2 memories:
 
@@ -108,6 +112,8 @@ Save information through server-side fact extraction.
 - Returns the number of facts stored and a preview
 
 **Example response to the LLM:**
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
+
 ```
 Stored 2 facts: User prefers dark mode; User works in TypeScript
 ```
@@ -115,6 +121,8 @@ Stored 2 facts: User prefers dark mode; User works in TypeScript
 ### Enabling tools
 
 Add to your OpenClaw agent profile:
+
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
 
 ```json
 {
@@ -135,6 +143,8 @@ Terminal commands for debugging and inspection. Available when the OpenClaw gate
 
 Search memories with JSON output:
 
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
+
 ```bash
 $ openclaw memwal search "programming preferences"
 $ openclaw memwal search "tech stack" --limit 10
@@ -149,6 +159,8 @@ $ openclaw memwal search "research notes" --agent researcher
 ### Stats
 
 Show server health and plugin configuration:
+
+[Source: openclaw/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/reference.md)
 
 ```bash
 $ openclaw memwal stats
@@ -167,9 +179,9 @@ Each OpenClaw agent gets its own memory namespace derived from the session key. 
 | Researcher | `agent:researcher:uuid-456` | `researcher` |
 | Coder | `agent:coder:uuid-789` | `coder` |
 
-All recall, capture, and tool operations are scoped to the current namespace. One agent cannot see another agent's memories.
+All recall, capture, and tool operations are scoped to the current namespace by the plugin and server. This is an organization boundary, not an onchain authorization boundary.
 
-**Namespace isolation** uses the same Ed25519 key with server-side filtering. For stronger separation, Walrus Memory also supports **cryptographic isolation**, assigning different keys to different agents so they literally cannot decrypt each other's memories.
+Every delegate key is authorized for the whole Walrus Memory account. Separate delegate keys improve key custody and attribution, but cryptographic isolation requires separate Walrus Memory accounts.
 
 ## Prompt injection protection
 

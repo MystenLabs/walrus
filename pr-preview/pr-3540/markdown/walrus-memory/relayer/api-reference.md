@@ -33,6 +33,8 @@ All `/api/*` routes require signed headers. The SDK handles this automatically.
 
 The signed message is:
 
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
 ```text
 {timestamp}.{method}.{path_and_query}.{body_sha256}.{nonce}.{account_id}
 ```
@@ -46,6 +48,8 @@ The relayer verifies the Ed25519 signature, then resolves the owner by looking u
 Service health check. No authentication required.
 
 **Response:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -81,17 +85,23 @@ Stable relayer/API compatibility metadata. No authentication required.
 
 ### `POST /sponsor`
 
-Proxy to the Seal/Walrus sidecar's `/sponsor` endpoint for sponsored transactions. No authentication required.
+Proxy to the Seal/Walrus sidecar's `/sponsor` endpoint. The request must include
+`authTimestamp`, a UUID-v4 `authNonce`, and `authSignature`: a Sui personal-message
+signature over the sender, transaction-kind hash, timestamp, and nonce. Only one
+allowlisted Walrus Memory `account` call might be sponsored.
 
 ### `POST /sponsor/execute`
 
-Proxy to the sidecar's `/sponsor/execute` endpoint. No authentication required.
+Proxy to the sidecar's `/sponsor/execute` endpoint. `sender` must match the
+short-lived, one-time Redis binding created by the authenticated `/sponsor` call.
 
 ### `POST /api/remember`
 
 Submit text as an encrypted memory job. The relayer returns after creating a background job; embedding, Seal encryption, Walrus upload, and vector indexing continue asynchronously.
 
 **Request:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -100,9 +110,11 @@ Submit text as an encrypted memory job. The relayer returns after creating a bac
 }
 ```
 
-`namespace` defaults to `"default"` if omitted.
+`namespace` defaults to `"default"` if omitted and is limited to 255 UTF-8 bytes.
 
 **Response:** `202 Accepted`
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -116,6 +128,8 @@ Submit text as an encrypted memory job. The relayer returns after creating a bac
 Poll a remember job.
 
 **Response:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -133,6 +147,8 @@ Submit up to 20 memories in one request. `job_ids[i]` corresponds to `items[i]`.
 
 **Request:**
 
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
 ```json
 {
   "items": [
@@ -143,6 +159,8 @@ Submit up to 20 memories in one request. `job_ids[i]` corresponds to `items[i]`.
 ```
 
 **Response:** `202 Accepted`
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -158,6 +176,8 @@ Poll a batch of remember jobs.
 
 **Request:**
 
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
 ```json
 {
   "job_ids": ["uuid-1", "uuid-2"]
@@ -165,6 +185,8 @@ Poll a batch of remember jobs.
 ```
 
 **Response:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -181,6 +203,8 @@ Search for memories matching a natural language query. Returns decrypted plainte
 
 **Request:**
 
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
 ```json
 {
   "query": "What do we know about this user?",
@@ -192,6 +216,8 @@ Search for memories matching a natural language query. Returns decrypted plainte
 `limit` defaults to `10`. `namespace` defaults to `"default"`.
 
 **Response:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -212,6 +238,8 @@ Register a client-encrypted payload. The client sends Seal-encrypted data (base6
 
 **Request:**
 
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
 ```json
 {
   "encrypted_data": "base64-encoded-seal-encrypted-bytes",
@@ -221,6 +249,8 @@ Register a client-encrypted payload. The client sends Seal-encrypted data (base6
 ```
 
 **Response:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -237,6 +267,8 @@ Search with a precomputed query vector. Returns blob IDs and distances only, the
 
 **Request:**
 
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
 ```json
 {
   "vector": [0.01, -0.02, ...],
@@ -246,6 +278,8 @@ Search with a precomputed query vector. Returns blob IDs and distances only, the
 ```
 
 **Response:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -265,6 +299,8 @@ Extract facts from text using an LLM, then enqueue each fact as a separate memor
 
 **Request:**
 
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
 ```json
 {
   "text": "I live in Hanoi and prefer dark mode.",
@@ -273,6 +309,8 @@ Extract facts from text using an LLM, then enqueue each fact as a separate memor
 ```
 
 **Response:** `202 Accepted`
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -293,6 +331,8 @@ Recall memories, inject them into an LLM prompt, and return an AI-generated answ
 
 **Request:**
 
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
 ```json
 {
   "question": "What do you know about my preferences?",
@@ -304,6 +344,8 @@ Recall memories, inject them into an LLM prompt, and return an AI-generated answ
 `limit` defaults to `5`. `namespace` defaults to `"default"`.
 
 **Response:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {
@@ -325,6 +367,8 @@ Rebuild missing vector entries for one namespace. Queries onchain blobs by owner
 
 **Request:**
 
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
 ```json
 {
   "namespace": "demo",
@@ -335,6 +379,8 @@ Rebuild missing vector entries for one namespace. Queries onchain blobs by owner
 `limit` defaults to `10`.
 
 **Response:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
 
 ```json
 {

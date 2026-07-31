@@ -4,22 +4,22 @@ Walrus Console uses the same kind of login you already know using Google or Appl
 
 > **Info**
 >
-> Walrus Console is available on Mainnet through a closed, invite-only beta. It currently supports Google sign-in, and plans to support Apple soon. For the product model, see the [concepts and overview](./overview).
+> Walrus Console is available on Mainnet through a closed, invite-only beta. It supports Google and Apple sign-in. For the product model, see the [concepts and overview](./overview).
 ## How sign-in works
 
 Console uses Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin). You authenticate with an identity provider you already have, and Console derives a [Sui address](https://docs.sui.io/concepts/cryptography/transaction-auth/keys-addresses) from that identity without exposing your provider account onchain and without asking you to manage a private key.
 
-## Sign in with Google
+## Sign in with Google or Apple
 
 1. Visit the [Walrus Console app](https://testnet.harbor.walrus.xyz/).
-2. Choose **Continue with Google** and complete the Google sign-in.
+2. Choose **Continue with Google** or **Continue with Apple** and complete the provider sign-in.
 3. Console provisions your account and a [Personal Space](./overview#core-concepts-spaces-buckets-and-files), then takes you to the dashboard.
 
-Apple sign-in joins soon and works the same way, deriving your Sui address from your Apple identity. It accepts Apple's private email relay, so you can use the **Hide My Email** option.
+Apple sign-in derives your Sui address from your Apple identity the same way. It accepts Apple's private email relay, so you can use the **Hide My Email** option.
 
 ## Your Pearl wallet
 
-On first sign-in, Console silently provisions a Pearl wallet, the embedded wallet Console manages on your behalf, for your derived Sui address. This wallet holds the storage resources your data uses. Console manages the wallet and paying for transactions for you, so you do not need to fund it or sign transactions to get started. More advanced workflows require explicit signing steps.
+On first sign-in, Console silently provisions a Pearl wallet, the embedded wallet Console manages on your behalf, for your derived Sui address. This wallet holds the storage resources your data uses. Console manages the wallet and paying for transactions for you, so you do not need to fund it or sign transactions.
 
 ## Accounts stay separate per identity
 
