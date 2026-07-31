@@ -48,7 +48,7 @@ Error responses use the shape:
 
 The `code` field is present when a machine-readable value applies. Common error codes include:
 
-| Code | Meaning |
+| **Code** | **Meaning** |
 | --- | --- |
 | `unauthorized` | Missing or invalid API key. |
 | `read_only_api_key` | A write was attempted with a read-only key. |
@@ -79,7 +79,7 @@ A space is the top-level container for your data. Console creates a Personal Spa
 
 Lists all spaces accessible to the authenticated user.
 
-| Parameter | Location | Required | Description |
+| **Parameter** | **Location** | **Required** | **Description** |
 | --- | --- | --- | --- |
 | `type` | query | No | Filter by space type: `personal` or `team`. |
 
@@ -89,7 +89,7 @@ Returns `200` with a `data` array of spaces. Each space includes `id`, `type`, `
 
 `GET /api/v1/spaces/{id}/buckets`
 
-| Parameter | Location | Required | Description |
+| **Parameter** | **Location** | **Required** | **Description** |
 | --- | --- | --- | --- |
 | `id` | path | Yes | Space UUID. |
 | `limit` | query | No | Page size, 1 to 1000. Default 100. |
@@ -132,7 +132,7 @@ Sign `bytes` locally with your service key, then call the finalize endpoint. The
 
 Searches files across every bucket in the space.
 
-| Parameter | Location | Required | Description |
+| **Parameter** | **Location** | **Required** | **Description** |
 | --- | --- | --- | --- |
 | `id` | path | Yes | Space UUID. |
 | `limit` | query | No | Page size, 1 to 100. Default 20. |
@@ -157,7 +157,7 @@ Returns `200` with the bucket under `data`: `id`, `space_id`, `name`, `oyster_bu
 
 `PUT /api/v1/buckets/{id}`
 
-| Field | Required | Description |
+| **Field** | **Required** | **Description** |
 | --- | --- | --- |
 | `name` | Yes | New bucket name, 1 to 100 characters in length. |
 | `sealPolicyId` | No | Seal policy ID. Pass `null` to clear. |
@@ -203,7 +203,7 @@ Takes the same `limit`, `cursor`, `q`, `sortField`, and `sortOrder` parameters a
 
 Uploads a file asynchronously using `multipart/form-data`.
 
-| Field | Required | Description |
+| **Field** | **Required** | **Description** |
 | --- | --- | --- |
 | `file` | Yes | The file bytes. For private buckets, upload the Seal-encrypted object. |
 | `name` | No | File name, up to 255 characters in length. |
@@ -217,6 +217,8 @@ Returns `202` with the file summary under `data`. Poll the status endpoint until
 Other responses include `409` (bucket not finalized or duplicate file name), `413` (payload too large), `422` (quota exceeded), and `429` (rate limited).
 
 ## Files
+
+File endpoints address a single file by ID: metadata, upload status, download, and delete.
 
 ### Get file metadata
 
@@ -256,7 +258,7 @@ These endpoints build and sponsor the onchain bucket-policy transactions that ma
 
 Builds a sponsored bucket-policy transaction and returns the bytes to sign plus a digest to echo to the execute endpoint. The body's `kind` selects the operation:
 
-| `kind` | Purpose | Additional fields |
+| **`kind`** | **Purpose** | **Additional fields** |
 | --- | --- | --- |
 | `bucket_group_create` | Create a bucket access group. | `bucketId` |
 | `grant_bucket_access` | Grant access to recipients. | `groupIds`, `recipientAddress`, `scope` (`read` or `readwrite`) |
@@ -272,7 +274,7 @@ Returns `200` with `bytes` and `digest`.
 
 Submits the signature over the sponsored bytes. Console broadcasts the transaction and returns the onchain digest.
 
-| Parameter | Location | Required | Description |
+| **Parameter** | **Location** | **Required** | **Description** |
 | --- | --- | --- | --- |
 | `digest` | path | Yes | The sponsor digest from the sponsor endpoint. |
 

@@ -4,7 +4,7 @@ Walrus storage is time-bound. Your data stays available for a set amount of stor
 
 > **Info**
 >
-> The current beta includes storage, epochs, and automatic renewal. This page explains how your data's lifetime works and how to avoid losing it. For related cost details, see the [concepts and overview](./overview).
+> The current beta includes storage, epochs, and automatic renewal. For related cost details, see the [concepts and overview](./overview).
 ## How storage epochs work
 
 Walrus measures storage in epochs, which are fixed periods defined by the Walrus network. When you store a file, you reserve storage for a number of epochs. While that storage is funded, the network keeps your data available. When it runs out and you do not renew it, the data expires and is no longer retrievable.

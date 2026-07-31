@@ -18,7 +18,7 @@ Authorization: Bearer hbr_…
 
 > **Info**
 >
-> The code in this guide is pulled directly from the runnable [`walrus-harbor-quickstart`](https://github.com/MystenLabs/walrus-harbor-quickstart) example, so the package IDs and Seal key-server IDs stay current with the source. Clone it and run the `pnpm` scripts to try the flow end to end.
+> The code below comes directly from the runnable [`walrus-harbor-quickstart`](https://github.com/MystenLabs/walrus-harbor-quickstart) example, so the package IDs and Seal key-server IDs stay current with the source. Clone it and run the `pnpm` scripts to try the flow end to end.
 ## Sign up and create an API key
 
 1. Visit the [Walrus Console app](https://testnet.harbor.walrus.xyz/) and sign in with Google. zkLogin provisions your account and a Personal Space automatically.
