@@ -179,9 +179,9 @@ Each OpenClaw agent gets its own memory namespace derived from the session key. 
 | Researcher | `agent:researcher:uuid-456` | `researcher` |
 | Coder | `agent:coder:uuid-789` | `coder` |
 
-All recall, capture, and tool operations are scoped to the current namespace. One agent cannot see another agent's memories.
+All recall, capture, and tool operations are scoped to the current namespace by the plugin and server. This is an organization boundary, not an onchain authorization boundary.
 
-**Namespace isolation** uses the same Ed25519 key with server-side filtering. For stronger separation, Walrus Memory also supports **cryptographic isolation**, assigning different keys to different agents so they literally cannot decrypt each other's memories.
+Every delegate key is authorized for the whole Walrus Memory account. Separate delegate keys improve key custody and attribution, but cryptographic isolation requires separate Walrus Memory accounts.
 
 ## Prompt injection protection
 

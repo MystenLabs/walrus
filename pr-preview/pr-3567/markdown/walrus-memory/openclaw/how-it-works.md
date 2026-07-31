@@ -166,9 +166,9 @@ Session key: "agent:coder:uuid-789"      → namespace: "coder"
 Session key: "main:uuid-123"             → namespace: "default"
 ```
 
-All recall and capture operations are scoped to the current namespace. One agent's memories are invisible to another.
+All recall and capture operations are scoped to the current namespace by the plugin and server. Namespaces organize data; they are not an onchain authorization boundary.
 
-The plugin also supports **cryptographic isolation**, assigning different Ed25519 keys to different agents. With separate keys, agents literally cannot decrypt each other's memories. This is stronger than namespace isolation (which uses the same key with server-side filtering) and is unique to Walrus Memory.
+Delegate keys are authorized for the whole Walrus Memory account, so assigning a different delegate to each agent does not prevent one delegate from requesting another namespace's Seal key. Use separate Walrus Memory accounts when agents require cryptographic isolation.
 
 ### Prompt injection protection
 

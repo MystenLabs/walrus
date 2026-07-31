@@ -1,5 +1,14 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+### Walrus v1.53.0
+
+`Testnet` July 29, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.53.0)
+
+---
+#### Full Log: https://github.com/MystenLabs/walrus/commits/testnet-v1.53.0
+
+---
+
 ### Walrus v1.52.1
 
 `Mainnet` July 22, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.52.1)

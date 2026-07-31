@@ -56,9 +56,9 @@ Following endpoints are provided as public good by Walrus Foundation.
     Set up the SDK with your delegate key, account ID, and relayer URL:
 
     ```ts
-    import { Walrus Memory } from "@mysten-incubation/memwal";
+    import { MemWal } from "@mysten-incubation/memwal";
 
-    const memwal = Walrus Memory.create({
+    const memwal = MemWal.create({
       // Load your own credentials from the environment; don't hardcode an example ID.
       key: process.env.MEMWAL_KEY ?? "<your-ed25519-private-key>",
       accountId: process.env.MEMWAL_ACCOUNT_ID ?? "<your-memwal-account-id>",
