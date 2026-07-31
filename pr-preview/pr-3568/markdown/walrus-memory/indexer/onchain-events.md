@@ -13,6 +13,8 @@ The Walrus Memory contract emits the following events:
 | `DelegateKeyRemoved` | A delegate key is removed | `account_id`, `public_key` |
 | `AccountDeactivated` | An account is frozen | `account_id`, `owner` |
 | `AccountReactivated` | A frozen account is unfrozen | `account_id`, `owner` |
+| `AccountQuarantined` | Admin containment is applied | `account_id`, `owner` |
+| `AccountQuarantineCleared` | Admin containment is released | `account_id`, `owner` |
 
 ## Current coverage
 

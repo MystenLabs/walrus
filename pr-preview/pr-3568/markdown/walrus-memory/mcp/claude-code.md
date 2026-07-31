@@ -17,6 +17,8 @@ Add Walrus Memory to Claude Code so it recalls context and saves durable facts a
 
       ### Install the plugin
 
+[Source: mcp/claude-code.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/claude-code.md)
+
 ```
         /plugin install memwal@memwal-plugins
         ```

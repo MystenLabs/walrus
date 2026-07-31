@@ -85,11 +85,15 @@ Stable relayer/API compatibility metadata. No authentication required.
 
 ### `POST /sponsor`
 
-Proxy to the Seal/Walrus sidecar's `/sponsor` endpoint for sponsored transactions. No authentication required.
+Proxy to the Seal/Walrus sidecar's `/sponsor` endpoint. The request must include
+`authTimestamp`, a UUID-v4 `authNonce`, and `authSignature`: a Sui personal-message
+signature over the sender, transaction-kind hash, timestamp, and nonce. Only one
+allowlisted Walrus Memory `account` call might be sponsored.
 
 ### `POST /sponsor/execute`
 
-Proxy to the sidecar's `/sponsor/execute` endpoint. No authentication required.
+Proxy to the sidecar's `/sponsor/execute` endpoint. `sender` must match the
+short-lived, one-time Redis binding created by the authenticated `/sponsor` call.
 
 ### `POST /api/remember`
 
@@ -106,7 +110,7 @@ Submit text as an encrypted memory job. The relayer returns after creating a bac
 }
 ```
 
-`namespace` defaults to `"default"` if omitted.
+`namespace` defaults to `"default"` if omitted and is limited to 255 UTF-8 bytes.
 
 **Response:** `202 Accepted`
 
