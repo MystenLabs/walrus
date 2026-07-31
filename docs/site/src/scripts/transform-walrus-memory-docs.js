@@ -310,7 +310,9 @@ function renameMemwal(content) {
   const result = [];
 
   for (const line of lines) {
-    if (/^```/.test(line)) {
+    // Fences can be indented (content nested in <Steps>/<Tabs> keeps its
+    // source indentation), so match them anywhere after leading whitespace.
+    if (/^\s*```/.test(line)) {
       inCodeBlock = !inCodeBlock;
       result.push(line);
       continue;
@@ -386,20 +388,26 @@ function enforceStyleGuide(content, relPath) {
       continue;
     }
 
-    if (/^```/.test(line)) {
+    // Fences can be indented (content nested in <Steps>/<Tabs> keeps its
+    // source indentation), so match them anywhere after leading whitespace.
+    if (/^\s*```/.test(line)) {
+      const indented = /^\s/.test(line);
       if (!inCodeBlock) {
         inCodeBlock = true;
-        inBashBlock = /^```(bash|shell|sh)\b/.test(line);
+        inBashBlock = /^\s*```(bash|shell|sh)\b/.test(line);
         // Convert Mintlify filename convention (```lang filename.ext)
         // to Docusaurus title attribute (```lang title="filename.ext")
-        const fenceMatch = line.match(/^```(\w+)\s+(\S+.+)$/);
+        const fenceMatch = line.match(/^(\s*)```(\w+)\s+(\S+.+)$/);
         if (fenceMatch && !line.includes('title=')) {
-          const lang = fenceMatch[1];
-          const filename = fenceMatch[2].trim();
-          line = `\`\`\`${lang} title="${filename}"`;
+          const indent = fenceMatch[1];
+          const lang = fenceMatch[2];
+          const filename = fenceMatch[3].trim();
+          line = `${indent}\`\`\`${lang} title="${filename}"`;
         }
-        // Add source link before every code block
-        if (sourceUrl) {
+        // Add source link before every top-level code block (indented
+        // fences sit inside <Steps>/<Tabs>, where the link would repeat
+        // once per tab)
+        if (sourceUrl && !indented) {
           result.push(`<a href="${sourceUrl}" target="_blank" className="code-source-link">Source: ${relPath}</a>\n`);
         }
       } else {
