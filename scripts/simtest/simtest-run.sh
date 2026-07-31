@@ -89,7 +89,6 @@ if [ "$TEST_FILTER" != "simtest" ] && [ "$TEST_NUM" -gt 1 ]; then
 
     TMPDIR="$WALRUS_TMP_DIR" \
     MSIM_TEST_SEED="$ITER_SEED" \
-    MSIM_TEST_NUM=1 \
     MSIM_WATCHDOG_TIMEOUT_MS="$WATCHDOG_TIMEOUT_MS" \
     scripts/simtest/cargo-simtest simtest "$TEST_FILTER" \
       --color never \
@@ -97,18 +96,21 @@ if [ "$TEST_FILTER" != "simtest" ] && [ "$TEST_NUM" -gt 1 ]; then
       --profile simtestnightly > "$ITER_LOG_FILE" 2>&1 &
   done
 else
-  # This command runs many different tests, so it already uses all CPUs fairly efficiently, and
-  # don't need to be done inside of the for loop below.
-  # TODO: this logs directly to stdout since it is not being run in parallel. is that ok?
+  # This command runs many different tests, so each iteration already uses all CPUs fairly
+  # efficiently. Run the iterations sequentially rather than in parallel, each with a distinct seed.
 
-  TMPDIR="$WALRUS_TMP_DIR" \
-  MSIM_TEST_SEED="$SEED" \
-  MSIM_TEST_NUM=${TEST_NUM} \
-  MSIM_WATCHDOG_TIMEOUT_MS="$WATCHDOG_TIMEOUT_MS" \
-  scripts/simtest/cargo-simtest simtest "$TEST_FILTER" \
-    --color never \
-    --test-threads "$NUM_CPUS" \
-    --profile simtestnightly 2>&1 | tee "$LOG_FILE"
+  for ((ITER = 0; ITER < TEST_NUM; ITER++)); do
+    ITER_SEED=$((SEED + ITER))
+    echo "Starting iteration $ITER with seed $ITER_SEED"
+
+    TMPDIR="$WALRUS_TMP_DIR" \
+    MSIM_TEST_SEED="$ITER_SEED" \
+    MSIM_WATCHDOG_TIMEOUT_MS="$WATCHDOG_TIMEOUT_MS" \
+    scripts/simtest/cargo-simtest simtest "$TEST_FILTER" \
+      --color never \
+      --test-threads "$NUM_CPUS" \
+      --profile simtestnightly 2>&1 | tee -a "$LOG_FILE"
+  done
 fi
 
 # wait for all the jobs to end

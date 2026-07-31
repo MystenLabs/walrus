@@ -241,7 +241,7 @@ impl EpochChangeDriver {
     pub fn cancel_scheduled_epoch_change_initiation(&self, epoch: Epoch) {
         let mut inner = self.inner.lock().expect("thread did not panic with lock");
 
-        if let Some((ref epoch_of_scheduled_future, _)) = inner.end_voting_future {
+        if let Some((ref epoch_of_scheduled_future, _)) = inner.epoch_change_start_future {
             if epoch == *epoch_of_scheduled_future {
                 inner.epoch_change_start_future = None;
                 tracing::debug!(walrus.epoch = epoch, "cancelled epoch change initiation");

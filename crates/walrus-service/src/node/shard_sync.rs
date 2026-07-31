@@ -102,8 +102,8 @@ impl ShardSyncHandler {
     /// Waits until no shard sync task is running.
     ///
     /// A shard sync that failed terminally (requiring a node restart to be retried) does not
-    /// count as running; its shard remains in `ActiveSync` status and missing blobs in it are
-    /// recovered through the regular blob recovery path.
+    /// count as running; its shard remains in `ActiveSync` or `ActiveRecover` status, which
+    /// blocks node recovery from completing until the sync is retried.
     pub async fn wait_until_no_sync_in_progress(&self) {
         let mut receiver = self.sync_task_count.subscribe();
         receiver

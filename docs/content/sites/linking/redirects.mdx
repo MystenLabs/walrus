@@ -1,7 +1,46 @@
 ---
 title: Walrus Sites Redirects
-description: How redirects work in Walrus Sites, including routing-based internal redirects, HTTP redirects, and redirecting arbitrary Sui objects to a Walrus Site.
-keywords: [Walrus Sites, redirects, routing, ws-resources.json, Display, NFT, object redirect, SPA, single-page application, 3xx, HTTP redirect]
+description: >-
+  How redirects work in Walrus Sites, including routing-based internal
+  redirects, HTTP redirects, and redirecting arbitrary Sui objects to a Walrus
+  Site.
+keywords:
+  - Walrus Sites
+  - redirects
+  - routing
+  - ws-resources.json
+  - Display
+  - NFT
+  - object redirect
+  - SPA
+  - single-page application
+  - 3xx
+  - HTTP redirect
+goal:
+  description: Reader can configure internal routing, HTTP redirects, and Sui object redirects for a Walrus Site
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Walrus Sites Redirects?
+  - How do I get started with walrus sites redirects?
+  - What are the requirements for walrus sites redirects?
+answer: >-
+  How redirects work in Walrus Sites, including routing-based internal
+  redirects, HTTP redirects, and redirecting arbitrary Sui objects to a Walrus
+  Site.
 ---
 
 Walrus Sites supports 3 kinds of redirects: internal routing redirects, HTTP redirects, and object redirects. Internal routing redirects map URL paths within your site to specific resources. HTTP redirects return 3xx responses to send the client to a different URL. Object redirects allow arbitrary Sui objects to point to a Walrus Site. These work differently and serve different use cases.

@@ -1,7 +1,38 @@
 ---
 title: Deploy a Local Portal
-description: "Guide to deploying a local Walrus Sites portal."
-keywords: ["walrus sites", "portal", "local portal", "local deployment", "docker", "bun"]
+description: Guide to deploying a local Walrus Sites portal.
+keywords:
+  - walrus sites
+  - portal
+  - local portal
+  - local deployment
+  - docker
+  - bun
+goal:
+  description: Reader can deploy a Walrus Sites portal locally for development or self-hosting
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I deploy a local portal?
+  - How do I get started with deploy a local portal?
+  - What are the requirements for deploy a local portal?
+answer: Guide to deploying a local Walrus Sites portal.
 ---
 
 To view a website deployed using Walrus Sites, you must use a Sites Portal. A portal retrieves site resources from Walrus and their corresponding Sui objects before serving the site in your browser. You can browse any Walrus Site deployed on Mainnet or Testnet using a Sites Portal.

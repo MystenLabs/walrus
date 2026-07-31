@@ -1,7 +1,50 @@
 ---
 title: Managing Blobs
-description: Use the Walrus client to check, extend, delete, burn, share, and set attributes on blobs across their lifecycle.
-keywords: [ walrus, cli, client, command line, delete, extend, burn, blob management, shared blobs, blob attributes, lifecycle, expiry, blob status, monitoring ]
+description: >-
+  Use the Walrus client to check, extend, delete, burn, share, and set
+  attributes on blobs across their lifecycle.
+keywords:
+  - walrus
+  - cli
+  - client
+  - command line
+  - delete
+  - extend
+  - burn
+  - blob management
+  - shared blobs
+  - blob attributes
+  - lifecycle
+  - expiry
+  - blob status
+  - monitoring
+goal:
+  description: Reader can check, extend, delete, burn, share, and set attributes on blobs across their lifecycle with the Walrus client
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I check a blob's status and expiry?
+  - How do I extend the lifetime of a blob?
+  - How do I delete blobs?
+answer: >-
+  Use the Walrus client to check, extend, delete, burn, share, and set
+  attributes on blobs across their lifecycle.
 ---
 
 <AgentPrompt

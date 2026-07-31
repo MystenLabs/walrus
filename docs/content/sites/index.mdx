@@ -1,7 +1,32 @@
 ---
 title: Walrus Sites
-description: "Deploy decentralized websites on Walrus."
-keywords: ["walrus", "walrus sites", "decentralized websites", "static sites", "sui", "site-builder", "portal", "suins", "web hosting"]
+description: Deploy decentralized websites on Walrus.
+keywords:
+  - walrus
+  - walrus sites
+  - decentralized websites
+  - static sites
+  - sui
+  - site-builder
+  - portal
+  - suins
+  - web hosting
+goal:
+  description: Reader can understand what Walrus Sites are and find the guides to deploy a decentralized website
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+      label: Has required frontmatter fields
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is Walrus Sites?
+  - How do I deploy a website on Walrus?
+  - How do I get started with walrus sites?
+answer: Deploy decentralized websites on Walrus.
 ---
 
 Walrus Sites are decentralized websites built on [Sui](https://docs.sui.io/) and Walrus. Your site's files are stored on Walrus, a decentralized storage network, while a Sui smart contract records ownership and maps each resource path to its content. Anyone can publish a Walrus Site using the [`site-builder` CLI tool](/docs/sites/getting-started/installing-the-site-builder) and browse it through a [portal](/docs/sites/portals/deploy-locally).

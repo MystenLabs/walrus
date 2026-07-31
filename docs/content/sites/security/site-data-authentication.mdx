@@ -1,7 +1,43 @@
 ---
 title: Site Data Authentication
-description: "Guide to Walrus Sites data authentication mechanisms using SHA-256 hashes for content verification and integrity."
-keywords: ["walrus sites", "authentication", "data integrity", "sha-256", "content verification", "security", "portal deployment"]
+description: >-
+  Guide to Walrus Sites data authentication mechanisms using SHA-256 hashes for
+  content verification and integrity.
+keywords:
+  - walrus sites
+  - authentication
+  - data integrity
+  - sha-256
+  - content verification
+  - security
+  - portal deployment
+goal:
+  description: Reader can explain how Walrus Sites authenticate content with SHA-256 hashes and what the trust model covers
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How authentication works?
+  - What authentication does and does not cover?
+  - How hash verification relates to the site-builder?
+answer: >-
+  Walrus Sites use SHA-256 hashes stored on Sui to verify that every resource
+  served by a portal matches the content the site owner originally published.
 ---
 
 Walrus Sites use SHA-256 hashes stored on Sui to verify that every resource served by a portal matches the content the site owner originally published.

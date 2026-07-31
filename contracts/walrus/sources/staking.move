@@ -450,6 +450,12 @@ public(package) fun migrate(staking: &mut Staking) {
     // Set the new package id.
     assert!(staking.new_package_id.is_some(), EInvalidMigration);
     staking.package_id = staking.new_package_id.extract();
+
+    // Apply the updated `TEMP_ACTIVE_SET_SIZE_LIMIT` to the existing `ActiveSet`, since the
+    // limit is only read when the `ActiveSet` is created.
+    // Note that this step is needed for version 4. When upgrading to future versions, this
+    // step needs to be revisited.
+    staking.inner_mut().update_active_set_max_size();
 }
 
 // === Internals ===

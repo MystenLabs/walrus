@@ -22,7 +22,7 @@ mod tests {
         messages::ConfirmationCertificate,
     };
     use walrus_proc_macros::walrus_simtest;
-    use walrus_sdk::{node_client::WalrusNodeClient, uploader::TailHandling};
+    use walrus_sdk::{error::ClientError, node_client::WalrusNodeClient, uploader::TailHandling};
     use walrus_service::{
         client::ClientCommunicationConfig,
         test_utils::{SimStorageNodeHandle, TestCluster, TestNodesConfig, test_cluster},
@@ -144,24 +144,62 @@ mod tests {
         let obj_id = pooled_blob.id;
 
         let blob_persistence_type = pooled_blob.blob_persistence_type();
-        let cert: ConfirmationCertificate = client
-            .as_ref()
-            .send_blob_data_and_get_certificate(
-                &metadata,
-                Arc::new(sliver_pairs),
-                &blob_persistence_type,
-                None,
-                TailHandling::Blocking,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await?;
+        let sliver_pairs = Arc::new(sliver_pairs);
 
-        sui_client
-            .certify_pooled_blobs(bucket_id, &[(&pooled_blob, cert)])
-            .await?;
+        // An epoch change concurrent with the upload can invalidate the confirmations or
+        // the certificate; refresh the committees and retry in that case.
+        //
+        // The retry must wait before the next attempt: the client refreshes its committees
+        // from the chain as soon as the new epoch starts, but the storage nodes only switch
+        // epochs once they process the epoch-change event, which takes several (simulated)
+        // seconds. Retrying immediately makes the nodes sign confirmations with the old
+        // epoch, which the client rejects, exhausting all attempts within milliseconds.
+        let mut attempt = 1;
+        loop {
+            let result: anyhow::Result<()> = async {
+                let cert: ConfirmationCertificate = client
+                    .as_ref()
+                    .send_blob_data_and_get_certificate(
+                        &metadata,
+                        sliver_pairs.clone(),
+                        &blob_persistence_type,
+                        None,
+                        TailHandling::Blocking,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await?;
+
+                sui_client
+                    .certify_pooled_blobs(bucket_id, &[(&pooled_blob, cert)])
+                    .await?;
+                Ok(())
+            }
+            .await;
+
+            match result {
+                Ok(()) => break,
+                Err(error)
+                    if attempt < 5
+                        && (error
+                            .downcast_ref::<ClientError>()
+                            .is_some_and(|error| error.may_be_caused_by_epoch_change())
+                            || format!("{error:#}").contains("EIncorrectEpoch")) =>
+                {
+                    tracing::info!(
+                        %error,
+                        attempt,
+                        "storing pooled blob failed, possibly due to an epoch change; retrying"
+                    );
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    client.as_ref().force_refresh_committees().await?;
+                    attempt += 1;
+                }
+                Err(error) => return Err(error),
+            }
+        }
 
         tracing::info!(%blob_id, %obj_id, "stored pooled blob");
         Ok((blob_id, obj_id))
@@ -472,7 +510,9 @@ mod tests {
         let ctx = setup_cluster(epoch_dur, Some(3)).await;
         let sui = ctx.sui();
 
-        let bucket = sui.create_storage_pool(10 * 1024 * 1024, 1).await.unwrap();
+        // Two epochs so that a store racing the next epoch change cannot hit the pool's
+        // expiry boundary (see `test_storage_pool_same_blob_two_pools`).
+        let bucket = sui.create_storage_pool(10 * 1024 * 1024, 2).await.unwrap();
         let end_epoch = sui.storage_pool_status(bucket).await.unwrap().end_epoch;
 
         let d = walrus_test_utils::random_data(1024);
@@ -495,7 +535,10 @@ mod tests {
         let sui = ctx.sui();
         let cap: u64 = 10 * 1024 * 1024;
 
-        let short = sui.create_storage_pool(cap, 1).await.unwrap();
+        // Use two epochs for the short pool: with a single epoch, the pool expires at the
+        // first epoch change after creation, and a store racing that boundary fails
+        // unrecoverably (the registration is garbage collected on all nodes).
+        let short = sui.create_storage_pool(cap, 2).await.unwrap();
         let long = sui.create_storage_pool(cap, 5).await.unwrap();
         let short_end = sui.storage_pool_status(short).await.unwrap().end_epoch;
 
@@ -707,7 +750,9 @@ mod tests {
         let ctx = setup_cluster(epoch_dur, Some(3)).await;
         let sui = ctx.sui();
 
-        let bucket = sui.create_storage_pool(10 * 1024 * 1024, 1).await.unwrap();
+        // Two epochs so that a store racing the next epoch change cannot hit the pool's
+        // expiry boundary (see `test_storage_pool_same_blob_two_pools`).
+        let bucket = sui.create_storage_pool(10 * 1024 * 1024, 2).await.unwrap();
         let end_epoch = sui.storage_pool_status(bucket).await.unwrap().end_epoch;
 
         let original = walrus_test_utils::random_data(1024);

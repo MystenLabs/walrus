@@ -1,7 +1,44 @@
 ---
 title: Portal DNS Configuration
-description: "Guide to configuring DNS records to point your custom domain to a self-hosted Walrus Sites portal."
-keywords: ["walrus sites", "custom domain", "dns configuration", "a record", "cname", "dns propagation", "reverse proxy", "https", "tls"]
+description: >-
+  Guide to configuring DNS records to point your custom domain to a self-hosted
+  Walrus Sites portal.
+keywords:
+  - walrus sites
+  - custom domain
+  - dns configuration
+  - a record
+  - cname
+  - dns propagation
+  - reverse proxy
+  - https
+  - tls
+goal:
+  description: Reader can configure DNS records and HTTPS to point a custom domain at a self-hosted Walrus Sites portal
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I set up https with a reverse proxy?
+  - How do I verify dns propagation?
+  - What is Portal DNS Configuration?
+answer: >-
+  After [setting up your portal and configuring it for your
+  domain](/docs/sites/custom-domains/bringing-your-own-domain), you need to
+  configure your domain's DNS to route traffic to the server running your
+  portal.
 ---
 
 After [setting up your portal and configuring it for your domain](/docs/sites/custom-domains/bringing-your-own-domain), you need to configure your domain's DNS to route traffic to the server running your portal.

@@ -213,7 +213,7 @@ fn epoch_bucket_count() -> u32 {
     })
 }
 
-fn get_epoch_bucket(epoch: Epoch) -> String {
+pub(super) fn get_epoch_bucket(epoch: Epoch) -> String {
     (epoch % epoch_bucket_count()).to_string()
 }
 

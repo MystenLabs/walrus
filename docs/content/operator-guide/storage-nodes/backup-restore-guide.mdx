@@ -1,7 +1,42 @@
 ---
 title: Backup and Restore Guide
-description: "Back up and restore Walrus storage node databases with automated and manual procedures."
-keywords: ["walrus", "backup", "restore", "storage node", "database", "recovery", "checkpoint", "administration", "operations"]
+description: >-
+  Back up and restore Walrus storage node databases with automated and manual
+  procedures.
+keywords:
+  - walrus
+  - backup
+  - restore
+  - storage node
+  - database
+  - recovery
+  - checkpoint
+  - administration
+  - operations
+goal:
+  description: Operator can set up automated backups and restore a Walrus storage node database
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - pattern: '```'
+      min: 1
+      label: Has configuration or command examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I set up automated periodic backups?
+  - How do I create manual backups?
+  - What is Backup and Restore Guide?
+answer: >-
+  Back up and restore Walrus storage node databases with automated and manual
+  procedures.
 ---
 
 Walrus storage nodes provide backup and restore functionality for the primary database containing blob data. This guide covers configuration requirements, operational procedures, and best practices for automated and manual backup processes and restore operations.

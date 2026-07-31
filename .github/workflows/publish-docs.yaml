@@ -7,6 +7,8 @@ on:
     paths:
       - "docs/**"
       - ".github/workflows/publish-docs.yaml"
+  repository_dispatch:
+    types: [memwal-docs-updated]
   workflow_dispatch:
     inputs:
       publish-pages:
@@ -20,8 +22,8 @@ on:
         required: true
         default: false
   schedule:
-    # Update Walrus Site every first day of the month at 03:14 UTC.
-    - cron: "14 3 1 * *"
+    # Rebuild daily to pick up upstream Walrus Memory doc changes.
+    - cron: "14 3 * * *"
 
 concurrency: ci-${{ github.ref }}
 

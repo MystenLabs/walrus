@@ -1,7 +1,45 @@
 ---
 title: Deploy a Walrus Site
-description: "Tutorial for publishing, viewing, and updating your first Walrus Site using the site-builder tool with example projects."
-keywords: ["walrus sites", "publishing", "deployment", "view", "update", "site builder", "tutorial", "walrus snake", "examples"]
+description: >-
+  Tutorial for publishing, viewing, and updating your first Walrus Site using
+  the site-builder tool with example projects.
+keywords:
+  - walrus sites
+  - publishing
+  - deployment
+  - view
+  - update
+  - site builder
+  - tutorial
+  - walrus snake
+  - examples
+goal:
+  description: Reader can publish, view, and update their first Walrus Site with the site-builder tool
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I deploy a walrus site?
+  - How do I deploy an example site?
+  - How do I get started with deploy a walrus site?
+answer: >-
+  Tutorial for publishing, viewing, and updating your first Walrus Site using
+  the site-builder tool with example projects.
 ---
 
 <AgentPrompt

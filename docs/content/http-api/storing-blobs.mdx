@@ -1,7 +1,39 @@
 ---
 title: Storing Blobs
-description: Store blobs on Walrus using HTTP PUT requests through a publisher, with options for storage duration, deletability, and object ownership.
-keywords: [ walrus, HTTP, API, publisher, store, blob, PUT, deletable, permanent, quilt ]
+description: >-
+  Store blobs on Walrus using HTTP PUT requests through a publisher, with
+  options for storage duration, deletability, and object ownership.
+keywords:
+  - walrus
+  - HTTP
+  - API
+  - publisher
+  - store
+  - blob
+  - PUT
+  - deletable
+  - permanent
+  - quilt
+goal:
+  description: Reader can store blobs over HTTP through a publisher and set duration, deletability, and object ownership
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+      label: Has required frontmatter fields
+    - min_words: 100
+      label: Has substantive reference content
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I configure storage options?
+  - What is Storing Blobs?
+  - How do I store blobs using the HTTP API?
+answer: >-
+  Store blobs on Walrus using HTTP PUT requests through a publisher, with
+  options for storage duration, deletability, and object ownership.
 ---
 
 <AgentPrompt

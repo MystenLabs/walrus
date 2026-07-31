@@ -19,38 +19,45 @@ export default function Footer(): JSX.Element | null {
     const discord = `http://discord.gg/${(siteConfig.customFields as any)?.discord}`;
 
     return (
-        <footer className="bg-wal-purple-darker py-6 border-t border-wal-green-dark">
+        <footer className="py-6 border-t border-[#d5d4d1] dark:border-[#403f3e]">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex justify-between items-center flex-wrap gap-2">
-                    {copyright && <span className="text-wal-white text-sm">{copyright}</span>}
-                    <div className="text-wal-white-70">
-                        <Link
-                            className="text-wal-white-70 hover:text-wal-white-100"
-                            to="/docs/legal/privacy"
-                        >
-                            Privacy
-                        </Link>{" "}
-                        &bull;{" "}
-                        <Link
-                            className="text-wal-white-70 hover:text-wal-white-100"
-                            to="/docs/legal/walrus_general_tos"
-                        >
-                            TOS
-                        </Link>{" "}
-                        &bull;{" "}
-                        <Link
-                            className="text-wal-white-70 hover:text-wal-white-100"
-                            to="/docs/legal/testnet_tos"
-                        >
-                            Tesnet TOS
-                        </Link>
+                <div className="flex justify-between items-center flex-wrap gap-4">
+                    {/* Left: text links first, then the copyright text */}
+                    <div className="flex items-center flex-wrap gap-x-8 gap-y-2 text-sm">
+                        <div className="flex items-center gap-x-2 !text-black dark:!text-white">
+                            <Link
+                                className="!text-black dark:!text-white hover:opacity-70 transition-opacity"
+                                to="/docs/legal/privacy"
+                            >
+                                Privacy
+                            </Link>
+                            <span aria-hidden="true">&bull;</span>
+                            <Link
+                                className="!text-black dark:!text-white hover:opacity-70 transition-opacity"
+                                to="/docs/legal/walrus_general_tos"
+                            >
+                                TOS
+                            </Link>
+                            <span aria-hidden="true">&bull;</span>
+                            <Link
+                                className="!text-black dark:!text-white hover:opacity-70 transition-opacity"
+                                to="/docs/legal/testnet_tos"
+                            >
+                                Testnet TOS
+                            </Link>
+                        </div>
+                        {copyright && (
+                            <span className="!text-[#878683] dark:!text-[#b0afac]">{copyright}</span>
+                        )}
                     </div>
+
+                    {/* Right: social media icons */}
                     <div className="flex gap-4">
                         <a
                             href={discord}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="!text-wal-white-70 hover:!text-wal-white-100 transition-colors duration-200 flex items-center mr-1"
+                            className="!text-black dark:!text-white hover:opacity-70 transition-opacity duration-200 flex items-center"
                             aria-label="Join us on Discord"
                         >
                             <FontAwesomeIcon icon={faDiscord} size="lg" />
@@ -60,7 +67,7 @@ export default function Footer(): JSX.Element | null {
                             href={twitter}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="!text-wal-white-70 hover:!text-wal-white-100 transition-colors duration-200 flex items-center mr-1"
+                            className="!text-black dark:!text-white hover:opacity-70 transition-opacity duration-200 flex items-center"
                             aria-label="Follow us on Twitter"
                         >
                             <FontAwesomeIcon icon={faXTwitter} size="lg" />
@@ -70,7 +77,7 @@ export default function Footer(): JSX.Element | null {
                             href={github}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="!text-wal-white-70 hover:!text-wal-white-100 transition-colors duration-200 flex items-center"
+                            className="!text-black dark:!text-white hover:opacity-70 transition-opacity duration-200 flex items-center"
                             aria-label="View source on GitHub"
                         >
                             <FontAwesomeIcon icon={faGithub} size="lg" />

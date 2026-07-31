@@ -1,7 +1,42 @@
 ---
 title: JSON Mode
-description: Use JSON mode for programmatic access to all Walrus CLI commands with JSON-formatted input and output.
-keywords: [ walrus, json mode, programmatic access, json api, cli, automation, scripting ]
+description: >-
+  Use JSON mode for programmatic access to all Walrus CLI commands with
+  JSON-formatted input and output.
+keywords:
+  - walrus
+  - json mode
+  - programmatic access
+  - json api
+  - cli
+  - automation
+  - scripting
+goal:
+  description: Reader can drive Walrus CLI commands programmatically using JSON input and output
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is JSON Mode?
+  - >-
+    How do I use json mode for programmatic access to all walrus cli commands
+    with json-formatted input and output?
+  - How do I get started with json mode?
+answer: >-
+  Use JSON mode for programmatic access to all Walrus CLI commands with
+  JSON-formatted input and output.
 ---
 
 All Walrus client commands are available in JSON mode, which simplifies programmatic access to the [CLI](/docs/walrus-client/storing-blobs). You can specify all command-line flags of the original CLI command in JSON format.

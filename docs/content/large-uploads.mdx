@@ -1,10 +1,40 @@
 ---
 title: Large Data Upload Workarounds
-description: Configuration, memory planning, and pipeline design patterns for uploading large data to Walrus.
-keywords: [large data, large upload, workaround, large dataset, chunking, ingestion pipeline]
+description: >-
+  Configuration, memory planning, and pipeline design patterns for uploading
+  large data to Walrus.
+keywords:
+  - large data
+  - large upload
+  - workaround
+  - large dataset
+  - chunking
+  - ingestion pipeline
+goal:
+  description: Reader can tune configuration, memory, and pipeline design to reliably upload large blobs to Walrus
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I use local tooling for upload observability?
+  - How do I manage upload throughput?
+  - How do I manage memory for concurrent uploads?
+answer: >-
+  The maximum blob size on Walrus is approximately 13.6 GB. Uploading large data
+  sets or individual blobs larger than 1 GB require certain workarounds and
+  planning for optimal performance and efficiency.
 ---
 
-The maximum blob size on Walrus is approximately 13.6 GiB. Uploading large data sets or individual blobs larger than 1 GiB require certain workarounds and planning for optimal performance and efficiency.
+The maximum blob size on Walrus is approximately 13.6 GB. Uploading large data sets or individual blobs larger than 1 GB require certain workarounds and planning for optimal performance and efficiency.
 
 ## Estimate storage duration and costs
 

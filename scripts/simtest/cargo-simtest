@@ -49,6 +49,17 @@ else
   echo "Using MSIM_TEST_SEED=$MSIM_TEST_SEED from the environment"
 fi
 
+# The msim watchdog aborts a test when simulated time fails to advance for this long in wall-clock
+# terms. Walrus test cluster setup resolves the Move framework `rev` (a `git ls-remote` against
+# GitHub) and compiles the Move packages on the test thread. That is real network and CPU work that
+# does not advance simulated time, and on a loaded machine it exceeds msim's 5s default, killing the
+# test with a spurious "deadlock detected". Match the timeout scripts/simtest/simtest-run.sh uses.
+if [[ -z "$MSIM_WATCHDOG_TIMEOUT_MS" ]]; then
+  export MSIM_WATCHDOG_TIMEOUT_MS=30000
+else
+  echo "Using MSIM_WATCHDOG_TIMEOUT_MS=$MSIM_WATCHDOG_TIMEOUT_MS from the environment"
+fi
+
 rust_flags=( '"--cfg"' '"msim"' )
 
 if [[ -n "$LOCAL_MSIM_PATH" ]]; then
