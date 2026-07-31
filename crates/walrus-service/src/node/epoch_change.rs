@@ -374,7 +374,21 @@ impl StorageNode {
         shard_map_lock: StorageShardLock,
         status_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> anyhow::Result<()> {
-        let route = self.reconcile_committee_for_epoch_change(event).await?;
+        let epoch_change_status = self.reconcile_committee_for_epoch_change(event).await?;
+
+        // Clean up work that is pending on blobs no longer certified in the new epoch: notify
+        // all the tasks that may be waiting on such blobs, and cancel their in-progress blob
+        // syncs (marking the corresponding events as completed). This happens at every epoch
+        // change, regardless of the route: retirement is a fact about the new epoch, not about
+        // the route the node takes. It must run after reconciliation, because the certification
+        // check compares each blob's end epoch against the committee service's epoch, which
+        // reconciliation just advanced (on the already-in-progress route, the committee had
+        // already transitioned). On entering recovery mode, reconciliation has additionally
+        // cancelled *all* blob syncs, making the expired-sync cancellation here a no-op.
+        self.notify_pending_blob_retirements()?;
+        self.blob_sync_handler
+            .cancel_all_expired_syncs_and_mark_events_completed()
+            .await?;
 
         let committees = self.inner.committee_service.active_committees();
         let public_key = self.inner.public_key();
@@ -388,7 +402,7 @@ impl StorageNode {
         let inputs = plan::PlanInputs {
             event_epoch: event.epoch,
             committee_epoch: committees.epoch(),
-            route,
+            epoch_change_status,
             node_status: self.inner.storage.node_status()?,
             in_current_committee: committees.current_committee().contains(public_key),
             in_previous_committee: committees
@@ -424,34 +438,25 @@ impl StorageNode {
     /// Brings the in-memory committee state to the event's (or the latest) epoch and returns the
     /// route the node takes through the epoch change.
     ///
-    /// This is the only phase of the epoch change that performs I/O to establish facts. Besides
-    /// the committee transition itself, it performs the route's entry side effects: notifying
-    /// pending blob retirements and, on the in-sync route, cancelling blob syncs for expired
-    /// blobs (on entering recovery mode, *all* blob syncs are cancelled instead).
+    /// This is the only phase of the epoch change that performs I/O to establish facts. Its only
+    /// side effects besides the committee transition itself are those of entering recovery mode
+    /// on a severely lagging node (cancelling *all* blob syncs).
     async fn reconcile_committee_for_epoch_change(
         &self,
         event: &EpochChangeStart,
-    ) -> anyhow::Result<plan::CommitteeRoute> {
+    ) -> anyhow::Result<plan::EpochChangeStatus> {
         if self.inner.storage.node_status()?.is_catching_up() {
             self.inner
                 .committee_service
                 .begin_committee_change_to_latest_committee()
                 .await?;
-            self.notify_pending_blob_retirements()?;
-            return Ok(plan::CommitteeRoute::CatchingUp);
+            return Ok(plan::EpochChangeStatus::CatchingUp);
         }
 
         match self.begin_committee_change(event.epoch).await? {
-            BeginCommitteeChangeAction::ExecuteEpochChange => {
-                self.notify_pending_blob_retirements()?;
-                // Cancel all blob syncs for blobs that are expired in the *current epoch*.
-                self.blob_sync_handler
-                    .cancel_all_expired_syncs_and_mark_events_completed()
-                    .await?;
-                Ok(plan::CommitteeRoute::InSync)
-            }
+            BeginCommitteeChangeAction::ExecuteEpochChange => Ok(plan::EpochChangeStatus::InSync),
             BeginCommitteeChangeAction::SkipEpochChange => {
-                Ok(plan::CommitteeRoute::AlreadyInProgress)
+                Ok(plan::EpochChangeStatus::AlreadyInProgress)
             }
             BeginCommitteeChangeAction::EnterRecoveryMode => {
                 tracing::info!("storage node entering recovery mode during epoch change start");
@@ -463,8 +468,7 @@ impl StorageNode {
                     .committee_service
                     .begin_committee_change_to_latest_committee()
                     .await?;
-                self.notify_pending_blob_retirements()?;
-                Ok(plan::CommitteeRoute::CatchingUp)
+                Ok(plan::EpochChangeStatus::CatchingUp)
             }
         }
     }
@@ -487,10 +491,12 @@ impl StorageNode {
     /// 2. Status transitions that must precede shard creation (`Standby`,
     ///    `RecoveryInProgress`).
     /// 3. Shard storage creation (consumes the shard map lock).
-    /// 4. Force-setting created shards to `Active` (full-recovery only).
+    /// 4. Force-setting created shards to `Active`, when the plan fills them via node recovery
+    ///    ([`ShardFill::ForceActive`][plan::ShardFill::ForceActive]).
     /// 5. The `RecoverMetadata` status transition (must follow creation: a restart observing
     ///    `RecoverMetadata` assumes all shard storage exists).
-    /// 6. Starting shard syncs.
+    /// 6. Starting shard syncs, when the plan fills the created shards via shard sync
+    ///    ([`ShardFill::ShardSync`][plan::ShardFill::ShardSync]).
     /// 7. Locking shards that moved to other nodes.
     /// 8. The recovery action.
     /// 9. Completion hand-off: either directly, or through the epoch-change finisher that
@@ -638,10 +644,11 @@ impl StorageNode {
             drop(shard_map_lock);
         }
 
-        // Step 4: force-set the created shards to `Active` (full-recovery only). The node's
-        // local shards may be in outdated statuses from multiple epochs ago; node recovery will
-        // recover all the missing certified blobs in these shards in a crash-tolerant manner.
-        if transition.force_set_active {
+        // Step 4: force-set the created shards to `Active` when they are filled via node
+        // recovery (full-recovery path). The node's local shards may be in outdated statuses
+        // from multiple epochs ago; node recovery will recover all the missing certified blobs
+        // in these shards in a crash-tolerant manner.
+        if transition.fill == plan::ShardFill::ForceActive {
             for shard in &transition.create {
                 self.inner
                     .storage
@@ -669,10 +676,10 @@ impl StorageNode {
             self.inner.set_node_status(NodeStatus::RecoverMetadata)?;
         }
 
-        // Step 6: start syncing the gained shards from their previous owners.
-        if !transition.sync.is_empty() {
+        // Step 6: start syncing the created (gained) shards from their previous owners.
+        if transition.fill == plan::ShardFill::ShardSync && !transition.create.is_empty() {
             self.shard_sync_handler
-                .start_sync_shards(transition.sync.clone())
+                .start_sync_shards(transition.create.clone())
                 .await?;
         }
 

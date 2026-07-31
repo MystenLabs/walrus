@@ -17,9 +17,10 @@ use walrus_core::{Epoch, ShardIndex};
 
 use crate::node::NodeStatus;
 
-/// The route the node takes through an epoch change, established by committee reconciliation.
+/// The node's status with respect to an epoch change, established by committee
+/// reconciliation; it determines the route the node takes through the epoch change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CommitteeRoute {
+pub(crate) enum EpochChangeStatus {
     /// The node is up to date: the committee service transitioned (or had already transitioned)
     /// to the event's epoch.
     InSync,
@@ -53,10 +54,12 @@ pub(crate) struct PlanInputs {
     /// The epoch of the `EpochChangeStart` event being processed.
     pub event_epoch: Epoch,
     /// The committee service's epoch after reconciliation. Equal to `event_epoch` on the
-    /// [`InSync`][CommitteeRoute::InSync] route; may be ahead of it while catching up.
+    /// [`InSync`][EpochChangeStatus::InSync] route; may be ahead of it while
+    /// catching up.
     pub committee_epoch: Epoch,
-    /// The reconciliation route.
-    pub route: CommitteeRoute,
+    /// The node's status with respect to this epoch change, established by committee
+    /// reconciliation.
+    pub epoch_change_status: EpochChangeStatus,
     /// The node's persisted status at planning time.
     pub node_status: NodeStatus,
     /// Whether the node is a member of the current (new) committee.
@@ -113,18 +116,27 @@ pub(crate) enum AttestationOwner {
     RecoveryTask,
 }
 
+/// How created shards are brought up to date. A created shard is filled either by shard sync
+/// or by node recovery, never both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShardFill {
+    /// Sync each shard's contents from its previous owner.
+    ShardSync,
+    /// Force the shards to `Active` status; node recovery fills their missing blobs per blob
+    /// (full-recovery path, where no previous-owner assignment is known to sync from).
+    ForceActive,
+}
+
 /// The shard- and recovery-related work to apply for this epoch change.
 #[derive(Debug, Clone)]
 pub(crate) struct ShardTransition {
     /// The node-status transition to perform, if any.
     pub status: Option<StatusTransition>,
-    /// Shard storage to create.
+    /// Shard storage to create, brought up to date as described by
+    /// [`fill`][Self::fill].
     pub create: Vec<ShardIndex>,
-    /// Whether to force-set all created shards to `Active` (full-recovery path: their contents
-    /// are recovered per blob, not via shard sync).
-    pub force_set_active: bool,
-    /// Shards to fill via shard sync from their previous owners.
-    pub sync: Vec<ShardIndex>,
+    /// How the created shards are brought up to date.
+    pub fill: ShardFill,
     /// Shards to lock against further writes because they moved to another node.
     pub lock: Vec<ShardIndex>,
     /// Shards to remove in the background.
@@ -163,12 +175,12 @@ pub(crate) enum EpochChangePlan {
 /// node's situation (route, committee membership, and node status) happens here; the apply step
 /// executes the returned plan without further decisions.
 pub(crate) fn plan_epoch_change(inputs: &PlanInputs) -> EpochChangePlan {
-    match inputs.route {
-        CommitteeRoute::AlreadyInProgress => {
+    match inputs.epoch_change_status {
+        EpochChangeStatus::InSync => plan_while_in_sync(inputs),
+        EpochChangeStatus::CatchingUp => plan_while_catching_up(inputs),
+        EpochChangeStatus::AlreadyInProgress => {
             EpochChangePlan::Skip(SkipReason::ChangeAlreadyInProgress)
         }
-        CommitteeRoute::CatchingUp => plan_while_catching_up(inputs),
-        CommitteeRoute::InSync => plan_while_in_sync(inputs),
     }
 }
 
@@ -198,8 +210,7 @@ fn plan_while_catching_up(inputs: &PlanInputs) -> EpochChangePlan {
     EpochChangePlan::Apply(ShardTransition {
         status: Some(StatusTransition::RecoveryInProgress),
         create: inputs.shards.all_owned.clone(),
-        force_set_active: true,
-        sync: vec![],
+        fill: ShardFill::ForceActive,
         lock: inputs.shards.lost.clone(),
         remove: inputs.shards.removed.clone(),
         recovery: RecoveryAction::StartFresh(inputs.event_epoch),
@@ -250,8 +261,7 @@ fn shard_sync_transition(inputs: &PlanInputs, status: Option<StatusTransition>) 
     ShardTransition {
         status,
         create: inputs.shards.gained.clone(),
-        force_set_active: false,
-        sync: inputs.shards.gained.clone(),
+        fill: ShardFill::ShardSync,
         lock: inputs.shards.lost.clone(),
         remove: inputs.shards.removed.clone(),
         recovery: RecoveryAction::None,
@@ -282,7 +292,7 @@ mod tests {
         PlanInputs {
             event_epoch: 5,
             committee_epoch: 5,
-            route: CommitteeRoute::InSync,
+            epoch_change_status: EpochChangeStatus::InSync,
             node_status: NodeStatus::Active,
             in_current_committee: true,
             in_previous_committee: true,
@@ -305,7 +315,7 @@ mod tests {
     #[test]
     fn change_already_in_progress_is_skipped() {
         let inputs = PlanInputs {
-            route: CommitteeRoute::AlreadyInProgress,
+            epoch_change_status: EpochChangeStatus::AlreadyInProgress,
             ..base_inputs()
         };
         assert!(matches!(
@@ -317,7 +327,7 @@ mod tests {
     #[test]
     fn stale_event_while_catching_up_is_skipped() {
         let inputs = PlanInputs {
-            route: CommitteeRoute::CatchingUp,
+            epoch_change_status: EpochChangeStatus::CatchingUp,
             node_status: NodeStatus::RecoveryCatchUp,
             event_epoch: 3,
             committee_epoch: 5,
@@ -332,7 +342,7 @@ mod tests {
     #[test]
     fn caught_up_non_member_moves_to_standby_without_shard_changes() {
         let inputs = PlanInputs {
-            route: CommitteeRoute::CatchingUp,
+            epoch_change_status: EpochChangeStatus::CatchingUp,
             node_status: NodeStatus::RecoveryCatchUp,
             in_current_committee: false,
             ..base_inputs()
@@ -346,7 +356,7 @@ mod tests {
     #[test]
     fn caught_up_new_member_syncs_shards_after_metadata_recovery() {
         let inputs = PlanInputs {
-            route: CommitteeRoute::CatchingUp,
+            epoch_change_status: EpochChangeStatus::CatchingUp,
             node_status: NodeStatus::RecoveryCatchUp,
             in_previous_committee: false,
             ..base_inputs()
@@ -354,8 +364,7 @@ mod tests {
         let transition = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(transition.status, Some(StatusTransition::RecoverMetadata));
         assert_eq!(transition.create, shard_ids(&[1, 2]));
-        assert_eq!(transition.sync, shard_ids(&[1, 2]));
-        assert!(!transition.force_set_active);
+        assert_eq!(transition.fill, ShardFill::ShardSync);
         assert_eq!(transition.lock, shard_ids(&[3]));
         assert_eq!(transition.remove, shard_ids(&[4]));
         assert_eq!(transition.recovery, RecoveryAction::None);
@@ -365,7 +374,7 @@ mod tests {
     #[test]
     fn caught_up_continuing_member_starts_full_recovery() {
         let inputs = PlanInputs {
-            route: CommitteeRoute::CatchingUp,
+            epoch_change_status: EpochChangeStatus::CatchingUp,
             node_status: NodeStatus::RecoveryCatchUp,
             ..base_inputs()
         };
@@ -375,8 +384,7 @@ mod tests {
             Some(StatusTransition::RecoveryInProgress)
         );
         assert_eq!(transition.create, shard_ids(&[0, 1, 2]));
-        assert!(transition.force_set_active);
-        assert!(transition.sync.is_empty());
+        assert_eq!(transition.fill, ShardFill::ForceActive);
         assert_eq!(transition.lock, shard_ids(&[3]));
         assert_eq!(transition.remove, shard_ids(&[4]));
         assert_eq!(transition.recovery, RecoveryAction::StartFresh(5));
@@ -388,7 +396,7 @@ mod tests {
         let transition = expect_apply(plan_epoch_change(&base_inputs()));
         assert_eq!(transition.status, None);
         assert_eq!(transition.create, shard_ids(&[1, 2]));
-        assert_eq!(transition.sync, shard_ids(&[1, 2]));
+        assert_eq!(transition.fill, ShardFill::ShardSync);
         assert_eq!(transition.recovery, RecoveryAction::None);
         assert_eq!(transition.sync_done_owner, AttestationOwner::ShardSync);
     }
@@ -407,7 +415,6 @@ mod tests {
         let transition = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(transition.status, None);
         assert!(transition.create.is_empty());
-        assert!(transition.sync.is_empty());
         assert_eq!(transition.sync_done_owner, AttestationOwner::Finisher);
     }
 
@@ -440,7 +447,8 @@ mod tests {
         };
         let transition = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(transition.status, Some(StatusTransition::RecoverMetadata));
-        assert_eq!(transition.sync, shard_ids(&[1, 2]));
+        assert_eq!(transition.create, shard_ids(&[1, 2]));
+        assert_eq!(transition.fill, ShardFill::ShardSync);
         assert_eq!(transition.sync_done_owner, AttestationOwner::ShardSync);
     }
 
@@ -469,8 +477,7 @@ mod tests {
             Some(StatusTransition::RecoveryInProgress)
         );
         assert_eq!(transition.create, shard_ids(&[1, 2]));
-        assert_eq!(transition.sync, shard_ids(&[1, 2]));
-        assert!(!transition.force_set_active);
+        assert_eq!(transition.fill, ShardFill::ShardSync);
         assert_eq!(transition.recovery, RecoveryAction::EnsureRunning(5));
         assert_eq!(transition.sync_done_owner, AttestationOwner::RecoveryTask);
     }
