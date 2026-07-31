@@ -1,7 +1,44 @@
 ---
 title: Site Configuration
-description: "Guide to using ws-resources.json to configure a Walrus Site, including specifying HTTP headers, setting up client-side routing, and adding metadata."
-keywords: ["walrus sites", "headers", "content-type", "ws-resources", "configuration", "site-builder", "routing", "metadata", "client-side routing", "spa"]
+description: >-
+  Guide to using ws-resources.json to configure a Walrus Site, including
+  specifying HTTP headers, setting up client-side routing, and adding metadata.
+keywords:
+  - walrus sites
+  - headers
+  - content-type
+  - ws-resources
+  - configuration
+  - site-builder
+  - routing
+  - metadata
+  - client-side routing
+  - spa
+goal:
+  description: Reader can use ws-resources.json to configure headers, routing, redirects, and metadata for a Walrus Site
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I add metadata?
+  - What is Site Configuration?
+  - How do I get started with site configuration?
+answer: Guide to using ws-resources.
 ---
 
 In its base configuration, a Walrus Site serves static assets through a portal. However, many modern web applications require more advanced features, such as custom headers, client-side routing, and human-readable information.

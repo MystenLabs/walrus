@@ -1,7 +1,43 @@
 ---
 title: Reading Blobs
-description: Use the Walrus client to check blob status, read blob data, and verify consistency.
-keywords: [ walrus, cli, client, command line, read, blob status, consistency check ]
+description: >-
+  Use the Walrus client to check blob status, read blob data, and verify
+  consistency.
+keywords:
+  - walrus
+  - cli
+  - client
+  - command line
+  - read
+  - blob status
+  - consistency check
+goal:
+  description: Reader can read blob data, check status, and verify consistency with the Walrus client
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I read blobs?
+  - How do I check consistency?
+  - How do I read blobs?
+answer: >-
+  Use the Walrus client to check blob status, read blob data, and verify
+  consistency.
 ---
 
 You can query the status of a blob through one of the following commands:

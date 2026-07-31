@@ -1,7 +1,40 @@
 ---
 title: Technical Overview
-description: "Conceptual overview of how publishing, resolving, and serving a Walrus Site works end to end."
-keywords: ["walrus sites", "technical overview", "site rendering", "portal architecture", "domain isolation", "sui", "walrus"]
+description: >-
+  Conceptual overview of how publishing, resolving, and serving a Walrus Site
+  works end to end.
+keywords:
+  - walrus sites
+  - technical overview
+  - site rendering
+  - portal architecture
+  - domain isolation
+  - sui
+  - walrus
+goal:
+  description: Reader can explain how a Walrus Site is published, resolved, and served end to end
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I publish a site?
+  - How do I publish a site?
+  - What is Technical Overview?
+answer: >-
+  Conceptual overview of how publishing, resolving, and serving a Walrus Site
+  works end to end.
 ---
 
 A Walrus Site is a static web site published entirely onchain, with no origin server. [Sui](https://docs.sui.io/) stores the site's ownership and resource index, and Walrus stores the resource files themselves. A portal bridges these systems and serves the site to the browser over standard HTTP.

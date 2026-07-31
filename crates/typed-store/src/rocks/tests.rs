@@ -365,6 +365,23 @@ async fn test_insert_batch() {
 }
 
 #[tokio::test]
+async fn test_insert_batch_with_sync() {
+    let db = open_map(temp_dir(), None, None);
+    let keys_vals = (1..100).map(|i| (i, i.to_string()));
+    let mut insert_batch = db.batch();
+    insert_batch
+        .insert_batch(&db, keys_vals.clone())
+        .expect("Failed to batch insert");
+    insert_batch
+        .write_with_sync(true)
+        .expect("Failed to execute sync batch");
+    for (k, v) in keys_vals {
+        let val = db.get(&k).expect("Failed to get inserted key");
+        assert_eq!(Some(v), val);
+    }
+}
+
+#[tokio::test]
 async fn test_insert_batch_across_cf() {
     let rocks = open_rocksdb(temp_dir(), &["First_CF", "Second_CF"]);
 

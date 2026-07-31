@@ -1,7 +1,41 @@
 ---
 title: Commission and Governance
-description: Manage storage node commission collection and governance operations including authorization and contract upgrades.
-keywords: [ commission, governance, storagenodecap, StorageNodeCap, authorized governance, contract upgrades ]
+description: >-
+  Manage storage node commission collection and governance operations including
+  authorization and contract upgrades.
+keywords:
+  - commission
+  - governance
+  - storagenodecap
+  - StorageNodeCap
+  - authorized governance
+  - contract upgrades
+goal:
+  description: Operator can manage storage-node commission collection, authorization, and contract-upgrade voting
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - pattern: '```'
+      min: 1
+      label: Has configuration or command examples
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I manage contract upgrades?
+  - What is Commission and Governance?
+  - >-
+    How do I manage storage node commission collection and governance operations
+    including authorization and contract upgrades?
+answer: >-
+  Manage storage node commission collection and governance operations including
+  authorization and contract upgrades.
 ---
 
 You can change most node parameters using `StorageNodeCap`, and the storage node automatically updates them based on the values in the node configuration. However, authorization for contract upgrades and withdrawing the storage node commission is handled separately. This ensures that the hot wallet on the storage node does not need authorization for these operations.

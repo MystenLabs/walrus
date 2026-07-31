@@ -1,7 +1,32 @@
 ---
 title: Mainnet Publisher Production Guide
 description: Production guidance for running private Mainnet publishers on Walrus.
-keywords: [walrus, publisher, Mainnet, production, authenticated publisher, upload relay]
+keywords:
+  - walrus
+  - publisher
+  - Mainnet
+  - production
+  - authenticated publisher
+  - upload relay
+goal:
+  description: Operator can run a private Mainnet publisher securely, controlling wallet access, cost exposure, CORS, and failover
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more operational depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I mainnet publisher production guide?
+  - How do I choose the right upload path?
+  - How do I configure cors intentionally?
+answer: Production guidance for running private Mainnet publishers on Walrus.
 ---
 
 Walrus does not provide a public unauthenticated publisher on Mainnet. There are no plans to create one because the publisher must pay SUI and WAL for every blob it stores. On Mainnet, a publisher should be privately operated for a specific application, service, or organization.

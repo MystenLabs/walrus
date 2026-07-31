@@ -101,6 +101,27 @@ fun test_staking_rejoin_active_set() {
 }
 
 #[test]
+fun test_update_active_set_max_size() {
+    let ctx = &mut tx_context::dummy();
+    let clock = clock::create_for_testing(ctx);
+    let mut staking = staking_inner::new(0, EPOCH_DURATION, 300, &clock, ctx);
+
+    // A new `ActiveSet` is created with the current `TEMP_ACTIVE_SET_SIZE_LIMIT`.
+    assert_eq!(staking.active_set().max_size(), 150);
+
+    // Simulate an `ActiveSet` created before the limit was increased.
+    staking.active_set().set_max_size(111);
+    assert_eq!(staking.active_set().max_size(), 111);
+
+    // The migration step applies the updated limit to the existing `ActiveSet`.
+    staking.update_active_set_max_size();
+    assert_eq!(staking.active_set().max_size(), 150);
+
+    destroy(staking);
+    clock.destroy_for_testing();
+}
+
+#[test]
 fun test_staking_active_set() {
     let ctx = &mut tx_context::dummy();
     let clock = clock::create_for_testing(ctx);

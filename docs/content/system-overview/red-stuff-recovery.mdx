@@ -1,0 +1,95 @@
+---
+title: RedStuff Recovery Example
+description: >-
+  Worked example of RedStuff sliver recovery after shard failure, showing how
+  primary and secondary slivers are reconstructed from other shards.
+keywords:
+  - RedStuff
+  - Walrus
+  - sliver recovery
+  - shard failure
+  - primary sliver
+  - secondary sliver
+goal:
+  description: Reader can trace through a concrete RedStuff sliver recovery scenario
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How does sliver recovery work in RedStuff?
+  - What happens when a shard fails in Walrus?
+  - How are primary and secondary slivers recovered?
+answer: >-
+  Walk through a concrete RedStuff recovery example showing how primary and
+  secondary slivers are reconstructed after shard failure by requesting
+  recovery symbols from other shards.
+---
+
+This page continues from the [RedStuff encoding example](red-stuff-details) with a recovery scenario.
+
+## Recovery
+
+Consider that shard 3 fails, losing its slivers, and needs to recover them. In the following, the symbols of the lost slivers are highlighted in red (the lower quadrant is never stored).
+
+$$
+\left[
+\begin{array}{ccccc|cc}
+s_{0,0} & s_{0,1} & s_{0,2} & \color{red} s_{0,3} & s_{0,4} & r_{0,5} & r_{0,6} \\
+s_{1,0} & s_{1,1} & s_{1,2} & \color{red} s_{1,3} & s_{1,4} & r_{1,5} & r_{1,6} \\
+s_{2,0} & s_{2,1} & s_{2,2} & \color{red} s_{2,3} & s_{2,4} & r_{2,5} & r_{2,6} \\
+\hline
+\color{red} r_{3,0} & \color{red} r_{3,1} & \color{red} r_{3,2} & \color{red} r_{3,3} & \color{red} r_{3,4} & & \\
+r_{4,0} & r_{4,1} & r_{4,2} & r_{4,3} & r_{4,4} & & \\
+r_{5,0} & r_{5,1} & r_{5,2} & r_{5,3} & r_{5,4} & & \\
+r_{6,0} & r_{6,1} & r_{6,2} & r_{6,3} & r_{6,4} & & \\
+\end{array}
+\right]
+$$
+
+To recover the primary sliver, the node contacts 5 other shards and requests the recovery symbols for the 3rd primary slivers. Because the symbols of the sliver are recovery symbols, the shards need to encode their secondary slivers (highlighted as columns) to obtain them. For example, shards 0, 1, 2, 4, and 6 provide the symbols:
+
+$$
+\left[
+\begin{array}{c|c|c|c|c|c|c}
+s_{0,0} & s_{0,1} & s_{0,2} & \color{red} s_{0,3} & s_{0,4} & r_{0,5} & r_{0,6} \\
+s_{1,0} & s_{1,1} & s_{1,2} & \color{red} s_{1,3} & s_{1,4} & r_{1,5} & r_{1,6} \\
+s_{2,0} & s_{2,1} & s_{2,2} & \color{red} s_{2,3} & s_{2,4} & r_{2,5} & r_{2,6} \\
+\color{green} r_{3,0} & \color{green} r_{3,1} & \color{green} r_{3,2} &  & \color{green} r_{3,4} &  & \color{green} r_{3,6}\\
+\end{array}
+\right]
+$$
+
+To recover the secondary sliver, the node contacts at least 3 other shards to obtain recovery symbols. In this case, the recovery symbols are already part of the primary slivers (highlighted as rows) stored by the other shards, so no re-encoding is necessary. For example, shards 0, 1, and 5 provide the recovery symbols:
+
+$$
+\left[
+\begin{array}{ccccc}
+s_{0,0} & s_{0,1} & s_{0,2} & \color{green} s_{0,3} & s_{0,4} \\
+\hline
+s_{1,0} & s_{1,1} & s_{1,2} & \color{green} s_{1,3} & s_{1,4} \\
+\hline
+s_{2,0} & s_{2,1} & s_{2,2} & s_{2,3} & s_{2,4} \\
+\hline
+\color{red} r_{3,0} & \color{red} r_{3,1} & \color{red} r_{3,2} & \color{red} r_{3,3} & \color{red} r_{3,4} \\
+\hline
+r_{4,0} & r_{4,1} & r_{4,2} & r_{4,3} & r_{4,4} \\
+\hline
+r_{5,0} & r_{5,1} & r_{5,2} & \color{green} r_{5,3} & r_{5,4} \\
+\hline
+r_{6,0} & r_{6,1} & r_{6,2} & r_{6,3} & r_{6,4} \\
+\end{array}
+\right]
+$$
+
+In this case, the symbols $s_{0,3}$, $s_{1,3}$, and $s_{2,3}$ are already stored in the primary slivers of shards 0, 1, and 2 directly. Therefore, by requesting these from those shards, shard 3 does not need to decode the symbols to recover its secondary sliver.
+
+For properties, Walrus-specific parameters, blob size limits, and sliver authentication details, see [RedStuff properties and parameters](red-stuff-parameters).

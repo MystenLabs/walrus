@@ -1,0 +1,218 @@
+# Concept coverage map for Walrus docs auditing.
+#
+# Each concept lists:
+#   must_appear_in  – pages that MUST cover this concept
+#   terms           – keywords the audit script checks for (case-insensitive)
+#
+# A page passes if it contains >= half of the listed terms.
+# A page NOT listed in must_appear_in is flagged as an orphan
+# if it contains >= 75% of the terms.
+
+concepts:
+
+  # ─── Getting Started ─────────────────────────────
+
+  walrus-setup:
+    must_appear_in:
+      - "getting-started/index.mdx"
+      - "getting-started/advanced-setup.mdx"
+    terms:
+      - "install"
+      - "walrus"
+      - "CLI"
+      - "config"
+
+  # ─── System Overview ─────────────────────────────
+
+  blob-storage:
+    must_appear_in:
+      - "system-overview/core-concepts.mdx"
+      - "system-overview/operations.mdx"
+    terms:
+      - "blob"
+      - "store"
+      - "erasure coding"
+      - "slivers"
+
+  storage-epochs:
+    must_appear_in:
+      - "system-overview/core-concepts.mdx"
+      - "system-overview/storage-costs.mdx"
+    terms:
+      - "epoch"
+      - "storage"
+      - "lifetime"
+      - "extend"
+
+  encoding:
+    must_appear_in:
+      - "system-overview/red-stuff.mdx"
+    terms:
+      - "RedStuff"
+      - "erasure"
+      - "encoding"
+      - "slivers"
+      - "recovery"
+
+  staking:
+    must_appear_in:
+      - "operator-guide/stake.mdx"
+    terms:
+      - "stake"
+      - "WAL"
+      - "delegation"
+      - "commission"
+
+  # ─── Walrus Client ──────────────────────────────
+
+  client-cli:
+    must_appear_in:
+      - "walrus-client/walrus-cli.mdx"
+      - "walrus-client/storing-blobs.mdx"
+    terms:
+      - "client"
+      - "command"
+      - "blob"
+      - "store"
+
+  client-json:
+    must_appear_in:
+      - "walrus-client/json-mode.mdx"
+    terms:
+      - "JSON"
+      - "daemon"
+      - "API"
+      - "store"
+
+  # ─── HTTP API ────────────────────────────────────
+
+  http-store:
+    must_appear_in:
+      - "http-api/storing-blobs.mdx"
+    terms:
+      - "publisher"
+      - "PUT"
+      - "blob"
+      - "epoch"
+
+  http-read:
+    must_appear_in:
+      - "http-api/reading-blobs.mdx"
+    terms:
+      - "aggregator"
+      - "GET"
+      - "blob"
+      - "read"
+
+  # ─── Operator Guide ─────────────────────────────
+
+  storage-node-setup:
+    must_appear_in:
+      - "operator-guide/storage-nodes/storage-node-setup.mdx"
+    terms:
+      - "storage node"
+      - "setup"
+      - "config"
+      - "register"
+
+  storage-node-maintenance:
+    must_appear_in:
+      - "operator-guide/storage-nodes/storage-node-maintenance.mdx"
+    terms:
+      - "maintenance"
+      - "upgrade"
+      - "migration"
+      - "backup"
+
+  slashing:
+    must_appear_in:
+      - "operator-guide/storage-nodes/slashing.mdx"
+    terms:
+      - "slashing"
+      - "penalty"
+      - "availability"
+      - "challenge"
+
+  publisher-operations:
+    must_appear_in:
+      - "operator-guide/publishers/operating-publisher.mdx"
+    terms:
+      - "publisher"
+      - "operate"
+      - "config"
+      - "daemon"
+
+  aggregator-operations:
+    must_appear_in:
+      - "operator-guide/aggregators/operating-aggregator.mdx"
+    terms:
+      - "aggregator"
+      - "operate"
+      - "config"
+      - "cache"
+
+  # ─── Walrus Sites ───────────────────────────────
+
+  walrus-sites:
+    must_appear_in:
+      - "sites/introduction/technical-overview.mdx"
+      - "sites/introduction/components.mdx"
+    terms:
+      - "Walrus Sites"
+      - "site-builder"
+      - "deploy"
+      - "portal"
+
+  site-builder:
+    must_appear_in:
+      - "sites/getting-started/installing-the-site-builder.mdx"
+      - "sites/getting-started/using-the-site-builder.mdx"
+    terms:
+      - "site-builder"
+      - "publish"
+      - "update"
+      - "install"
+
+  site-portals:
+    must_appear_in:
+      - "sites/portals/mainnet-testnet.mdx"
+      - "sites/portals/deploy-locally.mdx"
+    terms:
+      - "portal"
+      - "service worker"
+      - "browse"
+      - "deploy"
+
+  # ─── SDKs ───────────────────────────────────────
+
+  typescript-sdk:
+    must_appear_in:
+      - "typescript-sdk/sdks.mdx"
+    terms:
+      - "TypeScript"
+      - "SDK"
+      - "npm"
+      - "install"
+
+  # ─── Data Security ──────────────────────────────
+
+  data-security:
+    must_appear_in:
+      - "data-security.mdx"
+    terms:
+      - "encryption"
+      - "availability"
+      - "integrity"
+      - "public"
+
+  # ─── Troubleshooting ────────────────────────────
+
+  common-issues:
+    must_appear_in:
+      - "troubleshooting/index.mdx"
+      - "troubleshooting/network-errors.mdx"
+    terms:
+      - "error"
+      - "fix"
+      - "troubleshoot"
+      - "timeout"

@@ -1582,6 +1582,16 @@ impl DBBatch {
         Ok(())
     }
 
+    /// Consume the batch and write its operations with an explicit WAL sync setting.
+    ///
+    /// This overrides the batch's configured `WriteOptions::sync` value for this commit only.
+    /// Passing `true` makes RocksDB sync the WAL as part of the batch write, avoiding a separate
+    /// `flush_wal(true)` call after the batch has already become visible.
+    pub fn write_with_sync(mut self, sync: bool) -> Result<(), TypedStoreError> {
+        self.opts.set_sync(sync);
+        self.write()
+    }
+
     /// Get the size of the batch in bytes.
     pub fn size_in_bytes(&self) -> usize {
         self.batch.size_in_bytes()

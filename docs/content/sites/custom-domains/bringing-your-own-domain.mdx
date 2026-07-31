@@ -1,7 +1,43 @@
 ---
 title: Bringing Your Own Domain
-description: "Complete guide to configuring a custom DNS domain for a Walrus Site by deploying a local portal and pointing your domain to it."
-keywords: ["walrus sites", "custom domain", "dns configuration", "portal setup", "domain registration", "hosting", "bring your own domain"]
+description: >-
+  Complete guide to configuring a custom DNS domain for a Walrus Site by
+  deploying a local portal and pointing your domain to it.
+keywords:
+  - walrus sites
+  - custom domain
+  - dns configuration
+  - portal setup
+  - domain registration
+  - hosting
+  - bring your own domain
+goal:
+  description: Reader can serve a Walrus Site from their own DNS domain by deploying and pointing to a local portal
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I configure your portal?
+  - How do I deploy your portal to a server?
+  - How do I configure your dns?
+answer: >-
+  Complete guide to configuring a custom DNS domain for a Walrus Site by
+  deploying a local portal and pointing your domain to it.
 ---
 
 By default, Walrus Sites are served through a portal at a subdomain address like `https://example.wal.app`. If you want to serve your site at a classic DNS domain you own, for example `https://example.com`, you can do so by deploying your own portal and configuring it to serve only your site.

@@ -72,7 +72,11 @@ function main() {
 
     console.log("✅ walrus-memory: fetched successfully");
   } catch (err) {
-    console.warn(`⚠️  walrus-memory: fetch failed (${err.message}). Skipping.`);
+    if (force) {
+      console.error(`❌ walrus-memory: fetch failed in CI (${err.message})`);
+      process.exit(1);
+    }
+    console.warn(`⚠️  walrus-memory: fetch failed (${err.message}). Using cached content.`);
   }
 }
 

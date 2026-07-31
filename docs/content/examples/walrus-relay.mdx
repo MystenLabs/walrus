@@ -1,10 +1,39 @@
 ---
 title: Walrus Relay
-description: An example of a file upload web application that uses the Walrus Upload Relay. 
-keywords: [ walrus relay, upload relay, file upload application, web app example ] 
+description: An example of a file upload web application that uses the Walrus Upload Relay.
+keywords:
+  - walrus relay
+  - upload relay
+  - file upload application
+  - web app example
+goal:
+  description: Reader can build a browser file-upload app that stores blobs through the Walrus upload relay
+  requires:
+    - pattern: '```'
+      min: 3
+      label: 'Has code blocks for setup, source, and output'
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 100
+      label: Has enough content to describe the example
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - How do I build a walrus relay on Walrus?
+  - What is Walrus Relay?
+  - How do I get started with walrus relay?
+answer: >-
+  Using the Walrus TypeScript SDK and the Walrus Upload Relay, the following
+  example app creates a web application that uploads and manages blobs on
+  Walrus.
 ---
 
-Using the Walrus TypeScript SDK and the Walrus Upload Relay, the following example app creates a web application that can be used for uploading and managing blobs on Walrus. 
+Using the Walrus TypeScript SDK and the Walrus Upload Relay, the following example app creates a web application that uploads and manages blobs on Walrus.
 
 [View a deployed instance of this example in your browser](https://relay.wal.app) or [view the entire source code](https://github.com/MystenLabs/walrus-sdk-relay-example-app).
 

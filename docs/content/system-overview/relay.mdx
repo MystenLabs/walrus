@@ -1,7 +1,40 @@
 ---
 title: Upload Relay
-description: Learn how the Walrus upload relay simplifies blob uploads by batching requests, handling retries, and generating certificates on behalf of your application.
-keywords: [ walrus, typescript, sdk, relay, upload, batching, reliability, certificate, retry ]
+description: >-
+  Learn how the Walrus upload relay simplifies blob uploads by batching
+  requests, handling retries, and generating certificates on behalf of your
+  application.
+keywords:
+  - walrus
+  - typescript
+  - sdk
+  - relay
+  - upload
+  - batching
+  - reliability
+  - certificate
+  - retry
+goal:
+  description: Reader can decide when to use the upload relay and explain how it batches, retries, and certifies uploads
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - When to use the relay?
+  - When not to use the relay?
+  - What is Upload Relay?
+answer: >-
+  An upload relay is a server-side service that simplifies the upload process by
+  handling the complexity of writing to multiple storage nodes.
 ---
 
 An upload relay is a server-side service that simplifies the upload process by handling the complexity of writing to multiple storage nodes. It provides batching capabilities and improved reliability for client applications.
