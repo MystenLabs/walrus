@@ -18,7 +18,10 @@ use super::{
 };
 use crate::node::{
     NodeStatus,
-    epoch_change::attestation::{AttestationSlot, EpochSyncDoneToken},
+    epoch_change::{
+        attestation::EpochSyncDoneToken,
+        completion::{CompletionInstruction, CompletionSlot},
+    },
     storage::{ShardStatus, blob_info::CertifiedBlobInfoApi},
 };
 
@@ -46,10 +49,11 @@ pub struct NodeRecoveryHandler {
     // There can be at most one background shard removal task at a time.
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
-    // Holds the `epoch_sync_done` attestation token while node recovery owns the attestation
-    // (that is, while the node status is `RecoveryInProgress`). The recovery task consumes it on
+    // Holds the completion instruction while node recovery owns the epoch-change completion
+    // (that is, while the node status is `RecoveryInProgress`): the status transition to
+    // perform and the `epoch_sync_done` attestation to send. The recovery task consumes it on
     // completion.
-    epoch_sync_done_token: AttestationSlot,
+    completion_instruction: CompletionSlot,
 
     // Configuration for node recovery.
     config: NodeRecoveryConfig,
@@ -67,22 +71,23 @@ impl NodeRecoveryHandler {
             blob_sync_handler,
             shard_sync_handler,
             task_handle: Arc::new(Mutex::new(None)),
-            epoch_sync_done_token: AttestationSlot::default(),
+            completion_instruction: CompletionSlot::default(),
             config,
         }
     }
 
-    /// Hands the `epoch_sync_done` attestation token to node recovery: the recovery task
-    /// consumes it on completion. Called by the epoch-change apply step, while holding the
-    /// status mutex, whenever it sets or advances the recovery target.
-    pub(crate) fn set_epoch_sync_done_token(&self, token: EpochSyncDoneToken) {
-        self.epoch_sync_done_token.put(token);
+    /// Hands node recovery its completion instruction — the status transition to perform and
+    /// the `epoch_sync_done` attestation to send when the recovery completes. Called by the
+    /// epoch-change apply step, from inside the epoch-change critical section, whenever it sets
+    /// or advances the recovery target.
+    pub(crate) fn set_completion_instruction(&self, instruction: CompletionInstruction) {
+        self.completion_instruction.put(instruction);
     }
 
-    /// Invalidates any unconsumed attestation token held by node recovery. Called by the
-    /// epoch-change apply step when another component owns the attestation.
-    pub(crate) fn clear_epoch_sync_done_token(&self) {
-        self.epoch_sync_done_token.clear();
+    /// Revokes any pending completion instruction held by node recovery. Called when a
+    /// transition supersedes the running recovery.
+    pub(crate) fn clear_completion_instruction(&self) {
+        self.completion_instruction.clear();
     }
 
     /// Aborts the running recovery task, if any, and waits for it to exit.
@@ -153,7 +158,7 @@ impl NodeRecoveryHandler {
         let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();
         let shard_sync_handler = self.shard_sync_handler.clone();
-        let epoch_sync_done_token = self.epoch_sync_done_token.clone();
+        let completion_instruction = self.completion_instruction.clone();
         let max_concurrent_blob_syncs_during_recovery =
             self.config.max_concurrent_blob_syncs_during_recovery;
         let task_handle = tokio::spawn(async move {
@@ -354,7 +359,7 @@ impl NodeRecoveryHandler {
                 complete_recovery_once_shards_synced(
                     &node,
                     &shard_sync_handler,
-                    &epoch_sync_done_token,
+                    &completion_instruction,
                 )
                 .await;
                 return;
@@ -373,10 +378,13 @@ impl NodeRecoveryHandler {
                 recovering_epoch
             );
 
-            // The node restarted while recovering, whose epoch change handed the attestation to
-            // node recovery: re-mint the token for the persisted recovery target (the slot is
-            // in-memory and was lost with the restart).
-            self.set_epoch_sync_done_token(EpochSyncDoneToken::new_for_epoch(recovering_epoch));
+            // The node restarted while recovering, whose epoch change handed the completion to
+            // node recovery: re-mint the instruction for the persisted recovery target (the
+            // slot is in-memory and was lost with the restart).
+            self.set_completion_instruction(CompletionInstruction::new(
+                NodeStatus::Active,
+                Some(EpochSyncDoneToken::new_for_epoch(recovering_epoch)),
+            ));
             self.start_node_recovery(recovering_epoch).await?;
         }
 
@@ -502,7 +510,7 @@ async fn wait_until_ready_to_scan(
 async fn complete_recovery_once_shards_synced(
     node: &StorageNodeInner,
     shard_sync_handler: &ShardSyncHandler,
-    epoch_sync_done_token: &AttestationSlot,
+    completion_instruction: &CompletionSlot,
 ) {
     loop {
         let critical_section_guard = node.epoch_change_critical_section.enter().await;
@@ -513,46 +521,43 @@ async fn complete_recovery_once_shards_synced(
                 .storage
                 .node_status()
                 .expect("reading node status should not fail");
-            let NodeStatus::RecoveryInProgress(target_epoch) = current_node_status else {
+
+            // Consume the completion instruction while still inside the critical section, so
+            // that it belongs to the recovery target observed by this pass: the epoch-change
+            // path replaces the instruction and the target atomically inside the same critical
+            // section. No instruction means a concurrent transition (dropping out of the
+            // committee, entering recovery mode) superseded this recovery; the task then
+            // finishes without touching the node status.
+            let Some(instruction) = completion_instruction.take() else {
                 tracing::warn!(
                     node_status = %current_node_status,
-                    "node recovery task finished; but node status is not RecoveryInProgress; \
-                    skip setting node status to active"
+                    "node recovery task finished, but its completion was superseded by a \
+                    concurrent transition; skipping the status change and attestation"
                 );
                 return;
             };
 
             tracing::info!(
-                walrus.epoch = target_epoch,
-                "node recovery task finished; set node status to active"
+                node_status = %current_node_status,
+                ?instruction,
+                "node recovery task finished; applying its completion instruction"
             );
-            if let Err(error) = node.set_node_status(NodeStatus::Active) {
-                tracing::error!(?error, "failed to set node status to active");
-                return;
-            }
-            // Take the token while still inside the critical section, so that it belongs to
-            // the recovery target read above: the epoch-change path replaces the token and the
-            // target atomically inside the same critical section.
-            let token = epoch_sync_done_token.take();
+            let attestation = match instruction.apply_status(node) {
+                Ok(attestation) => attestation,
+                Err(error) => {
+                    tracing::error!(?error, "failed to apply the recovery completion status");
+                    return;
+                }
+            };
             drop(critical_section_guard);
 
-            // While the node is recovering, node recovery holds the attestation token, so this
-            // is the only place that attests epoch sync done (shard sync has no token to
-            // consume), and the attestation covers both the recovered blobs and all synced
-            // shards. The attested epoch is the recovery target currently recorded in the node
-            // status, which may be newer than the epoch this task was started with.
-            match token {
-                Some(token) => {
-                    debug_assert_eq!(token.epoch(), target_epoch);
-                    token.attest(node).await;
-                }
-                None => {
-                    tracing::warn!(
-                        walrus.epoch = target_epoch,
-                        "node recovery completed without an epoch sync done token; \
-                        skipping attestation"
-                    );
-                }
+            // While the node is recovering, node recovery holds the attestation (bundled in the
+            // completion instruction), so this is the only place that attests epoch sync done,
+            // and the attestation covers both the recovered blobs and all synced shards. The
+            // attested epoch is the recovery target most recently recorded by the epoch-change
+            // path, which may be newer than the epoch this task was started with.
+            if let Some(token) = attestation {
+                token.attest(node).await;
             }
             return;
         }

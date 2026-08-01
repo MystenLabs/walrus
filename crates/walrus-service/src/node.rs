@@ -627,12 +627,14 @@ pub(crate) async fn create_read_client(
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,
+    // Only accessed by tests; production code reaches the handler through the epoch-change
+    // executor.
+    #[cfg_attr(not(test), allow(dead_code))]
     shard_sync_handler: ShardSyncHandler,
     epoch_change_driver: EpochChangeDriver,
     start_epoch_change_finisher: StartEpochChangeFinisher,
     num_blob_event_processors: NonZeroUsize,
     pending_event_counter: PendingEventCounter,
-    node_recovery_handler: NodeRecoveryHandler,
     epoch_change_executor: epoch_change::EpochChangeExecutor,
     garbage_collector: GarbageCollector,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
@@ -983,7 +985,6 @@ impl StorageNode {
             shard_sync_handler,
             epoch_change_driver,
             start_epoch_change_finisher,
-            node_recovery_handler,
             epoch_change_executor,
             num_blob_event_processors: config.blob_event_processor_config.num_workers,
             pending_event_counter: PendingEventCounter::default(),

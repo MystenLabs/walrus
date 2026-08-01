@@ -212,6 +212,105 @@ impl NodeStatus {
     }
 }
 
+#[cfg(test)]
+mod node_status_transition_tests {
+    use super::*;
+
+    /// All variants, with representative payloads.
+    fn all_statuses() -> Vec<NodeStatus> {
+        vec![
+            NodeStatus::Standby,
+            NodeStatus::Active,
+            NodeStatus::RecoverMetadata,
+            NodeStatus::RecoveryCatchUp,
+            NodeStatus::RecoveryInProgress(5),
+            NodeStatus::RecoveryCatchUpWithIncompleteHistory {
+                first_complete_epoch: 3,
+                epoch_at_start: 7,
+            },
+        ]
+    }
+
+    #[test]
+    fn same_variant_transitions_are_always_legal() {
+        for status in all_statuses() {
+            assert!(
+                status.can_transition_to(&status),
+                "rewriting {status} must be legal"
+            );
+        }
+        // Advancing the recovery target rewrites the variant with a different payload.
+        assert!(
+            NodeStatus::RecoveryInProgress(5).can_transition_to(&NodeStatus::RecoveryInProgress(8))
+        );
+    }
+
+    #[test]
+    fn transition_table_matches_documentation() {
+        use NodeStatus::*;
+
+        let incomplete_history = || RecoveryCatchUpWithIncompleteHistory {
+            first_complete_epoch: 3,
+            epoch_at_start: 7,
+        };
+        // (from, to) pairs that are legal besides the same-variant rewrites.
+        let legal: Vec<(NodeStatus, NodeStatus)> = vec![
+            (Standby, RecoverMetadata),
+            (Standby, RecoveryCatchUp),
+            (Standby, incomplete_history()),
+            (Active, Standby),
+            (Active, RecoveryCatchUp),
+            (RecoverMetadata, Active),
+            (RecoverMetadata, Standby),
+            (RecoverMetadata, RecoveryCatchUp),
+            (RecoveryCatchUp, Standby),
+            (RecoveryCatchUp, RecoverMetadata),
+            (RecoveryCatchUp, RecoveryInProgress(5)),
+            (incomplete_history(), Standby),
+            (incomplete_history(), RecoverMetadata),
+            (incomplete_history(), RecoveryInProgress(5)),
+            (RecoveryInProgress(5), Active),
+            (RecoveryInProgress(5), Standby),
+            (RecoveryInProgress(5), RecoveryCatchUp),
+        ];
+
+        for from in all_statuses() {
+            for to in all_statuses() {
+                if std::mem::discriminant(&from) == std::mem::discriminant(&to) {
+                    continue;
+                }
+                let expected = legal.iter().any(|(legal_from, legal_to)| {
+                    std::mem::discriminant(legal_from) == std::mem::discriminant(&from)
+                        && std::mem::discriminant(legal_to) == std::mem::discriminant(&to)
+                });
+                assert_eq!(
+                    from.can_transition_to(&to),
+                    expected,
+                    "transition {from} -> {to} should be {}",
+                    if expected { "legal" } else { "illegal" },
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn key_illegal_transitions_are_rejected() {
+        use NodeStatus::*;
+
+        // A catching-up node must never jump straight to Active: it exits catch-up only through
+        // Standby, RecoverMetadata, or a full recovery.
+        assert!(!RecoveryCatchUp.can_transition_to(&Active));
+        // Only a catching-up node may start a full recovery.
+        assert!(!Active.can_transition_to(&RecoveryInProgress(5)));
+        assert!(!Standby.can_transition_to(&RecoveryInProgress(5)));
+        // Only a node coming from Standby (joining the committee) recovers metadata mid-epoch.
+        assert!(!Active.can_transition_to(&RecoverMetadata));
+        // Standby means "up to date but not a member"; becoming Active requires going through
+        // metadata recovery.
+        assert!(!Standby.can_transition_to(&Active));
+    }
+}
+
 impl Display for NodeStatus {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

@@ -59,41 +59,88 @@ impl EpochSyncDoneToken {
     }
 }
 
-/// A shareable slot holding the [`EpochSyncDoneToken`] of the component that currently owns the
-/// attestation.
+/// A shareable slot holding a consumable, single-owner value — an attestation token or a
+/// completion instruction.
 ///
 /// Each candidate owner (the shard-sync handler and the node-recovery handler) holds one slot;
 /// the epoch-change apply step fills the owner's slot and clears the others. The owner takes the
-/// token out when its half of the epoch-sync claim is complete.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct AttestationSlot(Arc<Mutex<Option<EpochSyncDoneToken>>>);
+/// value out when the condition it is waiting for is met. Clones share the same slot, so a value
+/// placed through one handle is visible (and can be invalidated) through all of them.
+#[derive(Debug)]
+pub(crate) struct Slot<T>(Arc<Mutex<Option<T>>>);
 
-impl AttestationSlot {
-    /// Places a token in the slot, replacing (and thereby invalidating) any previous one.
-    pub(crate) fn put(&self, token: EpochSyncDoneToken) {
+// Manual impls: the derives would incorrectly require `T: Clone` / `T: Default`.
+impl<T> Clone for Slot<T> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T> Default for Slot<T> {
+    fn default() -> Self {
+        Self(Arc::new(Mutex::new(None)))
+    }
+}
+
+impl<T: std::fmt::Debug> Slot<T> {
+    /// Places a value in the slot, replacing (and thereby invalidating) any previous one.
+    pub(crate) fn put(&self, value: T) {
         let replaced = self
             .0
             .lock()
-            .expect("attestation slot mutex should not be poisoned")
-            .replace(token);
+            .expect("slot mutex should not be poisoned")
+            .replace(value);
         if let Some(replaced) = replaced {
-            tracing::debug!(
-                walrus.epoch = replaced.epoch(),
-                "replacing an unconsumed epoch sync done token"
-            );
+            tracing::debug!(?replaced, "replacing an unconsumed slot value");
         }
     }
 
-    /// Removes and returns the token, if any.
-    pub(crate) fn take(&self) -> Option<EpochSyncDoneToken> {
+    /// Removes and returns the value, if any.
+    pub(crate) fn take(&self) -> Option<T> {
         self.0
             .lock()
-            .expect("attestation slot mutex should not be poisoned")
+            .expect("slot mutex should not be poisoned")
             .take()
     }
 
-    /// Clears the slot, invalidating any unconsumed token.
+    /// Clears the slot, invalidating any unconsumed value.
     pub(crate) fn clear(&self) {
         let _ = self.take();
+    }
+}
+
+/// The slot holding the [`EpochSyncDoneToken`] of the component that currently owns the
+/// attestation.
+pub(crate) type AttestationSlot = Slot<EpochSyncDoneToken>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slot_clones_share_state() {
+        let slot = AttestationSlot::default();
+        let clone = slot.clone();
+        slot.put(EpochSyncDoneToken::new_for_epoch(7));
+        let token = clone.take().expect("clone should see the placed token");
+        assert_eq!(token.epoch(), 7);
+        assert!(slot.take().is_none(), "the token can only be taken once");
+    }
+
+    #[test]
+    fn put_replaces_unconsumed_value() {
+        let slot = AttestationSlot::default();
+        slot.put(EpochSyncDoneToken::new_for_epoch(7));
+        slot.put(EpochSyncDoneToken::new_for_epoch(8));
+        assert_eq!(slot.take().expect("token should be present").epoch(), 8);
+        assert!(slot.take().is_none());
+    }
+
+    #[test]
+    fn clear_invalidates_value() {
+        let slot = AttestationSlot::default();
+        slot.put(EpochSyncDoneToken::new_for_epoch(7));
+        slot.clear();
+        assert!(slot.take().is_none());
     }
 }

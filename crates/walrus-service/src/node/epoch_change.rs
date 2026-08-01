@@ -10,9 +10,11 @@
 use super::*;
 
 pub(crate) mod attestation;
+pub(crate) mod completion;
 pub(crate) mod plan;
 
 use attestation::EpochSyncDoneToken;
+use completion::CompletionInstruction;
 
 /// Threshold above which we emit a warning that the foreground portion of an
 /// `EpochChangeStart` event took unexpectedly long to process. The shard-sync work
@@ -583,9 +585,11 @@ impl EpochChangeExecutor {
                     "node is not in the current committee, set node status to 'Standby'"
                 );
                 self.inner.set_node_status(NodeStatus::Standby)?;
-                // A standby node makes no epoch-sync claim: invalidate any unconsumed token.
+                // A standby node makes no epoch-sync claim and runs no status-changing
+                // long-running tasks: invalidate any unconsumed token or instruction.
                 self.shard_sync_handler.clear_epoch_sync_done_token();
-                self.node_recovery_handler.clear_epoch_sync_done_token();
+                self.shard_sync_handler.clear_metadata_recovery_completion();
+                self.node_recovery_handler.clear_completion_instruction();
                 event_handle.mark_as_complete();
                 return Ok(());
             }
@@ -681,6 +685,9 @@ impl EpochChangeExecutor {
                     "node is not in the current committee, set node status to 'Standby'"
                 );
                 self.inner.set_node_status(NodeStatus::Standby)?;
+                // A dropout supersedes any pending metadata recovery: the metadata task must
+                // not flip the node back to `Active` when it finishes.
+                self.shard_sync_handler.clear_metadata_recovery_completion();
             }
             Some(plan::StatusTransition::RecoveryInProgress) => {
                 tracing::info!(
@@ -697,25 +704,32 @@ impl EpochChangeExecutor {
         }
 
         // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand it
-        // to the owner named in the plan, invalidating any token held by the other components.
-        // This runs inside the critical section (for recovery-owned attestations, the token
-        // placement is thereby atomic with the target advancement above) and before any shard
-        // sync is started (so a completing sync cannot miss its token).
+        // to the owner named in the plan, invalidating any token or instruction held by the
+        // other components. This runs inside the critical section (for recovery-owned
+        // attestations, the instruction placement is thereby atomic with the target advancement
+        // above) and before any shard sync is started (so a completing sync cannot miss its
+        // token). The recovery task receives a completion instruction bundling the status
+        // transition it must perform on completion with the attestation, so the two cannot
+        // diverge.
         let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
         let mut finisher_attestation = None;
         match transition.sync_done_owner {
             plan::AttestationOwner::Finisher => {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
-                self.node_recovery_handler.clear_epoch_sync_done_token();
+                self.node_recovery_handler.clear_completion_instruction();
                 finisher_attestation = Some(token);
             }
             plan::AttestationOwner::ShardSync => {
-                self.node_recovery_handler.clear_epoch_sync_done_token();
+                self.node_recovery_handler.clear_completion_instruction();
                 self.shard_sync_handler.set_epoch_sync_done_token(token);
             }
             plan::AttestationOwner::RecoveryTask => {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
-                self.node_recovery_handler.set_epoch_sync_done_token(token);
+                self.node_recovery_handler
+                    .set_completion_instruction(CompletionInstruction::new(
+                        NodeStatus::Active,
+                        Some(token),
+                    ));
             }
         }
 
@@ -789,6 +803,16 @@ impl EpochChangeExecutor {
                 syncing shards"
             );
             self.inner.set_node_status(NodeStatus::RecoverMetadata)?;
+            // Authorize the metadata-recovery task to flip the node to `Active` when it
+            // finishes. The instruction must be in place before the shard syncs start below (a
+            // quickly finishing task must not miss it); a later transition that supersedes the
+            // metadata recovery (dropping out of the committee, entering recovery mode) revokes
+            // it by clearing the slot.
+            self.shard_sync_handler
+                .set_metadata_recovery_completion(CompletionInstruction::new(
+                    NodeStatus::Active,
+                    None,
+                ));
         }
 
         // Start syncing the new (gained) shards from their previous owners.
@@ -959,6 +983,12 @@ impl EpochChangeExecutor {
     /// This function should only be called when the node is lagging behind.
     async fn enter_recovery_mode(&self) -> anyhow::Result<()> {
         self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+
+        // Entering recovery supersedes the pending completions of long-running tasks: neither a
+        // still-running metadata recovery nor a still-running node recovery task may transition
+        // the node away from `RecoveryCatchUp` when it finishes.
+        self.shard_sync_handler.clear_metadata_recovery_completion();
+        self.node_recovery_handler.clear_completion_instruction();
 
         // Now the node is entering recovery mode, we need to cancel all the blob syncs
         // that are in progress, since the node is lagging behind, and we don't have
