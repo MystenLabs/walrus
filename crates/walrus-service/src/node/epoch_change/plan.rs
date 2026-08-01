@@ -66,6 +66,10 @@ pub(crate) struct PlanInputs {
     pub in_current_committee: bool,
     /// Whether the node was a member of the previous committee.
     pub in_previous_committee: bool,
+    /// Whether shard-sync tasks (from this or earlier epochs) are still running at planning
+    /// time. Outstanding syncs mean the node's epoch-sync claim is not yet complete, so the
+    /// attestation must wait for them instead of being sent by the finisher.
+    pub has_ongoing_shard_syncs: bool,
     /// The shard sets affected by this epoch change.
     pub shards: ShardDiff,
 }
@@ -106,10 +110,12 @@ pub(crate) enum RecoveryAction {
 /// Exactly one component owns the attestation per epoch change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EpochSyncDoneAttestationOwner {
-    /// No shard syncs were started and the node is not recovering: the epoch-change finisher
-    /// attests directly (it skips the attestation if the node is not in the committee).
+    /// No shard-sync work exists at all — none started for this epoch, none still running
+    /// from earlier epochs — and the node is not recovering: the epoch-change finisher attests
+    /// directly (it skips the attestation if the node is not in the committee).
     Finisher,
-    /// Shard syncs were started: the last shard-sync task to complete attests.
+    /// Shard syncs were started for this epoch or are still running from earlier ones: the
+    /// sync completion that finishes the registered work attests.
     ShardSync,
     /// The node is recovering: the recovery task attests once the blob scan is complete and all
     /// owned shards are active.
@@ -273,6 +279,21 @@ fn shard_sync_execution_info(
     inputs: &PlanInputs,
     status: Option<StatusTransition>,
 ) -> EpochChangeExecutionInfo {
+    // The epoch-sync claim is complete only once every sync has delivered: newly gained
+    // shards, syncs still draining from earlier epochs (for shards the node may still own),
+    // and an unfinished metadata recovery all defer the attestation to shard sync. The
+    // finisher attests directly only when the node is a committee member with no sync work at
+    // all (and skips the attestation entirely for non-members).
+    let outstanding_sync_work =
+        inputs.has_ongoing_shard_syncs || inputs.node_status == NodeStatus::RecoverMetadata;
+    let sync_done_owner = if inputs.in_current_committee
+        && (!inputs.shards.gained.is_empty() || outstanding_sync_work)
+    {
+        EpochSyncDoneAttestationOwner::ShardSync
+    } else {
+        EpochSyncDoneAttestationOwner::Finisher
+    };
+
     EpochChangeExecutionInfo {
         status,
         new_shards: (!inputs.shards.gained.is_empty()).then(|| NewShards {
@@ -282,11 +303,7 @@ fn shard_sync_execution_info(
         lock: inputs.shards.lost.clone(),
         remove: inputs.shards.removed.clone(),
         recovery: RecoveryAction::None,
-        sync_done_owner: if inputs.shards.gained.is_empty() {
-            EpochSyncDoneAttestationOwner::Finisher
-        } else {
-            EpochSyncDoneAttestationOwner::ShardSync
-        },
+        sync_done_owner,
     }
 }
 
@@ -313,6 +330,7 @@ mod tests {
             node_status: NodeStatus::Active,
             in_current_committee: true,
             in_previous_committee: true,
+            has_ongoing_shard_syncs: false,
             shards: ShardDiff {
                 gained: shard_ids(&[1, 2]),
                 lost: shard_ids(&[3]),
@@ -462,6 +480,69 @@ mod tests {
         let execution_info = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(execution_info.status, None);
         assert!(execution_info.new_shards.is_none());
+        assert_eq!(
+            execution_info.sync_done_owner,
+            EpochSyncDoneAttestationOwner::Finisher
+        );
+    }
+
+    #[test]
+    fn outstanding_syncs_keep_shard_sync_as_attestation_owner() {
+        // Gaining no shards does not mean the epoch-sync claim is complete: syncs from earlier
+        // epochs may still be draining, and the attestation must wait for them.
+        let inputs = PlanInputs {
+            has_ongoing_shard_syncs: true,
+            shards: ShardDiff {
+                gained: vec![],
+                lost: vec![],
+                removed: vec![],
+                all_owned: shard_ids(&[0]),
+            },
+            ..base_inputs()
+        };
+        let execution_info = expect_apply(plan_epoch_change(&inputs));
+        assert!(execution_info.new_shards.is_none());
+        assert_eq!(
+            execution_info.sync_done_owner,
+            EpochSyncDoneAttestationOwner::ShardSync
+        );
+    }
+
+    #[test]
+    fn unfinished_metadata_recovery_keeps_shard_sync_as_attestation_owner() {
+        let inputs = PlanInputs {
+            node_status: NodeStatus::RecoverMetadata,
+            shards: ShardDiff {
+                gained: vec![],
+                lost: vec![],
+                removed: vec![],
+                all_owned: shard_ids(&[0]),
+            },
+            ..base_inputs()
+        };
+        let execution_info = expect_apply(plan_epoch_change(&inputs));
+        assert_eq!(
+            execution_info.sync_done_owner,
+            EpochSyncDoneAttestationOwner::ShardSync
+        );
+    }
+
+    #[test]
+    fn dropout_with_outstanding_syncs_uses_finisher() {
+        // A non-member makes no epoch-sync claim: the finisher (which skips attestation for
+        // non-members) owns the token even if old syncs are still draining.
+        let inputs = PlanInputs {
+            in_current_committee: false,
+            has_ongoing_shard_syncs: true,
+            shards: ShardDiff {
+                gained: vec![],
+                lost: shard_ids(&[0, 1]),
+                removed: vec![],
+                all_owned: vec![],
+            },
+            ..base_inputs()
+        };
+        let execution_info = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(
             execution_info.sync_done_owner,
             EpochSyncDoneAttestationOwner::Finisher

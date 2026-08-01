@@ -75,11 +75,23 @@ impl Drop for SyncTaskCountGuard {
     }
 }
 
+/// A running per-shard sync task, together with the epoch its sync targets.
+///
+/// The epoch distinguishes a still-running sync from an earlier epoch (whose data stops at that
+/// epoch's bound) from a sync for the current epoch: when a shard is lost and later re-gained,
+/// the stale sync is aborted and replaced instead of blocking (or being credited as) the new
+/// epoch's sync.
+#[derive(Debug)]
+struct InProgressShardSync {
+    task_handle: tokio::task::JoinHandle<()>,
+    target_epoch: Epoch,
+}
+
 /// Manages tasks for syncing shards during epoch change.
 #[derive(Debug, Clone)]
 pub struct ShardSyncHandler {
     node: Arc<StorageNodeInner>,
-    shard_sync_in_progress: Arc<Mutex<HashMap<ShardIndex, tokio::task::JoinHandle<()>>>>,
+    shard_sync_in_progress: Arc<Mutex<HashMap<ShardIndex, InProgressShardSync>>>,
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     shard_sync_semaphore: Arc<Semaphore>,
     // Tracks the number of currently running shard sync tasks, including the task that starts
@@ -129,6 +141,22 @@ impl ShardSyncHandler {
     /// epoch-change apply step when another component owns the attestation.
     pub(crate) fn clear_epoch_sync_done_token(&self) {
         self.epoch_sync_attestation.clear();
+    }
+
+    /// Takes the registered attestation token back if its registration is already complete (no
+    /// pending shards and no running sync task). Called by the epoch-change apply step right
+    /// after registering a token with no newly gained shards: the draining syncs that made
+    /// shard sync the attestation owner may have finished in the meantime, leaving no future
+    /// completion to consume the token; the caller then hands it to the finisher instead.
+    pub(crate) async fn try_take_idle_epoch_sync_attestation(&self) -> Option<EpochSyncDoneToken> {
+        // Hold the task-map lock across the check so it is atomic with respect to completing
+        // tasks, which remove themselves from the map before recording their shard as synced.
+        let shard_sync_map = self.shard_sync_in_progress.lock().await;
+        let token = self
+            .epoch_sync_attestation
+            .take_if_complete(shard_sync_map.is_empty());
+        drop(shard_sync_map);
+        token
     }
 
     /// Hands the metadata-recovery task its completion instruction — the status transition to
@@ -383,19 +411,39 @@ impl ShardSyncHandler {
         &self,
         shard_index: ShardIndex,
     ) -> Result<(), SyncShardClientError> {
+        let current_committee_epoch = self.node.current_committee_epoch();
+
         // restart_syncs() is called before event processor starts processing events. So, for any
         // resumed shard syncs, we should be able to observe them here, unless they have finished.
-        if self
-            .shard_sync_in_progress
-            .lock()
-            .await
-            .contains_key(&shard_index)
-        {
+        let stale_sync = {
+            let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
+            match shard_sync_in_progress.get(&shard_index) {
+                Some(existing) if existing.target_epoch >= current_committee_epoch => {
+                    tracing::info!(
+                        walrus.shard_index = %shard_index,
+                        "shard is already being synced; skipping starting new shard sync"
+                    );
+                    return Ok(());
+                }
+                // The shard was lost and re-gained while a sync targeting an earlier epoch is
+                // still running. That sync's data stops at its own epoch bound, so it must
+                // neither block nor be credited as the new epoch's sync: abort it and start a
+                // fresh sync targeting the current epoch.
+                Some(_) => shard_sync_in_progress.remove(&shard_index),
+                None => None,
+            }
+        };
+        if let Some(stale_sync) = stale_sync {
             tracing::info!(
                 walrus.shard_index = %shard_index,
-                "shard is already being synced; skipping starting new shard sync"
+                stale_target_epoch = stale_sync.target_epoch,
+                current_committee_epoch,
+                "aborting a stale shard sync from an earlier epoch before re-syncing the shard"
             );
-            return Ok(());
+            stale_sync.task_handle.abort();
+            // Wait for the task to exit, so that it cannot record its stale-epoch completion
+            // concurrently with the new sync.
+            let _ = stale_sync.task_handle.await;
         }
 
         // Get shard storage
@@ -422,10 +470,11 @@ impl ShardSyncHandler {
             // The shard's data is present, so it counts toward the attestation registration
             // (relevant when re-processing an epoch change after a crash).
             let no_other_sync_running = self.shard_sync_in_progress.lock().await.is_empty();
-            if let Some(token) = self
-                .epoch_sync_attestation
-                .record_shard_synced(shard_index, no_other_sync_running)
-            {
+            if let Some(token) = self.epoch_sync_attestation.record_shard_synced(
+                shard_index,
+                current_committee_epoch,
+                no_other_sync_running,
+            ) {
                 token.attest(&self.node).await;
             }
             return Ok(());
@@ -616,13 +665,20 @@ impl ShardSyncHandler {
                 };
                 if let Some(token) = shard_sync_handler_clone
                     .epoch_sync_attestation
-                    .record_shard_synced(shard_index, no_other_sync_running)
+                    .record_shard_synced(
+                        shard_index,
+                        current_committee_epoch,
+                        no_other_sync_running,
+                    )
                 {
                     token.attest(&shard_sync_handler_clone.node).await;
                 }
             }
         });
-        entry.insert(shard_sync_task);
+        entry.insert(InProgressShardSync {
+            task_handle: shard_sync_task,
+            target_epoch: current_committee_epoch,
+        });
     }
 
     /// Syncs a shard using shard sync. If `directly_recover_shard` is true, the shard will be
@@ -782,7 +838,7 @@ impl ShardSyncHandler {
             .lock()
             .await
             .values()
-            .filter(|task| !task.is_finished())
+            .filter(|sync| !sync.task_handle.is_finished())
             .count()
     }
 

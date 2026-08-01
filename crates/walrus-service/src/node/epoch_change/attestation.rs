@@ -161,18 +161,45 @@ impl ShardSyncAttestation {
         }
     }
 
-    /// Records the shard as synced (its data is present locally). Returns the token if this
-    /// completes the registration — every registered shard synced — and no other sync task is
-    /// running (`no_other_sync_running`; this guards leftover tasks from earlier epochs that
-    /// are still draining and whose shards the node may still own).
+    /// Records the shard as synced. Returns the token if this completes the registration —
+    /// every registered shard synced — and no other sync task is running
+    /// (`no_other_sync_running`; this guards leftover tasks from earlier epochs that are still
+    /// draining and whose shards the node may still own).
+    ///
+    /// `task_target_epoch` is the epoch the completed sync targeted: only a sync at least as
+    /// recent as the token's epoch counts toward the registration. A shard that was lost and
+    /// re-gained can have a still-running sync from an earlier epoch; that sync's data stops at
+    /// its own epoch bound, so its completion must not satisfy the new epoch's registration.
+    /// (Such a completion may still trigger consumption once the registration is otherwise
+    /// complete — the draining-task deferral case.)
     pub(crate) fn record_shard_synced(
         &self,
         shard: ShardIndex,
+        task_target_epoch: Epoch,
         no_other_sync_running: bool,
     ) -> Option<EpochSyncDoneToken> {
         let mut guard = self.lock();
         let state = guard.as_mut()?;
-        state.pending_shards.remove(&shard);
+        if task_target_epoch >= state.token.epoch() {
+            state.pending_shards.remove(&shard);
+        }
+        if state.pending_shards.is_empty() && no_other_sync_running {
+            return guard.take().map(|state| state.token);
+        }
+        None
+    }
+
+    /// Takes the token back if the registration is already complete — no pending shards — and
+    /// no other sync task is running. Used by the epoch-change apply step right after
+    /// registering a token with no pending shards: the draining syncs that made shard sync the
+    /// attestation owner may have finished in the meantime, leaving no future completion to
+    /// consume the token.
+    pub(crate) fn take_if_complete(
+        &self,
+        no_other_sync_running: bool,
+    ) -> Option<EpochSyncDoneToken> {
+        let mut guard = self.lock();
+        let state = guard.as_ref()?;
         if state.pending_shards.is_empty() && no_other_sync_running {
             return guard.take().map(|state| state.token);
         }
@@ -237,20 +264,51 @@ mod tests {
         // task map as empty.
         assert!(
             attestation
-                .record_shard_synced(ShardIndex(7), true)
+                .record_shard_synced(ShardIndex(7), 5, true)
                 .is_none()
         );
 
         // The new shards complete; the last one consumes the token.
         assert!(
             attestation
-                .record_shard_synced(ShardIndex(1), false)
+                .record_shard_synced(ShardIndex(1), 8, false)
                 .is_none()
         );
         let token = attestation
-            .record_shard_synced(ShardIndex(2), true)
+            .record_shard_synced(ShardIndex(2), 8, true)
             .expect("last registered shard should consume the token");
         assert_eq!(token.epoch(), 8);
+    }
+
+    #[test]
+    fn regained_shard_stale_completion_does_not_satisfy_registration() {
+        // A shard lost and re-gained can have a still-running sync from an earlier epoch. Its
+        // completion carries only the old epoch's data, so it must not count toward the new
+        // registration; a sync targeting the token's epoch must complete the shard.
+        let attestation = ShardSyncAttestation::default();
+        attestation.set(EpochSyncDoneToken::new_for_epoch(8), [ShardIndex(1)]);
+
+        assert!(
+            attestation
+                .record_shard_synced(ShardIndex(1), 5, true)
+                .is_none()
+        );
+        let token = attestation
+            .record_shard_synced(ShardIndex(1), 8, true)
+            .expect("the current-epoch sync should complete the registration");
+        assert_eq!(token.epoch(), 8);
+    }
+
+    #[test]
+    fn idle_registration_can_be_taken_back() {
+        let attestation = ShardSyncAttestation::default();
+        attestation.set(EpochSyncDoneToken::new_for_epoch(8), []);
+        assert!(attestation.take_if_complete(false).is_none());
+        let token = attestation
+            .take_if_complete(true)
+            .expect("an idle registration should be reclaimable");
+        assert_eq!(token.epoch(), 8);
+        assert!(attestation.take_if_complete(true).is_none());
     }
 
     #[test]
@@ -262,12 +320,12 @@ mod tests {
 
         assert!(
             attestation
-                .record_shard_synced(ShardIndex(1), false)
+                .record_shard_synced(ShardIndex(1), 8, false)
                 .is_none()
         );
         // The draining old-epoch task finishes last and consumes the token for the new epoch.
         let token = attestation
-            .record_shard_synced(ShardIndex(7), true)
+            .record_shard_synced(ShardIndex(7), 5, true)
             .expect("final completion should consume the token");
         assert_eq!(token.epoch(), 8);
     }
@@ -280,12 +338,12 @@ mod tests {
 
         assert!(
             attestation
-                .record_shard_synced(ShardIndex(1), true)
+                .record_shard_synced(ShardIndex(1), 8, true)
                 .is_none()
         );
         assert!(
             attestation
-                .record_shard_synced(ShardIndex(2), true)
+                .record_shard_synced(ShardIndex(2), 8, true)
                 .is_some()
         );
     }
@@ -297,7 +355,7 @@ mod tests {
         attestation.clear();
         assert!(
             attestation
-                .record_shard_synced(ShardIndex(1), true)
+                .record_shard_synced(ShardIndex(1), 8, true)
                 .is_none()
         );
     }

@@ -474,6 +474,7 @@ impl EpochChangeExecutor {
             in_previous_committee: committees
                 .previous_committee()
                 .is_some_and(|committee| committee.contains(public_key)),
+            has_ongoing_shard_syncs: self.shard_sync_handler.has_sync_in_progress(),
             shards: plan::ShardDiff {
                 gained: shard_diff_calculator
                     .gained_shards_from_prev_epoch()
@@ -600,10 +601,11 @@ impl EpochChangeExecutor {
         };
 
         // Sections 1-3 run inside the epoch-change critical section (entered by the caller).
-        let (restart_recovery_if_completed_concurrently, finisher_attestation) = self
+        let restart_recovery_if_completed_concurrently = self
             .apply_node_status_changes(&execution_info, event)
             .await?;
-        self.apply_shard_changes(&execution_info, &committees, shard_map_lock, event)
+        let finisher_attestation = self
+            .apply_shard_changes(&execution_info, &committees, shard_map_lock, event)
             .await?;
         self.apply_recovery_action(&execution_info, restart_recovery_if_completed_concurrently)
             .await?;
@@ -627,22 +629,21 @@ impl EpochChangeExecutor {
     /// Section 1 of applying an epoch-change plan: node status changes.
     ///
     /// Performs the recovery-task bookkeeping that must precede any status write (aborting a
-    /// stale task, detecting a concurrently completed one), the status transitions that must
-    /// precede shard creation (`Standby` and the `RecoveryInProgress` target), and the routing
-    /// of the `epoch_sync_done` attestation token to the owner named in the plan.
+    /// stale task, detecting a concurrently completed one) and the status transitions that
+    /// must precede shard creation (`Standby` and the `RecoveryInProgress` target).
     ///
     /// The `RecoverMetadata` transition is the one status write that does *not* happen here: it
     /// must be ordered between shard storage creation and the start of the shard syncs, and is
-    /// therefore performed by [`Self::apply_shard_changes`].
+    /// therefore performed by [`Self::apply_shard_changes`] — as is the routing of the
+    /// `epoch_sync_done` attestation, which must be ordered after the lost shards are locked.
     ///
     /// Returns whether the recovery task completed concurrently (in which case the recovery
-    /// action must start a new task) and the attestation token to hand to the finisher, if the
-    /// finisher is the attestation owner.
+    /// action must start a new task).
     async fn apply_node_status_changes(
         &self,
         execution_info: &plan::EpochChangeExecutionInfo,
         event: &EpochChangeStart,
-    ) -> anyhow::Result<(bool, Option<EpochSyncDoneToken>)> {
+    ) -> anyhow::Result<bool> {
         // Recovery-task bookkeeping that must precede the status writes below.
         let mut restart_recovery_if_completed_concurrently = false;
         match execution_info.recovery {
@@ -710,47 +711,7 @@ impl EpochChangeExecutor {
             sui_macros::fail_point!("fail_point_shard_changes_in_new_epoch_while_recovering");
         }
 
-        // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand it
-        // to the owner named in the plan, invalidating any token or instruction held by the
-        // other components. This runs inside the critical section (for recovery-owned
-        // attestations, the instruction placement is thereby atomic with the target advancement
-        // above) and before any shard sync is started (so a completing sync cannot miss its
-        // token). The recovery task receives a completion instruction bundling the status
-        // transition it must perform on completion with the attestation, so the two cannot
-        // diverge.
-        let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
-        let mut finisher_attestation = None;
-        match execution_info.sync_done_owner {
-            plan::EpochSyncDoneAttestationOwner::Finisher => {
-                self.shard_sync_handler.clear_epoch_sync_done_token();
-                self.node_recovery_handler.clear_completion_instruction();
-                finisher_attestation = Some(token);
-            }
-            plan::EpochSyncDoneAttestationOwner::ShardSync => {
-                // The token is registered together with the shards it attests for, before their
-                // syncs are started: a draining sync task from an earlier epoch can therefore
-                // never consume it while the new shards are still unsynced.
-                let new_shards = execution_info.new_shards.as_ref().expect(
-                    "the planner assigns the attestation to shard sync only with new shards",
-                );
-                self.node_recovery_handler.clear_completion_instruction();
-                self.shard_sync_handler
-                    .set_epoch_sync_done_token(token, new_shards.shards.iter().copied());
-            }
-            plan::EpochSyncDoneAttestationOwner::RecoveryTask => {
-                self.shard_sync_handler.clear_epoch_sync_done_token();
-                self.node_recovery_handler
-                    .set_completion_instruction(CompletionInstruction::new(
-                        NodeStatus::Active,
-                        Some(token),
-                    ));
-            }
-        }
-
-        Ok((
-            restart_recovery_if_completed_concurrently,
-            finisher_attestation,
-        ))
+        Ok(restart_recovery_if_completed_concurrently)
     }
 
     /// Section 2 of applying an epoch-change plan: shard management.
@@ -762,14 +723,21 @@ impl EpochChangeExecutor {
     /// This section also performs the `RecoverMetadata` status write, as an exception to the
     /// "status changes happen in section 1" rule: the write must be ordered after shard storage
     /// creation (a restart observing `RecoverMetadata` assumes all shard storage exists) and
-    /// before the shard syncs start.
+    /// before the shard syncs start. It likewise routes the `epoch_sync_done` attestation,
+    /// whose ordering is load-bearing in both directions: after the lost shards are locked (so
+    /// no attestation — including the fast path for an already-active gained shard on event
+    /// replay — can fire while the node still accepts writes for shards it lost), and before
+    /// the shard syncs start (so a completing sync cannot miss its token).
+    ///
+    /// Returns the attestation token to hand to the finisher, if the finisher is the
+    /// attestation owner (or if shard sync's registration turned out to be already complete).
     async fn apply_shard_changes(
         &self,
         execution_info: &plan::EpochChangeExecutionInfo,
         committees: &ActiveCommittees,
         shard_map_lock: StorageShardLock,
         event: &EpochChangeStart,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Option<EpochSyncDoneToken>> {
         // Create storage for the newly assigned shards. Note that the shard map lock is
         // released when creation completes (or here, if there are no new shards).
         if let Some(new_shards) = &execution_info.new_shards {
@@ -829,16 +797,11 @@ impl EpochChangeExecutor {
                 ));
         }
 
-        // Start syncing the new (gained) shards from their previous owners.
-        if let Some(new_shards) = &execution_info.new_shards
-            && new_shards.fill == plan::ShardFill::ShardSync
-        {
-            self.shard_sync_handler
-                .start_sync_shards(new_shards.shards.clone())
-                .await?;
-        }
-
-        // Lock the shards that moved out, so that they do not accept any more writes.
+        // Lock the shards that moved out, so that they do not accept any more writes. This
+        // must precede the attestation routing and the sync starts below: an attestation may
+        // fire as soon as the token is placed (for example, via the already-active fast path
+        // when re-processing the event after a crash), and it must never fire while the node
+        // still accepts writes for shards it no longer owns.
         for shard_id in &execution_info.lock {
             let Some(shard_storage) = self.inner.storage.shard_storage(*shard_id).await else {
                 tracing::info!("skipping lost shard during epoch change as it is not stored");
@@ -855,7 +818,63 @@ impl EpochChangeExecutor {
                 .context("failed to lock shard")?;
         }
 
-        Ok(())
+        // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand
+        // it to the owner named in the plan, invalidating any token or instruction held by
+        // the other components. This runs inside the critical section (for recovery-owned
+        // attestations, the instruction placement is thereby atomic with the target
+        // advancement in section 1), after the lost shards are locked, and before any shard
+        // sync is started. The recovery task receives a completion instruction bundling the
+        // status transition it must perform on completion with the attestation, so the two
+        // cannot diverge.
+        let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
+        let mut finisher_attestation = None;
+        match execution_info.sync_done_owner {
+            plan::EpochSyncDoneAttestationOwner::Finisher => {
+                self.shard_sync_handler.clear_epoch_sync_done_token();
+                self.node_recovery_handler.clear_completion_instruction();
+                finisher_attestation = Some(token);
+            }
+            plan::EpochSyncDoneAttestationOwner::ShardSync => {
+                // The token is registered together with the shards it attests for, before
+                // their syncs are started: a draining sync task from an earlier epoch can
+                // therefore never consume it while the new shards are still unsynced. When
+                // no shards were gained (shard sync owns the attestation because syncs from
+                // earlier epochs are still draining), those syncs may have finished in the
+                // meantime — leaving no future completion to consume the token — so an idle
+                // registration is taken back and handed to the finisher instead.
+                self.node_recovery_handler.clear_completion_instruction();
+                let pending_shards = execution_info
+                    .new_shards
+                    .as_ref()
+                    .map(|new_shards| new_shards.shards.clone())
+                    .unwrap_or_default();
+                self.shard_sync_handler
+                    .set_epoch_sync_done_token(token, pending_shards);
+                finisher_attestation = self
+                    .shard_sync_handler
+                    .try_take_idle_epoch_sync_attestation()
+                    .await;
+            }
+            plan::EpochSyncDoneAttestationOwner::RecoveryTask => {
+                self.shard_sync_handler.clear_epoch_sync_done_token();
+                self.node_recovery_handler
+                    .set_completion_instruction(CompletionInstruction::new(
+                        NodeStatus::Active,
+                        Some(token),
+                    ));
+            }
+        }
+
+        // Start syncing the new (gained) shards from their previous owners.
+        if let Some(new_shards) = &execution_info.new_shards
+            && new_shards.fill == plan::ShardFill::ShardSync
+        {
+            self.shard_sync_handler
+                .start_sync_shards(new_shards.shards.clone())
+                .await?;
+        }
+
+        Ok(finisher_attestation)
     }
 
     /// Section 3 of applying an epoch-change plan: recovery-task handling.
