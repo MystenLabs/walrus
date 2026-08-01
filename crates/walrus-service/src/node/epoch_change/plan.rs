@@ -127,16 +127,23 @@ pub(crate) enum ShardFill {
     ForceActive,
 }
 
+/// The shards newly assigned to the node in this epoch change: their storage is created, and
+/// their contents are then brought up to date by the described fill method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct NewShards {
+    /// The shards to create storage for.
+    pub shards: Vec<ShardIndex>,
+    /// How the created shards are brought up to date.
+    pub fill: ShardFill,
+}
+
 /// The shard- and recovery-related work to apply for this epoch change.
 #[derive(Debug, Clone)]
 pub(crate) struct ShardTransition {
     /// The node-status transition to perform, if any.
     pub status: Option<StatusTransition>,
-    /// Shard storage to create, brought up to date as described by
-    /// [`fill`][Self::fill].
-    pub create: Vec<ShardIndex>,
-    /// How the created shards are brought up to date.
-    pub fill: ShardFill,
+    /// The shards newly assigned to the node, if any.
+    pub new_shards: Option<NewShards>,
     /// Shards to lock against further writes because they moved to another node.
     pub lock: Vec<ShardIndex>,
     /// Shards to remove in the background.
@@ -209,8 +216,10 @@ fn plan_while_catching_up(inputs: &PlanInputs) -> EpochChangePlan {
     // assignment history while catching up: recover all owned shards per blob.
     EpochChangePlan::Apply(ShardTransition {
         status: Some(StatusTransition::RecoveryInProgress),
-        create: inputs.shards.all_owned.clone(),
-        fill: ShardFill::ForceActive,
+        new_shards: Some(NewShards {
+            shards: inputs.shards.all_owned.clone(),
+            fill: ShardFill::ForceActive,
+        }),
         lock: inputs.shards.lost.clone(),
         remove: inputs.shards.removed.clone(),
         recovery: RecoveryAction::StartFresh(inputs.event_epoch),
@@ -260,8 +269,10 @@ fn plan_while_in_sync(inputs: &PlanInputs) -> EpochChangePlan {
 fn shard_sync_transition(inputs: &PlanInputs, status: Option<StatusTransition>) -> ShardTransition {
     ShardTransition {
         status,
-        create: inputs.shards.gained.clone(),
-        fill: ShardFill::ShardSync,
+        new_shards: (!inputs.shards.gained.is_empty()).then(|| NewShards {
+            shards: inputs.shards.gained.clone(),
+            fill: ShardFill::ShardSync,
+        }),
         lock: inputs.shards.lost.clone(),
         remove: inputs.shards.removed.clone(),
         recovery: RecoveryAction::None,
@@ -303,6 +314,13 @@ mod tests {
                 all_owned: shard_ids(&[0, 1, 2]),
             },
         }
+    }
+
+    fn new_shards(ids: &[u16], fill: ShardFill) -> Option<NewShards> {
+        Some(NewShards {
+            shards: shard_ids(ids),
+            fill,
+        })
     }
 
     fn expect_apply(plan: EpochChangePlan) -> ShardTransition {
@@ -363,8 +381,10 @@ mod tests {
         };
         let transition = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(transition.status, Some(StatusTransition::RecoverMetadata));
-        assert_eq!(transition.create, shard_ids(&[1, 2]));
-        assert_eq!(transition.fill, ShardFill::ShardSync);
+        assert_eq!(
+            transition.new_shards,
+            new_shards(&[1, 2], ShardFill::ShardSync)
+        );
         assert_eq!(transition.lock, shard_ids(&[3]));
         assert_eq!(transition.remove, shard_ids(&[4]));
         assert_eq!(transition.recovery, RecoveryAction::None);
@@ -383,8 +403,10 @@ mod tests {
             transition.status,
             Some(StatusTransition::RecoveryInProgress)
         );
-        assert_eq!(transition.create, shard_ids(&[0, 1, 2]));
-        assert_eq!(transition.fill, ShardFill::ForceActive);
+        assert_eq!(
+            transition.new_shards,
+            new_shards(&[0, 1, 2], ShardFill::ForceActive)
+        );
         assert_eq!(transition.lock, shard_ids(&[3]));
         assert_eq!(transition.remove, shard_ids(&[4]));
         assert_eq!(transition.recovery, RecoveryAction::StartFresh(5));
@@ -395,8 +417,10 @@ mod tests {
     fn in_sync_member_with_gained_shards_starts_shard_sync() {
         let transition = expect_apply(plan_epoch_change(&base_inputs()));
         assert_eq!(transition.status, None);
-        assert_eq!(transition.create, shard_ids(&[1, 2]));
-        assert_eq!(transition.fill, ShardFill::ShardSync);
+        assert_eq!(
+            transition.new_shards,
+            new_shards(&[1, 2], ShardFill::ShardSync)
+        );
         assert_eq!(transition.recovery, RecoveryAction::None);
         assert_eq!(transition.sync_done_owner, AttestationOwner::ShardSync);
     }
@@ -414,7 +438,7 @@ mod tests {
         };
         let transition = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(transition.status, None);
-        assert!(transition.create.is_empty());
+        assert!(transition.new_shards.is_none());
         assert_eq!(transition.sync_done_owner, AttestationOwner::Finisher);
     }
 
@@ -447,8 +471,10 @@ mod tests {
         };
         let transition = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(transition.status, Some(StatusTransition::RecoverMetadata));
-        assert_eq!(transition.create, shard_ids(&[1, 2]));
-        assert_eq!(transition.fill, ShardFill::ShardSync);
+        assert_eq!(
+            transition.new_shards,
+            new_shards(&[1, 2], ShardFill::ShardSync)
+        );
         assert_eq!(transition.sync_done_owner, AttestationOwner::ShardSync);
     }
 
@@ -476,8 +502,10 @@ mod tests {
             transition.status,
             Some(StatusTransition::RecoveryInProgress)
         );
-        assert_eq!(transition.create, shard_ids(&[1, 2]));
-        assert_eq!(transition.fill, ShardFill::ShardSync);
+        assert_eq!(
+            transition.new_shards,
+            new_shards(&[1, 2], ShardFill::ShardSync)
+        );
         assert_eq!(transition.recovery, RecoveryAction::EnsureRunning(5));
         assert_eq!(transition.sync_done_owner, AttestationOwner::RecoveryTask);
     }

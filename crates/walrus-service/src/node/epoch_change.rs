@@ -490,12 +490,12 @@ impl StorageNode {
     ///    detecting a concurrently completed one).
     /// 2. Status transitions that must precede shard creation (`Standby`,
     ///    `RecoveryInProgress`).
-    /// 3. Shard storage creation (consumes the shard map lock).
-    /// 4. Force-setting created shards to `Active`, when the plan fills them via node recovery
+    /// 3. Storage creation for the newly assigned shards (consumes the shard map lock).
+    /// 4. Force-setting the new shards to `Active`, when the plan fills them via node recovery
     ///    ([`ShardFill::ForceActive`][plan::ShardFill::ForceActive]).
     /// 5. The `RecoverMetadata` status transition (must follow creation: a restart observing
     ///    `RecoverMetadata` assumes all shard storage exists).
-    /// 6. Starting shard syncs, when the plan fills the created shards via shard sync
+    /// 6. Starting shard syncs, when the plan fills the new shards via shard sync
     ///    ([`ShardFill::ShardSync`][plan::ShardFill::ShardSync]).
     /// 7. Locking shards that moved to other nodes.
     /// 8. The recovery action.
@@ -629,27 +629,29 @@ impl StorageNode {
             status_guard = None;
         }
 
-        // Step 3: create shard storage. Note that the shard map lock is released when creation
-        // completes (or here, if there is nothing to create).
-        if !transition.create.is_empty() {
+        // Step 3: create storage for the newly assigned shards. Note that the shard map lock is
+        // released when creation completes (or here, if there are no new shards).
+        if let Some(new_shards) = &transition.new_shards {
             assert!(
                 committees
                     .current_committee()
                     .contains(self.inner.public_key())
             );
             self.inner
-                .create_storage_for_shards_in_background(transition.create.clone(), shard_map_lock)
+                .create_storage_for_shards_in_background(new_shards.shards.clone(), shard_map_lock)
                 .await?;
         } else {
             drop(shard_map_lock);
         }
 
-        // Step 4: force-set the created shards to `Active` when they are filled via node
-        // recovery (full-recovery path). The node's local shards may be in outdated statuses
-        // from multiple epochs ago; node recovery will recover all the missing certified blobs
-        // in these shards in a crash-tolerant manner.
-        if transition.fill == plan::ShardFill::ForceActive {
-            for shard in &transition.create {
+        // Step 4: force-set the new shards to `Active` when they are filled via node recovery
+        // (full-recovery path). The node's local shards may be in outdated statuses from
+        // multiple epochs ago; node recovery will recover all the missing certified blobs in
+        // these shards in a crash-tolerant manner.
+        if let Some(new_shards) = &transition.new_shards
+            && new_shards.fill == plan::ShardFill::ForceActive
+        {
+            for shard in &new_shards.shards {
                 self.inner
                     .storage
                     .shard_storage(*shard)
@@ -676,10 +678,12 @@ impl StorageNode {
             self.inner.set_node_status(NodeStatus::RecoverMetadata)?;
         }
 
-        // Step 6: start syncing the created (gained) shards from their previous owners.
-        if transition.fill == plan::ShardFill::ShardSync && !transition.create.is_empty() {
+        // Step 6: start syncing the new (gained) shards from their previous owners.
+        if let Some(new_shards) = &transition.new_shards
+            && new_shards.fill == plan::ShardFill::ShardSync
+        {
             self.shard_sync_handler
-                .start_sync_shards(transition.create.clone())
+                .start_sync_shards(new_shards.shards.clone())
                 .await?;
         }
 
