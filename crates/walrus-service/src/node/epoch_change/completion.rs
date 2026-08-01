@@ -45,9 +45,12 @@ impl CompletionInstruction {
     /// Applies the instructed status transition, consuming the instruction, and returns the
     /// attestation to send, if any.
     ///
-    /// The status write must happen inside the epoch-change critical section; the returned
-    /// attestation is a network call and should be sent after leaving it (exclusivity then
-    /// rides in the consumed token, not the critical section).
+    /// Taking the instruction from its slot and applying it must both happen inside a single
+    /// occupancy of the epoch-change critical section: clearing a slot only revokes an
+    /// instruction that has not been taken yet, so a take outside the critical section could
+    /// apply a status that a concurrent transition has just superseded. The returned
+    /// attestation is a network call and should be sent after leaving the critical section
+    /// (exclusivity then rides in the consumed token, not the critical section).
     pub(crate) fn apply_status(
         self,
         node: &StorageNodeInner,

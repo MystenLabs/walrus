@@ -262,7 +262,14 @@ impl ShardSyncHandler {
         // time, during which a concurrent path (for example, entering recovery or dropping out
         // of the committee at an epoch change) may have superseded it — such a path revokes the
         // instruction, and this task then finishes without touching the node status.
+        //
+        // The take and the status write happen inside the epoch-change critical section:
+        // clearing the slot only revokes an instruction that has not been taken yet, so taking
+        // and applying must be atomic with respect to a superseding transition. This mirrors
+        // the recovery task's completion in node_recovery.rs.
+        let critical_section_guard = self.node.epoch_change_critical_section.enter().await;
         if let Some(instruction) = self.metadata_recovery_completion.take() {
+            sui_macros::fail_point_async!("fail_point_metadata_completion_in_critical_section");
             let attestation = instruction
                 .apply_status(&self.node)
                 .expect("failed to apply the metadata-recovery completion status");
@@ -271,6 +278,7 @@ impl ShardSyncHandler {
                 "metadata recovery does not own the epoch sync done attestation"
             );
         }
+        drop(critical_section_guard);
     }
 
     /// Syncs the certified blob metadata before the current epoch.

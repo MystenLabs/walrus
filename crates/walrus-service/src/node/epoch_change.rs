@@ -36,13 +36,15 @@ impl Drop for AbortOnDrop {
 /// The critical section serializing node state transitions during an epoch change.
 ///
 /// Entered by the `EpochChangeStart` handler for the whole transition (node status changes,
-/// shard changes, and recovery-task handling), and by the completion of long-running tasks that
-/// modify recovery-related node state (the node recovery task; see
-/// `complete_recovery_once_shards_synced` in node_recovery.rs). This guarantees that a
-/// completing recovery task either observes an epoch change's full transition — the advanced
-/// recovery target together with the newly started shard syncs and the locked shards — or
-/// completes entirely before it (which the epoch change detects and handles by starting a new
-/// task).
+/// shard changes, and recovery-task handling), by the lag-detection path when entering recovery
+/// mode, and by the completions of the long-running tasks that modify node status — the node
+/// recovery task (see `complete_recovery_once_shards_synced` in node_recovery.rs) and the
+/// metadata-recovery task (see `sync_shards_task` in shard_sync.rs). This guarantees that a
+/// completing task either observes a transition's full effect — for an epoch change, the
+/// advanced recovery target together with the newly started shard syncs and the locked shards —
+/// or completes entirely before it. In particular, a task takes and applies its completion
+/// instruction inside one critical-section occupancy, so a superseding transition either
+/// happens entirely before the completion or finds the instruction already revoked.
 ///
 /// Lock ordering: the critical section must be entered *before* acquiring the storage shard map
 /// lock. The recovery task's completion reads shard statuses (which takes the shard map read
@@ -528,7 +530,7 @@ impl EpochChangeExecutor {
                 tracing::info!("storage node entering recovery mode during epoch change start");
                 sui_macros::fail_point!("fail-point-enter-recovery-mode");
 
-                self.enter_recovery_mode().await?;
+                self.enter_recovery_mode_in_critical_section().await?;
 
                 self.inner
                     .committee_service
@@ -991,9 +993,22 @@ impl EpochChangeExecutor {
         }
     }
 
-    /// Enters recovery mode.
+    /// Enters recovery mode from outside the epoch-change flow (the lag-detection path).
     /// This function should only be called when the node is lagging behind.
-    async fn enter_recovery_mode(&self) -> anyhow::Result<()> {
+    ///
+    /// The transition runs inside the epoch-change critical section, so that revoking the
+    /// long-running tasks' completion instructions is atomic with the status change: a task
+    /// that has already taken its instruction (inside the critical section) applies it before
+    /// this transition runs, and a task that has not finds the slot empty afterwards.
+    pub(super) async fn enter_recovery_mode(&self) -> anyhow::Result<()> {
+        let _critical_section_guard = self.inner.epoch_change_critical_section.enter().await;
+        self.enter_recovery_mode_in_critical_section().await
+    }
+
+    /// Enters recovery mode. The caller must hold the epoch-change critical section (the
+    /// epoch-change flow enters it for the whole transition; other callers use
+    /// [`Self::enter_recovery_mode`]).
+    async fn enter_recovery_mode_in_critical_section(&self) -> anyhow::Result<()> {
         self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
 
         // Entering recovery supersedes the pending completions of long-running tasks: neither a

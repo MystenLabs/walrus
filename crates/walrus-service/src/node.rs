@@ -8856,6 +8856,80 @@ mod tests {
             Ok(())
         }
 
+        // Tests that taking and applying the metadata-recovery completion instruction is atomic
+        // with respect to transitions that supersede it: a concurrent attempt to enter recovery
+        // mode must serialize behind the completion's critical section, rather than interleave
+        // between the take and the status write (which would apply `Active` over the newer
+        // status — an illegal transition that panics in simtest builds).
+        #[walrus_simtest]
+        async fn sync_shard_metadata_completion_is_atomic_with_entering_recovery() -> TestResult {
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            let (cluster, _blob_details, storage_dst, _shard_storage_set) =
+                setup_cluster_for_shard_sync_tests(None, None, false).await?;
+
+            // Pause the metadata-recovery task inside the critical section, between taking its
+            // completion instruction and applying the status.
+            let completion_entered = Arc::new(Notify::new());
+            let completion_entered_clone = completion_entered.clone();
+            let release_completion = Arc::new(AtomicBool::new(false));
+            let release_completion_clone = release_completion.clone();
+            register_fail_point_async(
+                "fail_point_metadata_completion_in_critical_section",
+                move || {
+                    let entered = completion_entered_clone.clone();
+                    let release = release_completion_clone.clone();
+                    async move {
+                        entered.notify_one();
+                        while !release.load(Ordering::SeqCst) {
+                            tokio::time::sleep(Duration::from_millis(10)).await;
+                        }
+                    }
+                },
+            );
+
+            storage_dst.clear_metadata_in_test()?;
+            storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
+
+            let shard_sync_handler = &cluster.nodes[1].storage_node.shard_sync_handler;
+            // Setting `RecoverMetadata` authorizes the metadata-recovery task's completion, as
+            // the epoch-change executor does in production.
+            shard_sync_handler.set_metadata_recovery_completion(
+                epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+            );
+            shard_sync_handler
+                .start_sync_shards(vec![ShardIndex(0)])
+                .await?;
+
+            // Wait until the task is parked inside the critical section, instruction in hand.
+            tokio::time::timeout(Duration::from_secs(30), completion_entered.notified())
+                .await
+                .map_err(|_| anyhow::anyhow!("metadata completion did not start"))?;
+
+            // Concurrently enter recovery mode (the lag-detection path).
+            let storage_node = cluster.nodes[1].storage_node.clone();
+            let enter_recovery =
+                tokio::spawn(async move { storage_node.enter_recovery_mode().await });
+
+            // While the completion holds the critical section, entering recovery mode must not
+            // proceed, and the node status must be untouched.
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            assert!(!enter_recovery.is_finished());
+            assert_eq!(storage_dst.node_status()?, NodeStatus::RecoverMetadata);
+
+            // Release the completion: it applies `Active` and leaves the critical section, and
+            // only then does the queued transition to `RecoveryCatchUp` run. Both transitions
+            // are legal; any interleaving would have panicked on an illegal one.
+            release_completion.store(true, Ordering::SeqCst);
+            enter_recovery.await??;
+            assert_eq!(storage_dst.node_status()?, NodeStatus::RecoveryCatchUp);
+
+            wait_until_no_sync_tasks(shard_sync_handler).await?;
+            clear_fail_point("fail_point_metadata_completion_in_critical_section");
+
+            Ok(())
+        }
+
         #[walrus_simtest]
         async fn finish_epoch_change_start_should_not_block_event_processing() -> TestResult {
             walrus_test_utils::init_tracing();
