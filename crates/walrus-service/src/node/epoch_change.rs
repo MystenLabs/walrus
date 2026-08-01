@@ -321,18 +321,12 @@ impl StorageNode {
             );
         }
 
-        // Enter the epoch-change critical section (see [`EpochChangeCriticalSection`]; it must
-        // be entered before the shard map lock), then lock the read access to the shard map
-        // until all the new shards are created.
-        let critical_section_guard = self.inner.epoch_change_critical_section.enter().await;
-        let shard_map_lock = self.inner.storage.lock_shards().await;
-
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
         // to bring the node state to the next epoch. `execute_epoch_change` ends by spawning
         // the finisher task (shard removal + `epoch_sync_done` + `mark_as_complete`), so the
         // finisher is guaranteed to fire only after phase 1 succeeded.
         self.epoch_change_executor
-            .execute_epoch_change(event_handle, event, shard_map_lock, critical_section_guard)
+            .execute_epoch_change(event_handle, event)
             .await?;
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
@@ -429,17 +423,22 @@ impl EpochChangeExecutor {
     ///    recovery action, and which component attests `epoch_sync_done`.
     /// 3. *Apply* ([`Self::apply_epoch_change_plan`]): execute the plan in one linear pass.
     ///
-    /// `critical_section_guard` is the [`EpochChangeCriticalSection`] guard, entered by the
-    /// caller before the shard map lock; the apply step holds it across the whole transition
-    /// and releases it before the completion hand-off.
-    async fn execute_epoch_change(
+    /// The whole transition runs inside the [`EpochChangeCriticalSection`], entered here before
+    /// the shard map lock; the apply step holds the guard across the transition and releases it
+    /// before the completion hand-off.
+    pub(super) async fn execute_epoch_change(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
-        shard_map_lock: StorageShardLock,
-        critical_section_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> anyhow::Result<()> {
-        let epoch_change_status = self.reconcile_committee_for_epoch_change(event).await?;
+        // Enter the epoch-change critical section (see [`EpochChangeCriticalSection`]; it must
+        // be entered before the shard map lock), then lock the read access to the shard map
+        // until all the new shards are created.
+        let critical_section_guard = self.inner.epoch_change_critical_section.enter().await;
+        let shard_map_lock = self.inner.storage.lock_shards().await;
+
+        let node_status_at_beginning_of_epoch_change =
+            self.reconcile_committee_for_epoch_change(event).await?;
 
         // Clean up work that is pending on blobs no longer certified in the new epoch: notify
         // all the tasks that may be waiting on such blobs, and cancel their in-progress blob
@@ -467,7 +466,7 @@ impl EpochChangeExecutor {
         let inputs = plan::PlanInputs {
             event_epoch: event.epoch,
             committee_epoch: committees.epoch(),
-            epoch_change_status,
+            node_status_at_beginning_of_epoch_change,
             node_status: self.inner.storage.node_status()?,
             in_current_committee: committees.current_committee().contains(public_key),
             in_previous_committee: committees
@@ -509,19 +508,21 @@ impl EpochChangeExecutor {
     async fn reconcile_committee_for_epoch_change(
         &self,
         event: &EpochChangeStart,
-    ) -> anyhow::Result<plan::EpochChangeStatus> {
+    ) -> anyhow::Result<plan::NodeStatusAtBeginningOfEpochChange> {
         if self.inner.storage.node_status()?.is_catching_up() {
             self.inner
                 .committee_service
                 .begin_committee_change_to_latest_committee()
                 .await?;
-            return Ok(plan::EpochChangeStatus::CatchingUp);
+            return Ok(plan::NodeStatusAtBeginningOfEpochChange::CatchingUp);
         }
 
         match self.begin_committee_change(event.epoch).await? {
-            BeginCommitteeChangeAction::ExecuteEpochChange => Ok(plan::EpochChangeStatus::InSync),
+            BeginCommitteeChangeAction::ExecuteEpochChange => {
+                Ok(plan::NodeStatusAtBeginningOfEpochChange::InSync)
+            }
             BeginCommitteeChangeAction::SkipEpochChange => {
-                Ok(plan::EpochChangeStatus::AlreadyInProgress)
+                Ok(plan::NodeStatusAtBeginningOfEpochChange::AlreadyInProgress)
             }
             BeginCommitteeChangeAction::EnterRecoveryMode => {
                 tracing::info!("storage node entering recovery mode during epoch change start");
@@ -533,7 +534,7 @@ impl EpochChangeExecutor {
                     .committee_service
                     .begin_committee_change_to_latest_committee()
                     .await?;
-                Ok(plan::EpochChangeStatus::CatchingUp)
+                Ok(plan::NodeStatusAtBeginningOfEpochChange::CatchingUp)
             }
         }
     }
@@ -570,7 +571,7 @@ impl EpochChangeExecutor {
         shard_map_lock: StorageShardLock,
         critical_section_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> anyhow::Result<()> {
-        let transition = match epoch_change_plan {
+        let execution_info = match epoch_change_plan {
             plan::EpochChangePlan::Skip(reason) => {
                 tracing::info!(
                     walrus.epoch = event.epoch,
@@ -593,15 +594,16 @@ impl EpochChangeExecutor {
                 event_handle.mark_as_complete();
                 return Ok(());
             }
-            plan::EpochChangePlan::Apply(transition) => transition,
+            plan::EpochChangePlan::Apply(execution_info) => execution_info,
         };
 
         // Sections 1-3 run inside the epoch-change critical section (entered by the caller).
-        let (restart_recovery_if_completed_concurrently, finisher_attestation) =
-            self.apply_node_status_changes(&transition, event).await?;
-        self.apply_shard_changes(&transition, &committees, shard_map_lock, event)
+        let (restart_recovery_if_completed_concurrently, finisher_attestation) = self
+            .apply_node_status_changes(&execution_info, event)
             .await?;
-        self.apply_recovery_action(&transition, restart_recovery_if_completed_concurrently)
+        self.apply_shard_changes(&execution_info, &committees, shard_map_lock, event)
+            .await?;
+        self.apply_recovery_action(&execution_info, restart_recovery_if_completed_concurrently)
             .await?;
 
         // End of the critical section: the node's status, shards, and recovery task are
@@ -612,7 +614,7 @@ impl EpochChangeExecutor {
         self.hand_off_completion(
             event_handle,
             event,
-            &transition,
+            &execution_info,
             committees,
             finisher_attestation,
         );
@@ -636,12 +638,12 @@ impl EpochChangeExecutor {
     /// finisher is the attestation owner.
     async fn apply_node_status_changes(
         &self,
-        transition: &plan::ShardTransition,
+        execution_info: &plan::EpochChangeExecutionInfo,
         event: &EpochChangeStart,
     ) -> anyhow::Result<(bool, Option<EpochSyncDoneToken>)> {
         // Recovery-task bookkeeping that must precede the status writes below.
         let mut restart_recovery_if_completed_concurrently = false;
-        match transition.recovery {
+        match execution_info.recovery {
             plan::RecoveryAction::StartFresh(_) => {
                 // A recovery task from before the node started catching up may still be running.
                 // Such a task only scanned blobs certified before its own start epoch, and blob
@@ -676,7 +678,7 @@ impl EpochChangeExecutor {
         // recovery action). In particular, completion must not attest epoch sync done before
         // the lost shards are locked, as the node would still accept slivers for shards it no
         // longer owns.
-        match transition.status {
+        match execution_info.status {
             Some(plan::StatusTransition::Standby) => {
                 // The node is not in the current committee, and therefore from this epoch on it
                 // won't sync any blob metadata. In the case it becomes a committee member again,
@@ -699,7 +701,10 @@ impl EpochChangeExecutor {
             }
             Some(plan::StatusTransition::RecoverMetadata) | None => {}
         }
-        if matches!(transition.recovery, plan::RecoveryAction::EnsureRunning(_)) {
+        if matches!(
+            execution_info.recovery,
+            plan::RecoveryAction::EnsureRunning(_)
+        ) {
             sui_macros::fail_point!("fail_point_shard_changes_in_new_epoch_while_recovering");
         }
 
@@ -713,17 +718,24 @@ impl EpochChangeExecutor {
         // diverge.
         let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
         let mut finisher_attestation = None;
-        match transition.sync_done_owner {
-            plan::AttestationOwner::Finisher => {
+        match execution_info.sync_done_owner {
+            plan::EpochSyncDoneAttestationOwner::Finisher => {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
                 self.node_recovery_handler.clear_completion_instruction();
                 finisher_attestation = Some(token);
             }
-            plan::AttestationOwner::ShardSync => {
+            plan::EpochSyncDoneAttestationOwner::ShardSync => {
+                // The token is registered together with the shards it attests for, before their
+                // syncs are started: a draining sync task from an earlier epoch can therefore
+                // never consume it while the new shards are still unsynced.
+                let new_shards = execution_info.new_shards.as_ref().expect(
+                    "the planner assigns the attestation to shard sync only with new shards",
+                );
                 self.node_recovery_handler.clear_completion_instruction();
-                self.shard_sync_handler.set_epoch_sync_done_token(token);
+                self.shard_sync_handler
+                    .set_epoch_sync_done_token(token, new_shards.shards.iter().copied());
             }
-            plan::AttestationOwner::RecoveryTask => {
+            plan::EpochSyncDoneAttestationOwner::RecoveryTask => {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
                 self.node_recovery_handler
                     .set_completion_instruction(CompletionInstruction::new(
@@ -751,14 +763,14 @@ impl EpochChangeExecutor {
     /// before the shard syncs start.
     async fn apply_shard_changes(
         &self,
-        transition: &plan::ShardTransition,
+        execution_info: &plan::EpochChangeExecutionInfo,
         committees: &ActiveCommittees,
         shard_map_lock: StorageShardLock,
         event: &EpochChangeStart,
     ) -> anyhow::Result<()> {
         // Create storage for the newly assigned shards. Note that the shard map lock is
         // released when creation completes (or here, if there are no new shards).
-        if let Some(new_shards) = &transition.new_shards {
+        if let Some(new_shards) = &execution_info.new_shards {
             assert!(
                 committees
                     .current_committee()
@@ -775,7 +787,7 @@ impl EpochChangeExecutor {
         // (full-recovery path). The node's local shards may be in outdated statuses from
         // multiple epochs ago; node recovery will recover all the missing certified blobs in
         // these shards in a crash-tolerant manner.
-        if let Some(new_shards) = &transition.new_shards
+        if let Some(new_shards) = &execution_info.new_shards
             && new_shards.fill == plan::ShardFill::ForceActive
         {
             for shard in &new_shards.shards {
@@ -795,7 +807,7 @@ impl EpochChangeExecutor {
         // must also be set after creating storage for the new shards: a restart observing
         // `RecoverMetadata` assumes all the shards are created.
         if matches!(
-            transition.status,
+            execution_info.status,
             Some(plan::StatusTransition::RecoverMetadata)
         ) {
             tracing::info!(
@@ -816,7 +828,7 @@ impl EpochChangeExecutor {
         }
 
         // Start syncing the new (gained) shards from their previous owners.
-        if let Some(new_shards) = &transition.new_shards
+        if let Some(new_shards) = &execution_info.new_shards
             && new_shards.fill == plan::ShardFill::ShardSync
         {
             self.shard_sync_handler
@@ -825,7 +837,7 @@ impl EpochChangeExecutor {
         }
 
         // Lock the shards that moved out, so that they do not accept any more writes.
-        for shard_id in &transition.lock {
+        for shard_id in &execution_info.lock {
             let Some(shard_storage) = self.inner.storage.shard_storage(*shard_id).await else {
                 tracing::info!("skipping lost shard during epoch change as it is not stored");
                 continue;
@@ -847,10 +859,10 @@ impl EpochChangeExecutor {
     /// Section 3 of applying an epoch-change plan: recovery-task handling.
     async fn apply_recovery_action(
         &self,
-        transition: &plan::ShardTransition,
+        execution_info: &plan::EpochChangeExecutionInfo,
         restart_recovery_if_completed_concurrently: bool,
     ) -> anyhow::Result<()> {
-        match transition.recovery {
+        match execution_info.recovery {
             plan::RecoveryAction::StartFresh(target_epoch) => {
                 tracing::info!(
                     walrus.epoch = target_epoch,
@@ -891,12 +903,12 @@ impl EpochChangeExecutor {
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
-        transition: &plan::ShardTransition,
+        execution_info: &plan::EpochChangeExecutionInfo,
         committees: ActiveCommittees,
         finisher_attestation: Option<EpochSyncDoneToken>,
     ) {
-        let complete_directly = !matches!(transition.recovery, plan::RecoveryAction::None)
-            && transition.remove.is_empty();
+        let complete_directly = !matches!(execution_info.recovery, plan::RecoveryAction::None)
+            && execution_info.remove.is_empty();
         if complete_directly {
             event_handle.mark_as_complete();
         } else {
@@ -904,7 +916,7 @@ impl EpochChangeExecutor {
                 .start_finish_epoch_change_tasks(
                     event_handle,
                     event,
-                    transition.remove.clone(),
+                    execution_info.remove.clone(),
                     committees,
                     finisher_attestation,
                 );
