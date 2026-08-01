@@ -7386,6 +7386,14 @@ mod tests {
         if wipe_metadata_before_transfer_in_dst {
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
+            // Setting `RecoverMetadata` authorizes the metadata-recovery task's completion, as
+            // the epoch-change executor does in production.
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .set_metadata_recovery_completion(
+                    epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+                );
         }
 
         let shard_storage_src = cluster.nodes[0]
@@ -8558,6 +8566,12 @@ mod tests {
 
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .set_metadata_recovery_completion(
+                    epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+                );
 
             // Starts the shard syncing process in the new shard, which will fail at the specified
             // break index.
@@ -8644,6 +8658,12 @@ mod tests {
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
 
             let shard_sync_handler = &cluster.nodes[1].storage_node.shard_sync_handler;
+            // Setting `RecoverMetadata` authorizes the metadata-recovery task's completion, as
+            // the epoch-change executor does in production. A later epoch change that keeps the
+            // node in metadata recovery leaves the instruction in place.
+            shard_sync_handler.set_metadata_recovery_completion(
+                epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+            );
 
             // The node joins the committee and gains shard 0; metadata must be recovered first.
             shard_sync_handler
@@ -8727,6 +8747,12 @@ mod tests {
 
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
+            cluster.nodes[1]
+                .storage_node
+                .shard_sync_handler
+                .set_metadata_recovery_completion(
+                    epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+                );
 
             cluster.nodes[1]
                 .storage_node
@@ -8764,8 +8790,8 @@ mod tests {
         // Tests that the sync-shards task does not flip the node to `Active` if the node has
         // moved out of `RecoverMetadata` while the metadata recovery was in progress. Metadata
         // recovery can run for a long time, during which a concurrent path (for example,
-        // entering recovery) may change the node status; the task must re-read the status before
-        // the flip rather than reuse the value it read when it started.
+        // entering recovery) may change the node status; such a path revokes the task's
+        // completion instruction, and the task must then finish without touching the status.
         #[walrus_simtest]
         async fn sync_shard_recover_metadata_does_not_clobber_concurrent_status_change()
         -> TestResult {
@@ -8794,6 +8820,11 @@ mod tests {
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
 
             let shard_sync_handler = &cluster.nodes[1].storage_node.shard_sync_handler;
+            // Setting `RecoverMetadata` authorizes the metadata-recovery task's completion, as
+            // the epoch-change executor does in production.
+            shard_sync_handler.set_metadata_recovery_completion(
+                epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+            );
             shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
@@ -8804,11 +8835,14 @@ mod tests {
                 .map_err(|_| anyhow::anyhow!("metadata recovery did not start"))?;
 
             // Simulate a concurrent path moving the node out of `RecoverMetadata` while the
-            // metadata recovery task is still running.
+            // metadata recovery task is still running. Such a path (for example, entering
+            // recovery mode) also revokes the metadata-recovery completion instruction, which
+            // is what prevents the task from flipping the node back to `Active`.
             cluster.nodes[1]
                 .storage_node
                 .inner
                 .set_node_status_unchecked(NodeStatus::RecoveryCatchUp)?;
+            shard_sync_handler.clear_metadata_recovery_completion();
 
             // Release the paused metadata recovery and let the task finish.
             release_metadata_sync.store(true, Ordering::SeqCst);
