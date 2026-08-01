@@ -215,7 +215,7 @@ fn plan_while_catching_up(inputs: &PlanInputs) -> EpochChangePlan {
     if !inputs.in_previous_committee {
         // The node just became a new committee member: its gained shards are filled via shard
         // sync, preceded by metadata recovery.
-        return EpochChangePlan::Apply(shard_sync_execution_info(
+        return EpochChangePlan::Apply(epoch_change_execution_info(
             inputs,
             new_joiner_status(inputs),
         ));
@@ -248,7 +248,7 @@ fn plan_while_in_sync(inputs: &PlanInputs) -> EpochChangePlan {
         // `Standby` status and does not attest.
         return EpochChangePlan::Apply(EpochChangeExecutionInfo {
             status: Some(StatusTransition::Standby),
-            ..shard_sync_execution_info(inputs, None)
+            ..epoch_change_execution_info(inputs, None)
         });
     }
 
@@ -261,7 +261,7 @@ fn plan_while_in_sync(inputs: &PlanInputs) -> EpochChangePlan {
             status: Some(StatusTransition::RecoveryInProgress),
             recovery: RecoveryAction::EnsureRunning(inputs.event_epoch),
             sync_done_owner: EpochSyncDoneAttestationOwner::RecoveryTask,
-            ..shard_sync_execution_info(inputs, None)
+            ..epoch_change_execution_info(inputs, None)
         });
     }
 
@@ -271,11 +271,11 @@ fn plan_while_in_sync(inputs: &PlanInputs) -> EpochChangePlan {
     } else {
         None
     };
-    EpochChangePlan::Apply(shard_sync_execution_info(inputs, status))
+    EpochChangePlan::Apply(epoch_change_execution_info(inputs, status))
 }
 
 /// The common transition shape for nodes whose gained shards are filled via shard sync.
-fn shard_sync_execution_info(
+fn epoch_change_execution_info(
     inputs: &PlanInputs,
     status: Option<StatusTransition>,
 ) -> EpochChangeExecutionInfo {
