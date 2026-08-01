@@ -57,7 +57,9 @@ fi
 if [[ -z "$MSIM_WATCHDOG_TIMEOUT_MS" ]]; then
   export MSIM_WATCHDOG_TIMEOUT_MS=30000
 else
-  echo "Using MSIM_WATCHDOG_TIMEOUT_MS=$MSIM_WATCHDOG_TIMEOUT_MS from the environment"
+  # Avoid printing the variable name: scripts/simtest/simtest-run.sh greps the test logs for
+  # "TIMEOUT" to detect failures, and the literal name would trip that check.
+  echo "Using msim watchdog timeout of ${MSIM_WATCHDOG_TIMEOUT_MS}ms from the environment"
 fi
 
 rust_flags=( '"--cfg"' '"msim"' )
