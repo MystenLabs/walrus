@@ -691,6 +691,9 @@ pub struct StorageNodeInner {
     sliver_ref_cache: Cache<SliverRefCacheKey, Arc<RwLock<Weak<Sliver>>>>,
     #[cfg_attr(any(test, msim), allow(dead_code))]
     epoch_state_consistency_config: EpochStateConsistencyConfig,
+    // The critical section serializing node state transitions during an epoch change; see
+    // [`epoch_change::EpochChangeCriticalSection`].
+    epoch_change_critical_section: epoch_change::EpochChangeCriticalSection,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -890,6 +893,7 @@ impl StorageNode {
                 .max_capacity(config.sliver_reference_cache_max_entries)
                 .build(),
             epoch_state_consistency_config: config.epoch_state_consistency.clone(),
+            epoch_change_critical_section: epoch_change::EpochChangeCriticalSection::default(),
         });
 
         blocklist.start_refresh_task();

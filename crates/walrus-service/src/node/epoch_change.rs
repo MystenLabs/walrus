@@ -31,6 +31,31 @@ impl Drop for AbortOnDrop {
     }
 }
 
+/// The critical section serializing node state transitions during an epoch change.
+///
+/// Entered by the `EpochChangeStart` handler for the whole transition (node status changes,
+/// shard changes, and recovery-task handling), and by the completion of long-running tasks that
+/// modify recovery-related node state (the node recovery task; see
+/// `complete_recovery_once_shards_synced` in node_recovery.rs). This guarantees that a
+/// completing recovery task either observes an epoch change's full transition — the advanced
+/// recovery target together with the newly started shard syncs and the locked shards — or
+/// completes entirely before it (which the epoch change detects and handles by starting a new
+/// task).
+///
+/// Lock ordering: the critical section must be entered *before* acquiring the storage shard map
+/// lock. The recovery task's completion reads shard statuses (which takes the shard map read
+/// lock) while inside the critical section, so entering the critical section while holding the
+/// shard map lock deadlocks with it.
+#[derive(Debug, Default)]
+pub(crate) struct EpochChangeCriticalSection(tokio::sync::Mutex<()>);
+
+impl EpochChangeCriticalSection {
+    /// Enters the critical section, waiting until any other occupant has left it.
+    pub(crate) async fn enter(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.0.lock().await
+    }
+}
+
 /// The action to take when the node transitions to a new committee.
 #[derive(Debug)]
 pub enum BeginCommitteeChangeAction {
@@ -294,21 +319,17 @@ impl StorageNode {
             );
         }
 
-        // During epoch change, we need to lock the read access to shard map until all the new
-        // shards are created.
-        //
-        // Lock ordering: the recovery status mutex must be acquired before the shard map lock.
-        // The recovery task's completion attempt reads shard statuses while holding the status
-        // mutex, so acquiring the status mutex after the shard map lock (as the recovery-related
-        // epoch-change paths do) would deadlock with it.
-        let recovery_status_guard = self.node_recovery_handler.lock_status().await;
+        // Enter the epoch-change critical section (see [`EpochChangeCriticalSection`]; it must
+        // be entered before the shard map lock), then lock the read access to the shard map
+        // until all the new shards are created.
+        let critical_section_guard = self.inner.epoch_change_critical_section.enter().await;
         let shard_map_lock = self.inner.storage.lock_shards().await;
 
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
         // to bring the node state to the next epoch. `execute_epoch_change` ends by spawning
         // the finisher task (shard removal + `epoch_sync_done` + `mark_as_complete`), so the
         // finisher is guaranteed to fire only after phase 1 succeeded.
-        self.execute_epoch_change(event_handle, event, shard_map_lock, recovery_status_guard)
+        self.execute_epoch_change(event_handle, event, shard_map_lock, critical_section_guard)
             .await?;
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
@@ -364,15 +385,15 @@ impl StorageNode {
     ///    recovery action, and which component attests `epoch_sync_done`.
     /// 3. *Apply* ([`Self::apply_epoch_change_plan`]): execute the plan in one linear pass.
     ///
-    /// `status_guard` is the recovery status mutex guard, acquired by the caller before the shard
-    /// map lock (see the lock ordering comment at the acquisition site); the apply step holds it
-    /// across the recovery-related status transitions.
+    /// `critical_section_guard` is the [`EpochChangeCriticalSection`] guard, entered by the
+    /// caller before the shard map lock; the apply step holds it across the whole transition
+    /// and releases it before the completion hand-off.
     async fn execute_epoch_change(
         &self,
         event_handle: EventHandle,
         event: &EpochChangeStart,
         shard_map_lock: StorageShardLock,
-        status_guard: tokio::sync::MutexGuard<'_, ()>,
+        critical_section_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> anyhow::Result<()> {
         let epoch_change_status = self.reconcile_committee_for_epoch_change(event).await?;
 
@@ -430,7 +451,7 @@ impl StorageNode {
             epoch_change_plan,
             committees,
             shard_map_lock,
-            status_guard,
+            critical_section_guard,
         )
         .await
     }
@@ -512,7 +533,7 @@ impl StorageNode {
         epoch_change_plan: plan::EpochChangePlan,
         committees: ActiveCommittees,
         shard_map_lock: StorageShardLock,
-        status_guard: tokio::sync::MutexGuard<'_, ()>,
+        critical_section_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> anyhow::Result<()> {
         let transition = match epoch_change_plan {
             plan::EpochChangePlan::Skip(reason) => {
@@ -545,9 +566,10 @@ impl StorageNode {
                 // A recovery task from before the node started catching up may still be running.
                 // Such a task only scanned blobs certified before its own start epoch, and blob
                 // certified events were skipped while catching up, so it must not complete the
-                // recovery target written below. The status guard (acquired by the caller,
-                // before the shard map lock) keeps any completion attempt of that task parked on
-                // the mutex, and aborting the task here — before the new target is written —
+                // recovery target written below. The epoch-change critical section (entered by
+                // the caller, before the shard map lock) keeps any completion attempt of that
+                // task parked at its entry, and aborting the task here — before the new
+                // target is written —
                 // guarantees that no stale task survives to observe it, even if a later step
                 // fails and returns before the recovery action step (which would otherwise
                 // perform the abort).
@@ -568,7 +590,7 @@ impl StorageNode {
 
         // Step 2: status transitions that must precede shard creation. Advancing the recovery
         // target, starting the shard syncs for gained shards, and locking the shards that moved
-        // away happen under the status guard, so they are atomic with respect to the recovery
+        // away happen inside the critical section, so they are atomic with respect to the recovery
         // task's completion (which runs under the same mutex): a completing task either observes
         // the advanced target together with the new shard syncs and the locked shards, or
         // completes entirely before this transition (detected above and handled by the recovery
@@ -601,7 +623,7 @@ impl StorageNode {
 
         // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand it
         // to the owner named in the plan, invalidating any token held by the other components.
-        // This runs while the status guard is still held (for recovery-owned attestations, the
+        // This runs while the critical section is still held (for recovery-owned attestations, the
         // token placement is thereby atomic with the target advancement above) and before any
         // shard sync is started (so a completing sync cannot miss its token).
         let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
@@ -620,13 +642,6 @@ impl StorageNode {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
                 self.node_recovery_handler.set_epoch_sync_done_token(token);
             }
-        }
-
-        // For plans without a recovery action, the remaining steps perform no recovery-related
-        // status transitions, so the status guard is not needed.
-        let mut status_guard = Some(status_guard);
-        if matches!(transition.recovery, plan::RecoveryAction::None) {
-            status_guard = None;
         }
 
         // Step 3: create storage for the newly assigned shards. Note that the shard map lock is
@@ -717,10 +732,8 @@ impl StorageNode {
                 self.node_recovery_handler
                     .start_node_recovery(target_epoch)
                     .await?;
-                status_guard = None;
             }
             plan::RecoveryAction::EnsureRunning(target_epoch) => {
-                status_guard = None;
                 // The recovery task keeps running across epoch changes: it waits for the shard
                 // syncs started above to finish before recovering blobs, and attests epoch sync
                 // done for the advanced target on completion. A new task is only started when
@@ -734,7 +747,11 @@ impl StorageNode {
             }
             plan::RecoveryAction::None => {}
         }
-        drop(status_guard);
+
+        // End of the critical section: the node's status, shards, and recovery task are
+        // consistent with the new epoch; a parked recovery-task completion may now proceed and
+        // will observe the full transition.
+        drop(critical_section_guard);
 
         // Step 9: hand off completion. The finisher removes old shards in the background, and —
         // if it holds the attestation token — attests `epoch_sync_done` for the new epoch before

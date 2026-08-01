@@ -46,17 +46,6 @@ pub struct NodeRecoveryHandler {
     // There can be at most one background shard removal task at a time.
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
-    // Serializes recovery-related node status transitions: the epoch-change path advances the
-    // recovery target and starts shard syncs while holding this mutex, the catch-up path holds
-    // it across writing a new recovery target and aborting the previous recovery task, and the
-    // recovery task transitions the node to `Active` while holding it. This guarantees that a
-    // completing recovery task either observes the advanced target together with the new shard
-    // syncs, or has completed entirely before the transition (in which case the epoch-change
-    // path starts a new task) — and that a task from before a catch-up can never complete a
-    // recovery target written after the catch-up, which its scan does not cover (blob certified
-    // events are skipped while catching up).
-    status_mutex: Arc<Mutex<()>>,
-
     // Holds the `epoch_sync_done` attestation token while node recovery owns the attestation
     // (that is, while the node status is `RecoveryInProgress`). The recovery task consumes it on
     // completion.
@@ -78,7 +67,6 @@ impl NodeRecoveryHandler {
             blob_sync_handler,
             shard_sync_handler,
             task_handle: Arc::new(Mutex::new(None)),
-            status_mutex: Arc::new(Mutex::new(())),
             epoch_sync_done_token: AttestationSlot::default(),
             config,
         }
@@ -97,29 +85,11 @@ impl NodeRecoveryHandler {
         self.epoch_sync_done_token.clear();
     }
 
-    /// Locks the recovery status mutex.
-    ///
-    /// The epoch-change path must hold the returned guard across advancing the recovery target
-    /// (setting the node status to a newer `RecoveryInProgress` epoch), starting the shard
-    /// syncs for newly gained shards, and locking the shards that moved away, so that these are
-    /// atomic with respect to the recovery task's completion; otherwise, the task could attest
-    /// epoch sync done while the node still accepts slivers for shards it no longer owns. The
-    /// catch-up path must hold it across writing its recovery target and aborting the previous
-    /// recovery task (via [`Self::start_node_recovery`]), so that a task from before the
-    /// catch-up cannot complete a target whose blobs it never scanned.
-    ///
-    /// Lock ordering: this mutex must be acquired *before* the storage shard map lock. The
-    /// recovery task's completion attempt reads shard statuses (which takes the shard map read
-    /// lock) while holding this mutex, so acquiring this mutex while holding the shard map lock
-    /// deadlocks with it.
-    pub async fn lock_status(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.status_mutex.lock().await
-    }
-
     /// Aborts the running recovery task, if any, and waits for it to exit.
     ///
-    /// The catch-up path calls this while holding the status mutex, before writing its new
-    /// recovery target: the stale task must be gone before the target becomes visible, so that
+    /// The catch-up path calls this from inside the epoch-change critical section, before
+    /// writing its new recovery target: the stale task must be gone before the target
+    /// becomes visible, so that
     /// it cannot complete the target even if the caller fails and returns before reaching
     /// [`Self::start_node_recovery`] (which would otherwise perform the abort).
     pub async fn abort_recovery_task(&self) {
@@ -183,7 +153,6 @@ impl NodeRecoveryHandler {
         let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();
         let shard_sync_handler = self.shard_sync_handler.clone();
-        let status_mutex = self.status_mutex.clone();
         let epoch_sync_done_token = self.epoch_sync_done_token.clone();
         let max_concurrent_blob_syncs_during_recovery =
             self.config.max_concurrent_blob_syncs_during_recovery;
@@ -385,7 +354,6 @@ impl NodeRecoveryHandler {
                 complete_recovery_once_shards_synced(
                     &node,
                     &shard_sync_handler,
-                    &status_mutex,
                     &epoch_sync_done_token,
                 )
                 .await;
@@ -527,18 +495,17 @@ async fn wait_until_ready_to_scan(
 /// separation still holds for the work itself: a shard that reached `Active` needs no re-scan,
 /// and a shard that has not is shard sync's job to finish — never the recovery task's.
 ///
-/// The checks run under the status mutex, which serializes completion against the epoch-change
-/// path: either this task observes the advanced target together with the not-yet-`Active` gained
-/// shards, or it completes entirely before the target is advanced (and the epoch-change path
-/// starts a new task).
+/// The checks run inside the epoch-change critical section, which serializes completion against
+/// the epoch-change path: either this task observes the advanced target together with the
+/// not-yet-`Active` gained shards, or it completes entirely before the target is advanced (and
+/// the epoch-change path starts a new task).
 async fn complete_recovery_once_shards_synced(
     node: &StorageNodeInner,
     shard_sync_handler: &ShardSyncHandler,
-    status_mutex: &Mutex<()>,
     epoch_sync_done_token: &AttestationSlot,
 ) {
     loop {
-        let status_guard = status_mutex.lock().await;
+        let critical_section_guard = node.epoch_change_critical_section.enter().await;
 
         let unsynced_shards = unsynced_owned_shards(node).await;
         if unsynced_shards.is_empty() {
@@ -563,11 +530,11 @@ async fn complete_recovery_once_shards_synced(
                 tracing::error!(?error, "failed to set node status to active");
                 return;
             }
-            // Take the token while still holding the status mutex, so that it belongs to the
-            // recovery target read above: the epoch-change path replaces the token and the
-            // target atomically under the same mutex.
+            // Take the token while still inside the critical section, so that it belongs to
+            // the recovery target read above: the epoch-change path replaces the token and the
+            // target atomically inside the same critical section.
             let token = epoch_sync_done_token.take();
-            drop(status_guard);
+            drop(critical_section_guard);
 
             // While the node is recovering, node recovery holds the attestation token, so this
             // is the only place that attests epoch sync done (shard sync has no token to
@@ -589,7 +556,7 @@ async fn complete_recovery_once_shards_synced(
             }
             return;
         }
-        drop(status_guard);
+        drop(critical_section_guard);
 
         if shard_sync_handler.has_sync_in_progress() {
             tracing::info!(
