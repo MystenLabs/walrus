@@ -329,7 +329,8 @@ impl StorageNode {
         // to bring the node state to the next epoch. `execute_epoch_change` ends by spawning
         // the finisher task (shard removal + `epoch_sync_done` + `mark_as_complete`), so the
         // finisher is guaranteed to fire only after phase 1 succeeded.
-        self.execute_epoch_change(event_handle, event, shard_map_lock, critical_section_guard)
+        self.epoch_change_executor
+            .execute_epoch_change(event_handle, event, shard_map_lock, critical_section_guard)
             .await?;
 
         // Update the latest event epoch to the new epoch. Now, blob syncs will use this epoch to
@@ -370,6 +371,47 @@ impl StorageNode {
         }
 
         Ok(())
+    }
+
+    /// Enters recovery mode. This function should only be called when the node is lagging
+    /// behind.
+    pub(super) async fn enter_recovery_mode(&self) -> anyhow::Result<()> {
+        self.epoch_change_executor.enter_recovery_mode().await
+    }
+}
+
+/// Executes the storage node's epoch-change transitions.
+///
+/// The executor owns the epoch-change orchestration — reconciling the committee state
+/// ([`Self::reconcile_committee_for_epoch_change`]), planning ([`plan::plan_epoch_change`]),
+/// and applying the plan ([`Self::apply_epoch_change_plan`]) — and holds exactly the handles
+/// the transition needs. The `EpochChangeStart` handler's front matter (waiting for pending
+/// events, garbage collection, snapshots) stays with [`StorageNode`], which delegates the
+/// transition itself to this type.
+#[derive(Debug, Clone)]
+pub(crate) struct EpochChangeExecutor {
+    inner: Arc<StorageNodeInner>,
+    blob_sync_handler: Arc<BlobSyncHandler>,
+    shard_sync_handler: ShardSyncHandler,
+    node_recovery_handler: NodeRecoveryHandler,
+    start_epoch_change_finisher: StartEpochChangeFinisher,
+}
+
+impl EpochChangeExecutor {
+    pub(super) fn new(
+        inner: Arc<StorageNodeInner>,
+        blob_sync_handler: Arc<BlobSyncHandler>,
+        shard_sync_handler: ShardSyncHandler,
+        node_recovery_handler: NodeRecoveryHandler,
+        start_epoch_change_finisher: StartEpochChangeFinisher,
+    ) -> Self {
+        Self {
+            inner,
+            blob_sync_handler,
+            shard_sync_handler,
+            node_recovery_handler,
+            start_epoch_change_finisher,
+        }
     }
 
     /// Storage node execution of the epoch change start event, to bring the node state to the next
@@ -505,24 +547,15 @@ impl StorageNode {
     /// Applies an [`plan::EpochChangePlan`] in one linear pass.
     ///
     /// This function contains no decisions of its own: all branching on the node's situation
-    /// lives in [`plan::plan_epoch_change`]. The fixed order of operations is:
+    /// lives in [`plan::plan_epoch_change`]. The plan is applied in four sections, in this
+    /// order:
     ///
-    /// 1. Recovery-task bookkeeping that must precede any status write (aborting a stale task,
-    ///    detecting a concurrently completed one).
-    /// 2. Status transitions that must precede shard creation (`Standby`,
-    ///    `RecoveryInProgress`).
-    /// 3. Storage creation for the newly assigned shards (consumes the shard map lock).
-    /// 4. Force-setting the new shards to `Active`, when the plan fills them via node recovery
-    ///    ([`ShardFill::ForceActive`][plan::ShardFill::ForceActive]).
-    /// 5. The `RecoverMetadata` status transition (must follow creation: a restart observing
-    ///    `RecoverMetadata` assumes all shard storage exists).
-    /// 6. Starting shard syncs, when the plan fills the new shards via shard sync
-    ///    ([`ShardFill::ShardSync`][plan::ShardFill::ShardSync]).
-    /// 7. Locking shards that moved to other nodes.
-    /// 8. The recovery action.
-    /// 9. Completion hand-off: either directly, or through the epoch-change finisher that
-    ///    removes old shards in the background (and attests `epoch_sync_done` if it is the
-    ///    attestation owner).
+    /// 1. [node status changes][Self::apply_node_status_changes],
+    /// 2. [shard management][Self::apply_shard_changes], and
+    /// 3. [recovery-task handling][Self::apply_recovery_action] — all three inside the
+    ///    epoch-change critical section, so the whole transition is atomic with respect to the
+    ///    completion of the node recovery task — and, after leaving the critical section,
+    /// 4. [completion hand-off][Self::hand_off_completion].
     ///
     /// As all functions that are passed an [`EventHandle`], this is responsible for marking the
     /// event as completed.
@@ -559,7 +592,50 @@ impl StorageNode {
             plan::EpochChangePlan::Apply(transition) => transition,
         };
 
-        // Step 1: recovery-task bookkeeping that must precede the status writes below.
+        // Sections 1-3 run inside the epoch-change critical section (entered by the caller).
+        let (restart_recovery_if_completed_concurrently, finisher_attestation) =
+            self.apply_node_status_changes(&transition, event).await?;
+        self.apply_shard_changes(&transition, &committees, shard_map_lock, event)
+            .await?;
+        self.apply_recovery_action(&transition, restart_recovery_if_completed_concurrently)
+            .await?;
+
+        // End of the critical section: the node's status, shards, and recovery task are
+        // consistent with the new epoch; a parked recovery-task completion may now proceed and
+        // will observe the full transition.
+        drop(critical_section_guard);
+
+        self.hand_off_completion(
+            event_handle,
+            event,
+            &transition,
+            committees,
+            finisher_attestation,
+        );
+
+        Ok(())
+    }
+
+    /// Section 1 of applying an epoch-change plan: node status changes.
+    ///
+    /// Performs the recovery-task bookkeeping that must precede any status write (aborting a
+    /// stale task, detecting a concurrently completed one), the status transitions that must
+    /// precede shard creation (`Standby` and the `RecoveryInProgress` target), and the routing
+    /// of the `epoch_sync_done` attestation token to the owner named in the plan.
+    ///
+    /// The `RecoverMetadata` transition is the one status write that does *not* happen here: it
+    /// must be ordered between shard storage creation and the start of the shard syncs, and is
+    /// therefore performed by [`Self::apply_shard_changes`].
+    ///
+    /// Returns whether the recovery task completed concurrently (in which case the recovery
+    /// action must start a new task) and the attestation token to hand to the finisher, if the
+    /// finisher is the attestation owner.
+    async fn apply_node_status_changes(
+        &self,
+        transition: &plan::ShardTransition,
+        event: &EpochChangeStart,
+    ) -> anyhow::Result<(bool, Option<EpochSyncDoneToken>)> {
+        // Recovery-task bookkeeping that must precede the status writes below.
         let mut restart_recovery_if_completed_concurrently = false;
         match transition.recovery {
             plan::RecoveryAction::StartFresh(_) => {
@@ -569,10 +645,9 @@ impl StorageNode {
                 // recovery target written below. The epoch-change critical section (entered by
                 // the caller, before the shard map lock) keeps any completion attempt of that
                 // task parked at its entry, and aborting the task here — before the new
-                // target is written —
-                // guarantees that no stale task survives to observe it, even if a later step
-                // fails and returns before the recovery action step (which would otherwise
-                // perform the abort).
+                // target is written — guarantees that no stale task survives to observe it,
+                // even if a later step fails and returns before the recovery action step (which
+                // would otherwise perform the abort).
                 self.node_recovery_handler.abort_recovery_task().await;
             }
             plan::RecoveryAction::EnsureRunning(_) => {
@@ -588,15 +663,15 @@ impl StorageNode {
             plan::RecoveryAction::None => {}
         }
 
-        // Step 2: status transitions that must precede shard creation. Advancing the recovery
-        // target, starting the shard syncs for gained shards, and locking the shards that moved
-        // away happen inside the critical section, so they are atomic with respect to the recovery
-        // task's completion (which runs under the same mutex): a completing task either observes
-        // the advanced target together with the new shard syncs and the locked shards, or
-        // completes entirely before this transition (detected above and handled by the recovery
-        // action step). In particular, completion must not attest epoch sync done before the
-        // lost shards are locked, as the node would still accept slivers for shards it no longer
-        // owns.
+        // Status transitions that must precede shard creation. Advancing the recovery target,
+        // starting the shard syncs for gained shards, and locking the shards that moved away
+        // happen inside the critical section, so they are atomic with respect to the recovery
+        // task's completion (which enters the same critical section): a completing task either
+        // observes the advanced target together with the new shard syncs and the locked shards,
+        // or completes entirely before this transition (detected above and handled by the
+        // recovery action). In particular, completion must not attest epoch sync done before
+        // the lost shards are locked, as the node would still accept slivers for shards it no
+        // longer owns.
         match transition.status {
             Some(plan::StatusTransition::Standby) => {
                 // The node is not in the current committee, and therefore from this epoch on it
@@ -623,9 +698,9 @@ impl StorageNode {
 
         // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand it
         // to the owner named in the plan, invalidating any token held by the other components.
-        // This runs while the critical section is still held (for recovery-owned attestations, the
-        // token placement is thereby atomic with the target advancement above) and before any
-        // shard sync is started (so a completing sync cannot miss its token).
+        // This runs inside the critical section (for recovery-owned attestations, the token
+        // placement is thereby atomic with the target advancement above) and before any shard
+        // sync is started (so a completing sync cannot miss its token).
         let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
         let mut finisher_attestation = None;
         match transition.sync_done_owner {
@@ -644,7 +719,30 @@ impl StorageNode {
             }
         }
 
-        // Step 3: create storage for the newly assigned shards. Note that the shard map lock is
+        Ok((
+            restart_recovery_if_completed_concurrently,
+            finisher_attestation,
+        ))
+    }
+
+    /// Section 2 of applying an epoch-change plan: shard management.
+    ///
+    /// Creates storage for the newly assigned shards (consuming the shard map lock), brings
+    /// them up to date as planned (force-`Active` for recovery-filled shards; shard syncs are
+    /// started for sync-filled shards), and locks the shards that moved to other nodes.
+    ///
+    /// This section also performs the `RecoverMetadata` status write, as an exception to the
+    /// "status changes happen in section 1" rule: the write must be ordered after shard storage
+    /// creation (a restart observing `RecoverMetadata` assumes all shard storage exists) and
+    /// before the shard syncs start.
+    async fn apply_shard_changes(
+        &self,
+        transition: &plan::ShardTransition,
+        committees: &ActiveCommittees,
+        shard_map_lock: StorageShardLock,
+        event: &EpochChangeStart,
+    ) -> anyhow::Result<()> {
+        // Create storage for the newly assigned shards. Note that the shard map lock is
         // released when creation completes (or here, if there are no new shards).
         if let Some(new_shards) = &transition.new_shards {
             assert!(
@@ -659,7 +757,7 @@ impl StorageNode {
             drop(shard_map_lock);
         }
 
-        // Step 4: force-set the new shards to `Active` when they are filled via node recovery
+        // Force-set the new shards to `Active` when they are filled via node recovery
         // (full-recovery path). The node's local shards may be in outdated statuses from
         // multiple epochs ago; node recovery will recover all the missing certified blobs in
         // these shards in a crash-tolerant manner.
@@ -677,8 +775,8 @@ impl StorageNode {
             }
         }
 
-        // Step 5: set `RecoverMetadata` for a node that newly joined the committee. This must be
-        // set before marking the event as complete, so that a node crashing before setting the
+        // Set `RecoverMetadata` for a node that newly joined the committee. This must be set
+        // before marking the event as complete, so that a node crashing before setting the
         // status will always set it again when re-processing the `EpochChangeStart` event. It
         // must also be set after creating storage for the new shards: a restart observing
         // `RecoverMetadata` assumes all the shards are created.
@@ -693,7 +791,7 @@ impl StorageNode {
             self.inner.set_node_status(NodeStatus::RecoverMetadata)?;
         }
 
-        // Step 6: start syncing the new (gained) shards from their previous owners.
+        // Start syncing the new (gained) shards from their previous owners.
         if let Some(new_shards) = &transition.new_shards
             && new_shards.fill == plan::ShardFill::ShardSync
         {
@@ -702,7 +800,7 @@ impl StorageNode {
                 .await?;
         }
 
-        // Step 7: lock the shards that moved out, so that they do not accept any more writes.
+        // Lock the shards that moved out, so that they do not accept any more writes.
         for shard_id in &transition.lock {
             let Some(shard_storage) = self.inner.storage.shard_storage(*shard_id).await else {
                 tracing::info!("skipping lost shard during epoch change as it is not stored");
@@ -719,7 +817,15 @@ impl StorageNode {
                 .context("failed to lock shard")?;
         }
 
-        // Step 8: the recovery action.
+        Ok(())
+    }
+
+    /// Section 3 of applying an epoch-change plan: recovery-task handling.
+    async fn apply_recovery_action(
+        &self,
+        transition: &plan::ShardTransition,
+        restart_recovery_if_completed_concurrently: bool,
+    ) -> anyhow::Result<()> {
         match transition.recovery {
             plan::RecoveryAction::StartFresh(target_epoch) => {
                 tracing::info!(
@@ -748,15 +854,23 @@ impl StorageNode {
             plan::RecoveryAction::None => {}
         }
 
-        // End of the critical section: the node's status, shards, and recovery task are
-        // consistent with the new epoch; a parked recovery-task completion may now proceed and
-        // will observe the full transition.
-        drop(critical_section_guard);
+        Ok(())
+    }
 
-        // Step 9: hand off completion. The finisher removes old shards in the background, and —
-        // if it holds the attestation token — attests `epoch_sync_done` for the new epoch before
-        // marking the event as complete. When another component owns the attestation and there
-        // is nothing to remove, the event is completed directly.
+    /// Section 4 of applying an epoch-change plan: completion hand-off.
+    ///
+    /// The finisher removes old shards in the background, and — if it holds the attestation
+    /// token — attests `epoch_sync_done` for the new epoch before marking the event as
+    /// complete. When another component owns the attestation and there is nothing to remove,
+    /// the event is completed directly.
+    fn hand_off_completion(
+        &self,
+        event_handle: EventHandle,
+        event: &EpochChangeStart,
+        transition: &plan::ShardTransition,
+        committees: ActiveCommittees,
+        finisher_attestation: Option<EpochSyncDoneToken>,
+    ) {
         let complete_directly = !matches!(transition.recovery, plan::RecoveryAction::None)
             && transition.remove.is_empty();
         if complete_directly {
@@ -771,8 +885,6 @@ impl StorageNode {
                     finisher_attestation,
                 );
         }
-
-        Ok(())
     }
 
     /// Initiates a committee transition to a new epoch. Upon the return of this function, the
@@ -843,6 +955,26 @@ impl StorageNode {
         }
     }
 
+    /// Enters recovery mode.
+    /// This function should only be called when the node is lagging behind.
+    async fn enter_recovery_mode(&self) -> anyhow::Result<()> {
+        self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
+
+        // Now the node is entering recovery mode, we need to cancel all the blob syncs
+        // that are in progress, since the node is lagging behind, and we don't have
+        // any information about the shards that the node should own.
+        //
+        // The node now will try to only process blob info upon receiving a blob event
+        // and blob recovery will be triggered when the node is in the latest epoch.
+        self.blob_sync_handler
+            .cancel_all_syncs_and_mark_events_completed()
+            .await?;
+
+        Ok(())
+    }
+}
+
+impl StorageNode {
     #[tracing::instrument(skip_all)]
     async fn process_epoch_change_done_event(&self, event: &EpochChangeDone) -> anyhow::Result<()> {
         match self
@@ -883,24 +1015,6 @@ impl StorageNode {
         self.epoch_change_driver.schedule_voting_end(
             NonZero::new(event.epoch + 1).expect("incremented value is non-zero"),
         );
-
-        Ok(())
-    }
-
-    /// Enters recovery mode.
-    /// This function should only be called when the node is lagging behind.
-    pub(super) async fn enter_recovery_mode(&self) -> anyhow::Result<()> {
-        self.inner.set_node_status(NodeStatus::RecoveryCatchUp)?;
-
-        // Now the node is entering recovery mode, we need to cancel all the blob syncs
-        // that are in progress, since the node is lagging behind, and we don't have
-        // any information about the shards that the node should own.
-        //
-        // The node now will try to only process blob info upon receiving a blob event
-        // and blob recovery will be triggered when the node is in the latest epoch.
-        self.blob_sync_handler
-            .cancel_all_syncs_and_mark_events_completed()
-            .await?;
 
         Ok(())
     }

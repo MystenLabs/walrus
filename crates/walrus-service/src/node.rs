@@ -633,6 +633,7 @@ pub struct StorageNode {
     num_blob_event_processors: NonZeroUsize,
     pending_event_counter: PendingEventCounter,
     node_recovery_handler: NodeRecoveryHandler,
+    epoch_change_executor: epoch_change::EpochChangeExecutor,
     garbage_collector: GarbageCollector,
     event_blob_writer_factory: Option<EventBlobWriterFactory>,
     config_synchronizer: Option<Arc<ConfigSynchronizer>>,
@@ -968,6 +969,14 @@ impl StorageNode {
         let garbage_collector =
             GarbageCollector::new(config.garbage_collection, inner.clone(), metrics);
 
+        let epoch_change_executor = epoch_change::EpochChangeExecutor::new(
+            inner.clone(),
+            blob_sync_handler.clone(),
+            shard_sync_handler.clone(),
+            node_recovery_handler.clone(),
+            start_epoch_change_finisher.clone(),
+        );
+
         Ok(StorageNode {
             inner,
             blob_sync_handler,
@@ -975,6 +984,7 @@ impl StorageNode {
             epoch_change_driver,
             start_epoch_change_finisher,
             node_recovery_handler,
+            epoch_change_executor,
             num_blob_event_processors: config.blob_event_processor_config.num_workers,
             pending_event_counter: PendingEventCounter::default(),
             garbage_collector,
