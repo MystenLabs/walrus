@@ -282,7 +282,7 @@ jobs:
           parent: false
 
       - name: Upload release artifacts for ${{ matrix.os }} platform
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@v7.0.1
         with:
           name: walrus-binaries-${{ matrix.os }}
           if-no-files-found: error
