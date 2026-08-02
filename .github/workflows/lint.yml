@@ -13,7 +13,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
         with:
           fetch-depth: 0
       - name: Check PR title
@@ -25,9 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     name: Check formatting
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # pin@v6.2.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # pin@v7.0.0
         with:
           python-version: "3.x"
 
@@ -59,7 +59,7 @@ jobs:
         run: ./yamlfmt -lint
 
       - name: Lint all markdown files
-        uses: DavidAnson/markdownlint-cli2-action@07035fd053f7be764496c0f8d8f9f41f98305101 # pin@v22.0.0
+        uses: DavidAnson/markdownlint-cli2-action@6bf21b07787794f89a243495939cd651942aeabe # pin@v24.1.0
         with:
           config: .markdownlint-cli2.yaml
           # Note: Keep globs in sync with .markdownlint-cli2.yaml.
@@ -72,9 +72,9 @@ jobs:
       run:
         working-directory: ./contracts
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - name: Use Node.js
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # pin@v6.3.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pin@v7.0.0
       - run: npm install @mysten/prettier-plugin-move@0.3.0
       - run: npx prettier-move -c **/*.move
 
@@ -82,14 +82,14 @@ jobs:
     runs-on: ubuntu-latest
     name: Check spelling
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
-      - uses: crate-ci/typos@631208b7aac2daa8b707f55e7331f9112b0e062d # pin@v1.44.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
+      - uses: crate-ci/typos@bee27e3a4fd1ea2111cf90ab89cd076c870fce14 # pin@v1.48.0
 
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - name: Run ShellCheck
         run: find . -type f -name "*.sh" -exec shellcheck --severity=error {} +
 
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     name: Check license headers
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - name: Install licensesnip
         uses: taiki-e/install-action@a2352fc6ce487f030a3aa709482d57823eadfb37 # pin@v2.75.16
         with:
@@ -108,9 +108,9 @@ jobs:
     runs-on: ubuntu-latest
     name: Check Network Reference is up to date
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # pin@v6.2.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # pin@v7.0.0
         with:
           python-version: "3.x"
       - name: Check for drift between the canonical sources and the page
