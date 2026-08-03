@@ -683,8 +683,8 @@ impl EpochChangeExecutor {
             Some(plan::StatusTransition::RecoverMetadata) | None => {}
         }
         if matches!(
-            execution_info.recovery,
-            plan::RecoveryAction::EnsureRunning(_)
+            execution_info.status,
+            Some(plan::StatusTransition::RecoveryInProgress)
         ) {
             sui_macros::fail_point!("fail_point_shard_changes_in_new_epoch_while_recovering");
         }
@@ -875,8 +875,10 @@ impl EpochChangeExecutor {
         committees: ActiveCommittees,
         finisher_attestation: Option<EpochSyncDoneToken>,
     ) {
-        let complete_directly = !matches!(execution_info.recovery, plan::RecoveryAction::None)
-            && execution_info.remove.is_empty();
+        let complete_directly = matches!(
+            execution_info.sync_done_owner,
+            plan::EpochSyncDoneAttestationOwner::RecoveryTask
+        ) && execution_info.remove.is_empty();
         if complete_directly {
             event_handle.mark_as_complete();
         } else {

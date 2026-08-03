@@ -91,21 +91,6 @@ pub(crate) enum StatusTransition {
     RecoveryInProgress,
 }
 
-/// The node-recovery action to perform while applying the plan.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RecoveryAction {
-    /// No recovery involvement.
-    None,
-    /// Abort any stale recovery task and start a fresh one targeting the given epoch. Used when
-    /// the node has lost track of the previous epoch's shard assignment: all owned shards are
-    /// force-set to `Active` and their missing blobs are recovered per blob.
-    StartFresh(Epoch),
-    /// The node was already recovering: keep the running task (it picks up the advanced target
-    /// and the newly started shard syncs) and only start a new one if the running task completed
-    /// concurrently with this epoch change.
-    EnsureRunning(Epoch),
-}
-
 /// The component responsible for attesting `epoch_sync_done` for this epoch.
 ///
 /// Exactly one component owns the attestation per epoch change.
@@ -159,8 +144,6 @@ pub(crate) struct EpochChangeExecutionInfo {
     pub lock: Vec<ShardIndex>,
     /// Shards to remove in the background.
     pub remove: Vec<ShardIndex>,
-    /// The recovery action to perform.
-    pub recovery: RecoveryAction,
     /// The component that attests `epoch_sync_done` for this epoch.
     pub sync_done_owner: EpochSyncDoneAttestationOwner,
 }
@@ -241,7 +224,6 @@ fn plan_while_catching_up(inputs: &PlanInputs) -> EpochChangePlan {
         }),
         lock: inputs.shards.lost.clone(),
         remove: inputs.shards.removed.clone(),
-        recovery: RecoveryAction::StartFresh(inputs.event_epoch),
         sync_done_owner: EpochSyncDoneAttestationOwner::RecoveryTask,
     })
 }
@@ -269,7 +251,6 @@ fn plan_while_in_sync(inputs: &PlanInputs) -> EpochChangePlan {
         // syncs, then attests for the advanced target.
         return EpochChangePlan::Apply(EpochChangeExecutionInfo {
             status: Some(StatusTransition::RecoveryInProgress),
-            recovery: RecoveryAction::EnsureRunning(inputs.event_epoch),
             sync_done_owner: EpochSyncDoneAttestationOwner::RecoveryTask,
             ..epoch_change_execution_info(inputs, None)
         });
@@ -317,7 +298,6 @@ fn epoch_change_execution_info(
         }),
         lock: inputs.shards.lost.clone(),
         remove: inputs.shards.removed.clone(),
-        recovery: RecoveryAction::None,
         sync_done_owner,
     }
 }
@@ -434,7 +414,6 @@ mod tests {
         );
         assert_eq!(execution_info.lock, shard_ids(&[3]));
         assert_eq!(execution_info.remove, shard_ids(&[4]));
-        assert_eq!(execution_info.recovery, RecoveryAction::None);
         assert_eq!(
             execution_info.sync_done_owner,
             EpochSyncDoneAttestationOwner::ShardSync
@@ -460,7 +439,6 @@ mod tests {
         );
         assert_eq!(execution_info.lock, shard_ids(&[3]));
         assert_eq!(execution_info.remove, shard_ids(&[4]));
-        assert_eq!(execution_info.recovery, RecoveryAction::StartFresh(5));
         assert_eq!(
             execution_info.sync_done_owner,
             EpochSyncDoneAttestationOwner::RecoveryTask
@@ -475,7 +453,6 @@ mod tests {
             execution_info.new_shards,
             new_shards(&[1, 2], ShardFill::ShardSync)
         );
-        assert_eq!(execution_info.recovery, RecoveryAction::None);
         assert_eq!(
             execution_info.sync_done_owner,
             EpochSyncDoneAttestationOwner::ShardSync
@@ -581,7 +558,6 @@ mod tests {
         assert_eq!(execution_info.status, Some(StatusTransition::Standby));
         assert_eq!(execution_info.lock, shard_ids(&[0, 1]));
         assert_eq!(execution_info.remove, shard_ids(&[4]));
-        assert_eq!(execution_info.recovery, RecoveryAction::None);
         assert_eq!(
             execution_info.sync_done_owner,
             EpochSyncDoneAttestationOwner::Finisher
@@ -642,7 +618,6 @@ mod tests {
             execution_info.new_shards,
             new_shards(&[1, 2], ShardFill::ShardSync)
         );
-        assert_eq!(execution_info.recovery, RecoveryAction::EnsureRunning(5));
         assert_eq!(
             execution_info.sync_done_owner,
             EpochSyncDoneAttestationOwner::RecoveryTask
@@ -666,7 +641,6 @@ mod tests {
         };
         let execution_info = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(execution_info.status, Some(StatusTransition::Standby));
-        assert_eq!(execution_info.recovery, RecoveryAction::None);
         assert_eq!(
             execution_info.sync_done_owner,
             EpochSyncDoneAttestationOwner::Finisher
