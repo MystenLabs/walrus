@@ -143,7 +143,10 @@ const config = {
       "@docusaurus/plugin-client-redirects",
       {
         fromExtensions: ["html", "htm"],
-        redirects: [{ from: "/index.html", to: "/" }],
+        redirects: [
+          { from: "/index.html", to: "/" },
+          { from: "/walrus-memory/getting-started/what-is-walrus-memory", to: "/walrus-memory" },
+        ],
         createRedirects(existingPath) {
           if (existingPath === "/" || existingPath === "") return undefined;
 
@@ -335,10 +338,10 @@ const config = {
             type: "docSidebar",
             sidebarId: "docsSidebar",
             position: "left",
-            label: "Walrus Platform",
+            label: "Walrus",
           },
           {
-            to: "/walrus-memory/getting-started/what-is-walrus-memory",
+            to: "/walrus-memory",
             label: "Walrus Memory",
             position: "left",
           },

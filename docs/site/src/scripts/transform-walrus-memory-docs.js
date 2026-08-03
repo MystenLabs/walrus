@@ -310,7 +310,9 @@ function renameMemwal(content) {
   const result = [];
 
   for (const line of lines) {
-    if (/^```/.test(line)) {
+    // Fences can be indented (content nested in <Steps>/<Tabs> keeps its
+    // source indentation), so match them anywhere after leading whitespace.
+    if (/^\s*```/.test(line)) {
       inCodeBlock = !inCodeBlock;
       result.push(line);
       continue;
@@ -386,20 +388,26 @@ function enforceStyleGuide(content, relPath) {
       continue;
     }
 
-    if (/^```/.test(line)) {
+    // Fences can be indented (content nested in <Steps>/<Tabs> keeps its
+    // source indentation), so match them anywhere after leading whitespace.
+    if (/^\s*```/.test(line)) {
+      const indented = /^\s/.test(line);
       if (!inCodeBlock) {
         inCodeBlock = true;
-        inBashBlock = /^```(bash|shell|sh)\b/.test(line);
+        inBashBlock = /^\s*```(bash|shell|sh)\b/.test(line);
         // Convert Mintlify filename convention (```lang filename.ext)
         // to Docusaurus title attribute (```lang title="filename.ext")
-        const fenceMatch = line.match(/^```(\w+)\s+(\S+.+)$/);
+        const fenceMatch = line.match(/^(\s*)```(\w+)\s+(\S+.+)$/);
         if (fenceMatch && !line.includes('title=')) {
-          const lang = fenceMatch[1];
-          const filename = fenceMatch[2].trim();
-          line = `\`\`\`${lang} title="${filename}"`;
+          const indent = fenceMatch[1];
+          const lang = fenceMatch[2];
+          const filename = fenceMatch[3].trim();
+          line = `${indent}\`\`\`${lang} title="${filename}"`;
         }
-        // Add source link before every code block
-        if (sourceUrl) {
+        // Add source link before every top-level code block (indented
+        // fences sit inside <Steps>/<Tabs>, where the link would repeat
+        // once per tab)
+        if (sourceUrl && !indented) {
           result.push(`<a href="${sourceUrl}" target="_blank" className="code-source-link">Source: ${relPath}</a>\n`);
         }
       } else {
@@ -687,6 +695,18 @@ function fixNumberedHeadingCase(content) {
 const AGENT_PROMPTS = {
   "getting-started/quick-start.md":
     "Run `curl -sL https://memory.walrus.xyz/skills/setup` and use the returned instructions to set up Walrus Memory in this AI client.",
+  "sdk/quick-start.md":
+    "Install @mysten-incubation/memwal in this project, create a MemWal client from the " +
+    "MEMWAL_PRIVATE_KEY, MEMWAL_ACCOUNT_ID, and MEMWAL_SERVER_URL environment variables, " +
+    "then store and recall a test memory to verify the setup.",
+  "sdk/headless-setup.md":
+    "Set up the Walrus Memory SDK headlessly in this server codebase: load the delegate key, " +
+    "account ID, and relayer URL from the environment, create the client at startup, and add " +
+    "a health check that calls memwal.health() on boot.",
+  "mcp/overview.md":
+    "Add the Walrus Memory MCP server to this client. On Claude Code run " +
+    "`claude mcp add --scope user memwal -- npx -y @mysten-incubation/memwal-mcp`; on other " +
+    "clients add the equivalent mcp.json entry. Then ask the agent to run memwal_login to sign in.",
 };
 
 function injectAgentPrompt(content, relPath) {
@@ -856,49 +876,13 @@ function main() {
     count++;
   }
 
-  // Write landing page (not in upstream repo, maintained here)
-  const landingPage = `---
-title: Walrus Memory
-description: "Portable, verifiable memory for AI agents built on Walrus and Sui."
-slug: /
----
-
-Walrus Memory gives AI agents persistent, portable memory that works across apps, sessions, and
-workflows. Ownership and access are enforced onchain through Sui smart contracts, and all content is
-encrypted through Seal before reaching Walrus.
-
-<Cards>
-  <Card title="Get Started" href="/walrus-memory/getting-started/what-is-walrus-memory">
-    Learn what Walrus Memory is and get up and running quickly
-  </Card>
-  <Card title="Concepts" href="/walrus-memory/fundamentals/concepts/memory-space">
-    Memory spaces, ownership, delegates, and access control
-  </Card>
-  <Card title="Architecture" href="/walrus-memory/fundamentals/architecture/core-components">
-    Core components, data flow, storage model, and security
-  </Card>
-  <Card title="TypeScript SDK" href="/walrus-memory/sdk/overview">
-    Integrate memory into TypeScript apps with the SDK
-  </Card>
-  <Card title="Python SDK" href="/walrus-memory/python-sdk/quick-start">
-    Use Walrus Memory from Python
-  </Card>
-  <Card title="Relayer" href="/walrus-memory/relayer/overview">
-    Managed relayer, self-hosting, and API reference
-  </Card>
-  <Card title="MCP" href="/walrus-memory/mcp/overview">
-    Model Context Protocol integration for AI tools
-  </Card>
-  <Card title="Smart Contract" href="/walrus-memory/contract/overview">
-    Onchain ownership model, delegate keys, and permissions
-  </Card>
-  <Card title="Indexer" href="/walrus-memory/indexer/purpose">
-    Event indexing, onchain events, and database sync
-  </Card>
-</Cards>
-`;
-  fs.writeFileSync(path.join(OUTPUT_DIR, "index.md"), landingPage);
-  count++;
+  // Add slug: / to what-is-walrus-memory so it serves at /walrus-memory
+  const wmPath = path.join(OUTPUT_DIR, "getting-started/what-is-walrus-memory.md");
+  if (fs.existsSync(wmPath)) {
+    let wmContent = fs.readFileSync(wmPath, "utf8");
+    wmContent = wmContent.replace(/^---\n/, "---\nslug: /\n");
+    fs.writeFileSync(wmPath, wmContent);
+  }
 
   console.log(
     `✅ walrus-memory: transformed ${count} files → walrus-memory-content/`,

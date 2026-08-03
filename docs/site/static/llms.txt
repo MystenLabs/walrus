@@ -37,18 +37,23 @@ Sui smart contract as the on-chain index.
     Walrus Mainnet operates a production-quality storage network using corresponding resources on
     the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui Testnet and is used to
     test new features before they graduate to Mainnet.
+- [Caching](https://docs.wal.app/docs/system-overview/caching.md):
+    Walrus blobs are content-addressed and immutable, which makes them well suited to caching. A
+    given blob ID always maps to the same bytes, so once a response is cached it never goes stale
+    for that blob ID.
 - [Core Concepts](https://docs.wal.app/docs/system-overview/core-concepts.md):
     Walrus stores data as blobs. Each blob is an immutable array of bytes. Any type of file, such
     as text, video, or source code, you can store on Walrus. All blobs uploaded to Walrus are
     publicly available. Sui is a blockchain that supports programmable transactions.
 - [System Overview](https://docs.wal.app/docs/system-overview.md):
     Available Networks: Overview of Walrus networks including Mainnet and Testnet configurations,
-    parameters, and setup instructions. Walrus Fundamentals: Technical reference for Walrus
-    fundamentals, including architecture, data storage, and data retrieval.
+    parameters, and setup instructions. Caching Hot Reads: Guidance for caching frequently read
+    Walrus blobs, including caching aggregators, CDN fronting, immutability guarantees, and
+    pitfalls to avoid.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md):
     Blobs can be interacted with through familiar file system operations such as uploading,
-    reading, downloading, and deleting. Use the following command to upload a file to Walrus >
-    Danger > > All blobs stored in Walrus are public and discoverable by all.
+    reading, downloading, and deleting. You buy storage on Walrus for a fixed number of epochs, so
+    every blob has a lifetime.
 - [Public Aggregators And Publishers](https://docs.wal.app/docs/system-overview/public-aggregators-and-publishers.md):
     The Walrus client offers a daemon mode that runs a simple web server that provides HTTP
     interfaces you can use to store and read blobs in an aggregator or publisher role respectively.
@@ -56,6 +61,18 @@ Sui smart contract as the on-chain index.
     Quilt is a batch storage feature designed to optimize the storage cost and efficiency of large
     numbers of small blobs. Before Quilt, storing small blobs (less than 10 MB) on Walrus involved
     higher per-byte costs due to internal system data overhead.
+- [Red Stuff Details](https://docs.wal.app/docs/system-overview/red-stuff-details.md):
+    This page continues from the RedStuff encoding algorithm overview with a concrete worked
+    example. Consider a Walrus instance with $N = 7 = 3f + 1$ shards. This means the number of
+    primary source symbols is $N - 2f = 3$, and secondary $N - f = 5$.
+- [Red Stuff Parameters](https://docs.wal.app/docs/system-overview/red-stuff-parameters.md):
+    RedStuff has specific properties, Walrus-specific parameters, and authentication mechanisms
+    described in the RedStuff encoding algorithm. The following sections describe key design
+    decisions, fault-tolerance properties, and storage overhead of the RedStuff encoding.
+- [Red Stuff Recovery](https://docs.wal.app/docs/system-overview/red-stuff-recovery.md):
+    This page continues from the RedStuff encoding example with a recovery scenario. Consider that
+    shard 3 fails, losing its slivers, and needs to recover them. In the following, the symbols of
+    the lost slivers are highlighted in red (the lower quadrant is never stored).
 - [Red Stuff](https://docs.wal.app/docs/system-overview/red-stuff.md):
     The RedStuff encoding algorithm used in Walrus is an adaptation of the Twin-Code framework
     presented by Rashmi et al. [[1]](https://doi.org/10.1109/ISIT.2011.6033732).
@@ -75,6 +92,10 @@ Sui smart contract as the on-chain index.
     The Walrus system object contains metadata about available and used storage and the price of
     storage per KiB in FROST. These values are determined by 2/3 agreement between storage nodes
     for each storage epoch. You can pay to purchase storage space for specified durations.
+- [Wal Tokenomics FAQ](https://docs.wal.app/docs/system-overview/wal-tokenomics-faq.md):
+    This page answers common questions about the WAL token and how value flows through Walrus. It
+    focuses on mechanics that are visible to users and integrators: what you pay, where those
+    payments go, how staking and rewards work, and what actually happens when you burn a blob.
 
 ## Walrus Client
 
@@ -122,6 +143,11 @@ Sui smart contract as the on-chain index.
     > No public Mainnet publisher > > Walrus has no public unauthenticated publisher on Mainnet.
     There are no plans to create one. On Mainnet, run your own authenticated publisher (or use the
     Upload Relay or TypeScript SDK directly).
+- [Streaming Media](https://docs.wal.app/docs/http-api/streaming-media.md):
+    You can play audio and video stored as Walrus blobs directly in a browser. Point an HTML media
+    element, such as or , at a Walrus aggregator URL, and the browser streams the blob as it plays.
+    No download step or plugin is required. Set $AGGREGATOR to an aggregator endpoint from the
+    Network Reference.
 
 ## TypeScript SDK
 
@@ -376,13 +402,6 @@ Sui smart contract as the on-chain index.
     concepts, erasure coding, cryptographic primitives, token economics, and network roles. Storage
     node: Entity storing data for Walrus; holds one or several shards.
 
-## Walrus Memory
-
-- [Walrus Memory](https://docs.wal.app/walrus-memory.md):
-    Walrus Memory gives AI agents persistent, portable memory that works across apps, sessions, and
-    workflows. Ownership and access are enforced onchain through Sui smart contracts, and all
-    content is encrypted through Seal before reaching Walrus.
-
 ## Walrus Memory: Getting Started
 
 - [Choose Your Path](https://docs.wal.app/walrus-memory/getting-started/choose-your-path.md):
@@ -391,17 +410,17 @@ Sui smart contract as the on-chain index.
 - [Quick Start](https://docs.wal.app/walrus-memory/getting-started/quick-start.md):
     The fastest way to get Walrus Memory running is through the TypeScript SDK.
 - [What Is Walrus Memory](https://docs.wal.app/walrus-memory/getting-started/what-is-walrus-memory.md):
-    > Note > > Walrus Memory is currently in beta and actively evolving. While fully usable today,
-    the team continues to refine the developer experience and operational guidance. the team
-    welcomes feedback from early builders as the team continues to improve the product.
+    > Note > > Walrus Memory is in beta and actively evolving. It is fully usable today, and the
+    developer experience and operational guidance keep improving. Feedback from early builders
+    helps shape the product.
 
 ## Walrus Memory: Fundamentals
 
 - [Core Components](https://docs.wal.app/walrus-memory/fundamentals/architecture/core-components.md):
     Walrus Memory is made up of six core components that work together to give your agents
-    portable, verifiable memory that they fully control. The TypeScript SDK is the main entry point
-    for developers. It wraps all Walrus Memory operations into a basic client that your app calls
-    directly.
+    portable, verifiable memory that they fully control. Source:
+    fundamentals/architecture/core-components.md The TypeScript SDK is the main entry point for
+    developers.
 - [Data Flow Security Model](https://docs.wal.app/walrus-memory/fundamentals/architecture/data-flow-security-model.md):
     Walrus Memory's security model is split between onchain enforcement and offchain operations.
     Understanding where trust lives helps you make informed decisions about your deployment.
@@ -411,8 +430,10 @@ Sui smart contract as the on-chain index.
     an agent holding WAL itself and having a third party sponsor the cost.
 - [How Storage Works](https://docs.wal.app/walrus-memory/fundamentals/architecture/how-storage-works.md):
     When you call memwal.remember(...), the relayer accepts a background job immediately and then
-    stores the memory asynchronously. Here's what happens. The relayer generates a vector embedding
-    from your plaintext content.
+    stores the memory asynchronously. Here's what happens.
+- [How Agent Memory Works](https://docs.wal.app/walrus-memory/fundamentals/concepts/how-agent-memory-works.md):
+    AI agent memory is a durable, searchable store of what an agent has learned, kept outside the
+    model so it survives across sessions, apps, and workflows.
 - [Memory Space](https://docs.wal.app/walrus-memory/fundamentals/concepts/memory-space.md):
     A memory space is the isolated unit of storage in Walrus Memory. Think of it as a folder or
     bucket for your memories, you choose which memory space to store into and which to retrieve
@@ -425,6 +446,11 @@ Sui smart contract as the on-chain index.
     An AI agent is only as trustworthy as the memory it acts on. If memory can be silently altered,
     or if the service holding it can rewrite history or lock you out, the agent's decisions cannot
     be trusted.
+- [Where To Store Agent Data](https://docs.wal.app/walrus-memory/fundamentals/concepts/where-to-store-agent-data.md):
+    When you give an AI agent long-term memory, you have to decide where that data lives. The
+    choice shapes what the agent can do later: whether its memory survives a restart, moves with
+    the user to another app, stays under the user's control, and can be trusted. Most teams choose
+    among four approaches.
 
 ## Walrus Memory: Mcp
 
@@ -507,9 +533,7 @@ Sui smart contract as the on-chain index.
     onchain in a MemWalAccount and verified by the relayer on every request.
 - [Overview](https://docs.wal.app/walrus-memory/contract/overview.md):
     The smart contract (memwal:account) defines the onchain account model for Walrus Memory. It is
-    a Move module deployed on Sui. These are the onchain IDs for the current public Walrus Memory
-    deployments: For relayer setup and environment variable usage, see Self-Hosting and Environment
-    Variables.
+    a Move module deployed on Sui.
 - [Ownership And Permissions](https://docs.wal.app/walrus-memory/contract/ownership-and-permissions.md):
     The owner is the Sui wallet address that created the MemWalAccount.
 
@@ -578,8 +602,9 @@ Sui smart contract as the on-chain index.
     see unclear guidance, outdated flows, or missing examples, contributions are welcome. The docs
     source of truth is the markdown content under docs/ in this repository.
 - [Run Docs Locally](https://docs.wal.app/walrus-memory/contributing/run-docs-locally.md):
-    Run these commands from the repository root: This starts the Mintlify site using the docs in
-    this repository. Use Node 20 LTS for Mintlify local preview. Mintlify fails on Node 25+.
+    Run these commands from the repository root: Source: contributing/run-docs-locally.md This
+    starts the Mintlify site using the docs in this repository. Use Node 20 LTS for Mintlify local
+    preview. Mintlify fails on Node 25+.
 - [Docs site (Mintlify)](https://docs.wal.app/walrus-memory/contributing/run-repo-locally.md):
     | Tool | Version | Check | |------|---------|-------| | Node.js | ≥ 20 | node -v | | pnpm | ≥
     9.12 | pnpm -v | | Rust | latest stable (only for backend services) | rustc --version | > Tip >
@@ -587,10 +612,22 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: Examples
 
+- [Chatbot](https://docs.wal.app/walrus-memory/examples/chatbot.md):
+    The chatbot example (apps/chatbot) is a production-style AI chat app built on Next.js and the
+    Vercel AI SDK. It shows the lightest-touch Walrus Memory integration: wrap the model once, and
+    memory works for every conversation turn.
 - [Example Apps](https://docs.wal.app/walrus-memory/examples/example-apps.md):
     The repo includes ready-to-run apps in apps/ that show different Walrus Memory integration
-    patterns. This page focuses on app-level patterns,the basic SDK flow covered in Quick Start and
-    Walrus Memory Usage. Dashboard, playground, and interactive demo for Walrus Memory.
+    patterns. Start here for app-level patterns; Quick Start and Walrus Memory Usage cover the
+    basic SDK flow.
+- [Noter](https://docs.wal.app/walrus-memory/examples/noter.md):
+    The noter example (apps/noter) is a note-taking app with zkLogin sign-in, so users authenticate
+    with OAuth instead of managing a wallet. It shows the note-to-memory pattern: free-form writing
+    becomes structured facts that recall can find later.
+- [Researcher](https://docs.wal.app/walrus-memory/examples/researcher.md):
+    The researcher example (apps/researcher) is a research assistant that works in sprints. It
+    shows long-form memory and session rehydration: each sprint's findings persist as a structured
+    report, and a fresh session pulls back the relevant history before it starts.
 
 ## 01 Announcing Walrus
 
@@ -668,7 +705,17 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Release notes from Walrus and Walrus Memory.
+    Walrus Platform — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory,
+    including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+- [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
+    June 12, 2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and
+    Antigravity, along with new memwalrememberbulk and memwalhealth tools and proactive memory
+    behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
+- [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
+    Mainnet July 22, 2026 | GitHub --- --- Testnet July 15, 2026 | GitHub --- --- Mainnet July 9,
+    2026 | GitHub #3479: walrus info committee gains a --commission-receivers flag that prints, as
+    CSV, the commission receiver of every node in the previous, current, and next committees
+    (including the owning address for object receivers).
 
 ## Sponsored Uploads
 
@@ -676,6 +723,12 @@ Sui smart contract as the on-chain index.
     Most users do not hold SUI or WAL, and most apps do not want to ask them to. To build an app
     where your backend pays for Walrus storage and users upload without managing a wallet, you need
     to choose among several patterns.
+
+## Testnet Reference
+
+- [Testnet Reference](https://docs.wal.app/docs/testnet-reference.md):
+    Walrus Testnet is a free, non-durable network for development and testing. Read values that
+    change from the canonical Network Reference, which is the single maintained source.
 
 ## Walrus Memory: Guides
 
@@ -693,8 +746,8 @@ Sui smart contract as the on-chain index.
 ## Walrus Memory: Python SDK
 
 - [API Reference](https://docs.wal.app/walrus-memory/python-sdk/api-reference.md):
-    See also: Configuration Relayer API MemWalSync.create(...) has the same signature and returns a
-    synchronous wrapper.
+    See also: Configuration Relayer API Source: python-sdk/api-reference.md MemWalSync.create(...)
+    has the same signature and returns a synchronous wrapper.
 - [Colab](https://docs.wal.app/walrus-memory/python-sdk/colab.md):
     Use the runnable Walrus Memory Python SDK Colab when you want a notebook-first walkthrough.
 - [Quick Start](https://docs.wal.app/walrus-memory/python-sdk/quick-start.md):
@@ -735,11 +788,11 @@ Sui smart contract as the on-chain index.
     Walrus Memory includes an AI SDK integration for applications that already use model
     middleware.
 - [API Reference](https://docs.wal.app/walrus-memory/sdk/api-reference.md):
-    See also: Configuration Relayer API Config: | Property | Type | Required | Default | Notes | |
-    --- | --- | --- | --- | --- | | key | string | Yes | | Ed25519 delegate private key in hex | |
-    accountId | string | Yes | | MemWalAccount object ID on Sui | | serverUrl | string | No | |
-    Relayer URL | | namespace | string | No | "default" | Default namespace for memory isolation |
-    For the full config surface, see Configuration.
+    See also: Configuration Relayer API Source: sdk/api-reference.md Config: | Property | Type |
+    Required | Default | Notes | | --- | --- | --- | --- | --- | | key | string | Yes | | Ed25519
+    delegate private key in hex | | accountId | string | Yes | | MemWalAccount object ID on Sui | |
+    serverUrl | string | No | | Relayer URL | | namespace | string | No | "default" | Default
+    namespace for memory isolation | For the full config surface, see Configuration.
 - [Cloudflare Workers](https://docs.wal.app/walrus-memory/sdk/cloudflare-workers.md):
     Walrus Memory runs on the Cloudflare Workers runtime, but the edge environment differs from
     Node.js in a few ways that affect bundling and reliability. This guide covers the configuration

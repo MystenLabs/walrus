@@ -16,3 +16,6 @@ execSync(`node ${path.join(scriptDir, "fetch-walrus-memory-docs.js")} ${args}`, 
 execSync(`node ${path.join(scriptDir, "transform-walrus-memory-docs.js")}`, {
   stdio: "inherit",
 });
+execSync(`node ${path.join(scriptDir, "generate-walrus-memory-sidebar.js")}`, {
+  stdio: "inherit",
+});
