@@ -944,6 +944,7 @@ impl StorageNode {
             ShardSyncHandler::new(inner.clone(), config.shard_sync_config.clone());
         // Upon restart, resume any ongoing blob syncs if there is any.
         shard_sync_handler.restart_syncs().await?;
+        shard_sync_handler.spawn_service(inner.subscribe_to_epoch_sync_goal());
 
         let epoch_change_driver = EpochChangeDriver::new(
             system_parameters,

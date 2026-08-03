@@ -796,18 +796,6 @@ impl EpochChangeExecutor {
                 .context("failed to lock shard")?;
         }
 
-        // Publish the epoch synchronization goal for this transition. Published inside the
-        // critical section and after the lost shards are locked: services reconciling toward
-        // the goal may act on it (and ultimately attest) as soon as it becomes visible.
-        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
-            generation: 0, // assigned by the publisher
-            epoch: event.epoch,
-            catching_up: false,
-            membership: execution_info.membership,
-            owned_shards: execution_info.owned_shards.clone(),
-            shards_to_fill: execution_info.new_shards.clone(),
-        });
-
         // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand
         // it to the owner named in the plan, invalidating any token or instruction held by
         // the other components. This runs inside the critical section (for recovery-owned
@@ -855,14 +843,20 @@ impl EpochChangeExecutor {
             }
         }
 
-        // Start syncing the new (gained) shards from their previous owners.
-        if let Some(new_shards) = &execution_info.new_shards
-            && new_shards.fill == plan::ShardFill::ShardSync
-        {
-            self.shard_sync_handler
-                .start_sync_shards(new_shards.shards.clone())
-                .await?;
-        }
+        // Publish the epoch synchronization goal for this transition. Published inside the
+        // critical section, after the lost shards are locked (services acting on the goal may
+        // ultimately attest, which must not happen while the node still accepts writes for
+        // shards it lost) and after the attestation is routed above (a sync started by the
+        // reconciler must find its registered token). The shard-sync reconciler reacts to the
+        // goal by starting the syncs; the executor no longer starts them directly.
+        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            generation: 0, // assigned by the publisher
+            epoch: event.epoch,
+            catching_up: false,
+            membership: execution_info.membership,
+            owned_shards: execution_info.owned_shards.clone(),
+            shards_to_fill: execution_info.new_shards.clone(),
+        });
 
         Ok(finisher_attestation)
     }
@@ -986,6 +980,7 @@ impl EpochChangeExecutor {
         // Entering recovery supersedes the pending completions of long-running tasks: neither a
         // still-running metadata recovery nor a still-running node recovery task may transition
         // the node away from `RecoveryCatchUp` when it finishes.
+        self.shard_sync_handler.clear_epoch_sync_done_token();
         self.shard_sync_handler.clear_metadata_recovery_completion();
         self.node_recovery_handler.clear_completion_instruction();
 

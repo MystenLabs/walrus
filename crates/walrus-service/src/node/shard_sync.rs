@@ -30,6 +30,8 @@ use crate::node::{
     epoch_change::{
         attestation::{EpochSyncDoneToken, ShardSyncAttestation},
         completion::{CompletionInstruction, CompletionSlot},
+        goal::EpochSyncGoal,
+        plan::ShardFill,
     },
     errors::ShardNotAssigned,
     storage::blob_info::CertifiedBlobInfoApi,
@@ -93,6 +95,8 @@ pub struct ShardSyncHandler {
     node: Arc<StorageNodeInner>,
     shard_sync_in_progress: Arc<Mutex<HashMap<ShardIndex, InProgressShardSync>>>,
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    // The permanent shard-sync reconciler task, spawned once at startup.
+    service_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     shard_sync_semaphore: Arc<Semaphore>,
     // Tracks the number of currently running shard sync tasks, including the task that starts
     // the individual per-shard syncs. Used by node recovery to wait until all shard syncs have
@@ -116,6 +120,7 @@ impl ShardSyncHandler {
             node,
             shard_sync_in_progress: Arc::new(Mutex::new(HashMap::new())),
             task_handle: Arc::new(Mutex::new(None)),
+            service_handle: Arc::new(Mutex::new(None)),
             shard_sync_semaphore: Arc::new(Semaphore::new(config.shard_sync_concurrency)),
             sync_task_count: Arc::new(watch::channel(0).0),
             epoch_sync_attestation: ShardSyncAttestation::default(),
@@ -489,6 +494,87 @@ impl ShardSyncHandler {
 
     /// Restarts syncing shards that were previously syncing. This method is used when restarting
     /// the node.
+    /// Spawns the permanent shard-sync reconciler.
+    ///
+    /// The reconciler watches the epoch synchronization goal: on a goal describing the node as
+    /// a committee member with shards to fill via shard sync, it starts the syncs; on a
+    /// catching-up or non-member goal, it quiesces all sync work (the node's view of its
+    /// assignment is not authoritative, or the node makes no epoch-sync claim). The
+    /// epoch-change logic no longer starts syncs directly: it publishes goals, and this
+    /// service reconciles toward them.
+    pub(crate) fn spawn_service(&self, mut goal_receiver: watch::Receiver<EpochSyncGoal>) {
+        let mut service_handle = self
+            .service_handle
+            .try_lock()
+            .expect("spawn_service is called once, at startup");
+        assert!(
+            service_handle.is_none(),
+            "the shard sync reconciler is already running"
+        );
+
+        let handler = self.clone();
+        *service_handle = Some(tokio::spawn(async move {
+            loop {
+                let goal = goal_receiver.borrow_and_update().clone();
+                handler.reconcile_toward_goal(&goal).await;
+                if goal_receiver.changed().await.is_err() {
+                    tracing::info!("goal channel closed; stopping the shard sync reconciler");
+                    return;
+                }
+            }
+        }));
+    }
+
+    /// Reconciles the running sync work toward the given goal.
+    async fn reconcile_toward_goal(&self, goal: &EpochSyncGoal) {
+        if goal.catching_up || !goal.membership.is_member() {
+            // While catching up, the node's view of its shard assignment is not authoritative;
+            // as a non-member, the node makes no epoch-sync claim. Either way, running syncs
+            // are pinned to a superseded assignment: quiesce them. Sync progress is persisted
+            // per batch, so quiescing loses at most the in-flight batches; whatever the node
+            // still needs is re-derived from persisted shard statuses by a later goal (or by a
+            // full recovery, which force-activates and per-blob-recovers its shards).
+            self.quiesce_all_syncs().await;
+            return;
+        }
+
+        if let Some(new_shards) = &goal.shards_to_fill
+            && new_shards.fill == ShardFill::ShardSync
+            && let Err(error) = self.start_sync_shards(new_shards.shards.clone()).await
+        {
+            tracing::error!(?error, "failed to start the shard syncs for the goal");
+        }
+    }
+
+    /// Aborts the sync-driving task and every per-shard sync task, waiting for them to exit.
+    async fn quiesce_all_syncs(&self) {
+        if let Some(task) = self.task_handle.lock().await.take() {
+            task.abort();
+            let _ = task.await;
+        }
+
+        let sync_tasks: Vec<_> = {
+            let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
+            shard_sync_in_progress.drain().collect()
+        };
+        if sync_tasks.is_empty() {
+            return;
+        }
+        tracing::info!(
+            count = sync_tasks.len(),
+            "quiescing all in-progress shard syncs"
+        );
+        for (shard_index, sync) in sync_tasks {
+            tracing::info!(
+                walrus.shard_index = %shard_index,
+                target_epoch = sync.target_epoch,
+                "aborting shard sync"
+            );
+            sync.task_handle.abort();
+            let _ = sync.task_handle.await;
+        }
+    }
+
     pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
         let current_node_status = self.node.storage.node_status()?;
         if current_node_status == NodeStatus::RecoverMetadata {
