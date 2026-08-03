@@ -15,6 +15,7 @@
 
 use walrus_core::{Epoch, ShardIndex};
 
+use super::goal::Membership;
 use crate::node::NodeStatus;
 
 /// The node's status with respect to an epoch change, established by committee
@@ -148,6 +149,10 @@ pub(crate) struct NewShards {
 pub(crate) struct EpochChangeExecutionInfo {
     /// The node-status transition to perform, if any.
     pub status: Option<StatusTransition>,
+    /// The node's relationship to the new epoch's committee.
+    pub membership: Membership,
+    /// All shards assigned to the node in the new epoch.
+    pub owned_shards: Vec<ShardIndex>,
     /// The shards newly assigned to the node, if any.
     pub new_shards: Option<NewShards>,
     /// Shards to lock against further writes because they moved to another node.
@@ -225,6 +230,11 @@ fn plan_while_catching_up(inputs: &PlanInputs) -> EpochChangePlan {
     // assignment history while catching up: recover all owned shards per blob.
     EpochChangePlan::Apply(EpochChangeExecutionInfo {
         status: Some(StatusTransition::RecoveryInProgress),
+        membership: Membership::from_committee_presence(
+            inputs.in_current_committee,
+            inputs.in_previous_committee,
+        ),
+        owned_shards: inputs.shards.all_owned.clone(),
         new_shards: Some(NewShards {
             shards: inputs.shards.all_owned.clone(),
             fill: ShardFill::ForceActive,
@@ -296,6 +306,11 @@ fn epoch_change_execution_info(
 
     EpochChangeExecutionInfo {
         status,
+        membership: Membership::from_committee_presence(
+            inputs.in_current_committee,
+            inputs.in_previous_committee,
+        ),
+        owned_shards: inputs.shards.all_owned.clone(),
         new_shards: (!inputs.shards.gained.is_empty()).then(|| NewShards {
             shards: inputs.shards.gained.clone(),
             fill: ShardFill::ShardSync,
@@ -412,6 +427,7 @@ mod tests {
             execution_info.status,
             Some(StatusTransition::RecoverMetadata)
         );
+        assert_eq!(execution_info.membership, Membership::NewMember);
         assert_eq!(
             execution_info.new_shards,
             new_shards(&[1, 2], ShardFill::ShardSync)
@@ -584,6 +600,7 @@ mod tests {
             execution_info.status,
             Some(StatusTransition::RecoverMetadata)
         );
+        assert_eq!(execution_info.membership, Membership::NewMember);
         assert_eq!(
             execution_info.new_shards,
             new_shards(&[1, 2], ShardFill::ShardSync)

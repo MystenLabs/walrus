@@ -11,10 +11,12 @@ use super::*;
 
 pub(crate) mod attestation;
 pub(crate) mod completion;
+pub(crate) mod goal;
 pub(crate) mod plan;
 
 use attestation::EpochSyncDoneToken;
 use completion::CompletionInstruction;
+use goal::EpochSyncGoal;
 
 /// Threshold above which we emit a warning that the foreground portion of an
 /// `EpochChangeStart` event took unexpectedly long to process. The shard-sync work
@@ -594,6 +596,13 @@ impl EpochChangeExecutor {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
                 self.shard_sync_handler.clear_metadata_recovery_completion();
                 self.node_recovery_handler.clear_completion_instruction();
+                self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+                    epoch: event.epoch,
+                    catching_up: false,
+                    membership: goal::Membership::NotMember,
+                    owned_shards: Vec::new(),
+                    shards_to_fill: None,
+                });
                 event_handle.mark_as_complete();
                 return Ok(());
             }
@@ -818,6 +827,17 @@ impl EpochChangeExecutor {
                 .context("failed to lock shard")?;
         }
 
+        // Publish the epoch synchronization goal for this transition. Published inside the
+        // critical section and after the lost shards are locked: services reconciling toward
+        // the goal may act on it (and ultimately attest) as soon as it becomes visible.
+        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            epoch: event.epoch,
+            catching_up: false,
+            membership: execution_info.membership,
+            owned_shards: execution_info.owned_shards.clone(),
+            shards_to_fill: execution_info.new_shards.clone(),
+        });
+
         // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand
         // it to the owner named in the plan, invalidating any token or instruction held by
         // the other components. This runs inside the critical section (for recovery-owned
@@ -1035,6 +1055,17 @@ impl EpochChangeExecutor {
         // the node away from `RecoveryCatchUp` when it finishes.
         self.shard_sync_handler.clear_metadata_recovery_completion();
         self.node_recovery_handler.clear_completion_instruction();
+
+        // While catching up, the node's view of its shard assignment is not authoritative:
+        // publish a catching-up goal so the sync services hold off on new work until the node
+        // reaches the latest epoch.
+        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            epoch: self.inner.current_committee_epoch(),
+            catching_up: true,
+            membership: goal::Membership::NotMember,
+            owned_shards: Vec::new(),
+            shards_to_fill: None,
+        });
 
         // Now the node is entering recovery mode, we need to cancel all the blob syncs
         // that are in progress, since the node is lagging behind, and we don't have

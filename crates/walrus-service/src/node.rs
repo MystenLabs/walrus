@@ -697,6 +697,10 @@ pub struct StorageNodeInner {
     // The critical section serializing node state transitions during an epoch change; see
     // [`epoch_change::EpochChangeCriticalSection`].
     epoch_change_critical_section: epoch_change::EpochChangeCriticalSection,
+    // The desired synchronization state the long-running sync services reconcile toward; see
+    // [`epoch_change::goal::EpochSyncGoal`]. Published inside the epoch-change critical
+    // section.
+    epoch_sync_goal: watch::Sender<epoch_change::goal::EpochSyncGoal>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -897,6 +901,7 @@ impl StorageNode {
                 .build(),
             epoch_state_consistency_config: config.epoch_state_consistency.clone(),
             epoch_change_critical_section: epoch_change::EpochChangeCriticalSection::default(),
+            epoch_sync_goal: epoch_change::goal::EpochSyncGoal::channel().0,
         });
 
         blocklist.start_refresh_task();
@@ -967,6 +972,29 @@ impl StorageNode {
         } else {
             None
         };
+
+        // Publish the initial epoch synchronization goal, derived from persisted state and the
+        // fetched committees: the same starting point the last published goal described before
+        // the restart. Newly gained shards are not listed to fill — resumed work is derived
+        // from the persisted shard statuses by the restart paths.
+        {
+            let committees = inner.committee_service.active_committees();
+            let public_key = inner.public_key();
+            let in_current_committee = committees.current_committee().contains(public_key);
+            let in_previous_committee = committees
+                .previous_committee()
+                .is_some_and(|committee| committee.contains(public_key));
+            inner.publish_epoch_sync_goal(epoch_change::goal::EpochSyncGoal {
+                epoch: committees.epoch(),
+                catching_up: inner.storage.node_status()?.is_catching_up(),
+                membership: epoch_change::goal::Membership::from_committee_presence(
+                    in_current_committee,
+                    in_previous_committee,
+                ),
+                owned_shards: inner.owned_shards_at_latest_epoch(),
+                shards_to_fill: None,
+            });
+        }
 
         let garbage_collector =
             GarbageCollector::new(config.garbage_collection, inner.clone(), metrics);
@@ -2943,6 +2971,23 @@ impl StorageNodeInner {
             return true;
         }
         false
+    }
+
+    /// Publishes a new epoch synchronization goal, superseding (and thereby revoking) the
+    /// previous one. Must be called from inside the epoch-change critical section (or before
+    /// the node's services are running, at startup).
+    pub(crate) fn publish_epoch_sync_goal(&self, goal: epoch_change::goal::EpochSyncGoal) {
+        tracing::info!(?goal, "publishing epoch synchronization goal");
+        self.epoch_sync_goal.send_replace(goal);
+    }
+
+    /// Subscribes to epoch synchronization goal updates.
+    // Consumed by the sync-service reconcilers introduced in the follow-up commits.
+    #[allow(dead_code)]
+    pub(crate) fn subscribe_to_epoch_sync_goal(
+        &self,
+    ) -> watch::Receiver<epoch_change::goal::EpochSyncGoal> {
+        self.epoch_sync_goal.subscribe()
     }
 
     /// Sets the status of the node, validating the transition against the node-status state
