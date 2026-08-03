@@ -1411,6 +1411,43 @@ async fn test_read_empty_blob_as_quilt_returns_error() -> TestResult {
     Ok(())
 }
 
+/// Tests that reading a quilt that does not exist on Walrus fails with `BlobIdDoesNotExist`
+/// instead of a generic retrieval error after exhausting sliver requests to the committee.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_read_nonexistent_quilt_returns_blob_id_does_not_exist() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+    let quilt_client = client.as_ref().quilt_client();
+
+    let nonexistent_quilt_id = BlobId(random());
+
+    let result = quilt_client.get_quilt_metadata(&nonexistent_quilt_id).await;
+    assert!(matches!(
+        result.unwrap_err().kind(),
+        ClientErrorKind::BlobIdDoesNotExist
+    ));
+
+    // A syntactically valid QuiltPatchIdV1 (version byte followed by start and end indices)
+    // pointing into the nonexistent quilt.
+    let patch_id = QuiltPatchId::new(nonexistent_quilt_id, vec![0x01, 1, 0, 2, 0]);
+    let result = quilt_client.get_blobs_by_ids(&[patch_id]).await;
+    assert!(matches!(
+        result.unwrap_err().kind(),
+        ClientErrorKind::BlobIdDoesNotExist
+    ));
+
+    let result = quilt_client.get_all_blobs(&nonexistent_quilt_id).await;
+    assert!(matches!(
+        result.unwrap_err().kind(),
+        ClientErrorKind::BlobIdDoesNotExist
+    ));
+
+    Ok(())
+}
+
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_blocklist() -> TestResult {
