@@ -112,15 +112,13 @@ impl<T: std::fmt::Debug> Slot<T> {
     }
 }
 
-/// The shard-sync attestation: the [`EpochSyncDoneToken`] together with the set of shards whose
-/// syncs must complete before the token may be consumed.
+/// The shard-sync attestation: the [`EpochSyncDoneToken`] together with the set of shards
+/// whose syncs must complete before the token may be consumed.
 ///
-/// The token and its pending shards are registered atomically, *before* the corresponding sync
-/// tasks are spawned. This closes a race with sync tasks left over from an earlier epoch: such
-/// a task can observe the in-progress task map as empty (the new epoch's tasks may not have
-/// been inserted yet), but it cannot consume the new token, because the new shards are already
-/// registered as pending. Conversely, a leftover task that finishes a shard the new epoch also
-/// gained counts toward the new registration, since the shard's data is there either way.
+/// The token and its pending shards are registered atomically, inside the epoch-change critical
+/// section, *after* all sync work has been quiesced and *before* the reconciler rebuilds the
+/// syncs: every sync task in existence therefore belongs to the current registration, and the
+/// completion that empties the pending set consumes the token.
 ///
 /// Clones share the same state.
 #[derive(Debug, Default, Clone)]
@@ -149,58 +147,25 @@ impl ShardSyncAttestation {
         }
     }
 
-    /// Registers additional shards that must complete their syncs before the token may be
-    /// consumed. A no-op if no token is registered.
-    ///
-    /// Used by the sync-shards task when it derives its full work list (during metadata
-    /// recovery, all owned shards instead of only the newly gained ones): the derived shards
-    /// are registered before their sync tasks are spawned.
-    pub(crate) fn register_pending_shards(&self, shards: impl IntoIterator<Item = ShardIndex>) {
-        if let Some(state) = self.lock().as_mut() {
-            state.pending_shards.extend(shards);
-        }
-    }
-
-    /// Records the shard as synced. Returns the token if this completes the registration —
-    /// every registered shard synced — and no other sync task is running
-    /// (`no_other_sync_running`; this guards leftover tasks from earlier epochs that are still
-    /// draining and whose shards the node may still own).
-    ///
-    /// `task_target_epoch` is the epoch the completed sync targeted: only a sync at least as
-    /// recent as the token's epoch counts toward the registration. A shard that was lost and
-    /// re-gained can have a still-running sync from an earlier epoch; that sync's data stops at
-    /// its own epoch bound, so its completion must not satisfy the new epoch's registration.
-    /// (Such a completion may still trigger consumption once the registration is otherwise
-    /// complete — the draining-task deferral case.)
-    pub(crate) fn record_shard_synced(
-        &self,
-        shard: ShardIndex,
-        task_target_epoch: Epoch,
-        no_other_sync_running: bool,
-    ) -> Option<EpochSyncDoneToken> {
+    /// Records the shard as synced. Returns the token if this completes the registration,
+    /// that is, every registered shard has synced.
+    pub(crate) fn record_shard_synced(&self, shard: ShardIndex) -> Option<EpochSyncDoneToken> {
         let mut guard = self.lock();
         let state = guard.as_mut()?;
-        if task_target_epoch >= state.token.epoch() {
-            state.pending_shards.remove(&shard);
-        }
-        if state.pending_shards.is_empty() && no_other_sync_running {
+        state.pending_shards.remove(&shard);
+        if state.pending_shards.is_empty() {
             return guard.take().map(|state| state.token);
         }
         None
     }
 
-    /// Takes the token back if the registration is already complete — no pending shards — and
-    /// no other sync task is running. Used by the epoch-change apply step right after
-    /// registering a token with no pending shards: the draining syncs that made shard sync the
-    /// attestation owner may have finished in the meantime, leaving no future completion to
-    /// consume the token.
-    pub(crate) fn take_if_complete(
-        &self,
-        no_other_sync_running: bool,
-    ) -> Option<EpochSyncDoneToken> {
+    /// Takes the token if the registration is complete — no pending shards. Used by the
+    /// metadata-recovery completion, which can be the last outstanding work of a registration
+    /// whose shards have all synced.
+    pub(crate) fn take_if_complete(&self) -> Option<EpochSyncDoneToken> {
         let mut guard = self.lock();
         let state = guard.as_ref()?;
-        if state.pending_shards.is_empty() && no_other_sync_running {
+        if state.pending_shards.is_empty() {
             return guard.take().map(|state| state.token);
         }
         None
@@ -250,102 +215,39 @@ mod tests {
     }
 
     #[test]
-    fn old_epoch_task_cannot_consume_token_with_pending_shards() {
-        // Regression test: the token is registered together with the new epoch's shards before
-        // their sync tasks exist. A leftover task from the previous epoch that observes no
-        // other running syncs must not consume it while the new shards are pending.
+    fn token_is_consumed_by_the_completion_that_empties_the_registration() {
         let attestation = ShardSyncAttestation::default();
         attestation.set(
             EpochSyncDoneToken::new_for_epoch(8),
             [ShardIndex(1), ShardIndex(2)],
         );
 
-        // The old-epoch task finishes its shard (not part of the new registration) and sees the
-        // task map as empty.
-        assert!(
-            attestation
-                .record_shard_synced(ShardIndex(7), 5, true)
-                .is_none()
-        );
-
-        // The new shards complete; the last one consumes the token.
-        assert!(
-            attestation
-                .record_shard_synced(ShardIndex(1), 8, false)
-                .is_none()
-        );
+        assert!(attestation.record_shard_synced(ShardIndex(1)).is_none());
+        // Unregistered shards do not affect the registration.
+        assert!(attestation.record_shard_synced(ShardIndex(7)).is_none());
         let token = attestation
-            .record_shard_synced(ShardIndex(2), 8, true)
+            .record_shard_synced(ShardIndex(2))
             .expect("last registered shard should consume the token");
         assert_eq!(token.epoch(), 8);
+        // The token can only be consumed once.
+        assert!(attestation.record_shard_synced(ShardIndex(2)).is_none());
     }
 
     #[test]
-    fn regained_shard_stale_completion_does_not_satisfy_registration() {
-        // A shard lost and re-gained can have a still-running sync from an earlier epoch. Its
-        // completion carries only the old epoch's data, so it must not count toward the new
-        // registration; a sync targeting the token's epoch must complete the shard.
+    fn take_if_complete_requires_an_empty_registration() {
         let attestation = ShardSyncAttestation::default();
         attestation.set(EpochSyncDoneToken::new_for_epoch(8), [ShardIndex(1)]);
+        assert!(attestation.take_if_complete().is_none());
 
-        assert!(
-            attestation
-                .record_shard_synced(ShardIndex(1), 5, true)
-                .is_none()
-        );
+        assert!(attestation.record_shard_synced(ShardIndex(1)).is_some());
+        // Consumed by the recording; nothing left to take.
+        assert!(attestation.take_if_complete().is_none());
+
+        attestation.set(EpochSyncDoneToken::new_for_epoch(9), []);
         let token = attestation
-            .record_shard_synced(ShardIndex(1), 8, true)
-            .expect("the current-epoch sync should complete the registration");
-        assert_eq!(token.epoch(), 8);
-    }
-
-    #[test]
-    fn idle_registration_can_be_taken_back() {
-        let attestation = ShardSyncAttestation::default();
-        attestation.set(EpochSyncDoneToken::new_for_epoch(8), []);
-        assert!(attestation.take_if_complete(false).is_none());
-        let token = attestation
-            .take_if_complete(true)
-            .expect("an idle registration should be reclaimable");
-        assert_eq!(token.epoch(), 8);
-        assert!(attestation.take_if_complete(true).is_none());
-    }
-
-    #[test]
-    fn token_is_not_consumed_while_other_syncs_run() {
-        // Even with every registered shard synced, draining tasks from earlier epochs (still
-        // present in the in-progress map) defer the attestation until they finish.
-        let attestation = ShardSyncAttestation::default();
-        attestation.set(EpochSyncDoneToken::new_for_epoch(8), [ShardIndex(1)]);
-
-        assert!(
-            attestation
-                .record_shard_synced(ShardIndex(1), 8, false)
-                .is_none()
-        );
-        // The draining old-epoch task finishes last and consumes the token for the new epoch.
-        let token = attestation
-            .record_shard_synced(ShardIndex(7), 5, true)
-            .expect("final completion should consume the token");
-        assert_eq!(token.epoch(), 8);
-    }
-
-    #[test]
-    fn additionally_registered_shards_defer_consumption() {
-        let attestation = ShardSyncAttestation::default();
-        attestation.set(EpochSyncDoneToken::new_for_epoch(8), [ShardIndex(1)]);
-        attestation.register_pending_shards([ShardIndex(2)]);
-
-        assert!(
-            attestation
-                .record_shard_synced(ShardIndex(1), 8, true)
-                .is_none()
-        );
-        assert!(
-            attestation
-                .record_shard_synced(ShardIndex(2), 8, true)
-                .is_some()
-        );
+            .take_if_complete()
+            .expect("an empty registration is complete");
+        assert_eq!(token.epoch(), 9);
     }
 
     #[test]
@@ -353,10 +255,6 @@ mod tests {
         let attestation = ShardSyncAttestation::default();
         attestation.set(EpochSyncDoneToken::new_for_epoch(8), [ShardIndex(1)]);
         attestation.clear();
-        assert!(
-            attestation
-                .record_shard_synced(ShardIndex(1), 8, true)
-                .is_none()
-        );
+        assert!(attestation.record_shard_synced(ShardIndex(1)).is_none());
     }
 }

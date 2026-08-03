@@ -593,8 +593,9 @@ impl EpochChangeExecutor {
                     "node is not in the current committee, set node status to 'Standby'"
                 );
                 self.inner.set_node_status(NodeStatus::Standby)?;
-                // A standby node makes no epoch-sync claim and runs no status-changing
-                // long-running tasks: invalidate any unconsumed token or instruction.
+                // A standby node makes no epoch-sync claim and runs no sync work: quiesce it
+                // and invalidate any unconsumed token or instruction.
+                self.shard_sync_handler.quiesce_all_syncs().await;
                 self.shard_sync_handler.clear_epoch_sync_done_token();
                 self.shard_sync_handler.clear_metadata_recovery_completion();
                 self.node_recovery_handler.clear_completion_instruction();
@@ -796,6 +797,13 @@ impl EpochChangeExecutor {
                 .context("failed to lock shard")?;
         }
 
+        // Quiesce all sync work, still inside the critical section: after this point no sync
+        // task from an earlier goal exists, so the attestation registered below cannot be
+        // satisfied or consumed by stale work. The reconciler rebuilds the still-needed syncs
+        // from persisted progress once the goal below becomes visible; at most the in-flight
+        // batches are repeated, at the epoch-change cadence.
+        self.shard_sync_handler.quiesce_all_syncs().await;
+
         // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand
         // it to the owner named in the plan, invalidating any token or instruction held by
         // the other components. This runs inside the critical section (for recovery-owned
@@ -813,25 +821,34 @@ impl EpochChangeExecutor {
                 finisher_attestation = Some(token);
             }
             plan::EpochSyncDoneAttestationOwner::ShardSync => {
-                // The token is registered together with the shards it attests for, before
-                // their syncs are started: a draining sync task from an earlier epoch can
-                // therefore never consume it while the new shards are still unsynced. When
-                // no shards were gained (shard sync owns the attestation because syncs from
-                // earlier epochs are still draining), those syncs may have finished in the
-                // meantime — leaving no future completion to consume the token — so an idle
-                // registration is taken back and handed to the finisher instead.
                 self.node_recovery_handler.clear_completion_instruction();
-                let pending_shards = execution_info
-                    .new_shards
-                    .as_ref()
-                    .map(|new_shards| new_shards.shards.clone())
-                    .unwrap_or_default();
-                self.shard_sync_handler
-                    .set_epoch_sync_done_token(token, pending_shards);
-                finisher_attestation = self
-                    .shard_sync_handler
-                    .try_take_idle_epoch_sync_attestation()
-                    .await;
+                // Register the token with every owned shard whose persisted status is not yet
+                // `Active` — exactly the work the reconciler rebuilds for this goal. With all
+                // sync work quiesced above, the registration cannot race stale completions.
+                // An empty registration means the epoch-sync claim already holds (for example,
+                // when re-processing the event after a crash): the finisher attests directly.
+                let mut pending_shards = Vec::new();
+                for shard in &execution_info.owned_shards {
+                    let is_active = match self.inner.storage.shard_storage(*shard).await {
+                        Some(shard_storage) => {
+                            matches!(shard_storage.status().await, Ok(ShardStatus::Active))
+                        }
+                        None => false,
+                    };
+                    if !is_active {
+                        pending_shards.push(*shard);
+                    }
+                }
+                if pending_shards.is_empty()
+                    && self.inner.storage.node_status()? != NodeStatus::RecoverMetadata
+                {
+                    finisher_attestation = Some(token);
+                } else {
+                    // Registered even when no shard is pending while metadata recovery is
+                    // outstanding: the metadata task's completion consumes the token then.
+                    self.shard_sync_handler
+                        .set_epoch_sync_done_token(token, pending_shards);
+                }
             }
             plan::EpochSyncDoneAttestationOwner::RecoveryTask => {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
@@ -982,6 +999,7 @@ impl EpochChangeExecutor {
         // Entering recovery supersedes the pending completions of long-running tasks: neither a
         // still-running metadata recovery nor a still-running node recovery task may transition
         // the node away from `RecoveryCatchUp` when it finishes.
+        self.shard_sync_handler.quiesce_all_syncs().await;
         self.shard_sync_handler.clear_epoch_sync_done_token();
         self.shard_sync_handler.clear_metadata_recovery_completion();
         self.node_recovery_handler.clear_completion_instruction();
