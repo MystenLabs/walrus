@@ -414,6 +414,79 @@ impl EpochChangeExecutor {
         }
     }
 
+    /// Publishes the startup epoch synchronization goal, derived from persisted state and the
+    /// fetched committees, and re-mints the commit-protocol state — the `epoch_sync_done`
+    /// attestation token and the completion instructions — that the previous run held in
+    /// memory. Together with the reconciler's first pass (which rebuilds the sync work from
+    /// persisted shard statuses), this makes startup just another goal publication: there is
+    /// no dedicated restart path.
+    ///
+    /// Must be called before the sync services are spawned.
+    pub(super) async fn publish_startup_goal(&self) -> anyhow::Result<()> {
+        let committees = self.inner.committee_service.active_committees();
+        let public_key = self.inner.public_key();
+        let in_current_committee = committees.current_committee().contains(public_key);
+        let in_previous_committee = committees
+            .previous_committee()
+            .is_some_and(|committee| committee.contains(public_key));
+        let membership =
+            goal::Membership::from_committee_presence(in_current_committee, in_previous_committee);
+        let node_status = self.inner.storage.node_status()?;
+        let owned_shards = self.inner.owned_shards_at_latest_epoch();
+        let epoch = committees.epoch();
+
+        match &node_status {
+            NodeStatus::RecoveryInProgress(target_epoch) => {
+                // The node restarted while recovering: node recovery owns the completion.
+                self.node_recovery_handler
+                    .set_completion_instruction(CompletionInstruction::new(
+                        NodeStatus::Active,
+                        Some(EpochSyncDoneToken::new_for_epoch(*target_epoch)),
+                    ));
+            }
+            status if membership.is_member() && !status.is_catching_up() => {
+                if node_status == NodeStatus::RecoverMetadata {
+                    self.shard_sync_handler.set_metadata_recovery_completion(
+                        CompletionInstruction::new(NodeStatus::Active, None),
+                    );
+                }
+                // Register the attestation with every owned shard that is not yet `Active` —
+                // the work the reconciler rebuilds. With nothing pending (and no outstanding
+                // metadata recovery), the attestation for this epoch was already sent before
+                // the restart, or is re-sent when the epoch-change event is re-processed.
+                let mut pending_shards = Vec::new();
+                for shard in &owned_shards {
+                    let is_active = match self.inner.storage.shard_storage(*shard).await {
+                        Some(shard_storage) => {
+                            matches!(shard_storage.status().await, Ok(ShardStatus::Active))
+                        }
+                        None => false,
+                    };
+                    if !is_active {
+                        pending_shards.push(*shard);
+                    }
+                }
+                if !pending_shards.is_empty() || node_status == NodeStatus::RecoverMetadata {
+                    self.shard_sync_handler.set_epoch_sync_done_token(
+                        EpochSyncDoneToken::new_for_epoch(epoch),
+                        pending_shards,
+                    );
+                }
+            }
+            _ => {}
+        }
+
+        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            generation: 0, // assigned by the publisher
+            epoch,
+            catching_up: node_status.is_catching_up(),
+            membership,
+            owned_shards,
+            shards_to_fill: None,
+        });
+        Ok(())
+    }
+
     /// Storage node execution of the epoch change start event, to bring the node state to the next
     /// epoch.
     ///
