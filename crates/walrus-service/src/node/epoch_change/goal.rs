@@ -8,7 +8,7 @@
 //! section whenever the node's desired synchronization state changes: at every epoch change it
 //! processes at the head of the event stream, when the node enters recovery mode, and once at
 //! startup (derived from persisted state). The goal is published through a
-//! [`watch`][tokio::sync::watch] channel, so services always observe the *latest* goal — a
+//! [`watch`] channel, so services always observe the *latest* goal — a
 //! superseded goal is unobservable, which is what revokes work derived from it — and
 //! long-running tasks can monitor goal changes mid-work via
 //! [`changed`][tokio::sync::watch::Receiver::changed].
