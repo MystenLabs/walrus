@@ -4485,6 +4485,31 @@ async fn store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
         })
         .await?;
 
+    // The WAL transfer above executed through the cluster's default fullnode; the gRPC-only
+    // fullnode only sees it after syncing the containing checkpoint. Wait until the client's
+    // own fullnode shows the funds, otherwise coin selection races the sync and fails with
+    // NoCompatiblePaymentCoin.
+    {
+        let read_client = contract_client.as_ref().read_client();
+        let sui_client = read_client.retriable_sui_client();
+        let address = contract_client.as_ref().address();
+        tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                if matches!(
+                    sui_client
+                        .get_total_balance(address, read_client.wal_coin_type())
+                        .await,
+                    Ok(balance) if balance > 0
+                ) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await
+        .expect("the WAL transfer must become visible on the gRPC-only fullnode");
+    }
+
     let config = ClientConfig {
         contract_config: system_ctx.contract_config(),
         exchange_objects: vec![],
