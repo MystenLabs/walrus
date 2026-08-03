@@ -17,8 +17,13 @@ mod tests {
     use walrus_service::{
         client::ClientCommunicationConfig,
         node::config::{
-            CommissionRateData, DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT, PathOrInPlace,
-            PriceCurrency, StorageNodeConfig, SyncedNodeConfigSet, VotingParamsConfig,
+            CommissionRateData,
+            DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
+            PathOrInPlace,
+            PriceCurrency,
+            StorageNodeConfig,
+            SyncedNodeConfigSet,
+            VotingParamsConfig,
             VotingPrices,
         },
         test_utils::{SimStorageNodeHandle, TestNodesConfig, UnusedSocketAddress, test_cluster},

@@ -17,12 +17,16 @@ pub mod simtest_utils {
     use sui_types::base_types::ObjectID;
     use tokio::{sync::RwLock, task::JoinHandle};
     use walrus_core::{
-        Epoch, EpochCount,
+        Epoch,
+        EpochCount,
         encoding::{Primary, Secondary},
     };
     use walrus_sdk::{
         node_client::{
-            StoreArgs, StoreBlobsApi as _, WalrusNodeClient, responses::BlobStoreResult,
+            StoreArgs,
+            StoreBlobsApi as _,
+            WalrusNodeClient,
+            responses::BlobStoreResult,
         },
         uploader::TailHandling,
     };
