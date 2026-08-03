@@ -30,6 +30,7 @@ const manual = MemWalManual.create({
   suiPrivateKey: "<your-sui-private-key>",    // OR walletSigner
   embeddingApiKey: "<your-openai-api-key>",
   packageId: "<memwal-package-id>",
+  registryId: "<account-registry-id>",
   accountId: "<memwal-account-id>",
   namespace: "chatbot-prod",
 });
@@ -89,6 +90,7 @@ const manual = MemWalManual.create({
   },
   embeddingApiKey: "<your-openai-api-key>",
   packageId: "<memwal-package-id>",
+  registryId: "<account-registry-id>",
   accountId: "<memwal-account-id>",
 });
 ```
@@ -96,6 +98,8 @@ const manual = MemWalManual.create({
 ## Config notes
 
 - `suiNetwork` defaults to `mainnet`
+- `packageId` is the immutable first-published package used by Seal; after a
+  compatible upgrade, set `sealPolicyPackageId` to the current policy package
 - `sealServerConfigs` lets the client configure independent or committee Seal servers; committee entries require `aggregatorUrl`
 - `sealKeyServers` remains supported as a legacy independent key server object ID override
 - Walrus publisher, aggregator, and upload relay defaults follow `suiNetwork`
@@ -118,6 +122,8 @@ const manual = MemWalManual.create({
   key: process.env.MEMWAL_KEY!,
   accountId: process.env.MEMWAL_ACCOUNT_ID!,
   packageId: process.env.MEMWAL_PACKAGE_ID!,
+  sealPolicyPackageId: process.env.MEMWAL_SEAL_POLICY_PACKAGE_ID,
+  registryId: process.env.MEMWAL_REGISTRY_ID!,
   serverUrl: "https://relayer-staging.memory.walrus.xyz",
   suiPrivateKey: process.env.SUI_PRIVATE_KEY!,
   embeddingApiKey: process.env.OPENAI_API_KEY!,
