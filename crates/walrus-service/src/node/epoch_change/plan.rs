@@ -177,78 +177,72 @@ pub(crate) enum EpochChangePlan {
 /// executes the returned plan without further decisions.
 pub(crate) fn plan_epoch_change(inputs: &PlanInputs) -> EpochChangePlan {
     match inputs.node_status_at_beginning_of_epoch_change {
-        NodeStatusAtBeginningOfEpochChange::InSync => plan_while_in_sync(inputs),
-        NodeStatusAtBeginningOfEpochChange::CatchingUp => plan_while_catching_up(inputs),
         NodeStatusAtBeginningOfEpochChange::AlreadyInProgress => {
             EpochChangePlan::Skip(SkipReason::ChangeAlreadyInProgress)
         }
-    }
-}
-
-/// Plans the epoch change for a node that is catching up with the event backlog.
-///
-/// Stale events from the backlog are skipped. Once the events reach the committee's (latest)
-/// epoch, the node either moves to `Standby` (not a member), processes shard changes like a new
-/// committee member (a member that was not in the previous committee), or starts a full node
-/// recovery (a continuing member whose local shards may be arbitrarily far behind).
-fn plan_while_catching_up(inputs: &PlanInputs) -> EpochChangePlan {
-    if inputs.event_epoch < inputs.committee_epoch {
-        return EpochChangePlan::Skip(SkipReason::StaleEventWhileCatchingUp);
-    }
-
-    if !inputs.in_current_committee {
-        return EpochChangePlan::MoveToStandby;
-    }
-
-    if !inputs.in_previous_committee {
-        // The node just became a new committee member: its gained shards are filled via shard
-        // sync, preceded by metadata recovery.
-        return EpochChangePlan::Apply(epoch_change_execution_info(
+        // A catching-up node replays a backlog: events for epochs older than the committee's
+        // are skipped.
+        NodeStatusAtBeginningOfEpochChange::CatchingUp
+            if inputs.event_epoch < inputs.committee_epoch =>
+        {
+            EpochChangePlan::Skip(SkipReason::StaleEventWhileCatchingUp)
+        }
+        status => plan_for_current_epoch(
             inputs,
-            new_joiner_status(inputs),
-        ));
-    }
-
-    // The node is a past and current committee member, but has lost track of the shard
-    // assignment history while catching up: recover all owned shards per blob.
-    EpochChangePlan::Apply(EpochChangeExecutionInfo {
-        status: Some(StatusTransition::RecoveryInProgress),
-        membership: Membership::from_committee_presence(
-            inputs.in_current_committee,
-            inputs.in_previous_committee,
+            matches!(status, NodeStatusAtBeginningOfEpochChange::CatchingUp),
         ),
-        owned_shards: inputs.shards.all_owned.clone(),
-        new_shards: Some(NewShards {
-            shards: inputs.shards.all_owned.clone(),
-            fill: ShardFill::ForceActive,
-        }),
-        lock: inputs.shards.lost.clone(),
-        remove: inputs.shards.removed.clone(),
-        sync_done_owner: EpochSyncDoneAttestationOwner::RecoveryTask,
-    })
+    }
 }
 
-/// Plans the epoch change for a node that is up to date with events.
-fn plan_while_in_sync(inputs: &PlanInputs) -> EpochChangePlan {
+/// Plans an epoch change whose event is current — the two-branch model: a stale event was
+/// skipped above, everything else is one path parameterized by the node's membership and prior
+/// status. `exited_catch_up` marks the one genuinely special situation: this event is the first
+/// current one after replaying a backlog, so the node's local shard map is not trustworthy.
+fn plan_for_current_epoch(inputs: &PlanInputs, exited_catch_up: bool) -> EpochChangePlan {
     debug_assert!(inputs.event_epoch <= inputs.committee_epoch);
+    let membership = Membership::from_committee_presence(
+        inputs.in_current_committee,
+        inputs.in_previous_committee,
+    );
 
-    if !inputs.in_current_committee {
-        // The node dropped out of the committee. It moves to `Standby` (from this epoch on it no
-        // longer syncs blob metadata) but still processes the shard changes: its previous shards
-        // are locked as sync sources and old shards are removed. If it was recovering, the
-        // recovery task is left to finish on its own; its completion attempt observes the
-        // `Standby` status and does not attest.
+    if !membership.is_member() {
+        if exited_catch_up {
+            // A catching-up node's local shard map is not authoritative, so no shard changes
+            // are derived from it; the node just moves to `Standby`.
+            return EpochChangePlan::MoveToStandby;
+        }
+        // The node dropped out of the committee. It moves to `Standby` (from this epoch on it
+        // no longer syncs blob metadata) but still processes the shard changes: its previous
+        // shards are locked as sync sources and old shards are removed. If it was recovering,
+        // the completion instruction is revoked and the recovery run superseded.
         return EpochChangePlan::Apply(EpochChangeExecutionInfo {
             status: Some(StatusTransition::Standby),
             ..epoch_change_execution_info(inputs, None)
         });
     }
 
-    if let NodeStatus::RecoveryInProgress(_) = inputs.node_status {
-        // The node is already recovering. Since it is up to date with events, newly gained
-        // shards are synced from their previous owners instead of being filled by blob
-        // recovery, and the running recovery task keeps its progress: it waits for these shard
-        // syncs, then attests for the advanced target.
+    if exited_catch_up && membership == Membership::ContinuingMember {
+        // A continuing member that just caught up has lost track of its shard assignment
+        // history: no previous-owner mapping is trustworthy to sync from, so all owned shards
+        // are force-activated and their missing blobs recovered per blob.
+        return EpochChangePlan::Apply(EpochChangeExecutionInfo {
+            status: Some(StatusTransition::RecoveryInProgress),
+            membership,
+            owned_shards: inputs.shards.all_owned.clone(),
+            new_shards: Some(NewShards {
+                shards: inputs.shards.all_owned.clone(),
+                fill: ShardFill::ForceActive,
+            }),
+            lock: inputs.shards.lost.clone(),
+            remove: inputs.shards.removed.clone(),
+            sync_done_owner: EpochSyncDoneAttestationOwner::RecoveryTask,
+        });
+    }
+
+    if matches!(inputs.node_status, NodeStatus::RecoveryInProgress(_)) {
+        // The node is already recovering (it cannot also be catching up). Newly gained shards
+        // are synced from their previous owners; the recovery target advances, superseding the
+        // current recovery run.
         return EpochChangePlan::Apply(EpochChangeExecutionInfo {
             status: Some(StatusTransition::RecoveryInProgress),
             sync_done_owner: EpochSyncDoneAttestationOwner::RecoveryTask,
@@ -256,12 +250,15 @@ fn plan_while_in_sync(inputs: &PlanInputs) -> EpochChangePlan {
         });
     }
 
-    let status = if inputs.node_status == NodeStatus::Standby {
-        // The node just joined the committee.
-        new_joiner_status(inputs)
-    } else {
-        None
-    };
+    // A node that newly joined the committee recovers blob metadata before syncing its gained
+    // shards. Guarded by the transition's legality so that a replayed event on a node whose
+    // status has already advanced does not plan an illegal write.
+    let status = (membership == Membership::NewMember
+        && inputs
+            .node_status
+            .can_transition_to(&NodeStatus::RecoverMetadata))
+    .then(|| new_joiner_status(inputs))
+    .flatten();
     EpochChangePlan::Apply(epoch_change_execution_info(inputs, status))
 }
 
