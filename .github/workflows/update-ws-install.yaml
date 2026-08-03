@@ -40,7 +40,8 @@ jobs:
           SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
           WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
           SUI_NETWORK: mainnet
-          SITE_BUILDER_VERSION: v1 # keep uploading this as single blobs instead of quilts for now (SEW-509)
+          # v1 is unmaintained and JSON-RPC only, so it can no longer reach mainnet full nodes.
+          SITE_BUILDER_VERSION: v2
 
       - name: Create temporary directory
         run: "mkdir -p ${{ env.BUILD_DIR }}"
@@ -50,4 +51,4 @@ jobs:
         run: echo '${{ vars.WALRUS_SITE_INSTALL_WS_RESOURCES }}' > ${{ env.BUILD_DIR }}/ws-resources.json
 
       - name: Update Walrus Site
-        run: site-builder deploy ${{ env.BUILD_DIR }} --epochs ${{ env.EPOCHS }} --check-extend
+        run: site-builder deploy ${{ env.BUILD_DIR }} --epochs ${{ env.EPOCHS }}
