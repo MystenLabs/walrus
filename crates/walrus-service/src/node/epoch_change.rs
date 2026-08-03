@@ -558,12 +558,14 @@ impl EpochChangeExecutor {
     /// lives in [`plan::plan_epoch_change`]. The plan is applied in four sections, in this
     /// order:
     ///
-    /// 1. [node status changes][Self::apply_node_status_changes],
-    /// 2. [shard management][Self::apply_shard_changes], and
-    /// 3. [recovery-task handling][Self::apply_recovery_action] — all three inside the
-    ///    epoch-change critical section, so the whole transition is atomic with respect to the
-    ///    completion of the node recovery task — and, after leaving the critical section,
-    /// 4. [completion hand-off][Self::hand_off_completion].
+    /// 1. [node status changes][Self::apply_node_status_changes] and
+    /// 2. [shard management][Self::apply_shard_changes] — both inside the epoch-change
+    ///    critical section, so the whole transition is atomic with respect to the completions
+    ///    of the long-running sync services — and, after leaving the critical section,
+    /// 3. [completion hand-off][Self::hand_off_completion].
+    ///
+    /// The recovery service is not controlled from here: it reconciles on its own toward the
+    /// published goal and the persisted recovery target.
     ///
     /// As all functions that are passed an [`EventHandle`], this is responsible for marking the
     /// event as completed.
@@ -597,6 +599,7 @@ impl EpochChangeExecutor {
                 self.shard_sync_handler.clear_metadata_recovery_completion();
                 self.node_recovery_handler.clear_completion_instruction();
                 self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+                    generation: 0, // assigned by the publisher
                     epoch: event.epoch,
                     catching_up: false,
                     membership: goal::Membership::NotMember,
@@ -609,14 +612,12 @@ impl EpochChangeExecutor {
             plan::EpochChangePlan::Apply(execution_info) => execution_info,
         };
 
-        // Sections 1-3 run inside the epoch-change critical section (entered by the caller).
-        let restart_recovery_if_completed_concurrently = self
-            .apply_node_status_changes(&execution_info, event)
-            .await?;
+        // Sections 1-2 run inside the epoch-change critical section (entered by the caller).
+        // The recovery service is not controlled from here: it watches the published goal (and
+        // the persisted recovery target) and reconciles on its own.
+        self.apply_node_status_changes(&execution_info, event)?;
         let finisher_attestation = self
             .apply_shard_changes(&execution_info, &committees, shard_map_lock, event)
-            .await?;
-        self.apply_recovery_action(&execution_info, restart_recovery_if_completed_concurrently)
             .await?;
 
         // End of the critical section: the node's status, shards, and recovery task are
@@ -637,50 +638,18 @@ impl EpochChangeExecutor {
 
     /// Section 1 of applying an epoch-change plan: node status changes.
     ///
-    /// Performs the recovery-task bookkeeping that must precede any status write (aborting a
-    /// stale task, detecting a concurrently completed one) and the status transitions that
-    /// must precede shard creation (`Standby` and the `RecoveryInProgress` target).
+    /// Performs the status transitions that must precede shard creation (`Standby` and the
+    /// `RecoveryInProgress` target).
     ///
     /// The `RecoverMetadata` transition is the one status write that does *not* happen here: it
     /// must be ordered between shard storage creation and the start of the shard syncs, and is
     /// therefore performed by [`Self::apply_shard_changes`] — as is the routing of the
     /// `epoch_sync_done` attestation, which must be ordered after the lost shards are locked.
-    ///
-    /// Returns whether the recovery task completed concurrently (in which case the recovery
-    /// action must start a new task).
-    async fn apply_node_status_changes(
+    fn apply_node_status_changes(
         &self,
         execution_info: &plan::EpochChangeExecutionInfo,
         event: &EpochChangeStart,
-    ) -> anyhow::Result<bool> {
-        // Recovery-task bookkeeping that must precede the status writes below.
-        let mut restart_recovery_if_completed_concurrently = false;
-        match execution_info.recovery {
-            plan::RecoveryAction::StartFresh(_) => {
-                // A recovery task from before the node started catching up may still be running.
-                // Such a task only scanned blobs certified before its own start epoch, and blob
-                // certified events were skipped while catching up, so it must not complete the
-                // recovery target written below. The epoch-change critical section (entered by
-                // the caller, before the shard map lock) keeps any completion attempt of that
-                // task parked at its entry, and aborting the task here — before the new
-                // target is written — guarantees that no stale task survives to observe it,
-                // even if a later step fails and returns before the recovery action step (which
-                // would otherwise perform the abort).
-                self.node_recovery_handler.abort_recovery_task().await;
-            }
-            plan::RecoveryAction::EnsureRunning(_) => {
-                // If the running recovery task completed concurrently (after the plan decided to
-                // take the recovering path), it has flipped the node status away from
-                // `RecoveryInProgress`; its completion no longer covers this epoch change and a
-                // new task must be started.
-                restart_recovery_if_completed_concurrently = !matches!(
-                    self.inner.storage.node_status()?,
-                    NodeStatus::RecoveryInProgress(_)
-                );
-            }
-            plan::RecoveryAction::None => {}
-        }
-
+    ) -> anyhow::Result<()> {
         // Status transitions that must precede shard creation. Advancing the recovery target,
         // starting the shard syncs for gained shards, and locking the shards that moved away
         // happen inside the critical section, so they are atomic with respect to the recovery
@@ -720,7 +689,7 @@ impl EpochChangeExecutor {
             sui_macros::fail_point!("fail_point_shard_changes_in_new_epoch_while_recovering");
         }
 
-        Ok(restart_recovery_if_completed_concurrently)
+        Ok(())
     }
 
     /// Section 2 of applying an epoch-change plan: shard management.
@@ -831,6 +800,7 @@ impl EpochChangeExecutor {
         // critical section and after the lost shards are locked: services reconciling toward
         // the goal may act on it (and ultimately attest) as soon as it becomes visible.
         self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            generation: 0, // assigned by the publisher
             epoch: event.epoch,
             catching_up: false,
             membership: execution_info.membership,
@@ -895,43 +865,6 @@ impl EpochChangeExecutor {
         }
 
         Ok(finisher_attestation)
-    }
-
-    /// Section 3 of applying an epoch-change plan: recovery-task handling.
-    async fn apply_recovery_action(
-        &self,
-        execution_info: &plan::EpochChangeExecutionInfo,
-        restart_recovery_if_completed_concurrently: bool,
-    ) -> anyhow::Result<()> {
-        match execution_info.recovery {
-            plan::RecoveryAction::StartFresh(target_epoch) => {
-                tracing::info!(
-                    walrus.epoch = target_epoch,
-                    "start node recovery to catch up to the latest epoch"
-                );
-                // Initiate blob sync for all certified blobs we've tracked so far. After this is
-                // done, the node will be in a state where it has all the shards and blobs that
-                // it should have.
-                self.node_recovery_handler
-                    .start_node_recovery(target_epoch)
-                    .await?;
-            }
-            plan::RecoveryAction::EnsureRunning(target_epoch) => {
-                // The recovery task keeps running across epoch changes: it waits for the shard
-                // syncs started above to finish before recovering blobs, and attests epoch sync
-                // done for the advanced target on completion. A new task is only started when
-                // none is running.
-                self.node_recovery_handler
-                    .ensure_recovery_task_running(
-                        target_epoch,
-                        restart_recovery_if_completed_concurrently,
-                    )
-                    .await?;
-            }
-            plan::RecoveryAction::None => {}
-        }
-
-        Ok(())
     }
 
     /// Section 4 of applying an epoch-change plan: completion hand-off.
@@ -1060,6 +993,7 @@ impl EpochChangeExecutor {
         // publish a catching-up goal so the sync services hold off on new work until the node
         // reaches the latest epoch.
         self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            generation: 0, // assigned by the publisher
             epoch: self.inner.current_committee_epoch(),
             catching_up: true,
             membership: goal::Membership::NotMember,

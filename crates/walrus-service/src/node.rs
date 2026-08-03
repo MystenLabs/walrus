@@ -916,6 +916,30 @@ impl StorageNode {
             config.blob_recovery.monitor_interval,
         ));
 
+        // Publish the initial epoch synchronization goal, derived from persisted state and the
+        // fetched committees: the same starting point the last published goal described before
+        // the restart. Newly gained shards are not listed to fill — resumed work is derived
+        // from the persisted shard statuses by the restart paths.
+        {
+            let committees = inner.committee_service.active_committees();
+            let public_key = inner.public_key();
+            let in_current_committee = committees.current_committee().contains(public_key);
+            let in_previous_committee = committees
+                .previous_committee()
+                .is_some_and(|committee| committee.contains(public_key));
+            inner.publish_epoch_sync_goal(epoch_change::goal::EpochSyncGoal {
+                generation: 0, // assigned by the publisher
+                epoch: committees.epoch(),
+                catching_up: inner.storage.node_status()?.is_catching_up(),
+                membership: epoch_change::goal::Membership::from_committee_presence(
+                    in_current_committee,
+                    in_previous_committee,
+                ),
+                owned_shards: inner.owned_shards_at_latest_epoch(),
+                shards_to_fill: None,
+            });
+        }
+
         let shard_sync_handler =
             ShardSyncHandler::new(inner.clone(), config.shard_sync_config.clone());
         // Upon restart, resume any ongoing blob syncs if there is any.
@@ -935,7 +959,24 @@ impl StorageNode {
             shard_sync_handler.clone(),
             config.node_recovery_config.clone(),
         );
-        node_recovery_handler.restart_recovery().await?;
+        // The node may have restarted while recovering: re-mint the completion instruction
+        // for the persisted recovery target (the slot is in-memory and was lost with the
+        // restart), then start the permanent recovery service.
+        if let NodeStatus::RecoveryInProgress(recovery_target_epoch) =
+            inner.storage.node_status()?
+        {
+            node_recovery_handler.set_completion_instruction(
+                epoch_change::completion::CompletionInstruction::new(
+                    NodeStatus::Active,
+                    Some(
+                        epoch_change::attestation::EpochSyncDoneToken::new_for_epoch(
+                            recovery_target_epoch,
+                        ),
+                    ),
+                ),
+            );
+        }
+        node_recovery_handler.spawn_service(inner.subscribe_to_epoch_sync_goal());
 
         tracing::debug!(
             "num_checkpoints_per_blob for event blobs: {:?}",
@@ -972,29 +1013,6 @@ impl StorageNode {
         } else {
             None
         };
-
-        // Publish the initial epoch synchronization goal, derived from persisted state and the
-        // fetched committees: the same starting point the last published goal described before
-        // the restart. Newly gained shards are not listed to fill — resumed work is derived
-        // from the persisted shard statuses by the restart paths.
-        {
-            let committees = inner.committee_service.active_committees();
-            let public_key = inner.public_key();
-            let in_current_committee = committees.current_committee().contains(public_key);
-            let in_previous_committee = committees
-                .previous_committee()
-                .is_some_and(|committee| committee.contains(public_key));
-            inner.publish_epoch_sync_goal(epoch_change::goal::EpochSyncGoal {
-                epoch: committees.epoch(),
-                catching_up: inner.storage.node_status()?.is_catching_up(),
-                membership: epoch_change::goal::Membership::from_committee_presence(
-                    in_current_committee,
-                    in_previous_committee,
-                ),
-                owned_shards: inner.owned_shards_at_latest_epoch(),
-                shards_to_fill: None,
-            });
-        }
 
         let garbage_collector =
             GarbageCollector::new(config.garbage_collection, inner.clone(), metrics);
@@ -2976,14 +2994,13 @@ impl StorageNodeInner {
     /// Publishes a new epoch synchronization goal, superseding (and thereby revoking) the
     /// previous one. Must be called from inside the epoch-change critical section (or before
     /// the node's services are running, at startup).
-    pub(crate) fn publish_epoch_sync_goal(&self, goal: epoch_change::goal::EpochSyncGoal) {
+    pub(crate) fn publish_epoch_sync_goal(&self, mut goal: epoch_change::goal::EpochSyncGoal) {
+        goal.generation = self.epoch_sync_goal.borrow().generation + 1;
         tracing::info!(?goal, "publishing epoch synchronization goal");
         self.epoch_sync_goal.send_replace(goal);
     }
 
     /// Subscribes to epoch synchronization goal updates.
-    // Consumed by the sync-service reconcilers introduced in the follow-up commits.
-    #[allow(dead_code)]
     pub(crate) fn subscribe_to_epoch_sync_goal(
         &self,
     ) -> watch::Receiver<epoch_change::goal::EpochSyncGoal> {

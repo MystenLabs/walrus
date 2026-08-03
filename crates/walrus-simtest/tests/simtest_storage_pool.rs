@@ -13,11 +13,7 @@ mod tests {
     use sui_types::base_types::ObjectID;
     use tokio::task::JoinHandle;
     use walrus_core::{
-        BlobId,
-        EncodingType,
-        Epoch,
-        EpochCount,
-        Sliver,
+        BlobId, EncodingType, Epoch, EpochCount, Sliver,
         encoding::{EncodingAxis, EncodingFactory as _, Primary, Secondary, SliverData},
         messages::ConfirmationCertificate,
     };

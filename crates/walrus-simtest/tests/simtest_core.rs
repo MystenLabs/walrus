@@ -9,8 +9,7 @@ mod tests {
     use std::{
         collections::HashSet,
         sync::{
-            Arc,
-            Mutex,
+            Arc, Mutex,
             atomic::{AtomicBool, AtomicU64, Ordering},
         },
         time::{Duration, Instant},
@@ -18,10 +17,7 @@ mod tests {
 
     use rand::{Rng, SeedableRng, seq::SliceRandom};
     use sui_macros::{
-        clear_fail_point,
-        register_fail_point,
-        register_fail_point_async,
-        register_fail_points,
+        clear_fail_point, register_fail_point, register_fail_point_async, register_fail_points,
     };
     use sui_protocol_config::ProtocolConfig;
     use sui_simulator::configs::{env_config, uniform_latency_ms};
@@ -32,10 +28,7 @@ mod tests {
     use walrus_sdk::{
         config::SliverWriteExtraTime,
         node_client::{
-            StoreArgs,
-            StoreBlobsApi as _,
-            WalrusNodeClient,
-            metrics::ClientMetrics,
+            StoreArgs, StoreBlobsApi as _, WalrusNodeClient, metrics::ClientMetrics,
             responses::BlobStoreResult,
         },
     };
@@ -46,19 +39,14 @@ mod tests {
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
-        self,
-        BlobInfoConsistencyCheck,
-        CRASH_NODE_FAIL_POINTS,
-        NodeCrashConfig,
+        self, BlobInfoConsistencyCheck, CRASH_NODE_FAIL_POINTS, NodeCrashConfig,
         repeatedly_crash_target_node,
     };
     use walrus_storage_node_client::api::ShardStatus;
     use walrus_stress::single_client_workload::{
         SingleClientWorkload,
         single_client_workload_config::{
-            RequestTypeDistributionConfig,
-            SizeDistributionConfig,
-            StoreLengthDistributionConfig,
+            RequestTypeDistributionConfig, SizeDistributionConfig, StoreLengthDistributionConfig,
         },
     };
     use walrus_sui::{
@@ -68,10 +56,7 @@ mod tests {
         types::{Blob, move_structs::EventBlob},
     };
     use walrus_test_utils::{
-        WithTempDir,
-        async_param_test,
-        random_data_from_rng,
-        simtest_param_test,
+        WithTempDir, async_param_test, random_data_from_rng, simtest_param_test,
     };
 
     /// Returns a simulator configuration that adds random network latency between nodes.
@@ -1183,23 +1168,24 @@ mod tests {
             );
         }
 
-        // Holds the recovery task of the target node so that the recovery reliably spans
+        // Holds the recovery runs of the target node so that the recovery reliably spans
         // multiple epoch changes; released once the node has gained shards while recovering.
-        // Also counts how many recovery tasks are spawned on the target node: epoch changes
-        // processed while recovering must not restart the recovery task.
+        // Also counts how many recovery runs are started on the target node: an epoch change
+        // processed while recovering supersedes the current run, and the recovery service
+        // starts a new run toward the advanced target (completed per-blob work persists).
         let hold_recovery = Arc::new(AtomicBool::new(true));
-        let recovery_task_spawn_count = Arc::new(AtomicU64::new(0));
+        let recovery_run_count = Arc::new(AtomicU64::new(0));
         {
             let hold_recovery = hold_recovery.clone();
-            let recovery_task_spawn_count = recovery_task_spawn_count.clone();
+            let recovery_run_count = recovery_run_count.clone();
             register_fail_point_async("start_node_recovery_entry", move || {
                 let hold_recovery = hold_recovery.clone();
-                let recovery_task_spawn_count = recovery_task_spawn_count.clone();
+                let recovery_run_count = recovery_run_count.clone();
                 async move {
                     if sui_simulator::current_simnode_id() != target_node_id {
                         return;
                     }
-                    recovery_task_spawn_count.fetch_add(1, Ordering::SeqCst);
+                    recovery_run_count.fetch_add(1, Ordering::SeqCst);
                     tracing::info!("holding node recovery until released by the test");
                     while hold_recovery.load(Ordering::SeqCst) {
                         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -1281,10 +1267,12 @@ mod tests {
             !ordering_violation.load(Ordering::SeqCst),
             "node recovery must not start blob syncs while shard syncs are running"
         );
-        assert_eq!(
-            recovery_task_spawn_count.load(Ordering::SeqCst),
-            1,
-            "the recovery task must not be restarted by epoch changes processed while recovering"
+        // The epoch change processed while recovering supersedes the held run, and the
+        // recovery service starts a new run toward the advanced target: at least the initial
+        // run plus one superseded re-run.
+        assert!(
+            recovery_run_count.load(Ordering::SeqCst) >= 2,
+            "an epoch change while recovering should supersede and re-run the recovery"
         );
 
         // The gained shards should be owned by the node and be ready to serve traffic.

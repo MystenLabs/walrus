@@ -67,7 +67,13 @@ impl Membership {
 /// previous one.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct EpochSyncGoal {
-    /// The epoch this goal describes; the generation number for all work derived from it.
+    /// Monotonically increasing publication counter, assigned by
+    /// [`publish_epoch_sync_goal`][crate::node::StorageNodeInner::publish_epoch_sync_goal]
+    /// (constructors leave it 0). A run of a sync service is bound to the generation it started
+    /// from and commits only if the generation is unchanged: any publication in between —
+    /// including one that entered and left catch-up — supersedes the run.
+    pub generation: u64,
+    /// The epoch this goal describes.
     pub epoch: Epoch,
     /// Whether the node is replaying an event backlog. While catching up, the node's view of
     /// its shard assignment is not authoritative, so sync services hold off on new work; the
@@ -86,6 +92,7 @@ impl EpochSyncGoal {
     /// The goal a node starts from before anything about the committee is known.
     pub(crate) fn genesis() -> Self {
         Self {
+            generation: 0,
             epoch: GENESIS_EPOCH,
             catching_up: false,
             membership: Membership::NotMember,
@@ -130,6 +137,7 @@ mod tests {
         assert_eq!(*receiver.borrow(), EpochSyncGoal::genesis());
 
         sender.send_replace(EpochSyncGoal {
+            generation: 1,
             epoch: 5,
             catching_up: false,
             membership: Membership::ContinuingMember,
@@ -137,6 +145,7 @@ mod tests {
             shards_to_fill: None,
         });
         sender.send_replace(EpochSyncGoal {
+            generation: 2,
             epoch: 6,
             catching_up: true,
             membership: Membership::NotMember,
