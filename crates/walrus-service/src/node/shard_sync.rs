@@ -595,6 +595,7 @@ impl ShardSyncHandler {
     /// recovery re-runs the sync-driving task. Tests simulating a restart on a standalone
     /// handler call this directly.
     #[cfg(any(test, feature = "test-utils"))]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
         self.apply_restart_resume_policy
             .store(true, std::sync::atomic::Ordering::SeqCst);
