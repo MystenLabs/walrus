@@ -562,21 +562,37 @@ impl<T: ReadClient> WalrusNodeClient<T> {
             .get_blob_status_and_certified_epoch(blob_id, blob_status)
             .await?;
 
-        // Execute the status request and the metadata/sliver request concurrently.
-        //
-        // If the status request fails, the metadata/sliver request will be cancelled. If the status
-        // request succeeds, the metadata/sliver request will be executed to completion. If we
-        // already have a blob status, the `get_status_fn` immediately returns Ok.
-        //
-        // In the unlikely event that the status request takes longer than reading the
-        // metadata/slivers, the status request will be dropped.
-        match select(
-            pin!(self.try_get_blob_status(blob_id, blob_status)),
-            pin!(self.read_metadata_and_slivers_and_reconstruct_blob::<U>(
+        // The read future is boxed to keep the enclosing futures small; unboxed, the large read
+        // futures can overflow the stack.
+        self.race_read_with_status_check(
+            blob_id,
+            blob_status,
+            Box::pin(self.read_metadata_and_slivers_and_reconstruct_blob::<U>(
                 certified_epoch,
                 blob_id,
-                consistency_check
+                consistency_check,
             )),
+        )
+        .await
+    }
+
+    /// Executes the status request and the given read future concurrently.
+    ///
+    /// If the status request fails (in particular, if the blob does not exist), the read future
+    /// will be cancelled. If the status request succeeds, the read future will be executed to
+    /// completion. If we already have a blob status, the status check immediately returns Ok.
+    ///
+    /// In the unlikely event that the status request takes longer than the read future, the
+    /// status request will be dropped.
+    async fn race_read_with_status_check<R>(
+        &self,
+        blob_id: &BlobId,
+        known_status: Option<BlobStatus>,
+        read_future: impl Future<Output = ClientResult<R>>,
+    ) -> ClientResult<R> {
+        match select(
+            pin!(self.try_get_blob_status(blob_id, known_status)),
+            pin!(read_future),
         )
         .await
         {
@@ -584,7 +600,7 @@ impl<T: ReadClient> WalrusNodeClient<T> {
                 Self::continue_on_no_valid_status_received(
                     status_result,
                     self.get_committees().await?.as_ref(),
-                    blob_status,
+                    known_status,
                 )?;
                 read_future.await
             }
