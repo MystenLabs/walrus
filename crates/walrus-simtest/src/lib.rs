@@ -8,3 +8,4 @@
 
 /// Contains test utilities for the Walrus simulation tests.
 pub mod test_utils;
+
