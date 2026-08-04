@@ -13,6 +13,7 @@ import NavbarMobileSidebarToggle from "@theme/Navbar/MobileSidebar/Toggle";
 import NavbarSearch from "@theme/Navbar/Search";
 import SearchModal from "@site/src/components/Search/SearchModal";
 import Link from "@docusaurus/Link";
+import { useLocation } from "@docusaurus/router";
 import useBaseUrl from "@docusaurus/useBaseUrl";
 import { useThemeConfig as useThemeConfigFull } from "@docusaurus/theme-common";
 import WalrusLogo from "@site/static/img/Walrus_Docs.svg";
@@ -108,11 +109,19 @@ function SearchLauncher() {
 }
 
 function KapaButton() {
+  const { pathname } = useLocation();
+
   const handleClick = () => {
     if (typeof window !== "undefined" && window.Kapa) {
       window.Kapa.open();
     }
   };
+
+  // Legal pages draw consent-flow traffic that produces low-quality AI
+  // questions, so the assistant entry point stays off there (BEDU-795).
+  if (pathname.startsWith("/docs/legal/")) {
+    return null;
+  }
 
   return (
     <button
