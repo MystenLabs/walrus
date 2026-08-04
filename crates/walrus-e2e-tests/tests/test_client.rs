@@ -4423,8 +4423,8 @@ async fn test_list_dynamic_fields_pagination() -> TestResult {
 /// the public Sui fullnodes. The client under test receives only the gRPC-only fullnode's URL;
 /// the test scaffolding keeps using the cluster's default fullnode.
 ///
-/// TODO: remove this test once Sui removes JSON-RPC from fullnodes entirely and test clusters are
-/// gRPC-only by themselves.
+/// TODO(WAL-1264): remove this test once Sui removes JSON-RPC from fullnodes entirely and test
+/// clusters are gRPC-only by themselves.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
