@@ -14,6 +14,11 @@ keywords:
   - client app
   - typescript sdk
   - react native
+  - cors
+  - wasm
+  - signer
+  - quilt patch
+  - range reads
 goal:
   description: Reader can store and read blobs from a browser or mobile client using an upload relay and a CDN-backed aggregator
   requires:
@@ -32,20 +37,23 @@ goal:
     - has_answer: true
       label: Needs answer summary for AI citation
 questions:
-  - How do I build a browser and mobile apps on Walrus?
-  - Why client apps use a relay?
-  - How do I configure the client?
+  - How do I build a browser or mobile app on Walrus?
+  - How do I fix CORS errors when reading Walrus blobs in the browser?
+  - What signer does the Walrus TypeScript SDK expect?
+  - How do I read a quilt patch from the browser?
 answer: >-
-  Store blobs from a browser or mobile client through a Walrus upload relay,
-  then read them back through a CDN-backed aggregator.
+  Store blobs from a browser or mobile client through a Walrus upload relay and read
+  them back through a CDN-backed aggregator. The SDK encodes blobs locally with
+  WebAssembly, onchain steps run through any signer that returns a transaction digest,
+  and reads are plain HTTP requests subject to the aggregator's CORS policy.
 ---
 
 Client apps that run in a browser or on a mobile device cannot open the many connections a direct
 store needs. A blob is split into slivers that go to every storage node, so an unprivileged client
 would have to manage dozens of parallel uploads and collect a confirmation from each node. The two
 building blocks that make client-side storage practical are an upload relay for writes and a
-CDN-backed aggregator for reads. This page shows the full round trip with the Walrus TypeScript SDK,
-and the points where a mobile app differs from a browser app.
+CDN-backed aggregator for reads. The sections below show the full round trip with the Walrus
+TypeScript SDK, and the points where a mobile app differs from a browser app.
 
 For the upload path tradeoffs, see [Choose your upload path](/docs/getting-started#choose-your-upload-path).
 For a deployed reference app, open [relay.wal.app](https://relay.wal.app) or read the full
@@ -173,6 +181,82 @@ Blobs stored on Walrus are public and readable by anyone. Encrypt sensitive data
 it, for example with [Seal](/docs/data-security). This applies equally to browser and mobile clients.
 
 :::
+
+## Browser requests and CORS
+
+A browser app talks to two Walrus services, and each has its own cross-origin story.
+
+- **Reads** go to an aggregator. The reference aggregator daemon answers with permissive CORS
+  headers, allowing any origin, method, and header. Public aggregators often sit behind a CDN,
+  and the CDN configuration decides the effective policy, so one public endpoint can allow a
+  cross-origin `fetch` while another blocks it.
+- **Writes** go through an upload relay. The public relays accept browser-origin uploads; the
+  deployed [relay example app](https://relay.wal.app) stores from the browser through the public
+  Testnet relay.
+
+If a cross-origin `fetch` to an aggregator fails, you have three options: load the blob through
+an element `src` attribute (media and image elements load cross-origin without a preflight),
+switch to a different public aggregator from the
+[Network Reference](/docs/network-reference#aggregators-and-publishers), or read through an
+[aggregator you run yourself](/docs/operator-guide/aggregators/operating-aggregator), which gives
+you full control of the CORS policy.
+
+## The WebAssembly module and bundlers
+
+The SDK encodes blobs locally before upload using a WebAssembly module, in the browser and on the
+server alike. Most modern bundlers load it without configuration. If your bundler fails on the
+`.wasm` asset, configure it to serve the module as a static asset; the
+[Walrus TypeScript SDK documentation](https://sdk.mystenlabs.com/walrus) covers the supported
+setups.
+
+## The signer contract
+
+`flow.register` and `flow.certify` return Sui `Transaction` objects; the flow never signs
+anything itself. The `signAndExecuteTransaction` in the example stands for any function with this
+shape: it accepts `{ transaction }`, executes the transaction on Sui, and resolves with an object
+that includes the transaction `digest`.
+
+- In a browser app, the `useSignAndExecuteTransaction` hook from `@mysten/dapp-kit` matches the
+  contract directly, and the connected wallet signs.
+- In a server or script context, sign with a keypair instead:
+  `suiClient.signAndExecuteTransaction({ signer: keypair, transaction })`.
+
+Either way, pass the digest of the **register** transaction to `flow.upload({ digest })`; the
+relay uses it to verify the registration before accepting sliver data.
+
+## Reading files stored in a quilt
+
+A [quilt](/docs/system-overview/quilt) addresses each batched file by `QuiltPatchId`, not
+`BlobId`. A `QuiltPatchId` derives from the composition of the whole quilt, so you cannot
+compute it from the file contents, and it changes if the file moves to a different quilt. Capture
+patch IDs at store time, or list them later with
+[`walrus list-patches-in-quilt`](/docs/walrus-client/quilts). A browser reads a patch the same
+way it reads a blob:
+
+```ts
+const res = await fetch(`${AGGREGATOR}/v1/blobs/by-quilt-patch-id/${patchId}`);
+```
+
+The patch's identifier and tags come back in response headers. See
+[Quilt HTTP APIs](/docs/http-api/quilt-http-apis) for the full endpoint set.
+
+## Range reads
+
+Aggregators support the HTTP `Range` header and return `206 Partial Content`, so a browser can
+seek within large media or fetch just a slice of a blob without downloading all of it. See
+[streaming media](/docs/http-api/streaming-media) for the header and query-parameter forms.
+
+## Browser and server compatibility
+
+The same SDK package runs in both environments. What changes is the surrounding plumbing:
+
+| **Concern** | **Browser** | **Server (Node.js)** |
+| --- | --- | --- |
+| Encoding | Local, through the SDK's WebAssembly module | Same |
+| Store path | Upload relay (browsers cannot hold the direct-store fan-out) | Direct store or relay |
+| Signing | Wallet connector, for example `@mysten/dapp-kit` | Keypair signer |
+| Reading bytes | `File` → `arrayBuffer` → `Uint8Array` | `fs.readFile` returns a usable buffer |
+| Reads | `fetch` against an aggregator, subject to CORS | Any HTTP client, no CORS |
 
 ## Read through a CDN-backed aggregator
 
