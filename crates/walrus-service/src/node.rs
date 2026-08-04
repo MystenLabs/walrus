@@ -2631,6 +2631,12 @@ impl StorageNodeInner {
             .context("Unable to retrieve shard status")?;
 
         if !shard_status.is_owned_by_node() {
+            tracing::error!(
+                shard = %shard_storage.id(),
+                ?shard_status,
+                blob_id = %metadata.blob_id(),
+                "DIAG: sliver store rejected; shard not owned"
+            );
             return Err(
                 ShardNotAssigned(shard_storage.id(), self.current_committee_epoch()).into(),
             );

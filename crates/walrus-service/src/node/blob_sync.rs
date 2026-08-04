@@ -631,8 +631,8 @@ impl BlobSynchronizer {
         };
 
         if storage_state_after_deferral == Some(true) {
-            tracing::debug!(
-                "blob already stored at all owned shards for current epoch, skipping recovery"
+            tracing::error!(
+                "DIAG: blob already stored at all owned shards for current epoch, skipping recovery"
             );
             if waited_for_live_upload_deferral {
                 walrus_utils::with_label!(

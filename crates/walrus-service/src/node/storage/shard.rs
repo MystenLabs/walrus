@@ -704,6 +704,7 @@ impl ShardStorage {
                 batch.delete_batch(&self.shard_sync_progress, [()])?;
                 batch.insert_batch(shard_status, [((), ShardStatus::ActiveSync)])?;
                 batch.write()?;
+                tracing::error!(shard = %self.id, "DIAG: shard sync started (-> ActiveSync)");
                 Ok(())
             },
         )?;
@@ -740,9 +741,9 @@ impl ShardStorage {
                         // status to active sync, the shard will resume the sync from the last
                         // synced blob id.
                         // We can only resume to active sync from active recover.
-                        tracing::info!(
+                        tracing::error!(
                             walrus.shard_index = %self.id(),
-                            "resuming shard sync from active recover to active sync"
+                            "DIAG: resuming shard sync from active recover to active sync"
                         );
                         shard_status.insert(&(), &ShardStatus::ActiveSync)?;
                         Ok(ShardStatus::ActiveSync)
@@ -757,10 +758,10 @@ impl ShardStorage {
 
         if shard_status == ShardStatus::ActiveSync {
             let shard_last_sync_status = self.get_last_sync_status(&ShardStatus::ActiveSync)?;
-            tracing::info!(
+            tracing::error!(
                 walrus.shard_index = %self.id(),
                 ?shard_last_sync_status,
-                "resuming shard sync from the last synced blob id"
+                "DIAG: resuming shard sync from the last synced blob id"
             );
         } else if shard_status == ShardStatus::ActiveRecover {
             tracing::info!(
@@ -965,6 +966,7 @@ impl ShardStorage {
                 if current_status == Some(ShardStatus::ActiveSync)
                     || current_status == Some(ShardStatus::ActiveRecover)
                 {
+                    tracing::error!(shard = %self.id, ?current_status, "DIAG: sync complete -> Active");
                     batch.insert_batch(shard_status, [((), ShardStatus::Active)])?;
                 }
                 batch.delete_batch(&self.shard_sync_progress, [()])?;
@@ -1029,6 +1031,14 @@ impl ShardStorage {
         #[cfg(msim)]
         let mut scan_count: u64 = 0;
 
+        tracing::error!(
+            shard = %self.id,
+            %sliver_type,
+            epoch_bound = epoch,
+            resume_cursor = ?last_synced_blob_id,
+            directly_recover_shard,
+            "DIAG: sync phase entry"
+        );
         let mut blob_info_iter = node
             .storage
             .blob_info
@@ -1299,6 +1309,11 @@ impl ShardStorage {
                     walrus.blob_id = %blob_id,
                     "fetched sliver failed verification; scheduling the blob for recovery"
                 );
+                tracing::error!(
+                    shard = %self.id,
+                    %blob_id,
+                    "DIAG: fetched sliver failed verification; adding to pending recovery"
+                );
                 batch.insert_batch(
                     &self.pending_recover_slivers,
                     [((sliver_type, *blob_id), ())],
@@ -1557,6 +1572,12 @@ impl ShardStorage {
         }
 
         while to_rocks_db_key(&next_blob_id) < to_rocks_db_key(&fetched_blob_id) {
+            tracing::error!(
+                shard = %self.id,
+                blob_id = %next_blob_id,
+                %sliver_type,
+                "DIAG: blob missing at sync source; adding to pending recovery"
+            );
             db_batch.insert_batch(
                 &self.pending_recover_slivers,
                 [((sliver_type, next_blob_id), ())],
@@ -1590,7 +1611,11 @@ impl ShardStorage {
         #[cfg(msim)]
         sui_macros::fail_point!("fail_point_shard_sync_recovery");
 
-        tracing::info!("shard sync is done; still has missing blobs; shard enters recovery mode");
+        tracing::error!(
+            shard = %self.id,
+            pending = self.pending_recover_slivers.safe_iter().map(|it| it.count()).unwrap_or(0),
+            "DIAG: transfer done; entering shard recovery for missing blobs"
+        );
         self.shard_status.write().await.with_shard_status_mut(
             |shard_status| -> Result<(), TypedStoreError> {
                 let existing_status = shard_status.get(&())?;
@@ -1736,11 +1761,11 @@ impl ShardStorage {
         node: &Arc<StorageNodeInner>,
         reason: &str,
     ) -> Result<(), TypedStoreError> {
-        tracing::debug!(
+        tracing::error!(
             %blob_id,
             shard_index = %self.id,
             skip_reason = %reason,
-            "skip blob recovery"
+            "DIAG: skip blob recovery"
         );
         walrus_utils::with_label!(
             node.metrics.sync_shard_recover_sliver_skip_total,
@@ -1838,6 +1863,7 @@ impl ShardStorage {
                             .await;
                     }
                 }
+                tracing::error!(%blob_id, shard = %self.id, %sliver_type, "DIAG: recovered pending blob");
                 self.pending_recover_slivers
                     .remove(&(sliver_type, blob_id))?;
             }
