@@ -605,6 +605,7 @@ impl BlobSynchronizer {
     /// Runs the synchronizer until blob sync is complete.
     #[tracing::instrument(skip_all)]
     async fn run(self, sliver_permits: Arc<Semaphore>, waited_for_live_upload_deferral: bool) {
+        tracing::error!(blob_id = %self.blob_id, "DIAG: blob sync run start");
         let this = Arc::new(self);
         let histograms = &this.metrics().recover_blob_part_duration_seconds;
 

@@ -314,6 +314,12 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                             .sliver_data_existence_check_sample_rate_percentage
                 {
                     total_synced_scanned += 1;
+                    tracing::error!(
+                        blob_id = %blob_info.0,
+                        walrus.epoch = epoch,
+                        blob_info = ?blob_info.1,
+                        "DIAG: existence check sampling blob"
+                    );
 
                     #[cfg(msim)]
                     let total_fully_stored_before = total_fully_stored;
