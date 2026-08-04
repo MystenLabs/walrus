@@ -92,10 +92,7 @@ use walrus_sui::{
         SuiClientError,
         SuiContractClient,
         dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
-        retry_client::{
-            RetriableSuiClient,
-            retriable_sui_client::{GrpcMigrationLevel, LazySuiClientBuilder},
-        },
+        retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     coin::Coin,
     config::WalletConfig,
@@ -4437,15 +4434,6 @@ async fn test_store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
 async fn store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
     walrus_test_utils::init_tracing();
 
-    // At migration levels that still require the JSON-RPC client, the client cannot work
-    // against a gRPC-only endpoint by design; this test is only meaningful at levels where
-    // the client runs fully on gRPC (the default).
-    if GrpcMigrationLevel::default().requires_json_rpc_client() {
-        tracing::warn!(
-            "skipping test: the configured WALRUS_GRPC_MIGRATION_LEVEL still requires JSON-RPC"
-        );
-        return Ok(());
-    }
     let (sui_cluster_handle, _cluster, admin_client, system_ctx, _) =
         test_cluster::E2eTestSetupBuilder::new().build().await?;
 
