@@ -151,46 +151,9 @@ pub struct TestClusterHandle {
     wallet_path: Mutex<PathBuf>,
     cluster: LocalOrExternalTestCluster,
     additional_fullnodes: Vec<FullNodeHandle>,
-    grpc_only_rpc_url: Option<String>,
 
     #[cfg(msim)]
     node_handle: NodeHandle,
-}
-
-/// Spawns an additional fullnode with JSON-RPC disabled and returns its RPC URL once its gRPC
-/// service is reachable. Panics on failure.
-///
-/// Only used by `test_store_and_read_with_grpc_only_sui_fullnode`. Spawned through the swarm
-/// because the cluster's primary fullnode cannot run without JSON-RPC (the Sui test harness
-/// handshakes with it over JSON-RPC during construction).
-async fn spawn_grpc_only_fullnode(test_cluster: &mut TestCluster) -> String {
-    let config = test_cluster
-        .fullnode_config_builder()
-        .with_disable_json_rpc(true)
-        .build(&mut rand::rngs::OsRng, test_cluster.swarm.config());
-    let rpc_url = format!("http://{}", config.json_rpc_address);
-    test_cluster.swarm.spawn_new_node(config).await;
-
-    // Poll with the raw gRPC client (not walrus's) so this does not depend on the
-    // `WALRUS_GRPC_MIGRATION_LEVEL` environment variable.
-    let mut grpc_client =
-        sui_rpc::Client::new(rpc_url.clone()).expect("creating gRPC client must succeed");
-    tokio::time::timeout(Duration::from_secs(60), async {
-        loop {
-            if grpc_client
-                .ledger_client()
-                .get_service_info(sui_rpc::proto::sui::rpc::v2::GetServiceInfoRequest::default())
-                .await
-                .is_ok()
-            {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-    })
-    .await
-    .expect("gRPC-only fullnode must become ready within 60 seconds");
-    rpc_url
 }
 
 impl Debug for TestClusterHandle {
@@ -223,25 +186,17 @@ impl TestClusterHandle {
                 }
             }
 
-            let grpc_only_rpc_url = Some(spawn_grpc_only_fullnode(&mut test_cluster).await);
-
-            tx.send((
-                test_cluster,
-                wallet_path,
-                full_node_handles,
-                grpc_only_rpc_url,
-            ))
-            .expect("can send test cluster");
+            tx.send((test_cluster, wallet_path, full_node_handles))
+                .expect("can send test cluster");
         });
 
-        let (cluster, wallet_path, full_node_handles, grpc_only_rpc_url) =
+        let (cluster, wallet_path, full_node_handles) =
             rx.recv().expect("should receive test_cluster");
 
         Self {
             wallet_path: Mutex::new(wallet_path),
             cluster: LocalOrExternalTestCluster::Local { cluster },
             additional_fullnodes: full_node_handles,
-            grpc_only_rpc_url,
         }
     }
 
@@ -263,7 +218,6 @@ impl TestClusterHandle {
             cluster: LocalOrExternalTestCluster::External { rpc_url },
             wallet_path,
             additional_fullnodes: Vec::new(),
-            grpc_only_rpc_url: None,
         })
     }
 
@@ -320,20 +274,13 @@ impl TestClusterHandle {
                             full_node_handles.push(full_node_handle);
                         }
                     }
-                    let grpc_only_rpc_url = Some(spawn_grpc_only_fullnode(&mut test_cluster).await);
-                    tx.send((
-                        test_cluster,
-                        wallet_path,
-                        full_node_handles,
-                        grpc_only_rpc_url,
-                    ))
-                    .await
-                    .expect("Notifying cluster creation must succeed");
+                    tx.send((test_cluster, wallet_path, full_node_handles))
+                        .await
+                        .expect("Notifying cluster creation must succeed");
                 }
             })
             .build();
-        let Some((cluster, wallet_path, full_node_handles, grpc_only_rpc_url)) = rx.recv().await
-        else {
+        let Some((cluster, wallet_path, full_node_handles)) = rx.recv().await else {
             panic!("Unexpected end of channel");
         };
         Self {
@@ -341,7 +288,6 @@ impl TestClusterHandle {
             cluster: LocalOrExternalTestCluster::Local { cluster },
             node_handle,
             additional_fullnodes: full_node_handles,
-            grpc_only_rpc_url,
         }
     }
 
@@ -383,10 +329,59 @@ impl TestClusterHandle {
         &self.additional_fullnodes
     }
 
-    /// Returns the RPC URL of the fullnode that has JSON-RPC disabled; `None` on an external
-    /// Sui cluster.
-    pub fn grpc_only_rpc_url(&self) -> Option<&str> {
-        self.grpc_only_rpc_url.as_deref()
+    /// Spawns an additional fullnode with JSON-RPC disabled and returns its RPC URL once its
+    /// gRPC service is reachable; `None` on an external Sui cluster. Panics on failure.
+    ///
+    /// Only used by `test_store_and_read_with_grpc_only_sui_fullnode`; spawned on demand so
+    /// that other tests keep their cluster topology unchanged. Spawned through the swarm
+    /// because the cluster's primary fullnode cannot run without JSON-RPC (the Sui test
+    /// harness handshakes with it over JSON-RPC during construction).
+    pub async fn spawn_grpc_only_fullnode(&mut self) -> Option<String> {
+        let LocalOrExternalTestCluster::Local { cluster } = &mut self.cluster else {
+            return None;
+        };
+
+        // The new node starts with no state; everything created before this call (contracts,
+        // system objects) only becomes visible on it once it has synced up to the primary
+        // fullnode's current checkpoint. Capture that height as the readiness target.
+        let target_height = sui_rpc::Client::new(cluster.fullnode_handle.rpc_url.clone())
+            .expect("creating gRPC client must succeed")
+            .ledger_client()
+            .get_service_info(sui_rpc::proto::sui::rpc::v2::GetServiceInfoRequest::default())
+            .await
+            .expect("primary fullnode must answer GetServiceInfo")
+            .into_inner()
+            .checkpoint_height;
+
+        let config = cluster
+            .fullnode_config_builder()
+            .with_disable_json_rpc(true)
+            .build(&mut rand::rngs::OsRng, cluster.swarm.config());
+        let rpc_url = format!("http://{}", config.json_rpc_address);
+        cluster.swarm.spawn_new_node(config).await;
+
+        // Poll with the raw gRPC client (not walrus's) so this does not depend on the
+        // `WALRUS_GRPC_MIGRATION_LEVEL` environment variable.
+        let mut grpc_client =
+            sui_rpc::Client::new(rpc_url.clone()).expect("creating gRPC client must succeed");
+        tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                if let Ok(response) = grpc_client
+                    .ledger_client()
+                    .get_service_info(
+                        sui_rpc::proto::sui::rpc::v2::GetServiceInfoRequest::default(),
+                    )
+                    .await
+                    && response.into_inner().checkpoint_height >= target_height
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await
+        .expect("gRPC-only fullnode must catch up within 60 seconds");
+        Some(rpc_url)
     }
 }
 

@@ -4452,8 +4452,8 @@ async fn store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
     let Some(grpc_only_rpc_url) = sui_cluster_handle
         .lock()
         .await
-        .grpc_only_rpc_url()
-        .map(str::to_owned)
+        .spawn_grpc_only_fullnode()
+        .await
     else {
         tracing::warn!(
             "skipping test: running against an external Sui cluster without a gRPC-only fullnode"
