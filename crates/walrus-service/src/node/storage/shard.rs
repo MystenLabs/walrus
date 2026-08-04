@@ -1167,6 +1167,12 @@ impl ShardStorage {
 
         let mut batch = self.pending_recover_slivers.batch();
         while let Some((blob_id, _)) = next_blob_info {
+            tracing::error!(
+                shard = %self.id,
+                %blob_id,
+                %sliver_type,
+                "DIAG: tail blob not served by sync source; adding to pending recovery"
+            );
             batch.insert_batch(
                 &self.pending_recover_slivers,
                 [((sliver_type, blob_id), ())],

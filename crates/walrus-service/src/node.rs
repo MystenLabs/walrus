@@ -2416,8 +2416,17 @@ impl StorageNodeInner {
             for shard_storage in active_shard_storages {
                 if !shard_storage.may_have_sliver_pair(blob_id)? {
                     let shard = shard_storage.id();
-                    tracing::error!(%blob_id, %shard, "DIAG: bloom filter says missing at shard");
-                    return Ok(false);
+                    let authoritative = shard_storage.is_sliver_pair_stored(blob_id)?;
+                    tracing::error!(
+                        %blob_id,
+                        %shard,
+                        authoritative_says_stored = authoritative,
+                        "DIAG: bloom filter says missing at shard; authoritative check result"
+                    );
+                    if !authoritative {
+                        return Ok(false);
+                    }
+                    // Bloom false negative: fall through and keep checking the other shards.
                 }
             }
         }
