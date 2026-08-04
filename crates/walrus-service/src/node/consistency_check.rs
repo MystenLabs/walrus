@@ -126,6 +126,16 @@ pub(super) async fn schedule_background_consistency_check(
     // single-threaded simulator against a pending shard-removal writer.
     #[cfg(msim)]
     let active_shard_storages = node.active_shard_storages_snapshot().await;
+    #[cfg(msim)]
+    tracing::error!(
+        walrus.epoch = epoch,
+        %node_status,
+        snapshot_shards = ?active_shard_storages
+            .iter()
+            .map(|shard_storage| shard_storage.id())
+            .collect::<Vec<_>>(),
+        "DIAG: consistency check snapshot"
+    );
 
     // Create a background thread which takes the ownership of the iterator and process it.
     tokio::task::spawn_blocking(move || {
@@ -225,7 +235,12 @@ fn handle_existence_check_result(
 ) {
     match is_fully_stored_result {
         Ok(true) => *total_fully_stored += 1,
-        Ok(false) => {}
+        Ok(false) => {
+            tracing::error!(
+                blob_id = %blob_id,
+                "DIAG: blob not fully stored at active shards"
+            );
+        }
         Err(error) => {
             *existence_check_error += 1;
             tracing::warn!(?error, blob_id=%blob_id, "error when checking sliver data existence");
