@@ -486,10 +486,24 @@ impl ShardSyncHandler {
     /// a committee member with shards to fill via shard sync, it starts the syncs; on a
     /// catching-up or non-member info, it quiesces all sync work (the node's view of its
     /// assignment is not authoritative, or the node makes no epoch-sync claim). The
-    /// epoch-change logic no longer starts syncs directly: it publishes goals, and this
-    /// service reconciles toward them.
+    /// epoch-change logic no longer starts syncs directly: it publishes the info, and this
+    /// service reconciles toward it.
+    ///
+    /// Each reconciliation pass runs inside the epoch-change critical section, re-reading the
+    /// latest info after entering it. A pass therefore never straddles an epoch change: it
+    /// either completes before the change enters the critical section (and the change then
+    /// quiesces whatever the pass started), or runs after the change and observes the new
+    /// info. Without this, a pass could relaunch syncs derived from a superseded info after
+    /// the change's quiesce — including for a shard the node just lost, which would
+    /// re-activate the shard's locked storage.
+    ///
+    /// The initial reconciliation runs synchronously, before this function returns: resumed
+    /// sync work is then already visible to `has_sync_in_progress` when the event processors
+    /// start, so the first epoch-change event cannot be planned against a zero live-task
+    /// count while a resumed sync is still incomplete (which would hand the attestation to
+    /// the finisher prematurely).
     // TODO(WAL-1263): cancel the shard-sync service when the node is shut down.
-    pub(crate) fn spawn_background_shard_sync_driver(
+    pub(crate) async fn spawn_background_shard_sync_driver(
         &self,
         mut info_receiver: watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
     ) {
@@ -502,17 +516,32 @@ impl ShardSyncHandler {
             "the shard sync reconciler is already running"
         );
 
+        self.reconcile_in_critical_section(&mut info_receiver).await;
+
         let handler = self.clone();
         *service_handle = Some(tokio::spawn(async move {
             loop {
-                let info = info_receiver.borrow_and_update().clone();
-                handler.reconcile_toward_info(&info).await;
                 if info_receiver.changed().await.is_err() {
                     tracing::info!("info channel closed; stopping the shard sync reconciler");
                     return;
                 }
+                handler
+                    .reconcile_in_critical_section(&mut info_receiver)
+                    .await;
             }
         }));
+    }
+
+    /// Runs one reconciliation pass inside the epoch-change critical section, against the
+    /// latest published info (re-read after entering the critical section, where it is stable:
+    /// the info is only ever published from inside the same critical section).
+    async fn reconcile_in_critical_section(
+        &self,
+        info_receiver: &mut watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
+    ) {
+        let _critical_section_guard = self.node.epoch_change_critical_section.enter().await;
+        let info = info_receiver.borrow_and_update().clone();
+        self.reconcile_toward_info(&info).await;
     }
 
     /// Reconciles the running sync work toward the given info.

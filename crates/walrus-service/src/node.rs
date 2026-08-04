@@ -991,9 +991,11 @@ impl StorageNode {
         epoch_change_executor
             .publish_startup_sync_and_recovery_info()
             .await?;
-        shard_sync_handler.spawn_background_shard_sync_driver(
-            inner.subscribe_to_epoch_change_sync_and_recovery_info(),
-        );
+        shard_sync_handler
+            .spawn_background_shard_sync_driver(
+                inner.subscribe_to_epoch_change_sync_and_recovery_info(),
+            )
+            .await;
         node_recovery_handler
             .spawn_background_recovery(inner.subscribe_to_epoch_change_sync_and_recovery_info());
 
