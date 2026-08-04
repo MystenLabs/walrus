@@ -106,18 +106,14 @@ jobs:
         run: cargo build --workspace --features "walrus-service/backup" --verbose
 
   test:
-    name: Test Rust code (gRPC level ${{ matrix.grpc_migration_level }})
+    name: Test Rust code
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
     runs-on: ubuntu-ghcloud
-    strategy:
-      matrix:
-        grpc_migration_level: [0, 100]
     env:
       RUST_LOG: walrus=info,error,sui_=off,consensus_core=off
       OPENSSL_STATIC: "1"
       OPENSSL_NO_VENDOR: "0"
-      WALRUS_GRPC_MIGRATION_LEVEL: "${{ matrix.grpc_migration_level }}"
     steps:
       - uses: taiki-e/install-action@a2352fc6ce487f030a3aa709482d57823eadfb37 # pin@v2.75.16
         with:
@@ -185,8 +181,7 @@ jobs:
     env:
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
-      # Default: all 5 seeds. PRs with the `ci:less-simtest-seeds` label run only
-      # 2 seeds (1 without gRPC, 1 with gRPC).
+      # Default: all 5 seeds. PRs with the `ci:less-simtest-seeds` label run only 2 seeds.
       SIMTEST_REDUCED: ${{ github.event_name != 'push' && contains(github.event.pull_request.labels.*.name, 'ci:less-simtest-seeds')
         }}
     steps:
@@ -199,13 +194,13 @@ jobs:
           gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - run: ./scripts/simtest/install.sh
-      - name: Run tests (seed=1, legacy json-rpc)
-        run: MSIM_TEST_SEED=1 WALRUS_GRPC_MIGRATION_LEVEL=0 cargo simtest simtest --profile simtest
+      - name: Run tests (seed=1)
+        run: MSIM_TEST_SEED=1 cargo simtest simtest --profile simtest
       - name: Run tests (seed=2)
         run: MSIM_TEST_SEED=2 cargo simtest simtest --profile simtest
-      - name: Run tests (seed=3, legacy json-rpc)
+      - name: Run tests (seed=3)
         if: env.SIMTEST_REDUCED != 'true'
-        run: MSIM_TEST_SEED=3 WALRUS_GRPC_MIGRATION_LEVEL=0 cargo simtest simtest --profile simtest
+        run: MSIM_TEST_SEED=3 cargo simtest simtest --profile simtest
       - name: Run tests (seed=4)
         if: env.SIMTEST_REDUCED != 'true'
         run: MSIM_TEST_SEED=4 cargo simtest simtest --profile simtest
