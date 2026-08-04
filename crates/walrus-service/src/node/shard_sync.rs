@@ -29,8 +29,8 @@ use super::{
 use crate::node::{
     epoch_change::{
         attestation::{EpochSyncDoneToken, ShardSyncAttestation},
-        completion::{CompletionInstruction, CompletionSlot},
-        goal::EpochSyncGoal,
+        completion::{BackgroundSyncTaskCompletionInstruction, CompletionSlot},
+        goal::EpochChangeSyncAndRecoveryInfo,
         plan::ShardFill,
     },
     errors::ShardNotAssigned,
@@ -123,7 +123,7 @@ impl ShardSyncHandler {
         }
     }
 
-    /// Hands the `epoch_sync_done` attestation token to shard sync, atomically registering the
+    /// Hands the `epoch_sync_done` attestation token to shard sync, atomically recording the
     /// shards whose syncs must complete before the token may be consumed. Called by the
     /// epoch-change apply step *before* starting the syncs, so that a sync task from an earlier
     /// epoch — which may observe the in-progress task map as empty while the new tasks are not
@@ -146,7 +146,10 @@ impl ShardSyncHandler {
     /// perform once metadata recovery finishes and the shard syncs are started. Called from
     /// inside the epoch-change critical section when the node status is set to
     /// `RecoverMetadata` (and by the startup resumption path).
-    pub(crate) fn set_metadata_recovery_completion(&self, instruction: CompletionInstruction) {
+    pub(crate) fn set_metadata_recovery_completion(
+        &self,
+        instruction: BackgroundSyncTaskCompletionInstruction,
+    ) {
         self.metadata_recovery_completion.put(instruction);
     }
 
@@ -240,7 +243,7 @@ impl ShardSyncHandler {
             shards
         };
 
-        // On the first run after a (simulated) restart, apply the restart-only resume policy
+        // On the first run after a restart, apply the restart-only resume policy
         // (optionally retrying the sliver transfer before falling back to recovery).
         let apply_restart_resume_policy = self
             .apply_restart_resume_policy
@@ -318,8 +321,8 @@ impl ShardSyncHandler {
         }
         drop(critical_section_guard);
 
-        // Metadata recovery can be the last outstanding work of the attestation registration
-        // (every registered shard already synced): consume the token if so.
+        // Metadata recovery can be the last outstanding work of the attestation (every
+        // pending shard already synced): consume the token if so.
         if let Some(token) = self.epoch_sync_attestation.take_if_complete() {
             token.attest(&self.node).await;
         }
@@ -428,7 +431,7 @@ impl ShardSyncHandler {
         shard_index: ShardIndex,
     ) -> Result<(), SyncShardClientError> {
         // All sync work is quiesced inside the critical section at every epoch change, so any
-        // task observed here belongs to the current goal.
+        // task observed here belongs to the current info.
         if self
             .shard_sync_in_progress
             .lock()
@@ -457,7 +460,7 @@ impl ShardSyncHandler {
 
         let shard_status = shard_storage.status().await?;
 
-        // Skip if shard is already active. The attestation registration never lists active
+        // Skip if shard is already active. The attestation's pending set never lists active
         // shards (it is computed from the persisted statuses inside the same critical section
         // that quiesced all sync work), so there is nothing to record here.
         if shard_status == ShardStatus::Active {
@@ -479,18 +482,21 @@ impl ShardSyncHandler {
     /// the node.
     /// Spawns the permanent shard-sync reconciler.
     ///
-    /// The reconciler watches the epoch synchronization goal: on a goal describing the node as
+    /// The reconciler watches the sync-and-recovery info: on an info describing the node as
     /// a committee member with shards to fill via shard sync, it starts the syncs; on a
-    /// catching-up or non-member goal, it quiesces all sync work (the node's view of its
+    /// catching-up or non-member info, it quiesces all sync work (the node's view of its
     /// assignment is not authoritative, or the node makes no epoch-sync claim). The
     /// epoch-change logic no longer starts syncs directly: it publishes goals, and this
     /// service reconciles toward them.
     // TODO(WAL-1263): cancel the shard-sync service when the node is shut down.
-    pub(crate) fn spawn_service(&self, mut goal_receiver: watch::Receiver<EpochSyncGoal>) {
+    pub(crate) fn spawn_background_shard_sync_driver(
+        &self,
+        mut info_receiver: watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
+    ) {
         let mut service_handle = self
             .service_handle
             .try_lock()
-            .expect("spawn_service is called once, at startup");
+            .expect("spawn_background_shard_sync_driver is called once, at startup");
         assert!(
             service_handle.is_none(),
             "the shard sync reconciler is already running"
@@ -499,30 +505,30 @@ impl ShardSyncHandler {
         let handler = self.clone();
         *service_handle = Some(tokio::spawn(async move {
             loop {
-                let goal = goal_receiver.borrow_and_update().clone();
-                handler.reconcile_toward_goal(&goal).await;
-                if goal_receiver.changed().await.is_err() {
-                    tracing::info!("goal channel closed; stopping the shard sync reconciler");
+                let info = info_receiver.borrow_and_update().clone();
+                handler.reconcile_toward_info(&info).await;
+                if info_receiver.changed().await.is_err() {
+                    tracing::info!("info channel closed; stopping the shard sync reconciler");
                     return;
                 }
             }
         }));
     }
 
-    /// Reconciles the running sync work toward the given goal.
+    /// Reconciles the running sync work toward the given info.
     ///
     /// Quiescing is not done here: the executor quiesces all sync work synchronously, inside
     /// the critical section that publishes each goal, so no task from an earlier goal exists
     /// by the time a goal becomes visible. This service only rebuilds: it derives the shards
-    /// that still need syncing from the goal's owned set and the persisted shard statuses
+    /// that still need syncing from the info's owned set and the persisted shard statuses
     /// (interrupted syncs resume from their persisted progress) and starts them.
-    async fn reconcile_toward_goal(&self, goal: &EpochSyncGoal) {
-        if goal.catching_up || !goal.membership.is_member() {
+    async fn reconcile_toward_info(&self, info: &EpochChangeSyncAndRecoveryInfo) {
+        if info.catching_up || !info.membership.is_member() {
             // Nothing to rebuild: while catching up the assignment is not authoritative, and a
             // non-member makes no epoch-sync claim.
             return;
         }
-        if goal
+        if info
             .shards_to_fill
             .as_ref()
             .is_some_and(|new_shards| new_shards.fill == ShardFill::ForceActive)
@@ -532,7 +538,7 @@ impl ShardSyncHandler {
         }
 
         let mut shards_to_sync = Vec::new();
-        for shard in &goal.owned_shards {
+        for shard in &info.owned_shards {
             let Some(shard_storage) = self.node.storage.shard_storage(*shard).await else {
                 continue;
             };
@@ -557,15 +563,18 @@ impl ShardSyncHandler {
             return;
         }
         if let Err(error) = self.start_sync_shards(shards_to_sync).await {
-            tracing::error!(?error, "failed to start the shard syncs for the goal");
+            tracing::error!(
+                ?error,
+                "failed to start the shard syncs for the published info"
+            );
         }
     }
 
     /// Aborts the sync-driving task and every per-shard sync task, waiting for them to
     /// exit. Called by the epoch-change executor inside the critical section, so that no
-    /// sync task from an earlier goal coexists with a newly published goal or attestation
-    /// registration. Sync progress is persisted per batch: at most the in-flight batches
-    /// are repeated when the reconciler rebuilds the still-needed syncs.
+    /// sync task from an earlier epoch change coexists with a newly published info or with
+    /// the attestation's pending set. Sync progress is persisted per batch: at most the
+    /// in-flight batches are repeated when the reconciler rebuilds the still-needed syncs.
     pub(crate) async fn quiesce_all_syncs(&self) {
         if let Some(task) = self.task_handle.lock().await.take() {
             task.abort();
@@ -605,7 +614,7 @@ impl ShardSyncHandler {
                 EpochSyncDoneToken::new_for_epoch(self.node.current_committee_epoch()),
                 [],
             );
-            self.set_metadata_recovery_completion(CompletionInstruction::new(
+            self.set_metadata_recovery_completion(BackgroundSyncTaskCompletionInstruction::new(
                 NodeStatus::Active,
                 None,
             ));
@@ -738,16 +747,16 @@ impl ShardSyncHandler {
             // Remove the task from the shard_sync_in_progress map upon completion, and record
             // the synced shard with the attestation. All sync work is quiesced inside the
             // critical section at every epoch change, so every running task belongs to the
-            // current registration; the completion that empties the registered set consumes
+            // current pending set; the completion that empties the pending set consumes
             // the token. While the node is recovering, node recovery holds the attestation
             // instead (bundled in its completion instruction; see node_recovery.rs) and there
             // is no token here to consume.
             //
             // The removal and the recording happen under one hold of the map lock, which
             // quiesce_all_syncs also takes to drain the map: a completing task therefore
-            // either records against the registration it belongs to before the quiesce
+            // either records against the pending set it belongs to before the quiesce
             // returns, or is aborted before it can record — it can never record against a
-            // later epoch's registration.
+            // later epoch's pending set.
             if shard_sync_success {
                 let token = {
                     let mut shard_sync_in_progress =

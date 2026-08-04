@@ -15,8 +15,8 @@ pub(crate) mod goal;
 pub(crate) mod plan;
 
 use attestation::EpochSyncDoneToken;
-use completion::CompletionInstruction;
-use goal::EpochSyncGoal;
+use completion::BackgroundSyncTaskCompletionInstruction;
+use goal::EpochChangeSyncAndRecoveryInfo;
 
 /// Threshold above which we emit a warning that the foreground portion of an
 /// `EpochChangeStart` event took unexpectedly long to process. The shard-sync work
@@ -414,23 +414,25 @@ impl EpochChangeExecutor {
         }
     }
 
-    /// Publishes the startup epoch synchronization goal, derived from persisted state and the
+    /// Publishes the startup sync-and-recovery info, derived from persisted state and the
     /// fetched committees, and re-mints the commit-protocol state — the `epoch_sync_done`
     /// attestation token and the completion instructions — that the previous run held in
     /// memory. Together with the reconciler's first pass (which rebuilds the sync work from
-    /// persisted shard statuses), this makes startup just another goal publication: there is
+    /// persisted shard statuses), this makes startup just another info publication: there is
     /// no dedicated restart path.
     ///
     /// Must be called before the sync services are spawned.
-    pub(super) async fn publish_startup_goal(&self) -> anyhow::Result<()> {
+    pub(super) async fn publish_startup_sync_and_recovery_info(&self) -> anyhow::Result<()> {
         let committees = self.inner.committee_service.active_committees();
         let public_key = self.inner.public_key();
         let in_current_committee = committees.current_committee().contains(public_key);
         let in_previous_committee = committees
             .previous_committee()
             .is_some_and(|committee| committee.contains(public_key));
-        let membership =
-            goal::Membership::from_committee_presence(in_current_committee, in_previous_committee);
+        let membership = goal::MembershipAtEpochChange::from_committee_presence(
+            in_current_committee,
+            in_previous_committee,
+        );
         let node_status = self.inner.storage.node_status()?;
         let owned_shards = self.inner.owned_shards_at_latest_epoch();
         let epoch = committees.epoch();
@@ -438,16 +440,17 @@ impl EpochChangeExecutor {
         match &node_status {
             NodeStatus::RecoveryInProgress(target_epoch) => {
                 // The node restarted while recovering: node recovery owns the completion.
-                self.node_recovery_handler
-                    .set_completion_instruction(CompletionInstruction::new(
+                self.node_recovery_handler.set_completion_instruction(
+                    BackgroundSyncTaskCompletionInstruction::new(
                         NodeStatus::Active,
                         Some(EpochSyncDoneToken::new_for_epoch(*target_epoch)),
-                    ));
+                    ),
+                );
             }
             status if membership.is_member() && !status.is_catching_up() => {
                 if node_status == NodeStatus::RecoverMetadata {
                     self.shard_sync_handler.set_metadata_recovery_completion(
-                        CompletionInstruction::new(NodeStatus::Active, None),
+                        BackgroundSyncTaskCompletionInstruction::new(NodeStatus::Active, None),
                     );
                 }
                 // Register the attestation with every owned shard that is not yet `Active` —
@@ -476,16 +479,15 @@ impl EpochChangeExecutor {
             _ => {}
         }
 
-        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
-            // Both generations are assigned by the publisher.
-            generation: 0,
-            sync_baseline_generation: 0,
-            epoch,
-            catching_up: node_status.is_catching_up(),
-            membership,
-            owned_shards,
-            shards_to_fill: None,
-        });
+        self.inner.publish_epoch_change_sync_and_recovery_info(
+            EpochChangeSyncAndRecoveryInfo::new(
+                epoch,
+                node_status.is_catching_up(),
+                membership,
+                owned_shards,
+                None,
+            ),
+        );
         Ok(())
     }
 
@@ -674,16 +676,15 @@ impl EpochChangeExecutor {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
                 self.shard_sync_handler.clear_metadata_recovery_completion();
                 self.node_recovery_handler.clear_completion_instruction();
-                self.inner.publish_epoch_sync_goal(EpochSyncGoal {
-                    // Both generations are assigned by the publisher.
-                    generation: 0,
-                    sync_baseline_generation: 0,
-                    epoch: event.epoch,
-                    catching_up: false,
-                    membership: goal::Membership::NotMember,
-                    owned_shards: Vec::new(),
-                    shards_to_fill: None,
-                });
+                self.inner.publish_epoch_change_sync_and_recovery_info(
+                    EpochChangeSyncAndRecoveryInfo::new(
+                        event.epoch,
+                        false,
+                        goal::MembershipAtEpochChange::NotMember,
+                        Vec::new(),
+                        None,
+                    ),
+                );
                 event_handle.mark_as_complete();
                 return Ok(());
             }
@@ -691,7 +692,7 @@ impl EpochChangeExecutor {
         };
 
         // Sections 1-2 run inside the epoch-change critical section (entered by the caller).
-        // The recovery service is not controlled from here: it watches the published goal (and
+        // The recovery service is not controlled from here: it watches the published info (and
         // the persisted recovery target) and reconciles on its own.
         self.apply_node_status_changes(&execution_info, event)?;
         let finisher_attestation = self
@@ -786,7 +787,7 @@ impl EpochChangeExecutor {
     /// the shard syncs start (so a completing sync cannot miss its token).
     ///
     /// Returns the attestation token to hand to the finisher, if the finisher is the
-    /// attestation owner (or if shard sync's registration turned out to be already complete).
+    /// attestation owner (or if shard sync's pending set turned out to be already empty).
     async fn apply_shard_changes(
         &self,
         execution_info: &plan::EpochChangeExecutionInfo,
@@ -846,11 +847,9 @@ impl EpochChangeExecutor {
             // quickly finishing task must not miss it); a later transition that supersedes the
             // metadata recovery (dropping out of the committee, entering recovery mode) revokes
             // it by clearing the slot.
-            self.shard_sync_handler
-                .set_metadata_recovery_completion(CompletionInstruction::new(
-                    NodeStatus::Active,
-                    None,
-                ));
+            self.shard_sync_handler.set_metadata_recovery_completion(
+                BackgroundSyncTaskCompletionInstruction::new(NodeStatus::Active, None),
+            );
         }
 
         // Lock the shards that moved out, so that they do not accept any more writes. This
@@ -874,11 +873,12 @@ impl EpochChangeExecutor {
                 .context("failed to lock shard")?;
         }
 
-        // Quiesce all sync work, still inside the critical section: after this point no sync
-        // task from an earlier goal exists, so the attestation registered below cannot be
-        // satisfied or consumed by stale work. The reconciler rebuilds the still-needed syncs
-        // from persisted progress once the goal below becomes visible; at most the in-flight
-        // batches are repeated, at the epoch-change cadence.
+        // Quiesce all sync work, still inside the critical section: after this point no
+        // sync task from an earlier epoch change exists, so the attestation's pending shard
+        // syncs recorded below cannot be satisfied or consumed by stale work. The reconciler
+        // rebuilds the still-needed syncs from persisted progress once the info published
+        // below becomes visible; at most the in-flight batches are repeated, at the
+        // epoch-change cadence.
         self.shard_sync_handler.quiesce_all_syncs().await;
 
         // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand
@@ -892,17 +892,17 @@ impl EpochChangeExecutor {
         let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
         let mut finisher_attestation = None;
         match execution_info.sync_done_owner {
-            plan::EpochSyncDoneAttestationOwner::Finisher => {
+            plan::EpochSyncDoneAttestationOwner::StartEpochChangeFinisher => {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
                 self.node_recovery_handler.clear_completion_instruction();
                 finisher_attestation = Some(token);
             }
             plan::EpochSyncDoneAttestationOwner::ShardSync => {
                 self.node_recovery_handler.clear_completion_instruction();
-                // Register the token with every owned shard whose persisted status is not yet
-                // `Active` — exactly the work the reconciler rebuilds for this goal. With all
-                // sync work quiesced above, the registration cannot race stale completions.
-                // An empty registration means the epoch-sync claim already holds (for example,
+                // Record the token's pending shard syncs: every owned shard whose persisted
+                // status is not yet `Active` — exactly the work the reconciler rebuilds. With
+                // all sync work quiesced above, the pending set cannot race stale completions.
+                // An empty pending set means the epoch-sync claim already holds (for example,
                 // when re-processing the event after a crash): the finisher attests directly.
                 let mut pending_shards = Vec::new();
                 for shard in &execution_info.owned_shards {
@@ -929,30 +929,27 @@ impl EpochChangeExecutor {
             }
             plan::EpochSyncDoneAttestationOwner::RecoveryTask => {
                 self.shard_sync_handler.clear_epoch_sync_done_token();
-                self.node_recovery_handler
-                    .set_completion_instruction(CompletionInstruction::new(
-                        NodeStatus::Active,
-                        Some(token),
-                    ));
+                self.node_recovery_handler.set_completion_instruction(
+                    BackgroundSyncTaskCompletionInstruction::new(NodeStatus::Active, Some(token)),
+                );
             }
         }
 
-        // Publish the epoch synchronization goal for this transition. Published inside the
-        // critical section, after the lost shards are locked (services acting on the goal may
+        // Publish the sync-and-recovery info for this transition. Published inside the
+        // critical section, after the lost shards are locked (services acting on the info may
         // ultimately attest, which must not happen while the node still accepts writes for
         // shards it lost) and after the attestation is routed above (a sync started by the
-        // reconciler must find its registered token). The shard-sync reconciler reacts to the
-        // goal by starting the syncs; the executor no longer starts them directly.
-        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
-            // Both generations are assigned by the publisher.
-            generation: 0,
-            sync_baseline_generation: 0,
-            epoch: event.epoch,
-            catching_up: false,
-            membership: execution_info.membership,
-            owned_shards: execution_info.owned_shards.clone(),
-            shards_to_fill: execution_info.new_shards.clone(),
-        });
+        // reconciler must find its token and pending set). The shard-sync reconciler reacts
+        // to the info by starting the syncs; the executor no longer starts them directly.
+        self.inner.publish_epoch_change_sync_and_recovery_info(
+            EpochChangeSyncAndRecoveryInfo::new(
+                event.epoch,
+                false,
+                execution_info.membership,
+                execution_info.owned_shards.clone(),
+                execution_info.new_shards.clone(),
+            ),
+        );
 
         Ok(finisher_attestation)
     }
@@ -1084,18 +1081,17 @@ impl EpochChangeExecutor {
         self.node_recovery_handler.clear_completion_instruction();
 
         // While catching up, the node's view of its shard assignment is not authoritative:
-        // publish a catching-up goal so the sync services hold off on new work until the node
+        // publish a catching-up info so the sync services hold off on new work until the node
         // reaches the latest epoch.
-        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
-            // Both generations are assigned by the publisher.
-            generation: 0,
-            sync_baseline_generation: 0,
-            epoch: self.inner.current_committee_epoch(),
-            catching_up: true,
-            membership: goal::Membership::NotMember,
-            owned_shards: Vec::new(),
-            shards_to_fill: None,
-        });
+        self.inner.publish_epoch_change_sync_and_recovery_info(
+            EpochChangeSyncAndRecoveryInfo::new(
+                self.inner.current_committee_epoch(),
+                true,
+                goal::MembershipAtEpochChange::NotMember,
+                Vec::new(),
+                None,
+            ),
+        );
 
         // Now the node is entering recovery mode, we need to cancel all the blob syncs
         // that are in progress, since the node is lagging behind, and we don't have

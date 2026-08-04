@@ -696,9 +696,10 @@ pub struct StorageNodeInner {
     // [`epoch_change::EpochChangeCriticalSection`].
     epoch_change_critical_section: epoch_change::EpochChangeCriticalSection,
     // The desired synchronization state the long-running sync services reconcile toward; see
-    // [`epoch_change::goal::EpochSyncGoal`]. Published inside the epoch-change critical
+    // [`epoch_change::goal::EpochChangeSyncAndRecoveryInfo`]. Published inside the epoch-change critical
     // section.
-    epoch_sync_goal: watch::Sender<epoch_change::goal::EpochSyncGoal>,
+    epoch_change_sync_and_recovery_info:
+        watch::Sender<epoch_change::goal::EpochChangeSyncAndRecoveryInfo>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -899,7 +900,8 @@ impl StorageNode {
                 .build(),
             epoch_state_consistency_config: config.epoch_state_consistency.clone(),
             epoch_change_critical_section: epoch_change::EpochChangeCriticalSection::default(),
-            epoch_sync_goal: epoch_change::goal::EpochSyncGoal::channel().0,
+            epoch_change_sync_and_recovery_info:
+                epoch_change::goal::EpochChangeSyncAndRecoveryInfo::channel().0,
         });
 
         blocklist.start_refresh_task();
@@ -982,13 +984,18 @@ impl StorageNode {
             start_epoch_change_finisher.clone(),
         );
 
-        // Publish the startup epoch synchronization goal (re-minting the commit-protocol state
+        // Publish the startup sync-and-recovery info (re-minting the commit-protocol state
         // the previous run held in memory), then start the sync services: their first
         // reconciliation pass rebuilds the sync work from persisted state. Startup is just
         // another goal publication; there is no dedicated restart path.
-        epoch_change_executor.publish_startup_goal().await?;
-        shard_sync_handler.spawn_service(inner.subscribe_to_epoch_sync_goal());
-        node_recovery_handler.spawn_service(inner.subscribe_to_epoch_sync_goal());
+        epoch_change_executor
+            .publish_startup_sync_and_recovery_info()
+            .await?;
+        shard_sync_handler.spawn_background_shard_sync_driver(
+            inner.subscribe_to_epoch_change_sync_and_recovery_info(),
+        );
+        node_recovery_handler
+            .spawn_background_recovery(inner.subscribe_to_epoch_change_sync_and_recovery_info());
 
         Ok(StorageNode {
             inner,
@@ -2957,28 +2964,31 @@ impl StorageNodeInner {
         false
     }
 
-    /// Publishes a new epoch synchronization goal, superseding (and thereby revoking) the
+    /// Publishes a new sync-and-recovery info, superseding (and thereby revoking) the
     /// previous one. Must be called from inside the epoch-change critical section (or before
     /// the node's services are running, at startup).
-    pub(crate) fn publish_epoch_sync_goal(&self, mut goal: epoch_change::goal::EpochSyncGoal) {
+    pub(crate) fn publish_epoch_change_sync_and_recovery_info(
+        &self,
+        mut info: epoch_change::goal::EpochChangeSyncAndRecoveryInfo,
+    ) {
         {
-            let previous = self.epoch_sync_goal.borrow();
-            goal.generation = previous.generation + 1;
-            goal.sync_baseline_generation = if goal.invalidates_sync_baseline() {
-                goal.generation
+            let previous = self.epoch_change_sync_and_recovery_info.borrow();
+            info.generation = previous.generation + 1;
+            info.node_recovery_baseline_generation = if info.invalidates_node_recovery_baseline() {
+                info.generation
             } else {
-                previous.sync_baseline_generation
+                previous.node_recovery_baseline_generation
             };
         }
-        tracing::info!(?goal, "publishing epoch synchronization goal");
-        self.epoch_sync_goal.send_replace(goal);
+        tracing::info!(?info, "publishing sync-and-recovery info");
+        self.epoch_change_sync_and_recovery_info.send_replace(info);
     }
 
-    /// Subscribes to epoch synchronization goal updates.
-    pub(crate) fn subscribe_to_epoch_sync_goal(
+    /// Subscribes to sync-and-recovery info updates.
+    pub(crate) fn subscribe_to_epoch_change_sync_and_recovery_info(
         &self,
-    ) -> watch::Receiver<epoch_change::goal::EpochSyncGoal> {
-        self.epoch_sync_goal.subscribe()
+    ) -> watch::Receiver<epoch_change::goal::EpochChangeSyncAndRecoveryInfo> {
+        self.epoch_change_sync_and_recovery_info.subscribe()
     }
 
     /// Sets the status of the node, validating the transition against the node-status state
@@ -7428,7 +7438,10 @@ mod tests {
                 .storage_node
                 ._shard_sync_handler
                 .set_metadata_recovery_completion(
-                    epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+                    epoch_change::completion::BackgroundSyncTaskCompletionInstruction::new(
+                        NodeStatus::Active,
+                        None,
+                    ),
                 );
         }
 
@@ -8606,7 +8619,10 @@ mod tests {
                 .storage_node
                 ._shard_sync_handler
                 .set_metadata_recovery_completion(
-                    epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+                    epoch_change::completion::BackgroundSyncTaskCompletionInstruction::new(
+                        NodeStatus::Active,
+                        None,
+                    ),
                 );
 
             // Starts the shard syncing process in the new shard, which will fail at the specified
@@ -8698,7 +8714,10 @@ mod tests {
             // the epoch-change executor does in production. A later epoch change that keeps the
             // node in metadata recovery leaves the instruction in place.
             shard_sync_handler.set_metadata_recovery_completion(
-                epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+                epoch_change::completion::BackgroundSyncTaskCompletionInstruction::new(
+                    NodeStatus::Active,
+                    None,
+                ),
             );
 
             // The node joins the committee and gains shard 0; metadata must be recovered first.
@@ -8787,7 +8806,10 @@ mod tests {
                 .storage_node
                 ._shard_sync_handler
                 .set_metadata_recovery_completion(
-                    epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+                    epoch_change::completion::BackgroundSyncTaskCompletionInstruction::new(
+                        NodeStatus::Active,
+                        None,
+                    ),
                 );
 
             cluster.nodes[1]
@@ -8859,7 +8881,10 @@ mod tests {
             // Setting `RecoverMetadata` authorizes the metadata-recovery task's completion, as
             // the epoch-change executor does in production.
             shard_sync_handler.set_metadata_recovery_completion(
-                epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+                epoch_change::completion::BackgroundSyncTaskCompletionInstruction::new(
+                    NodeStatus::Active,
+                    None,
+                ),
             );
             shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
@@ -8931,7 +8956,10 @@ mod tests {
             // Setting `RecoverMetadata` authorizes the metadata-recovery task's completion, as
             // the epoch-change executor does in production.
             shard_sync_handler.set_metadata_recovery_completion(
-                epoch_change::completion::CompletionInstruction::new(NodeStatus::Active, None),
+                epoch_change::completion::BackgroundSyncTaskCompletionInstruction::new(
+                    NodeStatus::Active,
+                    None,
+                ),
             );
             shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])

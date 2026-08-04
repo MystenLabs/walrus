@@ -18,8 +18,8 @@ use super::{
 use crate::node::{
     NodeStatus,
     epoch_change::{
-        completion::{CompletionInstruction, CompletionSlot},
-        goal::EpochSyncGoal,
+        completion::{BackgroundSyncTaskCompletionInstruction, CompletionSlot},
+        goal::EpochChangeSyncAndRecoveryInfo,
     },
     storage::{ShardStatus, blob_info::CertifiedBlobInfoApi},
 };
@@ -79,7 +79,10 @@ impl NodeRecoveryHandler {
     /// the `epoch_sync_done` attestation to send when the recovery completes. Called by the
     /// epoch-change apply step, from inside the epoch-change critical section, whenever it sets
     /// or advances the recovery target.
-    pub(crate) fn set_completion_instruction(&self, instruction: CompletionInstruction) {
+    pub(crate) fn set_completion_instruction(
+        &self,
+        instruction: BackgroundSyncTaskCompletionInstruction,
+    ) {
         self.completion_instruction.put(instruction);
     }
 
@@ -91,7 +94,7 @@ impl NodeRecoveryHandler {
 
     /// Spawns the permanent node-recovery service.
     ///
-    /// The service is a reconciliation loop: it watches the epoch synchronization goal and,
+    /// The service is a reconciliation loop: it watches the sync-and-recovery info and,
     /// whenever the node's persisted status names a recovery target (and the node is not
     /// catching up), runs a recovery toward it. A run is bound to the sync baseline generation
     /// it started from and can outlive several epoch changes: a publication that leaves the
@@ -100,16 +103,19 @@ impl NodeRecoveryHandler {
     /// synced through live event processing, and its completion instruction is replaced with
     /// one attesting the new epoch — while a baseline-changing publication (the node entered
     /// catch-up or left the committee) supersedes the run, which abandons its work and
-    /// re-evaluates against the latest goal (completed per-blob work persists, so a superseded
+    /// re-evaluates against the latest info (completed per-blob work persists, so a superseded
     /// run only repeats its scan). This replaces the previous start/ensure/abort lifecycle
-    /// driven by the epoch-change logic: epoch changes only publish goals and mint completion
+    /// driven by the epoch-change logic: epoch changes only publish infos and mint completion
     /// instructions; the service makes its own decisions.
     // TODO(WAL-1263): cancel the node-recovery service when the node is shut down.
-    pub(crate) fn spawn_service(&self, goal_receiver: watch::Receiver<EpochSyncGoal>) {
+    pub(crate) fn spawn_background_recovery(
+        &self,
+        info_receiver: watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
+    ) {
         let mut service_handle = self
             .service_handle
             .try_lock()
-            .expect("spawn_service is called once, at startup");
+            .expect("spawn_background_recovery is called once, at startup");
         assert!(
             service_handle.is_none(),
             "the node recovery service is already running"
@@ -127,24 +133,29 @@ impl NodeRecoveryHandler {
             shard_sync_handler,
             completion_instruction,
             max_concurrent_blob_syncs_during_recovery,
-            goal_receiver,
+            info_receiver,
         )));
     }
 }
 
 /// Returns `true` if a publication has superseded the recovery run bound to `run_baseline`
-/// (or the goal channel closed). Publications that leave the sync baseline unchanged — an
+/// (or the info channel closed). Publications that leave the sync baseline unchanged — an
 /// epoch change advancing the recovery target — extend the run instead of superseding it: the
 /// run's frozen scan bound stays sufficient because the node syncs blobs certified at later
 /// epochs through live event processing, and its completion attests the advanced target via
 /// the replaced completion instruction.
 fn run_is_superseded(
-    goal_receiver: &mut watch::Receiver<EpochSyncGoal>,
+    info_receiver: &mut watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
     run_baseline: u64,
 ) -> bool {
-    match goal_receiver.has_changed() {
+    match info_receiver.has_changed() {
         Err(_) => true,
-        Ok(true) => goal_receiver.borrow_and_update().sync_baseline_generation != run_baseline,
+        Ok(true) => {
+            info_receiver
+                .borrow_and_update()
+                .node_recovery_baseline_generation
+                != run_baseline
+        }
         Ok(false) => false,
     }
 }
@@ -250,8 +261,8 @@ enum RunOutcome {
     /// The recovery completed: the completion instruction was applied and epoch sync done
     /// attested.
     Completed,
-    /// A newer goal was published (or the node started catching up); the run abandoned its
-    /// work and the service re-evaluates against the latest goal.
+    /// A newer info was published (or the node started catching up); the run abandoned its
+    /// work and the service re-evaluates against the latest info.
     Superseded,
 }
 
@@ -262,7 +273,7 @@ async fn run_service(
     shard_sync_handler: ShardSyncHandler,
     completion_instruction: CompletionSlot,
     max_concurrent_blob_syncs_during_recovery: usize,
-    mut goal_receiver: watch::Receiver<EpochSyncGoal>,
+    mut info_receiver: watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
 ) {
     tracing::info!("waiting for the latest event epoch to start the node recovery service");
     // When current_event_epoch() returns during node startup, a lagging node has already been
@@ -272,19 +283,19 @@ async fn run_service(
         .expect("current event epoch watch channel should not be dropped");
 
     loop {
-        // Bind the next run to the current sync baseline generation; mark the goal as seen so
+        // Bind the next run to the current sync baseline generation; mark the info as seen so
         // that `has_changed` inside the run detects only newer publications.
         let (baseline, catching_up) = {
-            let goal = goal_receiver.borrow_and_update();
-            (goal.sync_baseline_generation, goal.catching_up)
+            let info = info_receiver.borrow_and_update();
+            (info.node_recovery_baseline_generation, info.catching_up)
         };
 
         let target_epoch = match node.storage.node_status() {
             Ok(NodeStatus::RecoveryInProgress(target_epoch)) if !catching_up => target_epoch,
             Ok(_) => {
-                // Nothing to recover toward; wait for the next goal.
-                if goal_receiver.changed().await.is_err() {
-                    tracing::info!("goal channel closed; stopping the node recovery service");
+                // Nothing to recover toward; wait for the next info.
+                if info_receiver.changed().await.is_err() {
+                    tracing::info!("info channel closed; stopping the node recovery service");
                     return;
                 }
                 continue;
@@ -309,7 +320,7 @@ async fn run_service(
             &shard_sync_handler,
             &completion_instruction,
             max_concurrent_blob_syncs_during_recovery,
-            &mut goal_receiver,
+            &mut info_receiver,
             baseline,
             target_epoch,
         )
@@ -319,7 +330,7 @@ async fn run_service(
                 tracing::info!(walrus.epoch = target_epoch, "node recovery run completed")
             }
             RunOutcome::Superseded => {
-                tracing::info!("node recovery run superseded by a newer goal")
+                tracing::info!("node recovery run superseded by a newer info")
             }
         }
     }
@@ -336,7 +347,7 @@ async fn run_recovery(
     shard_sync_handler: &ShardSyncHandler,
     completion_instruction: &CompletionSlot,
     max_concurrent_blob_syncs_during_recovery: usize,
-    goal_receiver: &mut watch::Receiver<EpochSyncGoal>,
+    info_receiver: &mut watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
     baseline: u64,
     target_epoch: Epoch,
 ) -> RunOutcome {
@@ -344,7 +355,7 @@ async fn run_recovery(
         // Block until the node is ready to run a recovery scan pass. Stops the recovery
         // task if the node started catching up.
         // A baseline-changing publication supersedes this run before it even scans.
-        if run_is_superseded(goal_receiver, baseline) {
+        if run_is_superseded(info_receiver, baseline) {
             return RunOutcome::Superseded;
         }
 
@@ -366,7 +377,7 @@ async fn run_recovery(
         // verification re-scan is removed (WAL-669), an interrupted pass still requires
         // a new round of blob recovery.
         let mut scan_pass_interrupted = false;
-        // Whether a new goal superseded this run mid-pass.
+        // Whether a newly published info superseded this run mid-pass.
         let mut superseded = false;
         tracing::info!(
             "scanning blobs to recover certified blobs before epoch {}",
@@ -397,7 +408,7 @@ async fn run_recovery(
             // A baseline-changing publication supersedes this run entirely: stop scanning,
             // drain the in-flight syncs below, and let the service re-evaluate. A publication
             // that keeps the baseline (a target advancement) extends the run instead.
-            if run_is_superseded(goal_receiver, baseline) {
+            if run_is_superseded(info_receiver, baseline) {
                 superseded = true;
                 break;
             }
@@ -540,7 +551,7 @@ async fn run_recovery(
             node,
             shard_sync_handler,
             completion_instruction,
-            goal_receiver,
+            info_receiver,
             baseline,
         )
         .await
@@ -575,7 +586,7 @@ async fn complete_recovery_once_shards_synced(
     node: &StorageNodeInner,
     shard_sync_handler: &ShardSyncHandler,
     completion_instruction: &CompletionSlot,
-    goal_receiver: &mut watch::Receiver<EpochSyncGoal>,
+    info_receiver: &mut watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
     run_baseline: u64,
 ) -> bool {
     loop {
@@ -587,10 +598,10 @@ async fn complete_recovery_once_shards_synced(
         // briefly) has superseded the run since it started. Target advancements leave the
         // baseline unchanged: the completion below then consumes the instruction minted for
         // the advanced target and attests the newest epoch.
-        if goal_receiver.borrow().sync_baseline_generation != run_baseline {
+        if info_receiver.borrow().node_recovery_baseline_generation != run_baseline {
             drop(critical_section_guard);
             tracing::info!(
-                "recovery completion superseded by an invalidating goal; abandoning the run"
+                "recovery completion superseded by an invalidating info; abandoning the run"
             );
             return false;
         }
@@ -650,12 +661,12 @@ async fn complete_recovery_once_shards_synced(
             );
             tokio::select! {
                 _ = shard_sync_handler.wait_until_no_sync_in_progress() => {}
-                changed = goal_receiver.changed() => {
+                changed = info_receiver.changed() => {
                     // Re-evaluate: only a baseline-changing publication supersedes the run; a
                     // target advancement (possibly gaining shards) just widens what to wait
                     // for, which the next iteration picks up.
                     if changed.is_err()
-                        || goal_receiver.borrow_and_update().sync_baseline_generation
+                        || info_receiver.borrow_and_update().node_recovery_baseline_generation
                             != run_baseline
                     {
                         return false;
@@ -674,9 +685,9 @@ async fn complete_recovery_once_shards_synced(
             );
             tokio::select! {
                 _ = tokio::time::sleep(UNSYNCED_SHARD_RECHECK_INTERVAL) => {}
-                changed = goal_receiver.changed() => {
+                changed = info_receiver.changed() => {
                     if changed.is_err()
-                        || goal_receiver.borrow_and_update().sync_baseline_generation
+                        || info_receiver.borrow_and_update().node_recovery_baseline_generation
                             != run_baseline
                     {
                         return false;

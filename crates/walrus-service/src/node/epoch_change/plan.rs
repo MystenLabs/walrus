@@ -15,7 +15,7 @@
 
 use walrus_core::{Epoch, ShardIndex};
 
-use super::goal::Membership;
+use super::goal::MembershipAtEpochChange;
 use crate::node::NodeStatus;
 
 /// The node's status with respect to an epoch change, established by committee
@@ -77,6 +77,11 @@ pub(crate) struct PlanInputs {
 
 /// A node-status transition to perform while applying the plan.
 ///
+/// `Active` is deliberately absent: the epoch-change apply step never sets a node to `Active`
+/// directly. That transition is only ever performed by a long-running task consuming its
+/// completion instruction — metadata recovery or node recovery finishing — so it cannot appear
+/// in a plan.
+///
 /// The apply step orders these relative to the shard work: [`Standby`][Self::Standby] and
 /// [`RecoveryInProgress`][Self::RecoveryInProgress] are written before shard storage is created,
 /// while [`RecoverMetadata`][Self::RecoverMetadata] is written after creation (a restart that
@@ -97,11 +102,11 @@ pub(crate) enum StatusTransition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EpochSyncDoneAttestationOwner {
     /// No shard-sync work exists at all — none started for this epoch, none still running
-    /// from earlier epochs — and the node is not recovering: the epoch-change finisher attests
-    /// directly (it skips the attestation if the node is not in the committee).
-    Finisher,
+    /// from earlier epochs — and the node is not recovering: the start-epoch-change finisher
+    /// attests directly (it skips the attestation if the node is not in the committee).
+    StartEpochChangeFinisher,
     /// Shard syncs were started for this epoch or are still running from earlier ones: the
-    /// sync completion that finishes the registered work attests.
+    /// sync completion that finishes the pending shard syncs attests.
     ShardSync,
     /// The node is recovering: the recovery task attests once the blob scan is complete and all
     /// owned shards are active.
@@ -135,7 +140,7 @@ pub(crate) struct EpochChangeExecutionInfo {
     /// The node-status transition to perform, if any.
     pub status: Option<StatusTransition>,
     /// The node's relationship to the new epoch's committee.
-    pub membership: Membership,
+    pub membership: MembershipAtEpochChange,
     /// All shards assigned to the node in the new epoch.
     pub owned_shards: Vec<ShardIndex>,
     /// The shards newly assigned to the node, if any.
@@ -150,7 +155,7 @@ pub(crate) struct EpochChangeExecutionInfo {
 
 /// The reason an epoch change requires no action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum SkipReason {
+pub(crate) enum SkipEpochChangeExecutionReason {
     /// The node is catching up and the event is for an epoch older than the committee's; the
     /// event is part of the backlog being replayed.
     StaleEventWhileCatchingUp,
@@ -162,7 +167,7 @@ pub(crate) enum SkipReason {
 #[derive(Debug, Clone)]
 pub(crate) enum EpochChangePlan {
     /// Nothing to do; mark the event as complete.
-    Skip(SkipReason),
+    Skip(SkipEpochChangeExecutionReason),
     /// A catching-up node reached the current epoch but is not a member of the new committee:
     /// move to `Standby` and mark the event as complete without touching shards.
     MoveToStandby,
@@ -178,16 +183,16 @@ pub(crate) enum EpochChangePlan {
 pub(crate) fn plan_epoch_change(inputs: &PlanInputs) -> EpochChangePlan {
     match inputs.node_status_at_beginning_of_epoch_change {
         NodeStatusAtBeginningOfEpochChange::AlreadyInProgress => {
-            EpochChangePlan::Skip(SkipReason::ChangeAlreadyInProgress)
+            EpochChangePlan::Skip(SkipEpochChangeExecutionReason::ChangeAlreadyInProgress)
         }
         // A catching-up node replays a backlog: events for epochs older than the committee's
         // are skipped.
         NodeStatusAtBeginningOfEpochChange::CatchingUp
             if inputs.event_epoch < inputs.committee_epoch =>
         {
-            EpochChangePlan::Skip(SkipReason::StaleEventWhileCatchingUp)
+            EpochChangePlan::Skip(SkipEpochChangeExecutionReason::StaleEventWhileCatchingUp)
         }
-        status => plan_for_current_epoch(
+        status => plan_for_epoch_change_execution_for_caught_up_node(
             inputs,
             matches!(status, NodeStatusAtBeginningOfEpochChange::CatchingUp),
         ),
@@ -198,9 +203,12 @@ pub(crate) fn plan_epoch_change(inputs: &PlanInputs) -> EpochChangePlan {
 /// skipped above, everything else is one path parameterized by the node's membership and prior
 /// status. `exited_catch_up` marks the one genuinely special situation: this event is the first
 /// current one after replaying a backlog, so the node's local shard map is not trustworthy.
-fn plan_for_current_epoch(inputs: &PlanInputs, exited_catch_up: bool) -> EpochChangePlan {
+fn plan_for_epoch_change_execution_for_caught_up_node(
+    inputs: &PlanInputs,
+    exited_catch_up: bool,
+) -> EpochChangePlan {
     debug_assert!(inputs.event_epoch <= inputs.committee_epoch);
-    let membership = Membership::from_committee_presence(
+    let membership = MembershipAtEpochChange::from_committee_presence(
         inputs.in_current_committee,
         inputs.in_previous_committee,
     );
@@ -215,13 +223,13 @@ fn plan_for_current_epoch(inputs: &PlanInputs, exited_catch_up: bool) -> EpochCh
         // no longer syncs blob metadata) but still processes the shard changes: its previous
         // shards are locked as sync sources and old shards are removed. If it was recovering,
         // the completion instruction is revoked and the recovery run superseded.
-        return EpochChangePlan::Apply(EpochChangeExecutionInfo {
-            status: Some(StatusTransition::Standby),
-            ..epoch_change_execution_info(inputs, None)
-        });
+        return EpochChangePlan::Apply(epoch_change_execution_info(
+            inputs,
+            Some(StatusTransition::Standby),
+        ));
     }
 
-    if exited_catch_up && membership == Membership::ContinuingMember {
+    if exited_catch_up && membership == MembershipAtEpochChange::ContinuingMember {
         // A continuing member that just caught up has lost track of its shard assignment
         // history: no previous-owner mapping is trustworthy to sync from, so all owned shards
         // are force-activated and their missing blobs recovered per blob.
@@ -244,16 +252,15 @@ fn plan_for_current_epoch(inputs: &PlanInputs, exited_catch_up: bool) -> EpochCh
         // are synced from their previous owners; the recovery target advances, superseding the
         // current recovery run.
         return EpochChangePlan::Apply(EpochChangeExecutionInfo {
-            status: Some(StatusTransition::RecoveryInProgress),
             sync_done_owner: EpochSyncDoneAttestationOwner::RecoveryTask,
-            ..epoch_change_execution_info(inputs, None)
+            ..epoch_change_execution_info(inputs, Some(StatusTransition::RecoveryInProgress))
         });
     }
 
     // A node that newly joined the committee recovers blob metadata before syncing its gained
     // shards. Guarded by the transition's legality so that a replayed event on a node whose
     // status has already advanced does not plan an illegal write.
-    let status = (membership == Membership::NewMember
+    let status = (membership == MembershipAtEpochChange::NewMember
         && inputs
             .node_status
             .can_transition_to(&NodeStatus::RecoverMetadata))
@@ -270,8 +277,8 @@ fn epoch_change_execution_info(
     // The epoch-sync claim is complete only once every sync has delivered: newly gained
     // shards, syncs still draining from earlier epochs (for shards the node may still own),
     // and an unfinished metadata recovery all defer the attestation to shard sync. The
-    // finisher attests directly only when the node is a committee member with no sync work at
-    // all (and skips the attestation entirely for non-members).
+    // start-epoch-change finisher attests directly only when the node is a committee member
+    // with no sync work at all (and skips the attestation entirely for non-members).
     let outstanding_sync_work =
         inputs.has_ongoing_shard_syncs || inputs.node_status == NodeStatus::RecoverMetadata;
     let sync_done_owner = if inputs.in_current_committee
@@ -279,12 +286,12 @@ fn epoch_change_execution_info(
     {
         EpochSyncDoneAttestationOwner::ShardSync
     } else {
-        EpochSyncDoneAttestationOwner::Finisher
+        EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
     };
 
     EpochChangeExecutionInfo {
         status,
-        membership: Membership::from_committee_presence(
+        membership: MembershipAtEpochChange::from_committee_presence(
             inputs.in_current_committee,
             inputs.in_previous_committee,
         ),
@@ -355,7 +362,7 @@ mod tests {
         };
         assert!(matches!(
             plan_epoch_change(&inputs),
-            EpochChangePlan::Skip(SkipReason::ChangeAlreadyInProgress)
+            EpochChangePlan::Skip(SkipEpochChangeExecutionReason::ChangeAlreadyInProgress)
         ));
     }
 
@@ -371,7 +378,7 @@ mod tests {
         };
         assert!(matches!(
             plan_epoch_change(&inputs),
-            EpochChangePlan::Skip(SkipReason::StaleEventWhileCatchingUp)
+            EpochChangePlan::Skip(SkipEpochChangeExecutionReason::StaleEventWhileCatchingUp)
         ));
     }
 
@@ -404,7 +411,10 @@ mod tests {
             execution_info.status,
             Some(StatusTransition::RecoverMetadata)
         );
-        assert_eq!(execution_info.membership, Membership::NewMember);
+        assert_eq!(
+            execution_info.membership,
+            MembershipAtEpochChange::NewMember
+        );
         assert_eq!(
             execution_info.new_shards,
             new_shards(&[1, 2], ShardFill::ShardSync)
@@ -472,7 +482,7 @@ mod tests {
         assert!(execution_info.new_shards.is_none());
         assert_eq!(
             execution_info.sync_done_owner,
-            EpochSyncDoneAttestationOwner::Finisher
+            EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
         );
     }
 
@@ -535,7 +545,7 @@ mod tests {
         let execution_info = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(
             execution_info.sync_done_owner,
-            EpochSyncDoneAttestationOwner::Finisher
+            EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
         );
     }
 
@@ -557,7 +567,7 @@ mod tests {
         assert_eq!(execution_info.remove, shard_ids(&[4]));
         assert_eq!(
             execution_info.sync_done_owner,
-            EpochSyncDoneAttestationOwner::Finisher
+            EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
         );
     }
 
@@ -573,7 +583,10 @@ mod tests {
             execution_info.status,
             Some(StatusTransition::RecoverMetadata)
         );
-        assert_eq!(execution_info.membership, Membership::NewMember);
+        assert_eq!(
+            execution_info.membership,
+            MembershipAtEpochChange::NewMember
+        );
         assert_eq!(
             execution_info.new_shards,
             new_shards(&[1, 2], ShardFill::ShardSync)
@@ -596,7 +609,7 @@ mod tests {
         assert_eq!(execution_info.status, None);
         assert_eq!(
             execution_info.sync_done_owner,
-            EpochSyncDoneAttestationOwner::Finisher
+            EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
         );
     }
 
@@ -640,7 +653,7 @@ mod tests {
         assert_eq!(execution_info.status, Some(StatusTransition::Standby));
         assert_eq!(
             execution_info.sync_done_owner,
-            EpochSyncDoneAttestationOwner::Finisher
+            EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
         );
     }
 

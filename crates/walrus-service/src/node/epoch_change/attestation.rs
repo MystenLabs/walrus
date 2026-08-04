@@ -62,17 +62,20 @@ impl EpochSyncDoneToken {
     }
 }
 
-/// A shareable slot holding a consumable, single-owner value — an attestation token or a
-/// completion instruction.
+/// A shareable slot holding a consumable, single-owner value. Both long-running sync tasks
+/// use one for their completion instruction: the shard-sync handler for the metadata-recovery
+/// completion and the node-recovery handler for the recovery completion.
 ///
-/// Each candidate owner (the shard-sync handler and the node-recovery handler) holds one slot;
-/// the epoch-change apply step fills the owner's slot and clears the others. The owner takes the
-/// value out when the condition it is waiting for is met. Clones share the same slot, so a value
-/// placed through one handle is visible (and can be invalidated) through all of them.
+/// The epoch-change apply step fills a task's slot (and clears the slots that a transition
+/// supersedes); the task takes the value out when its work completes. Clones share the same
+/// slot, so a value placed through one handle is visible (and can be invalidated) through all
+/// of them.
 #[derive(Debug)]
 pub(crate) struct Slot<T>(Arc<Mutex<Option<T>>>);
 
-// Manual impls: the derives would incorrectly require `T: Clone` / `T: Default`.
+// `Clone` and `Default` are implemented by hand: deriving them would add `T: Clone` and
+// `T: Default` bounds, which the slot does not need — clones share the one inner value, and a
+// slot always starts empty.
 impl<T> Clone for Slot<T> {
     fn clone(&self) -> Self {
         Self(self.0.clone())
@@ -115,10 +118,10 @@ impl<T: std::fmt::Debug> Slot<T> {
 /// The shard-sync attestation: the [`EpochSyncDoneToken`] together with the set of shards
 /// whose syncs must complete before the token may be consumed.
 ///
-/// The token and its pending shards are registered atomically, inside the epoch-change critical
+/// The token and its pending shards are set atomically, inside the epoch-change critical
 /// section, *after* all sync work has been quiesced and *before* the reconciler rebuilds the
-/// syncs: every sync task in existence therefore belongs to the current registration, and the
-/// completion that empties the pending set consumes the token.
+/// syncs: every sync task in existence therefore belongs to the current pending set, and the
+/// completion that empties the set consumes the token.
 ///
 /// Clones share the same state.
 #[derive(Debug, Default, Clone)]
@@ -131,8 +134,8 @@ struct ShardSyncAttestationState {
 }
 
 impl ShardSyncAttestation {
-    /// Places the token, atomically registering the shards that must complete their syncs
-    /// before it may be consumed. Replaces (and thereby invalidates) any previous registration.
+    /// Places the token, atomically recording the shards whose syncs must complete before it
+    /// may be consumed. Replaces (and thereby invalidates) any previous token and pending set.
     pub(crate) fn set(
         &self,
         token: EpochSyncDoneToken,
@@ -147,8 +150,8 @@ impl ShardSyncAttestation {
         }
     }
 
-    /// Records the shard as synced. Returns the token if this completes the registration,
-    /// that is, every registered shard has synced.
+    /// Records the shard as synced. Returns the token if this empties the pending set, that
+    /// is, every pending shard has synced.
     pub(crate) fn record_shard_synced(&self, shard: ShardIndex) -> Option<EpochSyncDoneToken> {
         let mut guard = self.lock();
         let state = guard.as_mut()?;
@@ -159,9 +162,9 @@ impl ShardSyncAttestation {
         None
     }
 
-    /// Takes the token if the registration is complete — no pending shards. Used by the
-    /// metadata-recovery completion, which can be the last outstanding work of a registration
-    /// whose shards have all synced.
+    /// Takes the token if no shard syncs are pending. Used by the metadata-recovery
+    /// completion, which can be the last outstanding work once all pending shards have
+    /// synced.
     pub(crate) fn take_if_complete(&self) -> Option<EpochSyncDoneToken> {
         let mut guard = self.lock();
         let state = guard.as_ref()?;
@@ -171,7 +174,7 @@ impl ShardSyncAttestation {
         None
     }
 
-    /// Clears the registration, invalidating any unconsumed token.
+    /// Clears the token and the pending set, invalidating any unconsumed token.
     pub(crate) fn clear(&self) {
         let _ = self.lock().take();
     }
@@ -215,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn token_is_consumed_by_the_completion_that_empties_the_registration() {
+    fn token_is_consumed_by_the_completion_that_empties_the_pending_set() {
         let attestation = ShardSyncAttestation::default();
         attestation.set(
             EpochSyncDoneToken::new_for_epoch(8),
@@ -223,18 +226,18 @@ mod tests {
         );
 
         assert!(attestation.record_shard_synced(ShardIndex(1)).is_none());
-        // Unregistered shards do not affect the registration.
+        // Shards outside the pending set do not affect it.
         assert!(attestation.record_shard_synced(ShardIndex(7)).is_none());
         let token = attestation
             .record_shard_synced(ShardIndex(2))
-            .expect("last registered shard should consume the token");
+            .expect("last pending shard should consume the token");
         assert_eq!(token.epoch(), 8);
         // The token can only be consumed once.
         assert!(attestation.record_shard_synced(ShardIndex(2)).is_none());
     }
 
     #[test]
-    fn take_if_complete_requires_an_empty_registration() {
+    fn take_if_complete_requires_an_empty_pending_set() {
         let attestation = ShardSyncAttestation::default();
         attestation.set(EpochSyncDoneToken::new_for_epoch(8), [ShardIndex(1)]);
         assert!(attestation.take_if_complete().is_none());
@@ -246,7 +249,7 @@ mod tests {
         attestation.set(EpochSyncDoneToken::new_for_epoch(9), []);
         let token = attestation
             .take_if_complete()
-            .expect("an empty registration is complete");
+            .expect("no pending shards means the claim is complete");
         assert_eq!(token.epoch(), 9);
     }
 
