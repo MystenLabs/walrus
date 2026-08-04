@@ -28,8 +28,10 @@ use super::{
 };
 use crate::node::{
     epoch_change::{
-        attestation::{AttestationSlot, EpochSyncDoneToken},
+        attestation::{EpochSyncDoneToken, ShardSyncAttestation},
         completion::{CompletionInstruction, CompletionSlot},
+        goal::EpochSyncGoal,
+        plan::ShardFill,
     },
     errors::ShardNotAssigned,
     storage::blob_info::CertifiedBlobInfoApi,
@@ -81,15 +83,22 @@ pub struct ShardSyncHandler {
     node: Arc<StorageNodeInner>,
     shard_sync_in_progress: Arc<Mutex<HashMap<ShardIndex, tokio::task::JoinHandle<()>>>>,
     task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    // The permanent shard-sync reconciler task, spawned once at startup.
+    service_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    // Whether the next sync-driving run applies the restart-only resume policy (optionally
+    // retrying the sliver transfer before recovery). Armed at construction (covering the
+    // reconciler's first pass after startup) and re-armed by [`Self::restart_syncs`]; consumed
+    // by the next driver run.
+    apply_restart_resume_policy: Arc<std::sync::atomic::AtomicBool>,
     shard_sync_semaphore: Arc<Semaphore>,
     // Tracks the number of currently running shard sync tasks, including the task that starts
     // the individual per-shard syncs. Used by node recovery to wait until all shard syncs have
     // finished (successfully or not) before recovering blobs.
     sync_task_count: Arc<watch::Sender<usize>>,
-    // Holds the `epoch_sync_done` attestation token while shard sync owns the attestation (that
-    // is, shard syncs were started at an epoch change and node recovery is not in progress).
-    // The last shard sync task to complete consumes it.
-    epoch_sync_done_token: AttestationSlot,
+    // Holds the `epoch_sync_done` attestation token — together with the shards whose syncs
+    // must complete before it may be consumed — while shard sync owns the attestation (that is,
+    // shard syncs were started at an epoch change and node recovery is not in progress).
+    epoch_sync_attestation: ShardSyncAttestation,
     // Holds the completion instruction of a pending blob-metadata recovery: the status
     // transition (to `Active`) the metadata-recovery task performs when it finishes. Minted
     // when the node status is set to `RecoverMetadata`; revoked by transitions that supersede
@@ -104,24 +113,33 @@ impl ShardSyncHandler {
             node,
             shard_sync_in_progress: Arc::new(Mutex::new(HashMap::new())),
             task_handle: Arc::new(Mutex::new(None)),
+            service_handle: Arc::new(Mutex::new(None)),
+            apply_restart_resume_policy: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             shard_sync_semaphore: Arc::new(Semaphore::new(config.shard_sync_concurrency)),
             sync_task_count: Arc::new(watch::channel(0).0),
-            epoch_sync_done_token: AttestationSlot::default(),
+            epoch_sync_attestation: ShardSyncAttestation::default(),
             metadata_recovery_completion: CompletionSlot::default(),
             config,
         }
     }
 
-    /// Hands the `epoch_sync_done` attestation token to shard sync: the last shard sync task to
-    /// complete consumes it. Called by the epoch-change apply step before starting the syncs.
-    pub(crate) fn set_epoch_sync_done_token(&self, token: EpochSyncDoneToken) {
-        self.epoch_sync_done_token.put(token);
+    /// Hands the `epoch_sync_done` attestation token to shard sync, atomically registering the
+    /// shards whose syncs must complete before the token may be consumed. Called by the
+    /// epoch-change apply step *before* starting the syncs, so that a sync task from an earlier
+    /// epoch — which may observe the in-progress task map as empty while the new tasks are not
+    /// yet spawned — cannot consume the new epoch's token.
+    pub(crate) fn set_epoch_sync_done_token(
+        &self,
+        token: EpochSyncDoneToken,
+        pending_shards: impl IntoIterator<Item = ShardIndex>,
+    ) {
+        self.epoch_sync_attestation.set(token, pending_shards);
     }
 
     /// Invalidates any unconsumed attestation token held by shard sync. Called by the
     /// epoch-change apply step when another component owns the attestation.
     pub(crate) fn clear_epoch_sync_done_token(&self) {
-        self.epoch_sync_done_token.clear();
+        self.epoch_sync_attestation.clear();
     }
 
     /// Hands the metadata-recovery task its completion instruction — the status transition to
@@ -188,16 +206,6 @@ impl ShardSyncHandler {
         Ok(())
     }
 
-    /// Restarts blob metadata recovery, and the subsequent syncs of the shards the node owns.
-    ///
-    /// The caller must ensure the persisted node status is [`NodeStatus::RecoverMetadata`]; the
-    /// spawned task re-reads the status and only performs metadata recovery in that state,
-    /// otherwise it is a no-op (an empty shard list is passed because the task derives the real
-    /// shards from the owned shard storages itself).
-    async fn restart_metadata_sync(&self) -> Result<(), SyncShardClientError> {
-        self.start_sync_shards(Vec::new()).await
-    }
-
     async fn sync_shards_task(&self, shards: Vec<ShardIndex>) {
         let node_status = self
             .node
@@ -232,11 +240,56 @@ impl ShardSyncHandler {
             shards
         };
 
-        // Start sync for each shard
+        // On the first run after a (simulated) restart, apply the restart-only resume policy
+        // (optionally retrying the sliver transfer before falling back to recovery).
+        let apply_restart_resume_policy = self
+            .apply_restart_resume_policy
+            .swap(false, std::sync::atomic::Ordering::SeqCst)
+            && self.config.restart_shard_sync_always_retry_transfer_first;
+
+        // Ensure a sync is running for each shard, dispatching on the persisted status: shards
+        // mid-sync resume from their persisted progress, others start a fresh sync. All sync
+        // work is quiesced inside the critical section at every epoch change, so the statuses
+        // observed here are settled.
         for shard in shards {
-            if let Err(err) = self.start_new_shard_sync(shard).await {
-                tracing::error!(?err, %shard, "failed to start shard sync; skipping shard");
+            if self
+                .shard_sync_in_progress
+                .lock()
+                .await
+                .contains_key(&shard)
+            {
                 continue;
+            }
+            let Some(shard_storage) = self.node.storage.shard_storage(shard).await else {
+                tracing::warn!(
+                    walrus.shard_index = %shard,
+                    "shard storage does not exist; cannot sync shard"
+                );
+                continue;
+            };
+            let status = match shard_storage
+                .shard_status_resume_active_shard_sync(apply_restart_resume_policy)
+                .await
+            {
+                Ok(status) => status,
+                Err(error) => {
+                    tracing::error!(?error, %shard, "failed to read shard status; skipping");
+                    continue;
+                }
+            };
+            match status {
+                ShardStatus::Active => {}
+                // Resume an interrupted sync from its persisted progress.
+                ShardStatus::ActiveSync | ShardStatus::ActiveRecover => {
+                    self.start_shard_sync_impl(shard_storage).await;
+                }
+                // Start a fresh sync for a newly created (or re-gained) shard.
+                _ => {
+                    if let Err(err) = self.start_new_shard_sync(shard).await {
+                        tracing::error!(?err, %shard, "failed to start shard sync; skipping");
+                        continue;
+                    }
+                }
             }
         }
 
@@ -264,6 +317,12 @@ impl ShardSyncHandler {
             );
         }
         drop(critical_section_guard);
+
+        // Metadata recovery can be the last outstanding work of the attestation registration
+        // (every registered shard already synced): consume the token if so.
+        if let Some(token) = self.epoch_sync_attestation.take_if_complete() {
+            token.attest(&self.node).await;
+        }
     }
 
     /// Syncs the certified blob metadata before the current epoch.
@@ -368,8 +427,8 @@ impl ShardSyncHandler {
         &self,
         shard_index: ShardIndex,
     ) -> Result<(), SyncShardClientError> {
-        // restart_syncs() is called before event processor starts processing events. So, for any
-        // resumed shard syncs, we should be able to observe them here, unless they have finished.
+        // All sync work is quiesced inside the critical section at every epoch change, so any
+        // task observed here belongs to the current goal.
         if self
             .shard_sync_in_progress
             .lock()
@@ -398,7 +457,9 @@ impl ShardSyncHandler {
 
         let shard_status = shard_storage.status().await?;
 
-        // Skip if shard is already active
+        // Skip if shard is already active. The attestation registration never lists active
+        // shards (it is computed from the persisted statuses inside the same critical section
+        // that quiesced all sync work), so there is nothing to record here.
         if shard_status == ShardStatus::Active {
             tracing::info!(
                 walrus.shard_index = %shard_index,
@@ -416,54 +477,157 @@ impl ShardSyncHandler {
 
     /// Restarts syncing shards that were previously syncing. This method is used when restarting
     /// the node.
+    /// Spawns the permanent shard-sync reconciler.
+    ///
+    /// The reconciler watches the epoch synchronization goal: on a goal describing the node as
+    /// a committee member with shards to fill via shard sync, it starts the syncs; on a
+    /// catching-up or non-member goal, it quiesces all sync work (the node's view of its
+    /// assignment is not authoritative, or the node makes no epoch-sync claim). The
+    /// epoch-change logic no longer starts syncs directly: it publishes goals, and this
+    /// service reconciles toward them.
+    // TODO(WAL-1263): cancel the shard-sync service when the node is shut down.
+    pub(crate) fn spawn_service(&self, mut goal_receiver: watch::Receiver<EpochSyncGoal>) {
+        let mut service_handle = self
+            .service_handle
+            .try_lock()
+            .expect("spawn_service is called once, at startup");
+        assert!(
+            service_handle.is_none(),
+            "the shard sync reconciler is already running"
+        );
+
+        let handler = self.clone();
+        *service_handle = Some(tokio::spawn(async move {
+            loop {
+                let goal = goal_receiver.borrow_and_update().clone();
+                handler.reconcile_toward_goal(&goal).await;
+                if goal_receiver.changed().await.is_err() {
+                    tracing::info!("goal channel closed; stopping the shard sync reconciler");
+                    return;
+                }
+            }
+        }));
+    }
+
+    /// Reconciles the running sync work toward the given goal.
+    ///
+    /// Quiescing is not done here: the executor quiesces all sync work synchronously, inside
+    /// the critical section that publishes each goal, so no task from an earlier goal exists
+    /// by the time a goal becomes visible. This service only rebuilds: it derives the shards
+    /// that still need syncing from the goal's owned set and the persisted shard statuses
+    /// (interrupted syncs resume from their persisted progress) and starts them.
+    async fn reconcile_toward_goal(&self, goal: &EpochSyncGoal) {
+        if goal.catching_up || !goal.membership.is_member() {
+            // Nothing to rebuild: while catching up the assignment is not authoritative, and a
+            // non-member makes no epoch-sync claim.
+            return;
+        }
+        if goal
+            .shards_to_fill
+            .as_ref()
+            .is_some_and(|new_shards| new_shards.fill == ShardFill::ForceActive)
+        {
+            // The shards are filled by node recovery, not by shard sync.
+            return;
+        }
+
+        let mut shards_to_sync = Vec::new();
+        for shard in &goal.owned_shards {
+            let Some(shard_storage) = self.node.storage.shard_storage(*shard).await else {
+                continue;
+            };
+            match shard_storage.status().await {
+                Ok(ShardStatus::Active) => {}
+                Ok(_) => shards_to_sync.push(*shard),
+                Err(error) => {
+                    tracing::error!(?error, walrus.shard_index = %shard, "failed to read status");
+                    shards_to_sync.push(*shard);
+                }
+            }
+        }
+
+        // A node recovering metadata needs the sync-driving task even without shards to sync:
+        // the task performs the metadata recovery and applies its completion instruction (the
+        // transition to `Active`).
+        let metadata_recovery_pending = matches!(
+            self.node.storage.node_status(),
+            Ok(NodeStatus::RecoverMetadata)
+        );
+        if shards_to_sync.is_empty() && !metadata_recovery_pending {
+            return;
+        }
+        if let Err(error) = self.start_sync_shards(shards_to_sync).await {
+            tracing::error!(?error, "failed to start the shard syncs for the goal");
+        }
+    }
+
+    /// Aborts the sync-driving task and every per-shard sync task, waiting for them to
+    /// exit. Called by the epoch-change executor inside the critical section, so that no
+    /// sync task from an earlier goal coexists with a newly published goal or attestation
+    /// registration. Sync progress is persisted per batch: at most the in-flight batches
+    /// are repeated when the reconciler rebuilds the still-needed syncs.
+    pub(crate) async fn quiesce_all_syncs(&self) {
+        if let Some(task) = self.task_handle.lock().await.take() {
+            task.abort();
+            let _ = task.await;
+        }
+
+        let sync_tasks: Vec<_> = {
+            let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
+            shard_sync_in_progress.drain().collect()
+        };
+        if sync_tasks.is_empty() {
+            return;
+        }
+        tracing::info!(
+            count = sync_tasks.len(),
+            "quiescing all in-progress shard syncs"
+        );
+        for (shard_index, task) in sync_tasks {
+            tracing::info!(walrus.shard_index = %shard_index, "aborting shard sync");
+            task.abort();
+            let _ = task.await;
+        }
+    }
+
+    /// Ensures syncs are running for the persisted sync state, as the production startup
+    /// path does through the executor's startup goal publication and the reconciler's first
+    /// pass: shards whose persisted status is mid-sync are resumed, and a node in metadata
+    /// recovery re-runs the sync-driving task. Tests simulating a restart on a standalone
+    /// handler call this directly.
+    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub async fn restart_syncs(&self) -> Result<(), anyhow::Error> {
-        let current_node_status = self.node.storage.node_status()?;
-        if current_node_status == NodeStatus::RecoverMetadata {
-            // The node restarted in the middle of metadata recovery, whose `EpochChangeStart`
-            // event handed the attestation to shard sync and authorized the metadata task's
-            // completion: re-mint the token and the instruction (the slots are in-memory and
-            // were lost with the restart).
-            self.set_epoch_sync_done_token(EpochSyncDoneToken::new_for_epoch(
-                self.node.current_committee_epoch(),
-            ));
+        self.apply_restart_resume_policy
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        if self.node.storage.node_status()? == NodeStatus::RecoverMetadata {
+            self.set_epoch_sync_done_token(
+                EpochSyncDoneToken::new_for_epoch(self.node.current_committee_epoch()),
+                [],
+            );
             self.set_metadata_recovery_completion(CompletionInstruction::new(
                 NodeStatus::Active,
                 None,
             ));
-            // The task observes the `RecoverMetadata` status and derives the shards to sync from
-            // the existing shard storages.
-            self.restart_metadata_sync().await?;
-        } else {
-            let mut shard_storages_to_sync = Vec::new();
-            for shard_storage in self.node.storage.existing_shard_storages().await {
-                let shard_status = shard_storage
-                    .shard_status_resume_active_shard_sync(
-                        self.config.restart_shard_sync_always_retry_transfer_first,
-                    )
-                    .await?;
-
-                match shard_status {
-                    // Restart the syncing task for shards that were previously syncing.
-                    ShardStatus::ActiveSync | ShardStatus::ActiveRecover => {
-                        shard_storages_to_sync.push(shard_storage.clone());
-                    }
-                    _ => {}
-                }
+            // The task derives the shards to sync from the owned shard storages itself.
+            self.start_sync_shards(Vec::new()).await?;
+            return Ok(());
+        }
+        let mut shards_to_resume = Vec::new();
+        for shard_storage in self.node.storage.existing_shard_storages().await {
+            if matches!(
+                shard_storage.status().await,
+                Ok(ShardStatus::ActiveSync | ShardStatus::ActiveRecover)
+            ) {
+                shards_to_resume.push(shard_storage.id());
             }
-
-            // Re-mint the attestation token lost with the restart, unless the node is
-            // recovering: then node recovery owns the attestation and mints its own token when
-            // it is resumed. The token must be in place before the first sync task starts, so
-            // that a quickly completing sync cannot miss it.
-            if !shard_storages_to_sync.is_empty() && !current_node_status.is_recovering() {
-                self.set_epoch_sync_done_token(EpochSyncDoneToken::new_for_epoch(
-                    self.node.current_committee_epoch(),
-                ));
-            }
-
-            for shard_storage in shard_storages_to_sync {
-                self.start_shard_sync_impl(shard_storage).await;
-            }
+        }
+        if !shards_to_resume.is_empty() {
+            self.set_epoch_sync_done_token(
+                EpochSyncDoneToken::new_for_epoch(self.node.current_committee_epoch()),
+                shards_to_resume.iter().copied(),
+            );
+            self.start_sync_shards(shards_to_resume).await?;
         }
         Ok(())
     }
@@ -571,29 +735,30 @@ impl ShardSyncHandler {
                 }
             }
 
-            // Remove the task from the shard_sync_in_progress map upon completion.
-            let all_syncs_done = if shard_sync_success {
-                let mut shard_sync_map =
-                    shard_sync_handler_clone.shard_sync_in_progress.lock().await;
-                shard_sync_map.remove(&shard_index);
-                shard_sync_map.is_empty()
-            } else {
-                false
-            };
-
-            // The last shard sync task to complete consumes the attestation token, if shard
-            // sync owns it. While the node is recovering, node recovery holds the token
-            // instead: it waits for all shard syncs to finish and attests only once the
-            // recovery itself is complete (see the recovery task's completion in
-            // node_recovery.rs).
-            if all_syncs_done {
-                if let Some(token) = shard_sync_handler_clone.epoch_sync_done_token.take() {
+            // Remove the task from the shard_sync_in_progress map upon completion, and record
+            // the synced shard with the attestation. All sync work is quiesced inside the
+            // critical section at every epoch change, so every running task belongs to the
+            // current registration; the completion that empties the registered set consumes
+            // the token. While the node is recovering, node recovery holds the attestation
+            // instead (bundled in its completion instruction; see node_recovery.rs) and there
+            // is no token here to consume.
+            //
+            // The removal and the recording happen under one hold of the map lock, which
+            // quiesce_all_syncs also takes to drain the map: a completing task therefore
+            // either records against the registration it belongs to before the quiesce
+            // returns, or is aborted before it can record — it can never record against a
+            // later epoch's registration.
+            if shard_sync_success {
+                let token = {
+                    let mut shard_sync_in_progress =
+                        shard_sync_handler_clone.shard_sync_in_progress.lock().await;
+                    shard_sync_in_progress.remove(&shard_index);
+                    shard_sync_handler_clone
+                        .epoch_sync_attestation
+                        .record_shard_synced(shard_index)
+                };
+                if let Some(token) = token {
                     token.attest(&shard_sync_handler_clone.node).await;
-                } else {
-                    tracing::info!(
-                        "all shard syncs complete; another component owns the epoch sync done \
-                        attestation"
-                    );
                 }
             }
         });
@@ -845,6 +1010,13 @@ mod tests {
     #[tokio::test(start_paused = false)]
     async fn test_restart_syncs() {
         let cluster = create_test_cluster(&[&[0, 1, 2]]).await;
+        // The node's own reconciler starts syncs for its shards at startup; wait for those to
+        // settle before manipulating the shard statuses with a standalone handler.
+        cluster.nodes[0]
+            .storage_node
+            .shard_sync_handler
+            .wait_until_no_sync_in_progress()
+            .await;
         for i in [0, 2] {
             cluster.nodes[0]
                 .storage_node
@@ -865,21 +1037,44 @@ mod tests {
             .restart_syncs()
             .await
             .expect("Failed to restart syncs");
-        assert_eq!(shard_sync_handler.current_sync_task_count().await, 2);
-        assert!(
-            shard_sync_handler
-                .shard_sync_in_progress
-                .lock()
-                .await
-                .contains_key(&ShardIndex(0))
-        );
-        assert!(
-            shard_sync_handler
-                .shard_sync_in_progress
-                .lock()
-                .await
-                .contains_key(&ShardIndex(2))
-        );
+
+        // The restarted syncs resume the two mid-sync shards and run them to completion,
+        // returning their statuses to `Active`.
+        for _ in 0..100 {
+            let mut all_active = true;
+            for i in [0, 2] {
+                let status = cluster.nodes[0]
+                    .storage_node
+                    .inner
+                    .storage
+                    .shard_storage(ShardIndex(i))
+                    .await
+                    .expect("Failed to get shard storage")
+                    .status()
+                    .await
+                    .expect("Failed to read shard status");
+                all_active &= status == ShardStatus::Active;
+            }
+            if all_active {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        for i in [0, 2] {
+            assert_eq!(
+                cluster.nodes[0]
+                    .storage_node
+                    .inner
+                    .storage
+                    .shard_storage(ShardIndex(i))
+                    .await
+                    .expect("Failed to get shard storage")
+                    .status()
+                    .await
+                    .expect("Failed to read shard status"),
+                ShardStatus::Active
+            );
+        }
     }
 
     #[tokio::test(start_paused = false)]

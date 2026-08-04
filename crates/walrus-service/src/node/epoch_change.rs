@@ -11,9 +11,13 @@ use super::*;
 
 pub(crate) mod attestation;
 pub(crate) mod completion;
+pub(crate) mod goal;
+pub(crate) mod plan;
 
 use attestation::EpochSyncDoneToken;
 use completion::CompletionInstruction;
+use goal::EpochSyncGoal;
+use plan::{NewShards, ShardFill};
 
 /// Threshold above which we emit a warning that the foreground portion of an
 /// `EpochChangeStart` event took unexpectedly long to process. The shard-sync work
@@ -57,6 +61,85 @@ impl EpochChangeCriticalSection {
     pub(crate) async fn enter(&self) -> tokio::sync::MutexGuard<'_, ()> {
         self.0.lock().await
     }
+}
+
+/// Publishes the startup epoch synchronization goal, derived from persisted state and the
+/// fetched committees, and re-mints the commit-protocol state — the `epoch_sync_done`
+/// attestation token and the completion instructions — that the previous run held in
+/// memory. Together with the reconciler's first pass (which rebuilds the sync work from
+/// persisted shard statuses), this makes startup just another goal publication: there is
+/// no dedicated restart path.
+///
+/// Must be called before the sync services are spawned.
+pub(super) async fn publish_startup_goal(
+    inner: &Arc<StorageNodeInner>,
+    shard_sync_handler: &ShardSyncHandler,
+    node_recovery_handler: &NodeRecoveryHandler,
+) -> anyhow::Result<()> {
+    let committees = inner.committee_service.active_committees();
+    let public_key = inner.public_key();
+    let in_current_committee = committees.current_committee().contains(public_key);
+    let in_previous_committee = committees
+        .previous_committee()
+        .is_some_and(|committee| committee.contains(public_key));
+    let membership =
+        goal::Membership::from_committee_presence(in_current_committee, in_previous_committee);
+    let node_status = inner.storage.node_status()?;
+    let owned_shards = inner.owned_shards_at_latest_epoch();
+    let epoch = committees.epoch();
+
+    match &node_status {
+        NodeStatus::RecoveryInProgress(target_epoch) => {
+            // The node restarted while recovering: node recovery owns the completion.
+            node_recovery_handler.set_completion_instruction(CompletionInstruction::new(
+                NodeStatus::Active,
+                Some(EpochSyncDoneToken::new_for_epoch(*target_epoch)),
+            ));
+        }
+        status if membership.is_member() && !status.is_catching_up() => {
+            if node_status == NodeStatus::RecoverMetadata {
+                shard_sync_handler.set_metadata_recovery_completion(CompletionInstruction::new(
+                    NodeStatus::Active,
+                    None,
+                ));
+            }
+            // Register the attestation with every owned shard that is not yet `Active` —
+            // the work the reconciler rebuilds. With nothing pending (and no outstanding
+            // metadata recovery), the attestation for this epoch was already sent before
+            // the restart, or is re-sent when the epoch-change event is re-processed.
+            let mut pending_shards = Vec::new();
+            for shard in &owned_shards {
+                let is_active = match inner.storage.shard_storage(*shard).await {
+                    Some(shard_storage) => {
+                        matches!(shard_storage.status().await, Ok(ShardStatus::Active))
+                    }
+                    None => false,
+                };
+                if !is_active {
+                    pending_shards.push(*shard);
+                }
+            }
+            if !pending_shards.is_empty() || node_status == NodeStatus::RecoverMetadata {
+                shard_sync_handler.set_epoch_sync_done_token(
+                    EpochSyncDoneToken::new_for_epoch(epoch),
+                    pending_shards,
+                );
+            }
+        }
+        _ => {}
+    }
+
+    inner.publish_epoch_sync_goal(EpochSyncGoal {
+        // Both generations are assigned by the publisher.
+        generation: 0,
+        sync_baseline_generation: 0,
+        epoch,
+        catching_up: node_status.is_catching_up(),
+        membership,
+        owned_shards,
+        shards_to_fill: None,
+    });
+    Ok(())
 }
 
 /// The action to take when the node transitions to a new committee.
@@ -473,6 +556,16 @@ impl StorageNode {
             self.shard_sync_handler.clear_epoch_sync_done_token();
             self.shard_sync_handler.clear_metadata_recovery_completion();
             self.node_recovery_handler.clear_completion_instruction();
+            self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+                // Both generations are assigned by the publisher.
+                generation: 0,
+                sync_baseline_generation: 0,
+                epoch: event.epoch,
+                catching_up: false,
+                membership: goal::Membership::NotMember,
+                owned_shards: Vec::new(),
+                shards_to_fill: None,
+            });
             event_handle.mark_as_complete();
             return Ok(());
         }
@@ -603,16 +696,12 @@ impl StorageNode {
         shard_map_lock: StorageShardLock,
         critical_section_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> anyhow::Result<()> {
-        // A recovery task from before the node started catching up may still be running. Such a
-        // task only scanned blobs certified before its own start epoch, and blob certified
+        // A recovery run from before the node started catching up may still be in flight. Such
+        // a run only scanned blobs certified before its own start epoch, and blob certified
         // events were skipped while catching up, so it must not complete the recovery target
-        // written below. The status guard (acquired by the caller, before the shard map lock)
-        // keeps any completion attempt of that task parked on the mutex, and aborting the task
-        // here — before the new target is written — guarantees that no stale task survives to
-        // observe it, even if a later step in this function fails and returns before reaching
-        // `start_node_recovery` (which would otherwise perform the abort).
-        self.node_recovery_handler.abort_recovery_task().await;
-
+        // written below. Its completion attempt parks at the epoch-change critical section
+        // (held by the caller), where it finds itself superseded: the goal published below
+        // carries a newer generation than the one the run is bound to.
         self.inner
             .set_node_status(NodeStatus::RecoveryInProgress(event.epoch))?;
 
@@ -669,11 +758,26 @@ impl StorageNode {
             }
         }
 
-        // Initiate blob sync for all certified blobs we've tracked so far. After this is done,
-        // the node will be in a state where it has all the shards and blobs that it should have.
-        self.node_recovery_handler
-            .start_node_recovery(event.epoch)
-            .await?;
+        // Publish the goal for the new epoch. The permanent recovery service observes the
+        // persisted `RecoveryInProgress` target (written above) and this publication, and
+        // starts a recovery run bound to it: the run initiates blob sync for all certified
+        // blobs tracked so far, after which the node has all the shards and blobs it should
+        // have. Any previous run is superseded by the publication.
+        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            // Both generations are assigned by the publisher.
+            generation: 0,
+            sync_baseline_generation: 0,
+            epoch: event.epoch,
+            catching_up: false,
+            membership: goal::Membership::from_committee_presence(
+                committees.current_committee().contains(public_key),
+                committees
+                    .previous_committee()
+                    .is_some_and(|committee| committee.contains(public_key)),
+            ),
+            owned_shards: self.inner.owned_shards_at_latest_epoch(),
+            shards_to_fill: None,
+        });
 
         drop(critical_section_guard);
 
@@ -713,23 +817,12 @@ impl StorageNode {
         shard_map_lock: StorageShardLock,
         critical_section_guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> anyhow::Result<()> {
-        // Advancing the recovery target, starting the shard syncs for gained shards, and locking
-        // the shards that moved away must be atomic with respect to the recovery task's
-        // completion, which runs under the same mutex (the guard is acquired by the caller,
-        // before the shard map lock): a completing task either observes the advanced target
-        // together with the new shard syncs and the locked shards, or completes entirely before
-        // this transition (detected below via the node status, in which case a new task is
-        // started). In particular, completion must not attest epoch sync done before the lost
-        // shards are locked, as the node would still accept slivers for shards it no longer
-        // owns.
-
-        // If the running recovery task completed concurrently (after this event handler decided
-        // to take the recovering path), it has flipped the node status away from
-        // RecoveryInProgress; its completion no longer covers this epoch change.
-        let recovery_task_completed_concurrently = !matches!(
-            self.inner.storage.node_status()?,
-            NodeStatus::RecoveryInProgress(_)
-        );
+        // Advancing the recovery target, publishing the goal for the gained shards' syncs, and
+        // locking the shards that moved away all happen inside the epoch-change critical
+        // section (the guard is acquired by the caller, before the shard map lock): a
+        // completing recovery run either observes the full transition, or completes entirely
+        // before it (in which case the publication below supersedes nothing and the recovery
+        // service starts a fresh run toward the advanced target).
 
         // Advance the recovery target so that the recovery task attests epoch sync done for the
         // latest epoch; a stale attestation would be dropped by the contract service.
@@ -760,7 +853,7 @@ impl StorageNode {
         );
 
         // Note that the shard_map_lock will be unlocked after this function returns.
-        self.create_new_shards_and_start_sync(shard_map_lock, shards_gained, &committees, false)
+        self.create_new_shards(shard_map_lock, shards_gained, &committees, false)
             .await?;
 
         // For shards that just moved out, we need to lock them to not store more data in them.
@@ -780,17 +873,35 @@ impl StorageNode {
                 .context("failed to lock shard")?;
         }
 
+        // Publish the goal for the advanced target: the shard-sync reconciler reacts by
+        // starting the syncs for the gained shards, and the recovery service supersedes its
+        // running recovery run with one bound to the advanced target (per-blob progress is
+        // persisted, so only the scan is repeated). The run waits for the shard syncs to
+        // finish before recovering blobs, and attests epoch sync done on completion via its
+        // completion instruction.
+        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            // Both generations are assigned by the publisher.
+            generation: 0,
+            sync_baseline_generation: 0,
+            epoch: event.epoch,
+            catching_up: false,
+            membership: goal::Membership::from_committee_presence(
+                committees.current_committee().contains(public_key),
+                committees
+                    .previous_committee()
+                    .is_some_and(|committee| committee.contains(public_key)),
+            ),
+            owned_shards: self.inner.owned_shards_at_latest_epoch(),
+            shards_to_fill: (!shards_gained.is_empty()).then(|| NewShards {
+                shards: shards_gained.to_vec(),
+                fill: ShardFill::ShardSync,
+            }),
+        });
+
         drop(critical_section_guard);
 
-        // The recovery task keeps running across epoch changes: it waits for the shard syncs
-        // started above to finish before recovering blobs, and attests epoch sync done for the
-        // advanced target on completion. A new task is only started when none is running.
-        self.node_recovery_handler
-            .ensure_recovery_task_running(event.epoch, recovery_task_completed_concurrently)
-            .await?;
-
-        // The recovery task is in charge of attesting epoch sync done, so the finisher is always
-        // told that there are ongoing shard syncs.
+        // The recovery service is in charge of attesting epoch sync done, so the finisher is
+        // never handed the token on this path.
         let shards_to_remove = shard_diff_calculator.shards_to_remove();
         if !shards_to_remove.is_empty() {
             self.start_epoch_change_finisher
@@ -900,23 +1011,7 @@ impl StorageNode {
 
         let shards_gained = shard_diff_calculator.gained_shards_from_prev_epoch();
 
-        // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand it
-        // to its single owner, invalidating any token or instruction held by the other
-        // components. When shards were gained, the last shard-sync task to complete consumes
-        // the token (so it must be in place before the syncs start below — a quickly finishing
-        // sync must not miss it); otherwise the finisher attests directly (it skips the
-        // attestation if the node is not in the committee).
-        let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
-        self.node_recovery_handler.clear_completion_instruction();
-        let mut finisher_attestation = None;
-        if shards_gained.is_empty() {
-            self.shard_sync_handler.clear_epoch_sync_done_token();
-            finisher_attestation = Some(token);
-        } else {
-            self.shard_sync_handler.set_epoch_sync_done_token(token);
-        }
-
-        self.create_new_shards_and_start_sync(
+        self.create_new_shards(
             shard_map_lock,
             shards_gained,
             &committees,
@@ -940,6 +1035,46 @@ impl StorageNode {
                 .context("failed to lock shard")?;
         }
 
+        // Route the `epoch_sync_done` attestation: mint the token for the new epoch and
+        // register it with the shards whose syncs must complete before it may be consumed —
+        // the sync completion that finishes the registration attests. Routed after the lost
+        // shards are locked (an attestation must never fire while the node still accepts
+        // writes for shards it lost) and before the goal is published below (a sync started
+        // by the reconciler must find its registered token). With no shards to sync, the
+        // finisher attests directly (it skips the attestation if the node is not in the
+        // committee).
+        let token = EpochSyncDoneToken::new_for_epoch(event.epoch);
+        self.node_recovery_handler.clear_completion_instruction();
+        let mut finisher_attestation = None;
+        if shards_gained.is_empty() {
+            self.shard_sync_handler.clear_epoch_sync_done_token();
+            finisher_attestation = Some(token);
+        } else {
+            self.shard_sync_handler
+                .set_epoch_sync_done_token(token, shards_gained.to_vec());
+        }
+
+        // Publish the goal for this transition: the shard-sync reconciler reacts by starting
+        // the syncs for the gained shards.
+        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            // Both generations are assigned by the publisher.
+            generation: 0,
+            sync_baseline_generation: 0,
+            epoch: event.epoch,
+            catching_up: false,
+            membership: goal::Membership::from_committee_presence(
+                committees.current_committee().contains(public_key),
+                committees
+                    .previous_committee()
+                    .is_some_and(|committee| committee.contains(public_key)),
+            ),
+            owned_shards: shard_diff_calculator.all_owned_shards().to_vec(),
+            shards_to_fill: (!shards_gained.is_empty()).then(|| NewShards {
+                shards: shards_gained.to_vec(),
+                fill: ShardFill::ShardSync,
+            }),
+        });
+
         self.start_epoch_change_finisher
             .start_finish_epoch_change_tasks(
                 event_handle,
@@ -952,9 +1087,10 @@ impl StorageNode {
         Ok(())
     }
 
-    /// Creates the shards that are newly assigned to the node and starts the sync for them.
+    /// Creates the shards that are newly assigned to the node. Their contents are brought up
+    /// to date by the shard-sync reconciler once the goal for this transition is published.
     /// Note that the shard_map_lock will be unlocked after this function returns.
-    async fn create_new_shards_and_start_sync(
+    async fn create_new_shards(
         &self,
         shard_map_lock: StorageShardLock,
         shards_gained: &[ShardIndex],
@@ -988,9 +1124,6 @@ impl StorageNode {
                     CompletionInstruction::new(NodeStatus::Active, None),
                 );
             }
-            self.shard_sync_handler
-                .start_sync_shards(shards_gained.to_vec())
-                .await?;
         }
 
         Ok(())
@@ -1061,8 +1194,24 @@ impl StorageNode {
         // Entering recovery supersedes the pending completions of long-running tasks: neither a
         // still-running metadata recovery nor a still-running node recovery task may transition
         // the node away from `RecoveryCatchUp` when it finishes.
+        self.shard_sync_handler.quiesce_all_syncs().await;
+        self.shard_sync_handler.clear_epoch_sync_done_token();
         self.shard_sync_handler.clear_metadata_recovery_completion();
         self.node_recovery_handler.clear_completion_instruction();
+
+        // While catching up, the node's view of its shard assignment is not authoritative:
+        // publish a catching-up goal so the sync services hold off on new work until the node
+        // reaches the latest epoch.
+        self.inner.publish_epoch_sync_goal(EpochSyncGoal {
+            // Both generations are assigned by the publisher.
+            generation: 0,
+            sync_baseline_generation: 0,
+            epoch: self.inner.current_committee_epoch(),
+            catching_up: true,
+            membership: goal::Membership::NotMember,
+            owned_shards: Vec::new(),
+            shards_to_fill: None,
+        });
 
         // Now the node is entering recovery mode, we need to cancel all the blob syncs
         // that are in progress, since the node is lagging behind, and we don't have

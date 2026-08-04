@@ -18,9 +18,12 @@
 //!   marked complete (resumed shard syncs, or a resumed node recovery), the resuming component
 //!   mints the token itself, mirroring the ownership it held before the restart.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
-use walrus_core::Epoch;
+use walrus_core::{Epoch, ShardIndex};
 
 use crate::node::StorageNodeInner;
 
@@ -109,9 +112,76 @@ impl<T: std::fmt::Debug> Slot<T> {
     }
 }
 
-/// The slot holding the [`EpochSyncDoneToken`] of the component that currently owns the
-/// attestation.
-pub(crate) type AttestationSlot = Slot<EpochSyncDoneToken>;
+/// The shard-sync attestation: the [`EpochSyncDoneToken`] together with the set of shards
+/// whose syncs must complete before the token may be consumed.
+///
+/// The token and its pending shards are registered atomically, inside the epoch-change critical
+/// section, *after* all sync work has been quiesced and *before* the reconciler rebuilds the
+/// syncs: every sync task in existence therefore belongs to the current registration, and the
+/// completion that empties the pending set consumes the token.
+///
+/// Clones share the same state.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct ShardSyncAttestation(Arc<Mutex<Option<ShardSyncAttestationState>>>);
+
+#[derive(Debug)]
+struct ShardSyncAttestationState {
+    token: EpochSyncDoneToken,
+    pending_shards: HashSet<ShardIndex>,
+}
+
+impl ShardSyncAttestation {
+    /// Places the token, atomically registering the shards that must complete their syncs
+    /// before it may be consumed. Replaces (and thereby invalidates) any previous registration.
+    pub(crate) fn set(
+        &self,
+        token: EpochSyncDoneToken,
+        pending_shards: impl IntoIterator<Item = ShardIndex>,
+    ) {
+        let replaced = self.lock().replace(ShardSyncAttestationState {
+            token,
+            pending_shards: pending_shards.into_iter().collect(),
+        });
+        if let Some(replaced) = replaced {
+            tracing::debug!(?replaced, "replacing an unconsumed shard sync attestation");
+        }
+    }
+
+    /// Records the shard as synced. Returns the token if this completes the registration,
+    /// that is, every registered shard has synced.
+    pub(crate) fn record_shard_synced(&self, shard: ShardIndex) -> Option<EpochSyncDoneToken> {
+        let mut guard = self.lock();
+        let state = guard.as_mut()?;
+        state.pending_shards.remove(&shard);
+        if state.pending_shards.is_empty() {
+            return guard.take().map(|state| state.token);
+        }
+        None
+    }
+
+    /// Takes the token if the registration is complete — no pending shards. Used by the
+    /// metadata-recovery completion, which can be the last outstanding work of a registration
+    /// whose shards have all synced.
+    pub(crate) fn take_if_complete(&self) -> Option<EpochSyncDoneToken> {
+        let mut guard = self.lock();
+        let state = guard.as_ref()?;
+        if state.pending_shards.is_empty() {
+            return guard.take().map(|state| state.token);
+        }
+        None
+    }
+
+    /// Clears the registration, invalidating any unconsumed token.
+    pub(crate) fn clear(&self) {
+        let _ = self.lock().take();
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<ShardSyncAttestationState>> {
+        self.0
+            .lock()
+            .expect("shard sync attestation mutex should not be poisoned")
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -119,7 +189,7 @@ mod tests {
 
     #[test]
     fn slot_clones_share_state() {
-        let slot = AttestationSlot::default();
+        let slot = Slot::<EpochSyncDoneToken>::default();
         let clone = slot.clone();
         slot.put(EpochSyncDoneToken::new_for_epoch(7));
         let token = clone.take().expect("clone should see the placed token");
@@ -129,7 +199,7 @@ mod tests {
 
     #[test]
     fn put_replaces_unconsumed_value() {
-        let slot = AttestationSlot::default();
+        let slot = Slot::<EpochSyncDoneToken>::default();
         slot.put(EpochSyncDoneToken::new_for_epoch(7));
         slot.put(EpochSyncDoneToken::new_for_epoch(8));
         assert_eq!(slot.take().expect("token should be present").epoch(), 8);
@@ -138,9 +208,53 @@ mod tests {
 
     #[test]
     fn clear_invalidates_value() {
-        let slot = AttestationSlot::default();
+        let slot = Slot::<EpochSyncDoneToken>::default();
         slot.put(EpochSyncDoneToken::new_for_epoch(7));
         slot.clear();
         assert!(slot.take().is_none());
+    }
+
+    #[test]
+    fn token_is_consumed_by_the_completion_that_empties_the_registration() {
+        let attestation = ShardSyncAttestation::default();
+        attestation.set(
+            EpochSyncDoneToken::new_for_epoch(8),
+            [ShardIndex(1), ShardIndex(2)],
+        );
+
+        assert!(attestation.record_shard_synced(ShardIndex(1)).is_none());
+        // Unregistered shards do not affect the registration.
+        assert!(attestation.record_shard_synced(ShardIndex(7)).is_none());
+        let token = attestation
+            .record_shard_synced(ShardIndex(2))
+            .expect("last registered shard should consume the token");
+        assert_eq!(token.epoch(), 8);
+        // The token can only be consumed once.
+        assert!(attestation.record_shard_synced(ShardIndex(2)).is_none());
+    }
+
+    #[test]
+    fn take_if_complete_requires_an_empty_registration() {
+        let attestation = ShardSyncAttestation::default();
+        attestation.set(EpochSyncDoneToken::new_for_epoch(8), [ShardIndex(1)]);
+        assert!(attestation.take_if_complete().is_none());
+
+        assert!(attestation.record_shard_synced(ShardIndex(1)).is_some());
+        // Consumed by the recording; nothing left to take.
+        assert!(attestation.take_if_complete().is_none());
+
+        attestation.set(EpochSyncDoneToken::new_for_epoch(9), []);
+        let token = attestation
+            .take_if_complete()
+            .expect("an empty registration is complete");
+        assert_eq!(token.epoch(), 9);
+    }
+
+    #[test]
+    fn clear_revokes_shard_sync_attestation() {
+        let attestation = ShardSyncAttestation::default();
+        attestation.set(EpochSyncDoneToken::new_for_epoch(8), [ShardIndex(1)]);
+        attestation.clear();
+        assert!(attestation.record_shard_synced(ShardIndex(1)).is_none());
     }
 }

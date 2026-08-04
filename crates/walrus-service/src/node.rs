@@ -694,6 +694,10 @@ pub struct StorageNodeInner {
     // The critical section serializing node state transitions during an epoch change; see
     // [`epoch_change::EpochChangeCriticalSection`].
     epoch_change_critical_section: epoch_change::EpochChangeCriticalSection,
+    // The desired synchronization state the long-running sync services reconcile toward; see
+    // [`epoch_change::goal::EpochSyncGoal`]. Published inside the epoch-change critical
+    // section.
+    epoch_sync_goal: watch::Sender<epoch_change::goal::EpochSyncGoal>,
 }
 
 /// Parameters for configuring and initializing a node.
@@ -894,6 +898,7 @@ impl StorageNode {
                 .build(),
             epoch_state_consistency_config: config.epoch_state_consistency.clone(),
             epoch_change_critical_section: epoch_change::EpochChangeCriticalSection::default(),
+            epoch_sync_goal: epoch_change::goal::EpochSyncGoal::channel().0,
         });
 
         blocklist.start_refresh_task();
@@ -911,7 +916,6 @@ impl StorageNode {
         let shard_sync_handler =
             ShardSyncHandler::new(inner.clone(), config.shard_sync_config.clone());
         // Upon restart, resume any ongoing blob syncs if there is any.
-        shard_sync_handler.restart_syncs().await?;
 
         let epoch_change_driver = EpochChangeDriver::new(
             system_parameters,
@@ -927,7 +931,6 @@ impl StorageNode {
             shard_sync_handler.clone(),
             config.node_recovery_config.clone(),
         );
-        node_recovery_handler.restart_recovery().await?;
 
         tracing::debug!(
             "num_checkpoints_per_blob for event blobs: {:?}",
@@ -967,6 +970,15 @@ impl StorageNode {
 
         let garbage_collector =
             GarbageCollector::new(config.garbage_collection, inner.clone(), metrics);
+
+        // Publish the startup epoch synchronization goal (re-minting the commit-protocol state
+        // the previous run held in memory), then start the sync services: their first
+        // reconciliation pass rebuilds the sync work from persisted state. Startup is just
+        // another goal publication; there is no dedicated restart path.
+        epoch_change::publish_startup_goal(&inner, &shard_sync_handler, &node_recovery_handler)
+            .await?;
+        shard_sync_handler.spawn_service(inner.subscribe_to_epoch_sync_goal());
+        node_recovery_handler.spawn_service(inner.subscribe_to_epoch_sync_goal());
 
         Ok(StorageNode {
             inner,
@@ -2932,6 +2944,30 @@ impl StorageNodeInner {
             return true;
         }
         false
+    }
+
+    /// Publishes a new epoch synchronization goal, superseding (and thereby revoking) the
+    /// previous one. Must be called from inside the epoch-change critical section (or before
+    /// the node's services are running, at startup).
+    pub(crate) fn publish_epoch_sync_goal(&self, mut goal: epoch_change::goal::EpochSyncGoal) {
+        {
+            let previous = self.epoch_sync_goal.borrow();
+            goal.generation = previous.generation + 1;
+            goal.sync_baseline_generation = if goal.invalidates_sync_baseline() {
+                goal.generation
+            } else {
+                previous.sync_baseline_generation
+            };
+        }
+        tracing::info!(?goal, "publishing epoch synchronization goal");
+        self.epoch_sync_goal.send_replace(goal);
+    }
+
+    /// Subscribes to epoch synchronization goal updates.
+    pub(crate) fn subscribe_to_epoch_sync_goal(
+        &self,
+    ) -> watch::Receiver<epoch_change::goal::EpochSyncGoal> {
+        self.epoch_sync_goal.subscribe()
     }
 
     /// Sets the status of the node, validating the transition against the node-status state
