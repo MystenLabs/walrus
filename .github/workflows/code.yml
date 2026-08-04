@@ -181,7 +181,7 @@ jobs:
     env:
       # Turn off Sui logging since it can be very distractive in CI
       RUST_LOG: simtest=info,error,sui_=off,consensus_core=off
-      # Default: all 5 seeds. PRs with the `ci:less-simtest-seeds` label run only seeds 1 and 2.
+      # Default: all 5 seeds. PRs with the `ci:less-simtest-seeds` label run only 2 seeds.
       SIMTEST_REDUCED: ${{ github.event_name != 'push' && contains(github.event.pull_request.labels.*.name, 'ci:less-simtest-seeds')
         }}
     steps:
