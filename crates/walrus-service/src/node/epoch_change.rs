@@ -269,10 +269,12 @@ impl StorageNode {
         // the current epoch to be processed (note that this does not include waiting for all
         // pending blob syncs to finish). This is to make sure that the node is in a consistent
         // state before processing the epoch change start event.
+        tracing::error!(walrus.epoch = event.epoch, "DIAG: EpochChangeStart waiting for pending events");
         blob_event_processor
             .get_pending_event_counter()
             .wait_for_all_events_to_be_processed()
             .await;
+        tracing::error!(walrus.epoch = event.epoch, "DIAG: EpochChangeStart pending-event wait done");
 
         if let Some(c) = self.config_synchronizer.as_ref() {
             c.sync_node_params().await?;

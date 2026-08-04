@@ -1095,6 +1095,14 @@ impl ShardStorage {
                     FetchedSliverVerificationResults::default()
                 };
 
+                tracing::error!(
+                    shard = %self.id,
+                    %sliver_type,
+                    fetched_count = fetched_slivers.len(),
+                    first = ?fetched_slivers.first().map(|(id, _)| *id),
+                    last = ?fetched_slivers.last().map(|(id, _)| *id),
+                    "DIAG: transfer batch fetched"
+                );
                 next_blob_info = self.batch_fetched_slivers_and_check_missing_blobs(
                     epoch,
                     &node,

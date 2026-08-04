@@ -227,6 +227,13 @@ impl BackgroundEventProcessor {
         {
             event_handle.mark_as_complete();
 
+            tracing::error!(
+                %blob_id,
+                %epoch,
+                ?current_event_epoch,
+                is_certified,
+                "DIAG: certified event: skipping blob sync"
+            );
             tracing::debug!(
                 %blob_id,
                 %epoch,
@@ -250,6 +257,7 @@ impl BackgroundEventProcessor {
             .await;
 
         // Slivers and (possibly) metadata are not stored, so initiate blob sync.
+        tracing::error!(%blob_id, %epoch, "DIAG: certified event: starting blob sync");
         self.blob_sync_handler
             .start_sync(blob_id, epoch, Some(event_handle))
             .await?;
@@ -447,6 +455,12 @@ impl BlobEventProcessor {
         self.node
             .storage
             .update_blob_info(event_handle.index(), &blob_event)?;
+        tracing::error!(
+            blob_id = %blob_event.blob_id(),
+            event = blob_event.name(),
+            event_index = event_handle.index(),
+            "DIAG: sequential blob-info update done"
+        );
 
         if matches!(
             blob_event,
