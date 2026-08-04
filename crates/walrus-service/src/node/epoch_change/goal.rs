@@ -24,8 +24,8 @@ use walrus_sdk::sui::types::GENESIS_EPOCH;
 use super::plan::NewShards;
 
 /// The node's relationship to the committee of the info's epoch.
-// The shared postfix is deliberate: `MembershipAtEpochChange::NewMember` reads better at use sites than a
-// bare `MembershipAtEpochChange::New`.
+// The shared postfix is deliberate: `MembershipAtEpochChange::NewMember` reads better at use
+// sites than a bare `MembershipAtEpochChange::New`.
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MembershipAtEpochChange {

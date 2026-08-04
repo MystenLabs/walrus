@@ -696,8 +696,8 @@ pub struct StorageNodeInner {
     // [`epoch_change::EpochChangeCriticalSection`].
     epoch_change_critical_section: epoch_change::EpochChangeCriticalSection,
     // The desired synchronization state the long-running sync services reconcile toward; see
-    // [`epoch_change::goal::EpochChangeSyncAndRecoveryInfo`]. Published inside the epoch-change critical
-    // section.
+    // [`epoch_change::goal::EpochChangeSyncAndRecoveryInfo`]. Published inside the
+    // epoch-change critical section.
     epoch_change_sync_and_recovery_info:
         watch::Sender<epoch_change::goal::EpochChangeSyncAndRecoveryInfo>,
 }

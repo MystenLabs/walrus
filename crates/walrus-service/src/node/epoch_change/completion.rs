@@ -9,9 +9,10 @@
 //! advances the task's work, and can be *superseded* by a later epoch change (for example, the
 //! node dropping out of the committee) while the task is still running.
 //!
-//! A [`BackgroundSyncTaskCompletionInstruction`] makes this explicit: the executor (or a startup resumption path)
-//! mints the instruction inside the epoch-change critical section and places it in the task's
-//! [`CompletionSlot`]; a later transition that supersedes it replaces or clears the slot. On
+//! A [`BackgroundSyncTaskCompletionInstruction`] makes this explicit: the executor (or a
+//! startup resumption path) mints the instruction inside the epoch-change critical section and
+//! places it in the task's [`CompletionSlot`]; a later transition that supersedes it replaces
+//! or clears the slot. On
 //! success, the task consumes whatever instruction is present — a task whose work was
 //! superseded finds none and finishes without touching the node status. A task can only
 //! perform a status change that the epoch-change logic has pre-authorized and not revoked.
