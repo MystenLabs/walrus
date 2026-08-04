@@ -91,6 +91,7 @@ use walrus_sui::{
         ReadClient,
         SuiClientError,
         SuiContractClient,
+        dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     coin::Coin,
@@ -4416,4 +4417,103 @@ async fn test_list_dynamic_fields_pagination() -> TestResult {
     }
 
     Ok(())
+}
+
+/// Tests that the client works end to end against a Sui fullnode that serves only gRPC, like
+/// the public Sui fullnodes. The client under test receives only the gRPC-only fullnode's URL;
+/// the test scaffolding keeps using the cluster's default fullnode.
+///
+/// TODO(WAL-1264): remove this test once Sui removes JSON-RPC from fullnodes entirely and test
+/// clusters are gRPC-only by themselves.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
+    Box::pin(store_and_read_with_grpc_only_sui_fullnode()).await
+}
+
+async fn store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (sui_cluster_handle, _cluster, admin_client, system_ctx, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    let Some(grpc_only_rpc_url) = sui_cluster_handle
+        .lock()
+        .await
+        .spawn_grpc_only_fullnode()
+        .await
+    else {
+        tracing::warn!(
+            "skipping test: running against an external Sui cluster without a gRPC-only fullnode"
+        );
+        return Ok(());
+    };
+    let rpc_urls = [grpc_only_rpc_url.clone()];
+
+    // The wallet is only used for keys and signing; the client under test dials Sui exclusively
+    // through `rpc_urls`, which contains only the gRPC-only fullnode.
+    let wallet = test_utils::new_wallet_on_sui_test_cluster(sui_cluster_handle.clone()).await?;
+    admin_client
+        .as_ref()
+        .sui_client()
+        .send_wal(FROST_PER_NODE_WEIGHT, wallet.as_ref().active_address())
+        .await?;
+
+    let contract_client = wallet
+        .and_then_async(async |wallet| {
+            system_ctx
+                .new_contract_client(
+                    wallet,
+                    &rpc_urls,
+                    Default::default(),
+                    None,
+                    DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+                )
+                .await
+        })
+        .await?;
+
+    // The WAL transfer above executed through the cluster's default fullnode; the gRPC-only
+    // fullnode only sees it after syncing the containing checkpoint. Wait until the client's
+    // own fullnode shows the funds, otherwise coin selection races the sync and fails with
+    // NoCompatiblePaymentCoin.
+    {
+        let read_client = contract_client.as_ref().read_client();
+        let sui_client = read_client.retriable_sui_client();
+        let address = contract_client.as_ref().address();
+        tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                if matches!(
+                    sui_client
+                        .get_total_balance(address, read_client.wal_coin_type())
+                        .await,
+                    Ok(balance) if balance > 0
+                ) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await
+        .expect("the WAL transfer must become visible on the gRPC-only fullnode");
+    }
+
+    let config = ClientConfig {
+        contract_config: system_ctx.contract_config(),
+        exchange_objects: vec![],
+        wallet_config: None,
+        rpc_urls: vec![grpc_only_rpc_url],
+        communication_config: ClientCommunicationConfig::default_for_test(),
+        refresh_config: Default::default(),
+        quilt_client_config: Default::default(),
+        byte_range_read_client_config: Default::default(),
+        streaming_config: Default::default(),
+    };
+    let client = contract_client
+        .and_then_async(|contract_client| {
+            WalrusNodeClient::new_contract_client_with_refresher(config, contract_client)
+        })
+        .await?;
+
+    basic_store_and_read(&client, 2, 31415, None, || Ok(())).await
 }
