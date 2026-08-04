@@ -1014,7 +1014,7 @@ mod tests {
         // settle before manipulating the shard statuses with a standalone handler.
         cluster.nodes[0]
             .storage_node
-            .shard_sync_handler
+            ._shard_sync_handler
             .wait_until_no_sync_in_progress()
             .await;
         for i in [0, 2] {
