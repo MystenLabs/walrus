@@ -1,8 +1,5 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-> **Note**
->
-> Walrus Memory is generally available, and the product keeps evolving: the developer experience and operational guidance keep improving, and builder feedback shapes each release.
 Walrus Memory enables AI agents to operate reliably across apps and sessions, without losing context. Portable, verifiable, and fully controlled by you, it's the memory layer that lets agents handle complex workflows and coordinate using data they can trust.
 
   

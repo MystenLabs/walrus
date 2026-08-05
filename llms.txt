@@ -410,10 +410,9 @@ Sui smart contract as the on-chain index.
 - [Quick Start](https://docs.wal.app/walrus-memory/getting-started/quick-start.md):
     The fastest way to get Walrus Memory running is through the TypeScript SDK.
 - [What Is Walrus Memory](https://docs.wal.app/walrus-memory/getting-started/what-is-walrus-memory.md):
-    > Note > > Walrus Memory is generally available, and the product keeps evolving: the developer
-    experience and operational guidance keep improving, and builder feedback shapes each release.
     Walrus Memory enables AI agents to operate reliably across apps and sessions, without losing
-    context.
+    context. Portable, verifiable, and fully controlled by you, it's the memory layer that lets
+    agents handle complex workflows and coordinate using data they can trust.
 
 ## Walrus Memory: Fundamentals
 
@@ -697,17 +696,22 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Walrus Platform — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory,
-    including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+    Walrus — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory, including
+    the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
+    Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    July 31, 2026 | GitHub Require a localhost preflight handshake proving the exact state, public
-    key, and relayer before accepting a delegate-key login callback. Authenticate MCP SSE POST
-    messages and replayed requests with the delegate credentials.
+    July 31, 2026 | GitHub --- June 12, 2026 | GitHub Adds the automatic memory plugin for Claude
+    Code, Codex, Cursor, and Antigravity, along with new memwalrememberbulk and memwal_health tools
+    and proactive memory behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Testnet July 29, 2026 | GitHub --- --- Mainnet July 22, 2026 | GitHub --- --- Testnet July 15,
-    2026 | GitHub --- --- Mainnet July 9, 2026 | GitHub #3479: walrus info committee gains a
+    Mainnet | August 5, 2026 | GitHub --- Mainnet | July 22, 2026 | GitHub --- Testnet | July 15,
+    2026 | GitHub --- Mainnet | July 9, 2026 | GitHub walrus info committee gains a
     --commission-receivers flag that prints, as CSV, the commission receiver of every node in the
     previous, current, and next committees (including the owning address for object receivers).
+- [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
+    July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
+    (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
+    methods ahead of the JSON-RPC deprecation.
 
 ## Sponsored Uploads
 
