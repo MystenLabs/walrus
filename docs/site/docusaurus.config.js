@@ -353,8 +353,8 @@ const config = {
             position: "left",
           },
           {
-            to: "/docs/release-notes",
-            label: "Release Notes",
+            to: "/changelog",
+            label: "Changelog",
             position: "right",
           },
           {
