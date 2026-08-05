@@ -2,7 +2,7 @@
 
 > **Looking for the developer documentation?**
 >
-> You are reading a legal document. To build on Walrus, start with [Get started](/docs/getting-started), [Walrus Sites](/docs/sites), or the [Walrus Memory docs](/walrus-memory/). For technical questions, the Ask Walrus AI assistant is available on every documentation page.
+> You are reading a legal document. To build on Walrus, start with [Get started](/docs/getting-started), [Walrus Sites](/docs/sites), or the [Walrus Memory docs](/walrus-memory/), where you can also open the Ask Walrus AI assistant for technical questions.
 Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully because they
 govern your use of the website, the user interface, and other offerings located at walrus.xyz, (the
 “Site”) offered by Walrus Foundation (“Walrus Foundation,” “we,” “our”). To make these Terms easier

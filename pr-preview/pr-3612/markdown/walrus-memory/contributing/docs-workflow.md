@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Walrus Memory is still in beta, so documentation is an active part of product hardening.
+Walrus Memory evolves quickly, so documentation is an active part of product hardening.
 If you see unclear guidance, outdated flows, or missing examples, contributions are welcome.
 
 ## Source of truth
