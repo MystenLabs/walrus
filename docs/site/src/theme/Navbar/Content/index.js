@@ -119,7 +119,9 @@ function KapaButton() {
 
   // Legal pages draw consent-flow traffic that produces low-quality AI
   // questions, so the assistant entry point stays off there (BEDU-795).
-  if (pathname.startsWith("/docs/legal/")) {
+  // Substring match rather than startsWith so the check survives a
+  // non-root baseUrl, such as the /walrus/pr-preview/pr-N/ previews.
+  if (pathname.includes("/docs/legal/")) {
     return null;
   }
 
