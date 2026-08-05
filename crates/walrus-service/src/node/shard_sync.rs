@@ -336,10 +336,17 @@ impl ShardSyncHandler {
     /// 3. For each blob, syncs its metadata using sync_single_blob_metadata
     async fn sync_certified_blob_metadata(&self) -> Result<(), SyncShardClientError> {
         tracing::info!("start syncing blob metadata");
+        // Bounded by the event epoch for the same reason as the shard-sync bound in
+        // `start_shard_sync_impl`: the local certified-blob list is only complete up to the
+        // processed events.
+        let Ok(epoch_bound) = self.node.current_event_epoch().await else {
+            tracing::info!("event epoch channel closed; not syncing blob metadata");
+            return Ok(());
+        };
         let blob_infos = self
             .node
             .storage
-            .certified_blob_info_iter_before_epoch(self.node.current_committee_epoch());
+            .certified_blob_info_iter_before_epoch(epoch_bound);
 
         #[cfg(msim)]
         {
@@ -671,9 +678,22 @@ impl ShardSyncHandler {
     }
 
     async fn start_shard_sync_impl(&self, shard_storage: Arc<ShardStorage>) {
-        // This epoch must be the same as the epoch in the committee we refreshed when processing
-        // epoch start event, or when the node starts up.
-        let current_committee_epoch = self.node.current_committee_epoch();
+        // Sync up to the node's current *event* epoch, not the fetched on-chain epoch: the sync
+        // enumerates its work from the local certified-blob list, which is only complete up to
+        // the events the node has processed. After a restart, syncs can resume while event
+        // replay is still behind the on-chain epoch; a bound beyond the replay position would
+        // silently skip blobs certified in the unreplayed gap — they are absent from the local
+        // list, so they are neither fetched from the source nor scheduled for recovery, and the
+        // later replay of their certified events skips them too (the node did not own the shard
+        // at the event's epoch). See the data-loss analysis in issue #3609. Each replayed epoch
+        // change re-quiesces and restarts the sync with an advanced bound, so the sync
+        // converges to the on-chain epoch as replay completes. For epoch changes processed at
+        // the head of the stream, the executor records the event epoch inside the critical
+        // section before publishing, so this equals the new epoch.
+        let Ok(current_committee_epoch) = self.node.current_event_epoch().await else {
+            tracing::info!("event epoch channel closed; not starting the shard sync");
+            return;
+        };
 
         tracing::info!(
             walrus.shard_index = %shard_storage.id(),
@@ -1038,11 +1058,21 @@ mod tests {
     use crate::test_utils::{StorageNodeHandle, TestCluster};
 
     async fn create_test_cluster(assignment: &[&[u16]]) -> TestCluster {
-        TestCluster::<StorageNodeHandle>::builder()
+        let cluster: TestCluster<StorageNodeHandle> = TestCluster::<StorageNodeHandle>::builder()
             .with_shard_assignment(assignment)
             .build()
             .await
-            .unwrap()
+            .unwrap();
+        // The shard-sync driver bounds its work by the node's event epoch and waits until it
+        // is set; these tests drive standalone handlers without event processing, so mark the
+        // nodes as having processed events up to the current committee epoch.
+        for node in &cluster.nodes {
+            let inner = &node.storage_node.inner;
+            let _ = inner
+                .latest_event_epoch_sender
+                .send(Some(inner.current_committee_epoch()));
+        }
+        cluster
     }
 
     #[tokio::test(start_paused = false)]

@@ -943,6 +943,11 @@ impl EpochChangeExecutor {
         // shards it lost) and after the attestation is routed above (a sync started by the
         // reconciler must find its token and pending set). The shard-sync reconciler reacts
         // to the info by starting the syncs; the executor no longer starts them directly.
+        // Record the event epoch before publishing: the shard-sync driver bounds its work by
+        // the event epoch, and a sync started by the reconciler for this publication must use
+        // the new epoch as its bound (the node has processed every event before this one, so
+        // its certified-blob list is complete up to here).
+        let _ = self.inner.latest_event_epoch_sender.send(Some(event.epoch));
         self.inner.publish_epoch_change_sync_and_recovery_info(
             EpochChangeSyncAndRecoveryInfo::new(
                 event.epoch,
