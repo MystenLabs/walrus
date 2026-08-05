@@ -313,6 +313,14 @@ if (fs.existsSync(walrusMemoryDir)) {
     files.forEach(file => {
       const filePath = path.join(dir, file);
       const stat = fs.statSync(filePath);
+      // The site's walrus-memory docs plugin excludes contributing/** from
+      // rendering (docusaurus.config.js), so those pages have no HTML route.
+      // Keep them out of the markdown export too, or they leak into llms.txt
+      // and the .md routes as links to pages that 404.
+      const relFromBase = path.relative(baseDir, filePath).replace(/\\/g, "/");
+      if (relFromBase === "contributing" || relFromBase.startsWith("contributing/")) {
+        return;
+      }
       if (stat.isDirectory()) {
         copyWalrusMemoryFiles(filePath, baseDir);
       } else if (file.endsWith('.md') || file.endsWith('.mdx')) {
