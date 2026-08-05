@@ -593,21 +593,6 @@ Sui smart contract as the on-chain index.
     unauthenticated and unsigned. They do not require a valid Ed25519 signature in headers like the
     rest of the API.
 
-## Walrus Memory: Contributing
-
-- [Docs Workflow](https://docs.wal.app/walrus-memory/contributing/docs-workflow.md):
-    Walrus Memory is still in beta, so documentation is an active part of product hardening. If you
-    see unclear guidance, outdated flows, or missing examples, contributions are welcome. The docs
-    source of truth is the markdown content under docs/ in this repository.
-- [Run Docs Locally](https://docs.wal.app/walrus-memory/contributing/run-docs-locally.md):
-    Run these commands from the repository root: Source: contributing/run-docs-locally.md This
-    starts the Mintlify site using the docs in this repository. Use Node 20 LTS for Mintlify local
-    preview. Mintlify fails on Node 25+.
-- [Docs site (Mintlify)](https://docs.wal.app/walrus-memory/contributing/run-repo-locally.md):
-    | Tool | Version | Check | |------|---------|-------| | Node.js | ≥ 20 | node -v | | pnpm | ≥
-    9.12 | pnpm -v | | Rust | latest stable (only for backend services) | rustc --version | > Tip >
-    > If you only work on TypeScript apps or docs, you don't need Rust.
-
 ## Walrus Memory: Examples
 
 - [Chatbot](https://docs.wal.app/walrus-memory/examples/chatbot.md):
