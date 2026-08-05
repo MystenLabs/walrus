@@ -13,9 +13,10 @@
 - [Quick Start](https://docs.wal.app/walrus-memory/getting-started/quick-start.md):
     The fastest way to get Walrus Memory running is through the TypeScript SDK.
 - [What Is Walrus Memory](https://docs.wal.app/walrus-memory/getting-started/what-is-walrus-memory.md):
-    > Note > > Walrus Memory is in beta and actively evolving. It is fully usable today, and the
-    developer experience and operational guidance keep improving. Feedback from early builders
-    helps shape the product.
+    > Note > > Walrus Memory is generally available, and the product keeps evolving: the developer
+    experience and operational guidance keep improving, and builder feedback shapes each release.
+    Walrus Memory enables AI agents to operate reliably across apps and sessions, without losing
+    context.
 
 ## Walrus Memory: Fundamentals
 
@@ -179,6 +180,13 @@
     withMemWal(model, options) | Field | Required | Notes | | --- | --- | --- | | key | yes |
     Delegate private key in hex | | accountId | yes | MemWalAccount object ID on Sui | | serverUrl
     | no | Relayer URL.
+- [Console Identity Link](https://docs.wal.app/walrus-memory/reference/console-identity-link.md):
+    Console (Walrus Console) and Walrus Memory (WM) are separate Enoki zkLogin applications.
+- [Enoki Connect Requirements](https://docs.wal.app/walrus-memory/reference/enoki-connect-requirements.md):
+    Enoki Connect lets an external application (a "connecting app," for example, Console)
+    authenticate its users through Walrus Memory's Enoki-hosted identity flow. This requires
+    configuration on two sides: WM's own Enoki app settings, and each connecting app's origin being
+    allowlisted.
 - [Environment Variables](https://docs.wal.app/walrus-memory/reference/environment-variables.md):
     This page lists the supported, public environment variables across Walrus Memory, grouped by
     where you set it: the client SDKs, the MCP server, the self-hosted relayer, and frontend apps.
@@ -200,7 +208,7 @@
 ## Walrus Memory: Contributing
 
 - [Docs Workflow](https://docs.wal.app/walrus-memory/contributing/docs-workflow.md):
-    Walrus Memory is still in beta, so documentation is an active part of product hardening. If you
+    Walrus Memory evolves quickly, so documentation is an active part of product hardening. If you
     see unclear guidance, outdated flows, or missing examples, contributions are welcome. The docs
     source of truth is the markdown content under docs/ in this repository.
 - [Run Docs Locally](https://docs.wal.app/walrus-memory/contributing/run-docs-locally.md):

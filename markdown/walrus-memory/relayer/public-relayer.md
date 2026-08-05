@@ -4,7 +4,7 @@ A managed relayer is a simpler experience for teams that want to get started wit
 
 ## Walrus Foundation hosted endpoints
 
-| Network | Relayer URL |
+| **Network** | **Relayer URL** |
 |---|---|
 | **Production** (Mainnet) | `https://relayer.memory.walrus.xyz` |
 | **Staging** (Testnet) | `https://relayer-staging.memory.walrus.xyz` |
@@ -26,9 +26,9 @@ const memwal = MemWal.create({
 
 ## What to know
 
-- **Shared App ID** - all users of the managed relayer share the same Walrus Memory package ID. Your data is isolated by your own `owner + namespace` (Memory Space), but the underlying deployment is shared.
-- **Trust assumption** - the relayer sees plaintext during encryption and embedding. By using the managed relayer, you're trusting the Walrus Foundation-hosted instance with that data. See [Trust  and  Security Model](/walrus-memory/fundamentals/architecture/data-flow-security-model) for details.
-- **Availability** - the managed relayer is a managed beta service. There are no SLA guarantees.
-- **Storage costs** - the server wallet covers Walrus storage fees. Usage limits might apply during beta.
+- **Shared App ID** - all users of the managed relayer share the same Walrus Memory package ID. Your own `owner + namespace` (Memory Space) isolates your data, but the underlying deployment is shared.
+- **Trust assumption** - the relayer sees plaintext during encryption and embedding. By using the managed relayer, you're trusting the Walrus Foundation-hosted instance with that data. See [Trust and Security Model](/walrus-memory/fundamentals/architecture/data-flow-security-model) for details.
+- **Availability** - the Walrus Foundation provides the managed relayer as a public good without SLA guarantees.
+- **Storage costs** - the server wallet covers Walrus storage fees. The service can apply usage limits.
 
 If you need full control over the trust boundary or your own dedicated instance, see [Self-Hosting](/walrus-memory/relayer/self-hosting).

@@ -18,7 +18,7 @@ The most common reasons to self-host include:
 - **Control the trust boundary:** Keep plaintext, encryption, and embedding under your own control rather than trusting a third party.
 - **Run your own Walrus Memory instance:** Deploy your own contract with a separate package ID, Seal encryption keys, and hard data isolation.
 - **Choose your own embedding provider:** Use your own OpenAI-compatible API and credentials.
-- **Guarantee availability:** The managed relayer is a beta service with no SLA.
+- **Guarantee availability:** The managed relayer carries no SLA.
 
 ## Data isolation with namespaces
 
