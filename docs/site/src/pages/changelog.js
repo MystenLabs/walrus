@@ -34,16 +34,19 @@ function formatTimelineDate(isoDate) {
 
 function SearchIcon({ className }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-    >
-      <circle cx="8.5" cy="8.5" r="5.5" />
-      <line x1="13" y1="13" x2="18" y2="18" />
+    <svg className={className} viewBox="0 0 14 14" fill="none">
+      <path
+        d={
+          "M10.6135 9.90643C10.4183 9.71118 10.1017 9.71119 9.90643 9.90646C9.71118 10.1017 9.71119 10.4183 9.90646 " +
+          "10.6136L10.26 10.26L10.6135 9.90643ZM11.9286 6.21429H11.4286C11.4286 9.09243 9.09243 11.4286 6.21429 " +
+          "11.4286V11.9286V12.4286C9.64471 12.4286 12.4286 9.64471 12.4286 6.21429H11.9286ZM6.21429 " +
+          "11.9286V11.4286C3.33614 11.4286 1 9.09243 1 6.21429H0.5H0C0 9.64471 2.78386 12.4286 6.21429 " +
+          "12.4286V11.9286ZM0.5 6.21429H1C1 3.33614 3.33614 1 6.21429 1V0.5V0C2.78386 0 0 2.78386 0 6.21429H0.5ZM6.21429 " +
+          "0.5V1C9.09243 1 11.4286 3.33614 11.4286 6.21429H11.9286H12.4286C12.4286 2.78386 9.64471 0 6.21429 0V0.5ZM10.26 " +
+          "10.26L9.90646 10.6136L13.1465 13.8533L13.5 13.4998L13.8535 13.1462L10.6135 9.90643L10.26 10.26Z"
+        }
+        fill="currentColor"
+      />
     </svg>
   );
 }
@@ -76,6 +79,10 @@ export default function Changelog() {
       <Head>
         <link
           href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz@6..144&display=swap"
+          rel="stylesheet"
+        />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Google+Sans+Code:wght@400&display=swap"
           rel="stylesheet"
         />
       </Head>
@@ -129,15 +136,31 @@ export default function Changelog() {
                 {formatTimelineDate(entry.date)}
               </div>
               <div className={styles.entryMarker}>
-                <div className={styles.diamond} />
+                <div className={styles.diamond}>
+                  <svg viewBox="0 0 29 29" fill="none" aria-hidden="true">
+                    <path
+                      d="M18.6022 10.3981V18.6018H10.3985V10.3981H18.6022ZM19.6276 9.37268H9.37305V19.6273H19.6276V9.37268Z"
+                      fill="currentColor"
+                    />
+                    <path
+                      d="M14.5 1.4459L27.5541 14.5L14.5 27.5541L1.4459 14.5L14.5 1.4459ZM14.5 0L0 14.5L14.5 29L29 14.5L14.5 0Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </div>
               </div>
               <div className={styles.entryContent}>
-                <span className={styles.badge}>
-                  {CATEGORY_LABELS[entry.category]}
-                </span>
-                {entry.badge && (
-                  <span className={styles.networkBadge}>{entry.badge}</span>
-                )}
+                <div className={styles.entryDateMobile}>
+                  {formatTimelineDate(entry.date)}
+                </div>
+                <div className={styles.badgeRow}>
+                  <span className={styles.badge}>
+                    {CATEGORY_LABELS[entry.category]}
+                  </span>
+                  {entry.badge && (
+                    <span className={styles.networkBadge}>{entry.badge}</span>
+                  )}
+                </div>
 
                 <h2 className={styles.entryTitle}>{entry.title}</h2>
 
