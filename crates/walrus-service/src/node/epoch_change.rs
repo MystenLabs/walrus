@@ -438,8 +438,13 @@ impl EpochChangeExecutor {
         let epoch = committees.epoch();
 
         match &node_status {
-            NodeStatus::RecoveryInProgress(target_epoch) => {
-                // The node restarted while recovering: node recovery owns the completion.
+            NodeStatus::RecoveryInProgress(target_epoch) if membership.is_member() => {
+                // The node restarted while recovering: node recovery owns the completion. Only
+                // minted while the node is still a committee member: a node that was dropped
+                // while recovering must not complete to `Active` (with zero owned shards the
+                // run would complete trivially and send a stale attestation); without an
+                // instruction the run finishes without touching the node status, and the
+                // replayed epoch change that dropped the node moves it to `Standby`.
                 self.node_recovery_handler.set_completion_instruction(
                     BackgroundSyncTaskCompletionInstruction::new(
                         NodeStatus::Active,
