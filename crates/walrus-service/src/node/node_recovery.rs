@@ -295,6 +295,8 @@ async fn run_service(
             Ok(_) => {
                 // Nothing to recover toward; wait for the next info.
                 if info_receiver.changed().await.is_err() {
+                    // TODO(WAL-1269): terminate the node when the recovery service loop exits;
+                    // a node without the recovery service can never complete a recovery.
                     tracing::info!("info channel closed; stopping the node recovery service");
                     return;
                 }

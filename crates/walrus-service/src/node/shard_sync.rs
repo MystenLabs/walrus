@@ -529,6 +529,8 @@ impl ShardSyncHandler {
         *service_handle = Some(tokio::spawn(async move {
             loop {
                 if info_receiver.changed().await.is_err() {
+                    // TODO(WAL-1269): terminate the node when the shard-sync reconciler loop
+                    // exits; a node without the reconciler silently stops syncing its shards.
                     tracing::info!("info channel closed; stopping the shard sync reconciler");
                     return;
                 }
