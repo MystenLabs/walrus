@@ -1,0 +1,125 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+Every Walrus blob has a corresponding `Blob` object on Sui, defined in the `walrus::blob` module.
+The `Blob` type has the `key` and `store` abilities, so your own Move packages can hold blobs in
+custom structs, transfer them between addresses, and manage their lifecycle onchain. Add the Walrus
+package as a dependency to read blob properties, wrap blobs in your own object types, and call the
+system functions that extend or delete blobs.
+
+See also:
+
+- [Managing Blobs](/docs/walrus-client/managing-blobs): the CLI equivalents for extending,
+  deleting, sharing, and setting attributes on blobs.
+- [Storage Costs](/docs/system-overview/storage-costs): how registration, certification, and
+  storage resources work onchain.
+- [Building a Data Marketplace](/docs/examples/data-marketplace): a worked example that escrows
+  and sells `Blob` objects from a Move package.
+
+## Add the Walrus dependency
+
+Declare the Walrus package as a git dependency in your package's `Move.toml`:
+
+```toml
+[package]
+name = "walrus_dep"
+edition = "2024.beta"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.35.0" }
+Walrus = { git = "https://github.com/MystenLabs/walrus.git", rev = "main", subdir = "contracts/walrus" }
+
+[addresses]
+sui = "0x2"
+walrus_dep = "0x0"
+```
+
+The `contracts/walrus` subdirectory contains the development sources. The Walrus repository also
+tracks the sources deployed on each network in the
+[`mainnet-contracts`](https://github.com/MystenLabs/walrus/tree/main/mainnet-contracts) and
+[`testnet-contracts`](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts)
+directories, and the [Network Reference](/docs/network-reference#package-ids) lists the deployed
+package and object IDs.
+
+## Wrap a blob object
+
+Because `Blob` has the `store` ability, you can embed it in your own object types. The following
+example module accepts a `Blob` by value and escrows it inside a `WrappedBlob`:
+
+<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus/blob/main/docs/examples/move/walrus_dep/sources/wrapped_blob.move -->
+
+After wrapping, only the functions of the wrapping module can reach the blob again, which gives
+your package full control over how the blob moves and who can manage it. A marketplace escrow, a
+vault, or an app-specific asset type all follow this pattern.
+
+## Read blob properties
+
+The `walrus::blob` module exposes accessors for every `Blob` field:
+
+| **Accessor** | **Returns** | **Description** |
+| --- | --- | --- |
+| `object_id` | `ID` | The Sui object ID of the `Blob` object. |
+| `blob_id` | `u256` | The blob ID that identifies the data on Walrus. |
+| `size` | `u64` | The unencoded blob size in bytes. |
+| `encoding_type` | `u8` | The blob's erasure encoding. |
+| `registered_epoch` | `u32` | The Walrus epoch of the blob's registration. |
+| `certified_epoch` | `&Option<u32>` | The epoch of first certification, or none for an uncertified blob. |
+| `storage` | `&Storage` | The storage resource that backs the blob. |
+| `end_epoch` | `u32` | The end epoch of the blob's storage resource (exclusive). |
+| `is_deletable` | `bool` | Whether the owner can delete the blob before expiry. |
+| `encoded_size` | `u64` | The encoded size in bytes for a given number of shards. |
+
+For example, the following function checks that a blob is certified and that its storage covers
+the current epoch, which you can read from the shared system object with `system.epoch()`:
+
+```move
+use walrus::blob::Blob;
+
+/// Returns true if `blob` is certified and its storage covers `current_epoch`.
+public fun is_live(blob: &Blob, current_epoch: u32): bool {
+    blob.certified_epoch().is_some() && blob.end_epoch() > current_epoch
+}
+```
+
+## Manage the blob lifecycle
+
+The `walrus::system` module exposes lifecycle functions on the shared `System` object:
+
+- `extend_blob(system, blob, extended_epochs, payment)` extends the blob's storage by
+  `extended_epochs` epochs and draws the storage fee from a `Coin<WAL>`.
+- `extend_blob_with_resource(system, blob, extension)` extends the blob with a `Storage` resource
+  you already own; the resource must match the blob's storage size and last longer.
+- `delete_blob(system, blob)` consumes a deletable blob and returns its `Storage` resource, which
+  you can reuse for another blob.
+
+The `walrus::blob` module additionally provides `burn(blob)`, which destroys the `Blob` object
+without deleting the data from Walrus and without refunding storage, and metadata functions such
+as `insert_or_update_metadata_pair` and `remove_metadata_pair` to manage key-value metadata on a
+blob you hold. The [Managing Blobs](/docs/walrus-client/managing-blobs) page describes the CLI
+equivalents.
+
+## Share a blob
+
+The `walrus::shared_blob` module wraps a `Blob` in a `SharedBlob`, a shared object that acts as a
+tip jar: anyone can add WAL to it, and anyone can spend the stored funds to extend the wrapped
+blob's lifetime.
+
+- `new(blob, ctx)` shares the blob as a `SharedBlob` with zero funds.
+- `new_funded(blob, funds, ctx)` shares the blob together with an initial `Coin<WAL>` balance.
+- `fund(shared_blob, coin)` adds WAL to the stored funds.
+- `extend(shared_blob, system, extended_epochs, ctx)` extends the wrapped blob using the stored
+  funds.
+
+The CLI offers the same capability through `walrus share --blob-obj-id <SUI_OBJ_ID>`; see
+[Shared blobs](/docs/walrus-client/managing-blobs#shared-blobs).
+
+## Build, test, and publish
+
+The complete example package lives in the
+[`docs/examples/move/walrus_dep`](https://github.com/MystenLabs/walrus/tree/main/docs/examples/move/walrus_dep)
+directory of the Walrus repository. From that directory, run:
+
+```sh
+sui move build
+sui move test
+sui client publish --skip-dependency-verification
+```
