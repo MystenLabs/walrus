@@ -70,9 +70,10 @@ long-lived:
 - **Use content-hashed filenames** for scripts, styles, and other assets (the default in most
   bundlers). A stale cache then serves a consistent old version instead of mixing old HTML with
   new assets.
-- **Pin a version by keeping the old site object.** Each deploy updates your site object in
-  place; when you need a guaranteed rollback target or a frozen release, publish the release as
-  its own site object and point your name at the object you want to serve.
+- **Pin a version by keeping the old site object.** When `ws-resources.json` carries your
+  site's object ID, each deploy updates that site in place; when you need a guaranteed rollback
+  target or a frozen release, publish the release as its own site object and point your name at
+  the object you want to serve.
 - **Expect propagation delay after an update.** Caches refresh on their own schedule; verify a
   fresh deploy from a private browser window or with cache-busting query parameters before
   concluding an update failed. See [troubleshooting](/docs/sites/troubleshooting) if an update
@@ -92,8 +93,14 @@ There is no built-in watch mode; the supported path to update-on-push is running
 `site-builder deploy` from your CI pipeline on every push to your production branch. The
 [GitHub Actions workflow guide](/docs/sites/ci-cd/github-actions-workflow) walks through the
 setup, including [preparing deployment credentials](/docs/sites/ci-cd/preparing-deployment-credentials)
-so the pipeline signs with a dedicated wallet. Rerunning deploy updates the existing site object
-in place, so CI redeploys never create duplicate sites.
+so the pipeline signs with a dedicated wallet.
+
+One trap decides whether redeploys update your site or duplicate it: `site-builder` records
+your site's object ID in `ws-resources.json` inside the deploy directory, and CI recreates that
+directory on every run. Commit `ws-resources.json` to your framework's `public/` directory so
+builds carry it into the output, or pass `--object-id` explicitly; otherwise every pipeline run
+creates a new site object and pays for it. See
+[`ws-resources.json` in pipelines](/docs/sites/ci-cd/other-ci-cd-platforms#understanding-ws-resourcesjson-in-pipelines).
 
 ## Keep the toolchain small
 
@@ -114,10 +121,12 @@ const nextConfig = {
 };
 ```
 
-`next build` then writes plain HTML and assets to `out/`, which you deploy directly:
+`next build` then writes plain HTML and assets to `out/`, which you deploy directly
+(`--epochs` is required; place `ws-resources.json` in `public/` so redeploys update the same
+site):
 
 ```sh
-$ site-builder deploy ./out
+$ site-builder deploy --epochs <NUMBER> ./out
 ```
 
 Features that need a server at request time, such as API routes, server actions, and on-demand
