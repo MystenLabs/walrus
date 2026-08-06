@@ -1,27 +1,21 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly
-from storage nodes returns it immediately. If your app reads blobs through a cached aggregator
-immediately after upload, plan for a short propagation window.
+Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly from storage nodes returns it immediately. If your app reads blobs through a cached aggregator immediately after upload, plan for a short propagation window.
 
 See also:
 
 - [Reading blobs over HTTP](/docs/http-api/reading-blobs) for the aggregator read endpoints
-- [Verify Blob Availability Before Acting](/docs/walrus-client/verifying-availability) for
-  confirming certification against Sui state
+- [Verify Blob Availability Before Acting](/docs/walrus-client/verifying-availability) for confirming certification against Sui state
 
 ## Cause
 
-Public aggregators often sit behind a content delivery network (CDN). When a request for a blob
-arrives before the aggregator sees the blob, the CDN might cache the resulting `404 Not Found`
-response and keep serving it for a short time after the blob becomes available.
+Public aggregators often sit behind a content delivery network (CDN). When a request for a blob arrives before the aggregator sees the blob, the CDN might cache the resulting `404 Not Found` response and keep serving it for a short time after the blob becomes available.
 
 ## When this applies
 
 This propagation window only affects you when both conditions are true:
 
-- You read through a public aggregator with a CDN in front, such as the Mainnet or Testnet public
-  aggregators.
+- You read through a public aggregator with a CDN in front, such as the Mainnet or Testnet public aggregators.
 - You read a blob within seconds of its certification.
 
 The window does not apply in these cases:
@@ -31,26 +25,19 @@ The window does not apply in these cases:
 
 ## Solution: retry only when you know the blob should exist
 
-Because Walrus is strongly consistent, a `404` from an uncached aggregator means the blob is not on
-the network. Retrying every `404` adds latency for missing blobs.
+Because Walrus is strongly consistent, a `404` from an uncached aggregator means the blob is not on the network. Retrying every `404` adds latency for missing blobs.
 
-Retry with backoff only when your app knows the blob has just been certified. Treat other `404`
-responses as final.
+Retry with backoff only when your app knows the blob has just been certified. Treat other `404` responses as final.
 
-The following helper handles the post-upload path: your app receives a successful certification,
-then immediately fetches the blob through a cached aggregator. It surfaces non-404 errors
-immediately and only retries `404`.
+The following helper handles the post-upload path: your app receives a successful certification, then immediately fetches the blob through a cached aggregator. It surfaces non-404 errors immediately and only retries `404`.
 
 <!-- ImportContent: file not found in manifest: examples/typescript/retry_blob_with_backoff.ts -->
 
-Tune `maxAttempts` and `baseDelayMs` to your latency budget. A few seconds of total retry time is
-usually sufficient. Do not use this pattern for general reads. For those reads, treat `404` as
-final.
+Tune `maxAttempts` and `baseDelayMs` to your latency budget. A few seconds of total retry time is usually sufficient. Do not use this pattern for general reads. For those reads, treat `404` as final.
 
 ### Bypass the CDN cache if needed
 
-Some CDNs might ignore cache control headers and cache the `404` response. If retries keep
-returning the cached `404`, append a unique query parameter:
+Some CDNs might ignore cache control headers and cache the `404` response. If retries keep returning the cached `404`, append a unique query parameter:
 
 ```ts
 fetch(`${aggregatorUrl}/v1/blobs/${blobId}?cb=${Date.now()}`);
@@ -60,31 +47,24 @@ Once the blob is reliably reachable, you can remove the query parameter.
 
 ### Use multiple aggregators
 
-If a single aggregator is slow to surface the blob, try another aggregator. If one aggregator
-returns `404` but another returns the blob, the blob is on the network and the `404` comes from a
-cache.
+If a single aggregator is slow to surface the blob, try another aggregator. If one aggregator returns `404` but another returns the blob, the blob is on the network and the `404` comes from a cache.
 
 ### Pre-warm the read path before demos
 
-Before showing a freshly uploaded blob to an audience, retrieve it once from the aggregator you
-plan to use. This populates the aggregator and CDN caches before you need them.
+Before showing a freshly uploaded blob to an audience, retrieve it once from the aggregator you plan to use. This populates the aggregator and CDN caches before you need them.
 
 ## Confirm the blob is on the network
 
-If you are unsure whether a persistent `404` is a cache artifact or a missing blob, check the blob
-directly with the Walrus CLI, which bypasses aggregators and CDNs entirely:
+If you are unsure whether a persistent `404` is a cache artifact or a missing blob, check the blob directly with the Walrus CLI, which bypasses aggregators and CDNs entirely:
 
 ```sh
 $ walrus blob-status --blob-id <BLOB_ID>
 ```
 
-The command reports whether the blob is certified and its availability period. See
-[checking blob status](/docs/walrus-client/reading-blobs#check-blob-status). You can also read the
-bytes directly from storage nodes:
+The command reports whether the blob is certified and its availability period. See [checking blob status](/docs/walrus-client/reading-blobs#check-blob-status). You can also read the bytes directly from storage nodes:
 
 ```sh
 $ walrus read <BLOB_ID> --out <FILE>
 ```
 
-If the CLI confirms the blob is certified but the aggregator still returns `404`, the fix is one of
-the cache workarounds above, or simply waiting out the propagation window.
+If the CLI confirms the blob is certified but the aggregator still returns `404`, the fix is one of the cache workarounds above, or simply waiting out the propagation window.

@@ -1,20 +1,13 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-You can store and read Walrus blobs from JavaScript with plain HTTP calls: a publisher accepts
-uploads through PUT requests, and an aggregator serves downloads through GET requests. The built-in
-`fetch` API covers both, so you need no SDK or other dependencies in the browser, in Node.js, or in
-any other JavaScript runtime.
+You can store and read Walrus blobs from JavaScript with plain HTTP calls: a publisher accepts uploads through PUT requests, and an aggregator serves downloads through GET requests. The built-in `fetch` API covers both, so you need no SDK or other dependencies in the browser, in Node.js, or in any other JavaScript runtime.
 
 See also:
 
-- [Storing Blobs](/docs/http-api/storing-blobs): the full publisher API, including all query
-  parameters and quilts.
-- [Reading Blobs](/docs/http-api/reading-blobs): the full aggregator API, including consistency
-  checks.
-- [Browser and Mobile Apps](/docs/examples/browser-and-mobile): store blobs with the TypeScript SDK
-  and an upload relay when the user's wallet should own the upload.
-- [Network Reference](/docs/network-reference#aggregators-and-publishers): public aggregator and
-  publisher endpoints.
+- [Storing Blobs](/docs/http-api/storing-blobs): the full publisher API, including all query parameters and quilts.
+- [Reading Blobs](/docs/http-api/reading-blobs): the full aggregator API, including consistency checks.
+- [Browser and Mobile Apps](/docs/examples/browser-and-mobile): store blobs with the TypeScript SDK and an upload relay when the user's wallet should own the upload.
+- [Network Reference](/docs/network-reference#aggregators-and-publishers): public aggregator and publisher endpoints.
 
 ## Choose your endpoints
 
@@ -27,11 +20,8 @@ const AGGREGATOR = "https://aggregator.walrus-testnet.walrus.space";
 
 Two constraints apply when you pick endpoints:
 
-- Walrus has no public unauthenticated publisher on Mainnet. Use a Testnet publisher for
-  experiments; on Mainnet, run your own publisher, use an upload relay, or use the
-  [TypeScript SDK](/docs/typescript-sdk/sdks).
-- Most public aggregators and publishers limit requests to 10 MiB. To store larger blobs, run your
-  own publisher or use the [CLI](/docs/walrus-client/storing-blobs).
+- Walrus has no public unauthenticated publisher on Mainnet. Use a Testnet publisher for experiments; on Mainnet, run your own publisher, use an upload relay, or use the [TypeScript SDK](/docs/typescript-sdk/sdks).
+- Most public aggregators and publishers limit requests to 10 MiB. To store larger blobs, run your own publisher or use the [CLI](/docs/walrus-client/storing-blobs).
 
 ## Upload a blob
 
@@ -60,9 +50,7 @@ Control the resulting blob through query parameters:
 
 ## Handle the store response
 
-A successful store returns JSON in one of two shapes. A `newlyCreated` field describes a blob that
-Walrus stored for the first time, while an `alreadyCertified` field describes a blob that some user
-already stored and certified earlier. The two shapes nest the blob ID differently, so handle both:
+A successful store returns JSON in one of two shapes. A `newlyCreated` field describes a blob that Walrus stored for the first time, while an `alreadyCertified` field describes a blob that some user already stored and certified earlier. The two shapes nest the blob ID differently, so handle both:
 
 ```js
 function parseStoreResponse(info) {
@@ -85,11 +73,7 @@ function parseStoreResponse(info) {
 }
 ```
 
-The `blobId` identifies the data on Walrus: pass it to an aggregator to read the blob back. The
-`endEpoch` tells you when the storage period ends. For newly created blobs, the response also
-carries the Sui object ID of the `Blob` object. See
-[Understanding the response](/docs/http-api/storing-blobs#understanding-the-response) for the full
-response format.
+The `blobId` identifies the data on Walrus: pass it to an aggregator to read the blob back. The `endEpoch` tells you when the storage period ends. For newly created blobs, the response also carries the Sui object ID of the `Blob` object. See [Understanding the response](/docs/http-api/storing-blobs#understanding-the-response) for the full response format.
 
 ## Download a blob
 
@@ -105,33 +89,19 @@ async function readBlob(blobId) {
 }
 ```
 
-Call `response.text()` or `response.json()` instead of `arrayBuffer()` when you stored text or
-JSON. The aggregator serves blobs read by blob ID as `application/octet-stream`, so specify the
-media type yourself when you embed the blob in a page. To receive stored headers such as
-`content-type`, read by the Sui object ID instead, with
-`/v1/blobs/by-object-id/<objectId>`; the aggregator returns recognized blob attributes in the
-corresponding HTTP headers. See [Reading Blobs](/docs/http-api/reading-blobs) for details.
+Call `response.text()` or `response.json()` instead of `arrayBuffer()` when you stored text or JSON. The aggregator serves blobs read by blob ID as `application/octet-stream`, so specify the media type yourself when you embed the blob in a page. To receive stored headers such as `content-type`, read by the Sui object ID instead, with `/v1/blobs/by-object-id/<objectId>`; the aggregator returns recognized blob attributes in the corresponding HTTP headers. See [Reading Blobs](/docs/http-api/reading-blobs) for details.
 
 > **Reading a blob right after upload?**
 >
-> A CDN-fronted aggregator might briefly serve a cached `404` from before the blob propagated. If
-> your app just stored the blob, retry the read with backoff. See
-> [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload).
+> A CDN-fronted aggregator might briefly serve a cached `404` from before the blob propagated. If your app just stored the blob, retry the read with backoff. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload).
 ## Complete example: browser upload form
 
-The following single-file example combines the upload and download calls into a web form. The form
-lets you set the publisher and aggregator URLs, pick a file and a number of epochs, and optionally
-enter a Sui address that receives the created `Blob` object through the `send_object_to` parameter.
-After a successful upload, the script parses both response shapes and renders each stored blob with
-a download link that points at the aggregator. To try it, save the file locally and open it in a
-browser.
+The following single-file example combines the upload and download calls into a web form. The form lets you set the publisher and aggregator URLs, pick a file and a number of epochs, and optionally enter a Sui address that receives the created `Blob` object through the `send_object_to` parameter. After a successful upload, the script parses both response shapes and renders each stored blob with a download link that points at the aggregator. To try it, save the file locally and open it in a browser.
 
 <!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus/blob/main/docs/examples/javascript/blob_upload_download_webapi.html -->
 
 ## Read Walrus system state
 
-The next example reads Walrus system state on Sui instead of blob data. The script calls the
-`sui_getObject` JSON-RPC method on a public Sui full node and renders the per-epoch rewards and
-used storage capacity from the system state into a table.
+The next example reads Walrus system state on Sui instead of blob data. The script calls the `sui_getObject` JSON-RPC method on a public Sui full node and renders the per-epoch rewards and used storage capacity from the system state into a table.
 
 <!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus/blob/main/docs/examples/javascript/system_stats.html -->
