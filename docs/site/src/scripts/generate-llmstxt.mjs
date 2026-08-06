@@ -23,6 +23,24 @@ const markdownDir = path.resolve(positional[0] ?? path.join(scriptDir, "../../st
 const baseUrl      = flags["base-url"]    ?? "";
 const outputFile = flags["output"] ?? path.join(scriptDir, "../../static/llms.txt");
 const siteDesc     = flags["description"] ?? "";
+// Optional URL-prefix scope (for example "walrus-memory"): only pages whose
+// site URL lives under that prefix are included, and the llms-full.txt
+// pointer targets the scoped copy. Lets subsites serve their own llms.txt.
+const onlyPrefix   = (flags["only-prefix"] ?? "").replace(/^\/+|\/+$/g, "") || null;
+
+// Per-subsite defaults for prefix-scoped runs; --name/--description override.
+const SUBSITE_PRESETS = {
+  "walrus-memory": {
+    name: "Walrus Memory",
+    description:
+      "Walrus Memory gives AI agents portable, verifiable memory. " +
+      "It stores encrypted memories on Walrus (decentralized storage) and " +
+      "retrieves them with semantic search; Sui smart contracts enforce " +
+      "ownership onchain. This index covers the Walrus Memory documentation " +
+      "only; for the full Walrus documentation see https://docs.wal.app/llms.txt.",
+  },
+};
+const preset = onlyPrefix ? SUBSITE_PRESETS[onlyPrefix] ?? {} : {};
 
 // ── Auto-detect docusaurus config ────────────────────────────────────────────
 let resolvedName = flags["name"] ?? null;
@@ -53,6 +71,7 @@ if (configText) {
     if (m) resolvedBaseUrl = m[1];
   }
 }
+if (preset.name && !flags["name"]) resolvedName = preset.name;
 resolvedName ??= "Documentation";
 
 // ── Known acronyms & casing for section titles ──────────────────────────────
@@ -408,6 +427,12 @@ for (const file of files) {
 
   if (isLinearUrl(mdUrl)) continue;
 
+  if (onlyPrefix &&
+      docUrlPath !== "/" + onlyPrefix &&
+      !docUrlPath.startsWith("/" + onlyPrefix + "/")) {
+    continue;
+  }
+
   const filename = path.basename(file, path.extname(file));
   let derivedTitle = title;
   if (!derivedTitle) {
@@ -462,7 +487,7 @@ const sectionOrder = [...sectionOrderRaw].sort((a, b) => {
   return a.localeCompare(b);
 });
 
-const introDesc = siteDesc ||
+const introDesc = siteDesc || preset.description ||
   "Walrus is a decentralized blob storage protocol built on Sui. " +
   "It provides robust, cost-effective storage for large binary objects " +
   "with high availability guarantees using erasure coding. " +
@@ -478,6 +503,11 @@ const contextNotes = [
 ];
 
 const OPTIONAL_SECTIONS = new Set(["Design", "Dev Guide", "Legal", "Tusky Migration Guide"]);
+
+// The llms-full.txt pointer targets the scoped copy when a prefix scope is set.
+const fullTxtUrl = resolvedBaseUrl
+  ? resolvedBaseUrl.replace(/\/$/, "") + (onlyPrefix ? `/${onlyPrefix}` : "") + "/llms-full.txt"
+  : "";
 
 // CHANGED: Single .md entry per page (no HTML duplicate)
 function formatEntry({ title, mdUrl, description }) {
@@ -558,18 +588,22 @@ function buildOutput(includeDescriptions, includeOptional, { includeFull = false
   }
   lines.push("");
 
-  if (includeFull && resolvedBaseUrl) {
+  if (includeFull && fullTxtUrl) {
     lines.push(
-      ...wrapLine(`> For the complete, unabridged page index see [llms-full.txt](${resolvedBaseUrl}/llms-full.txt).`, 0),
+      ...wrapLine(`> For the complete, unabridged page index see [llms-full.txt](${fullTxtUrl}).`, 0),
       ""
     );
   }
 
-  lines.push("Important notes:", "");
-  for (const note of contextNotes) {
-    lines.push(...wrapLine(note, 0));
+  // The context notes describe the core Walrus protocol; a prefix-scoped
+  // listing carries its own intro through --description instead.
+  if (!onlyPrefix) {
+    lines.push("Important notes:", "");
+    for (const note of contextNotes) {
+      lines.push(...wrapLine(note, 0));
+    }
+    lines.push("");
   }
-  lines.push("");
 
   for (const section of requiredSections) {
     lines.push(`## ${section}`, "");
@@ -613,9 +647,9 @@ if (output.length > TARGET_CHARS) {
   const ratio = TARGET_CHARS / output.length;
   const finalLines = [`# ${resolvedName}`, ""];
   finalLines.push(...wrapLine(`> ${introDesc}`, 0), "");
-  if (resolvedBaseUrl) {
+  if (fullTxtUrl) {
     finalLines.push(
-      ...wrapLine(`> For the complete, unabridged page index see [llms-full.txt](${resolvedBaseUrl}/llms-full.txt).`, 0),
+      ...wrapLine(`> For the complete, unabridged page index see [llms-full.txt](${fullTxtUrl}).`, 0),
       ""
     );
   }

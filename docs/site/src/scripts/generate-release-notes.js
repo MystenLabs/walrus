@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Generates a consolidated release notes page from three sources:
- *   1. Walrus blog posts (docs/blog/*.mdx)
- *   2. Walrus GitHub releases (MystenLabs/walrus)
- *   3. Walrus Memory GitHub releases (MystenLabs/MemWal)
+ * Generates a consolidated changelog from three sources:
+ *   1. Walrus GitHub releases (MystenLabs/walrus)
+ *   2. Walrus Memory GitHub releases (MystenLabs/MemWal)
+ *   3. Walrus Sites GitHub releases (MystenLabs/walrus-sites)
  *
- * Inspired by Sui's convert-release-notes.js.
+ * Each entry shows the editorial summary followed by linked
+ * individual changes from the GitHub release body.
+ *
  * Run: node src/scripts/generate-release-notes.js
  */
 
@@ -15,12 +17,13 @@ const fs = require("fs");
 const path = require("path");
 const https = require("https");
 
-const BLOG_DIR = path.resolve(__dirname, "../../../blog");
 const EDITORIAL_DIR = path.resolve(__dirname, "../../../editorial");
 const OUTPUT_DIR = path.resolve(__dirname, "../../../content/release-notes");
 const OUTPUT_HUB = path.resolve(__dirname, "../../../content/release-notes.mdx");
 const OUTPUT_WALRUS = path.resolve(OUTPUT_DIR, "walrus-platform.mdx");
 const OUTPUT_MEMORY = path.resolve(OUTPUT_DIR, "walrus-memory.mdx");
+const OUTPUT_SITES = path.resolve(OUTPUT_DIR, "walrus-sites.mdx");
+const OUTPUT_JSON = path.resolve(__dirname, "../data/changelog.json");
 
 // ── GitHub API helpers ─────────────────────────────────────────────
 
@@ -79,29 +82,21 @@ async function fetchAllPages(basePath) {
 // ── Content processing ─────────────────────────────────────────────
 
 function sanitizeForMDX(content) {
-  // Normalize line endings from GitHub API responses
   content = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-  // Fix common typos from upstream release bodies
   content = content.replace(/\boverriden\b/g, "overridden");
 
-  // Convert raw GitHub PR URLs to links
   content = content.replace(
     /(?<!\[#\d+\]\()https:\/\/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)(?!\))/g,
     "[#$3](https://github.com/$1/$2/pull/$3)",
   );
 
-  // Escape email-like angle brackets
   content = content.replace(/<([^>\s]+@[^>]+)>/g, "&lt;$1&gt;");
 
-  // Protect code blocks, then escape stray angle brackets
   const codeBlocks = [];
   content = content.replace(/(```[\s\S]*?```|`[^`]+`)/g, (match) => {
     codeBlocks.push(match);
     return `__CODE_BLOCK_${codeBlocks.length - 1}__`;
   });
-  // Escape all <word> patterns that look like placeholders or stray tags
-  // (but not valid HTML like <details>, <summary>, <a>, <br>, etc.)
   const validHtml = new Set([
     "a", "b", "i", "em", "strong", "code", "pre", "p", "br", "hr",
     "ul", "ol", "li", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -122,14 +117,6 @@ function sanitizeForMDX(content) {
   return content;
 }
 
-function bumpHeadings(content) {
-  // Convert all headings to h4 so they nest under the release h3
-  return content.replace(
-    /^(#{1,6})\s+(.*)$/gm,
-    (_, hashes, text) => `#### ${text.trim()}`,
-  );
-}
-
 function formatDate(isoDate) {
   if (!isoDate) return "";
   const d = new Date(isoDate);
@@ -140,43 +127,133 @@ function formatDate(isoDate) {
   });
 }
 
-// ── Source 1: Blog posts ───────────────────────────────────────────
+// ── Extract a summary paragraph from a GitHub release body ─────────
 
-function loadBlogPosts() {
-  if (!fs.existsSync(BLOG_DIR)) return [];
+function extractSummary(body) {
+  if (!body) return null;
 
-  const files = fs
-    .readdirSync(BLOG_DIR)
-    .filter((f) => f.endsWith(".mdx") || f.endsWith(".md"))
-    .sort()
-    .reverse(); // newest first by filename
+  const lines = body.split("\n");
 
-  return files.map((file) => {
-    const raw = fs.readFileSync(path.join(BLOG_DIR, file), "utf8");
-    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-    if (!fmMatch) return null;
+  // Try to find a "## Summary" section
+  let inSummary = false;
+  const summaryLines = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (/^#{1,3}\s+summary$/i.test(trimmed)) {
+      inSummary = true;
+      continue;
+    }
+    if (inSummary) {
+      if (/^#{1,6}\s+/.test(trimmed) || trimmed === "---") break;
+      summaryLines.push(line);
+    }
+  }
+  const summaryText = summaryLines.join("\n").trim();
+  if (summaryText) return summaryText;
 
-    const frontmatter = fmMatch[1];
-    const body = fmMatch[2].trim();
+  // Fallback: first non-empty paragraph that isn't a heading, rule,
+  // bullet, link-only line, or metadata
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("#")) continue;
+    if (trimmed === "---") continue;
+    if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) continue;
+    if (trimmed.startsWith("**Full Changelog**")) continue;
+    if (trimmed.startsWith("**Full Log**")) continue;
+    if (/^\[#\d+\]/.test(trimmed)) continue;
+    if (/^https?:\/\//.test(trimmed)) continue;
+    if (trimmed.length > 30) return trimmed;
+  }
 
-    const titleMatch = frontmatter.match(/title:\s*(.+)/);
-    const dateMatch = frontmatter.match(/date:\s*(.+)/);
-
-    const title = titleMatch
-      ? titleMatch[1].trim().replace(/^["']|["']$/g, "")
-      : file;
-    const date = dateMatch ? dateMatch[1].trim() : null;
-
-    return { title, date, body, source: "blog", file };
-  }).filter(Boolean);
+  return null;
 }
 
-// ── Editorial summaries (docs/editorial/*.md) ──────────────────
+// ── Extract linked changes from a GitHub release body ──────────────
+
+function extractLinkedChanges(body, repoSlug) {
+  if (!body) return [];
+
+  const changes = [];
+  const lines = body.split("\n");
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (
+      trimmed.startsWith("#") ||
+      trimmed === "---" ||
+      trimmed === "" ||
+      trimmed.startsWith("**Full Changelog**") ||
+      trimmed.startsWith("**Full Log**")
+    ) {
+      continue;
+    }
+
+    // ── Pattern A: MemWal changeset lines ──
+    const memwalMatch = trimmed.match(
+      /^[-*]\s+\[#(\d+)\]\((https:\/\/github\.com\/[^)]+)\)[\s\S]*?!\s*-\s+(.+)$/,
+    );
+    if (memwalMatch) {
+      changes.push({
+        text: sanitizeForMDX(memwalMatch[3].trim()),
+        url: memwalMatch[2],
+      });
+      continue;
+    }
+
+    // ── Pattern B: Bullet with linked PR ref at end ──
+    const bulletLinkedEnd = trimmed.match(
+      /^[-*]\s+(.+?)\s*\(\[#(\d+)\]\((https:\/\/github\.com\/[^)]+)\)\)\s*$/,
+    );
+    if (bulletLinkedEnd) {
+      let text = bulletLinkedEnd[1].replace(/^\*\*([^*]+)\*\*:\s*/, "$1: ");
+      changes.push({ text: sanitizeForMDX(text), url: bulletLinkedEnd[3] });
+      continue;
+    }
+
+    // ── Pattern C: Bullet with bare PR ref at end ──
+    const bulletBareEnd = trimmed.match(
+      /^[-*]\s+(.+?)\s*\(#(\d+)\)\s*$/,
+    );
+    if (bulletBareEnd) {
+      let text = bulletBareEnd[1].replace(/^\*\*([^*]+)\*\*:\s*/, "$1: ");
+      changes.push({
+        text: sanitizeForMDX(text),
+        url: `https://github.com/${repoSlug}/pull/${bulletBareEnd[2]}`,
+      });
+      continue;
+    }
+
+    // ── Pattern D: [#NNN](url): description ──
+    const linkedLine = trimmed.match(
+      /^\[#(\d+)\]\((https:\/\/github\.com\/[^)]+)\):\s*(.+)$/,
+    );
+    if (linkedLine) {
+      changes.push({ text: sanitizeForMDX(linkedLine[3].trim()), url: linkedLine[2] });
+      continue;
+    }
+
+    // ── Pattern E: Full URL: description ──
+    const fullUrlLine = trimmed.match(
+      /^(https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+):\s*(.+)$/,
+    );
+    if (fullUrlLine) {
+      changes.push({ text: sanitizeForMDX(fullUrlLine[2].trim()), url: fullUrlLine[1] });
+      continue;
+    }
+  }
+
+  return changes;
+}
+
+// ── Editorial summaries (docs/editorial/*.md) ──────────────────────
 
 function loadEditorialSummaries() {
   const walrus = new Map();
   const memwal = new Map();
-  if (!fs.existsSync(EDITORIAL_DIR)) return { walrus, memwal };
+  const sites = new Map();
+  if (!fs.existsSync(EDITORIAL_DIR)) return { walrus, memwal, sites };
 
   const files = fs
     .readdirSync(EDITORIAL_DIR)
@@ -184,39 +261,47 @@ function loadEditorialSummaries() {
 
   for (const file of files) {
     const raw = fs.readFileSync(path.join(EDITORIAL_DIR, file), "utf8");
-    // Strip frontmatter
-    const bodyMatch = raw.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
-    if (!bodyMatch) continue;
+    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+    if (!fmMatch) continue;
 
-    let body = bodyMatch[1].trim();
-    // Remove the leading "**Network** | Date" or "**Date**" line
+    const frontmatter = fmMatch[1];
+    let body = fmMatch[2].trim();
     body = body.replace(/^\*\*[^*]+\*\*(\s*\|.*)?(\n\n?|\n)/, "").trim();
     if (!body) continue;
+
+    const titleMatch = frontmatter.match(/title:\s*(.+)/);
+    const title = titleMatch
+      ? titleMatch[1].trim().replace(/^["']|["']$/g, "")
+      : null;
 
     // Walrus platform: walrus-v1.47.1.md → 1.47.1
     const walrusMatch = file.match(/^walrus-v(\d+\.\d+\.\d+)\.md$/);
     if (walrusMatch) {
-      walrus.set(walrusMatch[1], body);
+      walrus.set(walrusMatch[1], { title, body });
       continue;
     }
 
-    // MemWal packages: memwal-sdk-v0.0.7.md → sdk|0.0.7
-    // memwal-mcp-v0.0.5.md → mcp|0.0.5
-    // memwal-python-v0.1.4.md → python|0.1.4
-    // memwal-openclaw-v0.0.5.md → openclaw|0.0.5
+    // MemWal packages
     const memwalMatch = file.match(
       /^memwal-(sdk|mcp|python|openclaw)-v(\d+\.\d+\.\d+)\.md$/,
     );
     if (memwalMatch) {
       const key = `${memwalMatch[1]}|${memwalMatch[2]}`;
-      memwal.set(key, body);
+      memwal.set(key, { title, body });
+      continue;
+    }
+
+    // Walrus Sites: walrus-sites-v2.12.0.md → 2.12.0
+    const sitesMatch = file.match(/^walrus-sites-v(\d+\.\d+\.\d+)\.md$/);
+    if (sitesMatch) {
+      sites.set(sitesMatch[1], { title, body });
     }
   }
 
-  return { walrus, memwal };
+  return { walrus, memwal, sites };
 }
 
-// ── Source 2: Walrus GitHub releases ───────────────────────────────
+// ── Shared helpers ─────────────────────────────────────────────────
 
 function extractNetwork(tag) {
   const lower = tag.toLowerCase();
@@ -244,13 +329,14 @@ function versionKey(v) {
   return `${v.major}.${v.minor}.${v.patch}`;
 }
 
+// ── Source 1: Walrus GitHub releases ───────────────────────────────
+
 async function loadWalrusReleases(editorialWalrus = new Map()) {
   console.log("  Fetching MystenLabs/walrus releases...");
   const releases = await fetchAllPages(
     "/repos/MystenLabs/walrus/releases",
   );
 
-  // Group by version, prefer mainnet over testnet
   const byVersion = new Map();
 
   for (const r of releases) {
@@ -278,10 +364,8 @@ async function loadWalrusReleases(editorialWalrus = new Map()) {
     else if (network === "Testnet" && !entry.testnet) entry.testnet = data;
   }
 
-  // Convert to flat list, sorted newest first
   const results = [];
   for (const [, entry] of byVersion) {
-    // Prefer mainnet, fall back to testnet
     const rel = entry.mainnet || entry.testnet;
     if (!rel) continue;
     // Skip releases with an empty body ONLY when no editorial summary
@@ -310,17 +394,25 @@ async function loadWalrusReleases(editorialWalrus = new Map()) {
     return vb.patch - va.patch;
   });
 
-  console.log(`  Found ${results.length} Walrus releases with content`);
+  console.log(`  Found ${results.length} Walrus releases`);
   return results;
 }
 
-// ── Source 3: MemWal GitHub releases ───────────────────────────────
+// ── Source 2: MemWal GitHub releases ───────────────────────────────
 
 function parseMemWalPackage(tag) {
-  // Tags like @mysten-incubation/memwal@0.0.7 or memwal-python@0.1.4
   const match = tag.match(/^(.+)@(\d+\.\d+\.\d+)$/);
   if (!match) return null;
   return { package: match[1], version: match[2] };
+}
+
+function memwalCategoryKey(pkg) {
+  const lower = (pkg || "").toLowerCase();
+  if (lower.includes("mcp")) return "mcp";
+  if (lower.includes("python")) return "python";
+  if (lower.includes("oc-") || lower.includes("openclaw")) return "openclaw";
+  if (lower.includes("memwal")) return "sdk";
+  return "other";
 }
 
 async function loadMemWalReleases() {
@@ -337,7 +429,6 @@ async function loadMemWalReleases() {
     if (!parsed) continue;
     if (!r.body || r.body.trim().length < 20) continue;
 
-    // Clean up package name for display
     let displayName = parsed.package
       .replace("@mysten-incubation/", "")
       .replace("memwal-", "Walrus Memory ")
@@ -364,27 +455,91 @@ async function loadMemWalReleases() {
     });
   }
 
-  // Sort by date descending
   results.sort(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
 
-  console.log(`  Found ${results.length} Walrus Memory releases with content`);
+  console.log(`  Found ${results.length} Walrus Memory releases`);
   return results;
 }
 
-// ── Build the page ─────────────────────────────────────────────────
+// ── Source 3: Walrus Sites GitHub releases ─────────────────────────
+
+async function loadWalrusSitesReleases() {
+  console.log("  Fetching MystenLabs/walrus-sites releases...");
+  const releases = await fetchAllPages(
+    "/repos/MystenLabs/walrus-sites/releases",
+  );
+
+  const results = [];
+  for (const r of releases) {
+    if (r.draft) continue;
+    const tag = r.tag_name;
+    const v = parseVersion(tag);
+    if (!v) continue;
+
+    results.push({
+      title: `Walrus Sites ${cleanTag(tag)}`,
+      date: r.published_at,
+      body: r.body || "",
+      source: "walrus-sites",
+      url: r.html_url,
+      tag,
+      version: v,
+    });
+  }
+
+  results.sort((a, b) => {
+    const va = a.version, vb = b.version;
+    if (va.major !== vb.major) return vb.major - va.major;
+    if (va.minor !== vb.minor) return vb.minor - va.minor;
+    return vb.patch - va.patch;
+  });
+
+  console.log(`  Found ${results.length} Walrus Sites releases`);
+  return results;
+}
+
+// ── Render a single release entry ──────────────────────────────────
+
+function renderEntry({ heading, badge, date, url, editorial, changes }) {
+  let out = `### ${heading}\n\n`;
+  const dateStr = formatDate(date);
+  const parts = [];
+  if (badge) parts.push(`\`${badge}\``);
+  if (dateStr) parts.push(dateStr);
+  parts.push(`[GitHub](${url})`);
+  out += parts.join(" | ") + "\n\n";
+
+  if (editorial) {
+    out += editorial + "\n\n";
+  }
+
+  if (changes.length > 0) {
+    out += `#### Changes\n\n`;
+    for (const c of changes) {
+      out += `- [${c.text}](${c.url})\n`;
+    }
+    out += "\n";
+  }
+
+  out += "---\n\n";
+  return out;
+}
+
+// ── Build the pages ───────────────────────────────────────────────
 
 async function main() {
   console.log("Generating release notes...\n");
 
-  // Load all sources
   const editorial = loadEditorialSummaries();
   console.log(`  Found ${editorial.walrus.size} Walrus editorial summaries`);
   console.log(`  Found ${editorial.memwal.size} Walrus Memory editorial summaries`);
+  console.log(`  Found ${editorial.sites.size} Walrus Sites editorial summaries`);
 
   let walrusReleases = [];
   let memwalReleases = [];
+  let sitesReleases = [];
 
   try {
     walrusReleases = await loadWalrusReleases(editorial.walrus);
@@ -409,13 +564,14 @@ async function main() {
   try {
     memwalReleases = await loadMemWalReleases();
   } catch (err) {
-    console.warn(
-      "  Warning: could not fetch MemWal releases:",
-      err.message,
-    );
+    console.warn("  Warning: could not fetch MemWal releases:", err.message);
   }
 
-  // ── Build MDX output (split across three files) ──
+  try {
+    sitesReleases = await loadWalrusSitesReleases();
+  } catch (err) {
+    console.warn("  Warning: could not fetch Walrus Sites releases:", err.message);
+  }
 
   if (!fs.existsSync(OUTPUT_DIR)) {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -424,30 +580,32 @@ async function main() {
   // ── Hub page ──
   const hub = `---
 title: Release Notes
-description: 'Release notes for Walrus, Walrus Memory, and related tools.'
+description: 'Release notes for Walrus, Walrus Memory, and Walrus Sites.'
 displayed_sidebar: null
 hide_table_of_contents: true
 questions:
   - What changed in the latest Walrus release?
   - Where can I find Walrus release history?
   - What breaking changes should I be aware of?
-answer: 'Release notes for Walrus, Walrus Memory, and related tools.'
+answer: 'Release notes for Walrus, Walrus Memory, and Walrus Sites.'
 ---
 
 # Release Notes
 
-- [**Walrus Platform**](release-notes/walrus-platform) — Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases).
+- [**Walrus**](release-notes/walrus-platform) — Release notes from [Walrus](https://github.com/MystenLabs/walrus/releases).
 - [**Walrus Memory**](release-notes/walrus-memory) — Release notes from
   [Walrus Memory](https://github.com/MystenLabs/MemWal/releases),
   including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+- [**Walrus Sites**](release-notes/walrus-sites) — Release notes from
+  [Walrus Sites](https://github.com/MystenLabs/walrus-sites/releases).
 `;
 
   fs.writeFileSync(OUTPUT_HUB, hub, "utf8");
   console.log(`\nWrote ${OUTPUT_HUB}`);
 
-  // ── Walrus Platform page ──
+  // ── Walrus page ──
   let walrusMdx = `---
-title: Walrus Platform Release Notes
+title: Walrus release notes
 description: Release notes for the Walrus decentralized storage platform.
 displayed_sidebar: null
 hide_table_of_contents: true
@@ -462,28 +620,21 @@ answer: Release notes for the Walrus decentralized storage platform.
 
   if (walrusReleases.length > 0) {
     for (const rel of walrusReleases) {
-      const networkBadge =
-        rel.network === "Mainnet" ? "Mainnet" : "Testnet";
-      const dateStr = formatDate(rel.date);
-      const link = `[GitHub](${rel.url})`;
+      const vKey = versionKey(rel.version);
+      const ed = editorial.walrus.get(vKey);
+      const changes = extractLinkedChanges(rel.body, "MystenLabs/walrus");
 
-      walrusMdx += `### ${rel.title}\n\n`;
-      walrusMdx += `\`${networkBadge}\` ${dateStr} | ${link}\n\n`;
-
-      // Prepend editorial summary if available
-      const vKey = `${rel.version.major}.${rel.version.minor}.${rel.version.patch}`;
-      const walrusEditorial = editorial.walrus.get(vKey);
-      if (walrusEditorial) {
-        walrusMdx += `<div className="release-editorial">\n\n${walrusEditorial}\n\n</div>\n\n`;
-      }
-
-      let body = sanitizeForMDX(rel.body);
-      body = bumpHeadings(body);
-      body = body.replace(/\n{3,}/g, "\n\n").trim();
-      walrusMdx += body + "\n\n---\n\n";
+      walrusMdx += renderEntry({
+        heading: ed?.title || rel.title,
+        badge: rel.network === "Mainnet" ? "Mainnet" : "Testnet",
+        date: rel.date,
+        url: rel.url,
+        editorial: ed?.body || extractSummary(rel.body),
+        changes,
+      });
     }
   } else {
-    walrusMdx += `No Walrus platform releases found.\n\n`;
+    walrusMdx += `No Walrus releases found.\n\n`;
   }
 
   fs.writeFileSync(OUTPUT_WALRUS, walrusMdx, "utf8");
@@ -491,7 +642,7 @@ answer: Release notes for the Walrus decentralized storage platform.
 
   // ── Walrus Memory page (with sub-tabs) ──
   let memoryMdx = `---
-title: Walrus Memory Release Notes
+title: Walrus Memory release notes
 description: 'Release notes for Walrus Memory, MCP, TypeScript SDK, Python SDK, and OpenClaw.'
 displayed_sidebar: null
 hide_table_of_contents: true
@@ -505,7 +656,6 @@ answer: 'Release notes for Walrus Memory, MCP, TypeScript SDK, Python SDK, and O
 `;
 
   if (memwalReleases.length > 0) {
-    // Group by package category
     const categories = {
       mcp: { label: "MCP", releases: [] },
       sdk: { label: "TypeScript SDK", releases: [] },
@@ -529,7 +679,6 @@ answer: 'Release notes for Walrus Memory, MCP, TypeScript SDK, Python SDK, and O
       }
     }
 
-    // Only show categories that have releases
     const activeCats = Object.entries(categories).filter(
       ([, cat]) => cat.releases.length > 0,
     );
@@ -541,24 +690,17 @@ answer: 'Release notes for Walrus Memory, MCP, TypeScript SDK, Python SDK, and O
       memoryMdx += `<TabItem value="${key}" label="${cat.label}"${isFirst ? " default" : ""}>\n\n`;
 
       for (const rel of cat.releases) {
-        const dateStr = formatDate(rel.date);
-        const link = `[GitHub](${rel.url})`;
+        const ed = editorial.memwal.get(`${key}|${rel.version}`);
+        const changes = extractLinkedChanges(rel.body, "MystenLabs/MemWal");
 
-        memoryMdx += `### ${rel.title}\n\n`;
-        memoryMdx += `${dateStr} | ${link}\n\n`;
-
-        // Prepend editorial summary if available
-        const memwalEditorial = editorial.memwal.get(
-          `${key}|${rel.version}`,
-        );
-        if (memwalEditorial) {
-          memoryMdx += `<div className="release-editorial">\n\n${memwalEditorial}\n\n</div>\n\n`;
-        }
-
-        let body = sanitizeForMDX(rel.body);
-        body = bumpHeadings(body);
-        body = body.replace(/\n{3,}/g, "\n\n").trim();
-        memoryMdx += body + "\n\n---\n\n";
+        memoryMdx += renderEntry({
+          heading: ed?.title || rel.title,
+          badge: null,
+          date: rel.date,
+          url: rel.url,
+          editorial: ed?.body || extractSummary(rel.body),
+          changes,
+        });
       }
 
       memoryMdx += `</TabItem>\n\n`;
@@ -571,8 +713,101 @@ answer: 'Release notes for Walrus Memory, MCP, TypeScript SDK, Python SDK, and O
 
   fs.writeFileSync(OUTPUT_MEMORY, memoryMdx, "utf8");
   console.log(`Wrote ${OUTPUT_MEMORY}`);
+
+  // ── Walrus Sites page ──
+  let sitesMdx = `---
+title: Walrus Sites release notes
+description: Release notes for Walrus Sites.
+displayed_sidebar: null
+hide_table_of_contents: true
+questions:
+  - What changed in the latest Walrus Sites release?
+  - Where can I find Walrus Sites release history?
+answer: Release notes for Walrus Sites.
+---
+
+`;
+
+  if (sitesReleases.length > 0) {
+    for (const rel of sitesReleases) {
+      const vKey = versionKey(rel.version);
+      const ed = editorial.sites.get(vKey);
+      const changes = extractLinkedChanges(rel.body, "MystenLabs/walrus-sites");
+
+      sitesMdx += renderEntry({
+        heading: ed?.title || rel.title,
+        badge: null,
+        date: rel.date,
+        url: rel.url,
+        editorial: ed?.body || extractSummary(rel.body),
+        changes,
+      });
+    }
+  } else {
+    sitesMdx += `No Walrus Sites releases found.\n\n`;
+  }
+
+  fs.writeFileSync(OUTPUT_SITES, sitesMdx, "utf8");
+  console.log(`Wrote ${OUTPUT_SITES}`);
+
+  // ── Generate JSON for the changelog page component ──
+
+  const allEntries = [];
+
+  for (const rel of walrusReleases) {
+    const vKey = versionKey(rel.version);
+    const ed = editorial.walrus.get(vKey);
+    allEntries.push({
+      id: `walrus-${rel.tag}`,
+      date: rel.date,
+      category: "walrus",
+      title: ed?.title || rel.title,
+      description: ed?.body || extractSummary(rel.body),
+      badge: rel.network,
+      githubUrl: rel.url,
+      changes: extractLinkedChanges(rel.body, "MystenLabs/walrus"),
+    });
+  }
+
+  for (const rel of memwalReleases) {
+    const catKey = memwalCategoryKey(rel.package);
+    const ed = editorial.memwal.get(`${catKey}|${rel.version}`);
+    allEntries.push({
+      id: `memwal-${rel.tag}`,
+      date: rel.date,
+      category: "walrus-memory",
+      title: ed?.title || rel.title,
+      description: ed?.body || extractSummary(rel.body),
+      badge: null,
+      githubUrl: rel.url,
+      changes: extractLinkedChanges(rel.body, "MystenLabs/MemWal"),
+    });
+  }
+
+  for (const rel of sitesReleases) {
+    const vKey = versionKey(rel.version);
+    const ed = editorial.sites.get(vKey);
+    allEntries.push({
+      id: `sites-${rel.tag}`,
+      date: rel.date,
+      category: "walrus-sites",
+      title: ed?.title || rel.title,
+      description: ed?.body || extractSummary(rel.body),
+      badge: null,
+      githubUrl: rel.url,
+      changes: extractLinkedChanges(rel.body, "MystenLabs/walrus-sites"),
+    });
+  }
+
+  allEntries.sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+  );
+
+  fs.writeFileSync(OUTPUT_JSON, JSON.stringify(allEntries, null, 2), "utf8");
+  console.log(`Wrote ${OUTPUT_JSON} (${allEntries.length} entries)`);
+
   console.log(
-    `  ${walrusReleases.length} Walrus releases + ${memwalReleases.length} Memory releases`,
+    `\n  ${walrusReleases.length} Walrus + ${memwalReleases.length} Memory + ${sitesReleases.length} Sites releases`,
   );
 }
 
