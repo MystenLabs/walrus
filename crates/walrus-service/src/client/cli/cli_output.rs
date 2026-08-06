@@ -24,7 +24,7 @@ use walrus_sdk::{
     node_client::{
         client_types::{self, StoredQuiltPatch},
         resource::RegisterBlobOp,
-        responses::{BlobStoreResult, BlobStoreResultWithPath, QuiltStoreResult},
+        responses::{BlobStoreResult, BlobStoreResultWithPath, EventOrObjectId, QuiltStoreResult},
     },
 };
 use walrus_storage_node_client::api::{BlobStatus, DeletableCounts, EventProgress};
@@ -336,6 +336,101 @@ impl CliOutput for StoreQuiltDryRunOutput {
             self.quilt_blob_output.blob_id,
         ))
         .printstd();
+    }
+}
+
+/// Prints download URLs, through the given public aggregator, for the successfully stored blobs.
+pub(crate) fn print_download_urls_for_blobs(
+    results: &[BlobStoreResultWithPath],
+    aggregator_url: &str,
+) {
+    print_download_url_entries(&blob_download_url_entries(results, aggregator_url));
+}
+
+/// Prints download URLs, through the given public aggregator, for the files stored in the quilt.
+pub(crate) fn print_download_urls_for_quilt(result: &QuiltStoreResult, aggregator_url: &str) {
+    print_download_url_entries(&quilt_download_url_entries(result, aggregator_url));
+}
+
+/// Returns `(name, download URL)` pairs, through the given public aggregator, for the
+/// successfully stored blobs.
+pub(crate) fn blob_download_url_entries(
+    results: &[BlobStoreResultWithPath],
+    aggregator_url: &str,
+) -> Vec<(String, String)> {
+    results
+        .iter()
+        .filter_map(|result| {
+            let url_path = blob_download_url_path(&result.blob_store_result)?;
+            Some((
+                result.path.display().to_string(),
+                format!("{aggregator_url}{url_path}"),
+            ))
+        })
+        .collect()
+}
+
+/// Returns `(name, download URL)` pairs, through the given public aggregator, for the files
+/// stored in the quilt.
+pub(crate) fn quilt_download_url_entries(
+    result: &QuiltStoreResult,
+    aggregator_url: &str,
+) -> Vec<(String, String)> {
+    if blob_download_url_path(&result.blob_store_result).is_none() {
+        return Vec::new();
+    }
+    result
+        .stored_quilt_blobs
+        .iter()
+        .map(|patch| {
+            (
+                patch.identifier.clone(),
+                format!(
+                    "{aggregator_url}/v1/blobs/by-quilt-patch-id/{}",
+                    patch.quilt_patch_id
+                ),
+            )
+        })
+        .collect()
+}
+
+/// Returns the aggregator URL path for the stored blob, if it is available on Walrus.
+///
+/// Prefers the object-ID-based path, so that response headers (such as `content-disposition`)
+/// configured through blob attributes are served by the aggregator; falls back to the
+/// blob-ID-based path if no blob object is known.
+fn blob_download_url_path(result: &BlobStoreResult) -> Option<String> {
+    match result {
+        BlobStoreResult::NewlyCreated { blob_object, .. } => {
+            Some(format!("/v1/blobs/by-object-id/{}", blob_object.id))
+        }
+        BlobStoreResult::AlreadyCertified {
+            blob_id,
+            event_or_object,
+            ..
+        } => match event_or_object {
+            EventOrObjectId::Object(object_id) => {
+                Some(format!("/v1/blobs/by-object-id/{object_id}"))
+            }
+            EventOrObjectId::Event(_) => Some(format!("/v1/blobs/{blob_id}")),
+        },
+        BlobStoreResult::MarkedInvalid { .. } | BlobStoreResult::Error { .. } => None,
+    }
+}
+
+/// Prints the given `(name, download URL)` pairs, if any, under a common header.
+pub(crate) fn print_download_url_entries(entries: &[(String, String)]) {
+    if entries.is_empty() {
+        return;
+    }
+    println!(
+        "{}",
+        "Download the stored files via the public aggregator:"
+            .bold()
+            .walrus_purple()
+    );
+    for (name, url) in entries {
+        println!("  {name}: {url}");
     }
 }
 

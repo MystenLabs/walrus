@@ -42,7 +42,7 @@ use walrus_core::{
 };
 use walrus_sdk::{
     SuiReadClient,
-    config::load_configuration,
+    config::{default_configuration_for_rpc_url, load_configuration},
     error::ClientErrorKind,
     node_client::{
         NodeCommunicationFactory,
@@ -81,7 +81,7 @@ use walrus_sdk::{
 };
 use walrus_storage_node_client::api::BlobStatus;
 use walrus_sui::{client::rpc_client, wallet::Wallet};
-use walrus_utils::{load_from_yaml_str, metrics::Registry, read_blob_from_file};
+use walrus_utils::{is_internal_run, load_from_yaml_str, metrics::Registry, read_blob_from_file};
 
 use super::{
     args::{
@@ -104,6 +104,12 @@ use super::{
         UserConfirmation,
     },
     backfill::{pull_archive_blobs, run_blob_backfill},
+    cli_output::{
+        blob_download_url_entries,
+        print_download_urls_for_blobs,
+        print_download_urls_for_quilt,
+        quilt_download_url_entries,
+    },
 };
 use crate::{
     client::{
@@ -221,6 +227,25 @@ fn default_child_process_uploads(config: &ClientConfig) -> bool {
     known.testnet.as_ref() == Some(&config_ids)
 }
 
+const MAINNET_PUBLIC_AGGREGATOR_URL: &str = "https://aggregator.walrus-mainnet.walrus.space";
+const TESTNET_PUBLIC_AGGREGATOR_URL: &str = "https://aggregator.walrus-testnet.walrus.space";
+
+/// Returns the public aggregator URL if the config corresponds to a known network.
+fn public_aggregator_url(config: &ClientConfig) -> Option<&'static str> {
+    let config_ids = ContractIds {
+        system_object: config.contract_config.system_object,
+        staking_object: config.contract_config.staking_object,
+    };
+    let known = known_network_ids();
+    if known.mainnet.as_ref() == Some(&config_ids) {
+        return Some(MAINNET_PUBLIC_AGGREGATOR_URL);
+    }
+    if known.testnet.as_ref() == Some(&config_ids) {
+        return Some(TESTNET_PUBLIC_AGGREGATOR_URL);
+    }
+    None
+}
+
 /// A helper struct to run commands for the Walrus client.
 #[allow(missing_debug_implementations)]
 pub struct ClientCommandRunner {
@@ -243,7 +268,7 @@ impl ClientCommandRunner {
         gas_budget: Option<u64>,
         json: bool,
     ) -> Self {
-        let config = load_configuration(config_path.as_ref(), context);
+        let mut config = load_configuration(config_path.as_ref(), context);
         let wallet_config = wallet_override
             .as_ref()
             .map(WalletConfig::from_path)
@@ -258,6 +283,25 @@ impl ClientCommandRunner {
                 .ok()
                 .and_then(|config| config.communication_config.sui_client_request_timeout),
         );
+
+        // If no configuration file was found and none was specified explicitly, fall back to the
+        // built-in configuration for the network (Mainnet or Testnet) the wallet's RPC URL
+        // points to.
+        if config.is_err()
+            && config_path.is_none()
+            && context.is_none()
+            && let Ok(wallet) = &wallet
+            && let Some((derived_config, network)) =
+                default_configuration_for_rpc_url(wallet.get_rpc_url())
+        {
+            if !is_internal_run() {
+                tracing::info!(
+                    "no Walrus configuration file found; using the built-in {network} \
+                    configuration derived from the wallet's RPC URL"
+                );
+            }
+            config = Ok(derived_config);
+        }
 
         Self {
             wallet,
@@ -1057,6 +1101,16 @@ impl ClientCommandRunner {
                 }
             }
 
+            if let Some(aggregator_url) = public_aggregator_url(&config) {
+                let entries = blob_download_url_entries(&results, aggregator_url);
+                if !entries.is_empty()
+                    && let Err(err) =
+                        emit_child_event(&ChildUploaderEvent::DownloadUrls { entries })
+                {
+                    tracing::warn!(%err, "failed to emit download urls");
+                }
+            }
+
             if let Err(err) = emit_child_event(&ChildUploaderEvent::Done {
                 ok: true,
                 error: None,
@@ -1077,7 +1131,14 @@ impl ClientCommandRunner {
             );
         }
 
-        results.print_output(self.json)
+        results.print_output(self.json)?;
+        if !self.json
+            && !internal_run
+            && let Some(aggregator_url) = public_aggregator_url(&config)
+        {
+            print_download_urls_for_blobs(&results, aggregator_url);
+        }
+        Ok(())
     }
 
     #[tracing::instrument(skip_all)]
@@ -1411,6 +1472,16 @@ impl ClientCommandRunner {
                     _ => (0, 0, 0, 0),
                 };
 
+            if let Some(aggregator_url) = public_aggregator_url(&config) {
+                let entries = quilt_download_url_entries(&result, aggregator_url);
+                if !entries.is_empty()
+                    && let Err(err) =
+                        emit_child_event(&ChildUploaderEvent::DownloadUrls { entries })
+                {
+                    tracing::warn!(%err, "failed to emit download urls");
+                }
+            }
+
             if let Err(err) = emit_child_event(&ChildUploaderEvent::Done {
                 ok: true,
                 error: None,
@@ -1425,7 +1496,14 @@ impl ClientCommandRunner {
             internal_run_ctx.await_tail_handles().await;
         }
 
-        result.print_output(self.json)
+        result.print_output(self.json)?;
+        if !self.json
+            && !internal_run
+            && let Some(aggregator_url) = public_aggregator_url(&config)
+        {
+            print_download_urls_for_quilt(&result, aggregator_url);
+        }
+        Ok(())
     }
 
     fn load_blobs_for_quilt(
