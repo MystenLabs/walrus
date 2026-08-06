@@ -2,6 +2,16 @@
 
 Blobs can be interacted with through familiar file system operations such as uploading, reading, downloading, and deleting.
 
+  
+  
+    You buy storage on Walrus for a fixed number of epochs, so every blob has a lifetime.
+    The client acquires storage on Sui, registers the blob, encodes it into slivers,
+    distributes them to the committee, collects a write quorum of 2f + 1 signed confirmations,
+    and posts the availability certificate to Sui. Walrus then keeps the blob retrievable
+    for the purchased period. Extend the period to keep it available, or it
+    expires and the system reclaims the space.
+  
+
 ## Upload
 
 Use the following command to upload a file to Walrus

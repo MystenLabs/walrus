@@ -32,7 +32,7 @@ The fastest way to get Walrus Memory running is through the TypeScript SDK.
 The following endpoints are provided as a public good by Walrus Foundation.
 :::
 
-    | App | URL |
+    | **App** | **URL** |
     | --- | --- |
     | **Walrus Memory Playground** | [memory.walrus.xyz](https://memory.walrus.xyz) |
 
@@ -46,7 +46,7 @@ The following endpoints are provided as a public good by Walrus Foundation.
 Following endpoints are provided as public good by Walrus Foundation.
 :::
 
-    | Network | Relayer URL |
+    | **Network** | **Relayer URL** |
     | --- | --- |
     | **Production** (Mainnet) | `https://relayer.memory.walrus.xyz` |
     | **Staging** (Testnet) | `https://relayer-staging.memory.walrus.xyz` |
@@ -56,9 +56,9 @@ Following endpoints are provided as public good by Walrus Foundation.
     Set up the SDK with your delegate key, account ID, and relayer URL:
 
     ```ts
-    import { Walrus Memory } from "@mysten-incubation/memwal";
+    import { MemWal } from "@mysten-incubation/memwal";
 
-    const memwal = Walrus Memory.create({
+    const memwal = MemWal.create({
       // Load your own credentials from the environment; don't hardcode an example ID.
       key: process.env.MEMWAL_KEY ?? "<your-ed25519-private-key>",
       accountId: process.env.MEMWAL_ACCOUNT_ID ?? "<your-memwal-account-id>",
@@ -89,4 +89,6 @@ Use the `accountId` **you** generated in the previous step. Recall is scoped per
     console.log(result.results);
     ```
 
-    That's it - you're up and running.
+    You're up and running.
+
+If Walrus Memory is useful to you, [a star on the GitHub repo ⭐](https://github.com/MystenLabs/MemWal) helps others find it.

@@ -1,15 +1,12 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-> **Note**
->
-> Walrus Memory is currently in beta and actively evolving. While fully usable today, the team continues to refine the developer experience and operational guidance. the team welcomes feedback from early builders as the team continues to improve the product.
 Walrus Memory enables AI agents to operate reliably across apps and sessions, without losing context. Portable, verifiable, and fully controlled by you, it's the memory layer that lets agents handle complex workflows and coordinate using data they can trust.
 
   
 
 **Portable by Design**
 
-Memory operates across agents, apps, and workflows, not locked to a single runtime or provider
+Memory operates across agents, apps, and workflows without binding to a single runtime or provider
 
   
 
@@ -27,16 +24,20 @@ Shared memory spaces help agents coordinate across long-running and multi-step w
 
 **Verifiable Integrity**
 
-Memory integrity can be independently verified without centralized trust
+Anyone can independently verify memory integrity without centralized trust
 
 ## Motivation
 
-AI agents today lose context between sessions, every conversation starts from scratch. When memory does exist, it's locked inside platform-specific databases that the user doesn't control. Walrus Memory solves this by giving agents:
+AI agents today lose context between sessions: every conversation starts from scratch. When memory does exist, vendors lock it inside platform-specific databases that the user doesn't control. Walrus Memory solves this by giving agents:
 
-- **Portable memory**, memory persists outside prompts and context windows, moving across agents, apps, and workflows
-- **Full owner control**, programmable access control and explicit ownership, with delegate access for agents and workflows
-- **Agent coordination**, shared memory spaces help agents coordinate across long-running and multi-step workflows
-- **Verifiable integrity**, memory integrity can be independently verified without centralized trust
+- **Portable memory:** Memory persists outside prompts and context windows, moving across agents, apps, and workflows.
+- **Full owner control:** Programmable access control and explicit ownership, with delegate access for agents and workflows.
+- **Agent coordination:** Shared memory spaces help agents coordinate across long-running and multi-step workflows.
+- **Verifiable integrity:** Anyone can independently verify memory integrity without centralized trust.
+
+## Features
+
+Walrus Memory groups its features into memory operations, ownership and access control, and infrastructure.
 
 ### Memory operations
 
@@ -56,7 +57,7 @@ Retrieve relevant memories using natural language queries. Finds the closest mat
 
 **Analyze**
 
-Extract structured facts from text automatically. Each fact is stored as a separate memory for more precise recall later.
+Extract structured facts from text automatically. Each fact lands as a separate memory for more precise recall later.
 
   
 
@@ -64,25 +65,25 @@ Extract structured facts from text automatically. Each fact is stored as a separ
 
 Query your memories and get an AI-generated answer with the relevant context attached. Combines recall with LLM reasoning.
 
-### Ownership  and  access control
+### Ownership and access control
 
   
 
 **Decentralized Storage**
 
-Blobs stored on Walrus, no single point of failure, no central operator holding your data.
+Walrus stores the blobs, with no single point of failure and no central operator holding your data.
 
   
 
 **Programmable Permissions**
 
-Ownership and access rules are enforced by Sui smart contracts, giving you explicit, programmable control over who can read and write.
+Sui smart contracts enforce ownership and access rules, giving you explicit, programmable control over who can read and write.
 
   
 
 **Delegate Access**
 
-Grant scoped access to other agents, users, or services, all managed onchain by the owner, enabling agent coordination and cross-app workflows.
+Grant scoped access to other agents, users, or services. The owner manages every grant onchain, enabling agent coordination and cross-app workflows.
 
 ### Infrastructure
 
@@ -100,34 +101,36 @@ Drop-in memory for Vercel AI SDK apps. Automatically saves and recalls context a
 
 ## What's included
 
-- **TypeScript SDK**: integrate memory into any app with a few lines of code
-- **Relayer**: handles storage and retrieval behind a basic API
-- **Smart Contract**: enforces ownership and delegate access onchain
-- **Indexer**: keeps onchain state synced for fast lookups
-- **Dashboard**: manage accounts, memory, and delegate keys visually
+- **TypeScript SDK:** Integrate memory into any app with a few lines of code.
+- **Relayer:** Handles storage and retrieval behind a basic API.
+- **Smart Contract:** Enforces ownership and delegate access onchain.
+- **Indexer:** Keeps onchain state synced for fast lookups.
+- **Dashboard:** Manage accounts, memory, and delegate keys visually.
 
 ## Use cases
 
 Walrus Memory fits any app where agents need memory that travels with them:
 
-- **AI chat apps**, capture valuable knowledge from conversations so agents remember context across sessions and apps
-- **Multi-agent workflows**, shared memory spaces let agents coordinate on task lists, knowledge bases, and coordination state
-- **Personal AI assistants**, build agents that learn and adapt over time, with memory the user fully controls
-- **Cross-app memory**, let users carry their memory between different apps and services, not locked to any single provider
-- **Note-taking and knowledge tools**, save user insights, summaries, and references as portable, verifiable memory
+- **AI chat apps:** Capture valuable knowledge from conversations so agents remember context across sessions and apps.
+- **Multi-agent workflows:** Shared memory spaces let agents coordinate on task lists, knowledge bases, and coordination state.
+- **Personal AI assistants:** Build agents that learn and adapt over time, with memory the user fully controls.
+- **Cross-app memory:** Let users carry their memory between different apps and services instead of binding them to a single provider.
+- **Note-taking and knowledge tools:** Save user insights, summaries, and references as portable, verifiable memory.
 
-And many more, check out the example apps below to see Walrus Memory in action.
+Check out the example apps below to see Walrus Memory in action.
 
 ## Example apps
 
 The repo ships with ready-to-run apps in the [`/apps`](https://github.com/MystenLabs/MemWal/tree/main/apps) directory:
 
-- **Playground**, dashboard demo for Walrus Memory
-- **Chatbot**, AI chat app with portable memory across sessions
-- **Noter**, note-taking tool that stores knowledge as verifiable memory
-- **Researcher**, research assistant that builds and recalls a knowledge base
+- **Playground:** Dashboard demo for Walrus Memory.
+- **Chatbot:** AI chat app with portable memory across sessions.
+- **Noter:** Note-taking tool that stores knowledge as verifiable memory.
+- **Researcher:** Research assistant that builds and recalls a knowledge base.
 
 See [Example Apps](/walrus-memory/examples/example-apps) for short code examples from each app.
+
+If Walrus Memory is useful to you, [a star on the GitHub repo ⭐](https://github.com/MystenLabs/MemWal) helps others find it.
 
 ## Explore the docs
 

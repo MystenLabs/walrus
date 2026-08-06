@@ -45,23 +45,24 @@ A shared object created at module publish time. It tracks all MemWalAccount obje
 
 A shared object representing a single user's account. It stores:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `owner` | `address` | The Sui wallet address that owns this account |
-| `delegate_keys` | `vector<DelegateKey>` | List of authorized Ed25519 delegate keys |
-| `created_at` | `u64` | Timestamp when the account was created (epoch ms) |
-| `active` | `bool` | Whether the account is active (false = frozen) |
+| Field               | Type                  | Description                                            |
+| ------------------- | --------------------- | ------------------------------------------------------ |
+| `owner`             | `address`             | The Sui wallet address that owns this account          |
+| `delegate_keys`     | `vector<DelegateKey>` | List of authorized Ed25519 delegate keys               |
+| `created_at`        | `u64`                 | Timestamp when the account was created (epoch ms)      |
+| `active`            | `bool`                | Whether the account is active (false = frozen)         |
+| `admin_quarantined` | `bool`                | Whether AdminCap containment blocks owner reactivation |
 
 ### `DelegateKey`
 
 A struct stored inside `MemWalAccount.delegate_keys`:
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `public_key` | `vector<u8>` | Ed25519 public key (32 bytes) |
-| `sui_address` | `address` | Sui address derived from this Ed25519 key |
-| `label` | `String` | Human-readable label (for example, , "MacBook Pro") |
-| `created_at` | `u64` | Timestamp when the key was added (epoch ms) |
+| Field         | Type         | Description                                 |
+| ------------- | ------------ | ------------------------------------------- |
+| `public_key`  | `vector<u8>` | Ed25519 public key (32 bytes)               |
+| `sui_address` | `address`    | Sui address derived from this Ed25519 key   |
+| `label`       | `String`     | Human-readable label (for example, , "MacBook Pro")  |
+| `created_at`  | `u64`        | Timestamp when the key was added (epoch ms) |
 
 ## Limits
 
@@ -69,45 +70,69 @@ A struct stored inside `MemWalAccount.delegate_keys`:
 
 ## Error codes
 
-| Code | Name | Description |
-|------|------|-------------|
-| 0 | `EDelegateKeyAlreadyExists` | Key already registered in this account |
-| 1 | `EDelegateKeyNotFound` | Key not found when trying to remove |
-| 2 | `ETooManyDelegateKeys` | Account has reached the 20-key limit |
-| 3 | `EAccountAlreadyExists` | Address already has an account |
-| 4 | `ENotOwner` | Caller is not the account owner |
-| 5 | `EInvalidPublicKeyLength` | Public key is not exactly 32 bytes |
-| 6 | `EAccountDeactivated` | Account is frozen, operation denied |
-| 100 | `ENoAccess` | Seal access denied, caller is neither owner nor delegate |
+| Code | Name                            | Description                                               |
+| ---- | ------------------------------- | --------------------------------------------------------- |
+| 0    | `EDelegateKeyAlreadyExists`     | Key already registered in this account                    |
+| 1    | `EDelegateKeyNotFound`          | Key not found when trying to remove                       |
+| 2    | `ETooManyDelegateKeys`          | Account has reached the 20-key limit                      |
+| 3    | `EAccountAlreadyExists`         | Address already has an account                            |
+| 4    | `ENotOwner`                     | Caller is not the account owner                           |
+| 5    | `EInvalidPublicKeyLength`       | Public key is not exactly 32 bytes                        |
+| 6    | `EAccountDeactivated`           | Account is frozen, operation denied                      |
+| 7    | `EWrongVersion`                 | Registry behavior version does not match this package     |
+| 12   | `EMigrationFinalized`           | The one-way migration latch is already closed             |
+| 13   | `ENotLegacyImported`            | Import-only operation targeted a native account           |
+| 14   | `EInvalidMigrationProof`        | Account or delegate is absent from the pinned manifest    |
+| 15   | `EAllowlistRootAlreadyPinned`   | A root must be corrected with `repin_allowlist_root`      |
+| 16   | `EAllowlistRootMismatch`        | MigrationCap root differs from the pinned root            |
+| 17   | `EAllowlistRootNotPinned`       | Migration cannot begin or finalize before root pinning    |
+| 18   | `EMigrationInProgress`          | Owner mutation is blocked until migration finalizes       |
+| 19   | retired                         | Previously blocked delegate hydration after quarantine    |
+| 20   | `EAccountQuarantined`           | Admin quarantine blocks owner reactivation                |
+| 21   | `EMigrationImportCountMismatch` | Imported totals differ from the pinned manifest totals    |
+| 22   | `EInvalidCompletionEvidence`    | Finalization digest or evidence lifetime is invalid       |
+| 23   | `ECompletionEvidenceExpired`    | Completion evidence expired before execution              |
+| 24   | `EAllowlistRepinAfterImport`    | Root/counts cannot be changed after any import            |
+| 100  | `ENoAccess`                     | Seal access denied, caller is neither owner nor delegate |
 
 ## Entry functions
 
-| Function | Description |
-|----------|-------------|
-| `create_account(registry, clock)` | Create a new MemWalAccount (one per address) |
-| `add_delegate_key(account, public_key, sui_address, label, clock)` | Add a delegate key (owner only) |
-| `remove_delegate_key(account, public_key)` | Remove a delegate key (owner only) |
-| `deactivate_account(account)` | Freeze the account, Seal access denied, keys locked (owner only) |
-| `reactivate_account(account)` | Unfreeze the account (owner only) |
-| `seal_approve(id, account)` | Seal policy, authorizes owner or delegate key holder to decrypt |
+| Function                                                         | Description                                                                                              |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `create_account(registry, clock)`                                | Create a new MemWalAccount (one per address)                                                             |
+| `add_delegate_key(account, registry, public_key, label, clock)`  | Add a delegate key; its Sui address is derived from the public key (owner only)                          |
+| `remove_delegate_key(account, registry, public_key)`             | Remove a delegate key (owner only)                                                                       |
+| `deactivate_account(account, registry)`                          | Freeze the account, Seal access and new delegate keys denied; removals remain available (owner only)    |
+| `reactivate_account(account, registry)`                          | Unfreeze the account unless Admin quarantine is active (owner only)                                      |
+| `admin_deactivate_account(admin, account)`                       | Quarantine and freeze a compromised account (AdminCap only)                                              |
+| `admin_clear_quarantine(admin, registry, account)`               | Release quarantine through the current registry version without reactivating the account (AdminCap only) |
+| `pin_allowlist_root(admin, registry, root, accounts, delegates)` | One-time commitment to the reviewed migration manifest and exact import totals                           |
+| `mint_migration_cap(admin, registry, root)`                      | Create proof-bound import authority for a migration worker                                               |
+| `legacy_import_account(cap, registry, ...)`                      | Import one manifest-proven V1 account without an owner signature                                         |
+| `legacy_import_delegate_key(cap, registry, account, ...)`        | Hydrate one manifest-proven V1 delegate; duplicate imports are no-ops                                    |
+| `finalize_migration(admin, registry, clock, digest, expiry)`     | Permanently close imports after exact totals and fresh completion evidence                               |
+| `seal_approve(id, registry, account)`                            | Seal policy, authorizes owner or delegate key holder to decrypt                                         |
 
 ## View functions
 
-| Function | Description |
-|----------|-------------|
-| `is_delegate(account, public_key)` | Check if a public key is an authorized delegate |
+| Function                             | Description                                      |
+| ------------------------------------ | ------------------------------------------------ |
+| `is_delegate(account, public_key)`   | Check if a public key is an authorized delegate  |
 | `is_delegate_address(account, addr)` | Check if a Sui address is an authorized delegate |
-| `owner(account)` | Get the owner address |
-| `delegate_count(account)` | Get the number of delegate keys |
-| `has_account(registry, addr)` | Check if an address already has an account |
-| `is_active(account)` | Check if the account is active |
+| `owner(account)`                     | Get the owner address                            |
+| `delegate_count(account)`            | Get the number of delegate keys                  |
+| `has_account(registry, addr)`        | Check if an address already has an account       |
+| `is_active(account)`                 | Check if the account is active                   |
+| `is_admin_quarantined(account)`      | Check whether Admin containment is active        |
 
 ## Events
 
-| Event | Emitted when |
-|-------|-------------|
-| `AccountCreated` | A new account is created |
-| `DelegateKeyAdded` | A delegate key is added to an account |
-| `DelegateKeyRemoved` | A delegate key is removed from an account |
-| `AccountDeactivated` | An account is frozen |
-| `AccountReactivated` | A frozen account is unfrozen |
+| Event                      | Emitted when                                            |
+| -------------------------- | ------------------------------------------------------- |
+| `AccountCreated`           | A new account is created                                |
+| `DelegateKeyAdded`         | A delegate key is added to an account                   |
+| `DelegateKeyRemoved`       | A delegate key is removed from an account               |
+| `AccountDeactivated`       | An account is frozen                                    |
+| `AccountReactivated`       | A frozen account is unfrozen                            |
+| `AccountQuarantined`       | Admin containment is applied                            |
+| `AccountQuarantineCleared` | Admin containment is released; the account stays frozen |

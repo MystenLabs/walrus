@@ -50,8 +50,8 @@ Sui smart contract as the on-chain index.
     pitfalls to avoid.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md):
     Blobs can be interacted with through familiar file system operations such as uploading,
-    reading, downloading, and deleting. Use the following command to upload a file to Walrus >
-    Danger > > All blobs stored in Walrus are public and discoverable by all.
+    reading, downloading, and deleting. You buy storage on Walrus for a fixed number of epochs, so
+    every blob has a lifetime.
 - [Public Aggregators And Publishers](https://docs.wal.app/docs/system-overview/public-aggregators-and-publishers.md):
     The Walrus client offers a daemon mode that runs a simple web server that provides HTTP
     interfaces you can use to store and read blobs in an aggregator or publisher role respectively.
@@ -408,9 +408,9 @@ Sui smart contract as the on-chain index.
 - [Quick Start](https://docs.wal.app/walrus-memory/getting-started/quick-start.md):
     The fastest way to get Walrus Memory running is through the TypeScript SDK.
 - [What Is Walrus Memory](https://docs.wal.app/walrus-memory/getting-started/what-is-walrus-memory.md):
-    > Note > > Walrus Memory is currently in beta and actively evolving. While fully usable today,
-    the team continues to refine the developer experience and operational guidance. the team
-    welcomes feedback from early builders as the team continues to improve the product.
+    Walrus Memory enables AI agents to operate reliably across apps and sessions, without losing
+    context. Portable, verifiable, and fully controlled by you, it's the memory layer that lets
+    agents handle complex workflows and coordinate using data they can trust.
 
 ## Walrus Memory: Fundamentals
 
@@ -466,9 +466,8 @@ Sui smart contract as the on-chain index.
     on Claude Code, Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
 - [Codex](https://docs.wal.app/walrus-memory/mcp/codex.md):
     Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
-    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools). [x]
-    Node.js 20+ [x] A Walrus Memory account. The first memory tool call opens a browser sign-in
-    (memwallogin).
+    it as MCP-only (recommended; just the tools, one config block, no repo to clone) or as a full
+    plugin (adds automatic-memory hooks, but currently requires cloning the repo).
 - [Cursor](https://docs.wal.app/walrus-memory/mcp/cursor.md):
     Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
     (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
@@ -533,7 +532,7 @@ Sui smart contract as the on-chain index.
     The smart contract (memwal:account) defines the onchain account model for Walrus Memory. It is
     a Move module deployed on Sui.
 - [Ownership And Permissions](https://docs.wal.app/walrus-memory/contract/ownership-and-permissions.md):
-    The owner is the Sui wallet address that created the MemWalAccount.
+    The owner is the Sui wallet address recorded by the MemWalAccount.
 
 ## Walrus Memory: Indexer
 
@@ -575,6 +574,13 @@ Sui smart contract as the on-chain index.
     withMemWal(model, options) | Field | Required | Notes | | --- | --- | --- | | key | yes |
     Delegate private key in hex | | accountId | yes | MemWalAccount object ID on Sui | | serverUrl
     | no | Relayer URL.
+- [Console Identity Link](https://docs.wal.app/walrus-memory/reference/console-identity-link.md):
+    Console (Walrus Console) and Walrus Memory (WM) are separate Enoki zkLogin applications.
+- [Enoki Connect Requirements](https://docs.wal.app/walrus-memory/reference/enoki-connect-requirements.md):
+    Enoki Connect lets an external application (a "connecting app," for example, Console)
+    authenticate its users through Walrus Memory's Enoki-hosted identity flow. This requires
+    configuration on two sides: WM's own Enoki app settings, and each connecting app's origin being
+    allowlisted.
 - [Environment Variables](https://docs.wal.app/walrus-memory/reference/environment-variables.md):
     This page lists the supported, public environment variables across Walrus Memory, grouped by
     where you set it: the client SDKs, the MCP server, the self-hosted relayer, and frontend apps.
@@ -593,27 +599,24 @@ Sui smart contract as the on-chain index.
     unauthenticated and unsigned. They do not require a valid Ed25519 signature in headers like the
     rest of the API.
 
-## Walrus Memory: Contributing
-
-- [Docs Workflow](https://docs.wal.app/walrus-memory/contributing/docs-workflow.md):
-    Walrus Memory is still in beta, so documentation is an active part of product hardening. If you
-    see unclear guidance, outdated flows, or missing examples, contributions are welcome. The docs
-    source of truth is the markdown content under docs/ in this repository.
-- [Run Docs Locally](https://docs.wal.app/walrus-memory/contributing/run-docs-locally.md):
-    Run these commands from the repository root: Source: contributing/run-docs-locally.md This
-    starts the Mintlify site using the docs in this repository. Use Node 20 LTS for Mintlify local
-    preview. Mintlify fails on Node 25+.
-- [Docs site (Mintlify)](https://docs.wal.app/walrus-memory/contributing/run-repo-locally.md):
-    | Tool | Version | Check | |------|---------|-------| | Node.js | ≥ 20 | node -v | | pnpm | ≥
-    9.12 | pnpm -v | | Rust | latest stable (only for backend services) | rustc --version | > Tip >
-    > If you only work on TypeScript apps or docs, you don't need Rust.
-
 ## Walrus Memory: Examples
 
+- [Chatbot](https://docs.wal.app/walrus-memory/examples/chatbot.md):
+    The chatbot example (apps/chatbot) is a production-style AI chat app built on Next.js and the
+    Vercel AI SDK. It shows the lightest-touch Walrus Memory integration: wrap the model once, and
+    memory works for every conversation turn.
 - [Example Apps](https://docs.wal.app/walrus-memory/examples/example-apps.md):
     The repo includes ready-to-run apps in apps/ that show different Walrus Memory integration
-    patterns. This page focuses on app-level patterns,the basic SDK flow covered in Quick Start and
-    Walrus Memory Usage.
+    patterns. Start here for app-level patterns; Quick Start and Walrus Memory Usage cover the
+    basic SDK flow.
+- [Noter](https://docs.wal.app/walrus-memory/examples/noter.md):
+    The noter example (apps/noter) is a note-taking app with zkLogin sign-in, so users authenticate
+    with OAuth instead of managing a wallet. It shows the note-to-memory pattern: free-form writing
+    becomes structured facts that recall can find later.
+- [Researcher](https://docs.wal.app/walrus-memory/examples/researcher.md):
+    The researcher example (apps/researcher) is a research assistant that works in sprints. It
+    shows long-form memory and session rehydration: each sprint's findings persist as a structured
+    report, and a fresh session pulls back the relevant history before it starts.
 
 ## 01 Announcing Walrus
 
@@ -691,17 +694,22 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Walrus Platform — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory,
-    including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+    Walrus — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory, including
+    the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
+    Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    June 12, 2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and
-    Antigravity, along with new memwalrememberbulk and memwalhealth tools and proactive memory
-    behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
+    July 31, 2026 | GitHub --- June 12, 2026 | GitHub Adds the automatic memory plugin for Claude
+    Code, Codex, Cursor, and Antigravity, along with new memwalrememberbulk and memwal_health tools
+    and proactive memory behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Mainnet July 22, 2026 | GitHub --- --- Testnet July 15, 2026 | GitHub --- --- Mainnet July 9,
-    2026 | GitHub #3479: walrus info committee gains a --commission-receivers flag that prints, as
-    CSV, the commission receiver of every node in the previous, current, and next committees
-    (including the owning address for object receivers).
+    Mainnet | August 5, 2026 | GitHub --- Mainnet | July 22, 2026 | GitHub --- Testnet | July 15,
+    2026 | GitHub --- Mainnet | July 9, 2026 | GitHub walrus info committee gains a
+    --commission-receivers flag that prints, as CSV, the commission receiver of every node in the
+    previous, current, and next committees (including the owning address for object receivers).
+- [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
+    July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
+    (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
+    methods ahead of the JSON-RPC deprecation.
 
 ## Sponsored Uploads
 
@@ -715,6 +723,13 @@ Sui smart contract as the on-chain index.
 - [Testnet Reference](https://docs.wal.app/docs/testnet-reference.md):
     Walrus Testnet is a free, non-durable network for development and testing. Read values that
     change from the canonical Network Reference, which is the single maintained source.
+
+## Walrus Memory: API
+
+- [1. Request and sign the returned personal-message challenge in the wallet.](https://docs.wal.app/walrus-memory/api/security-delete.md):
+    The Security Delete API permanently deletes legacy Walrus Blob objects that were tracked in
+    Walrus Memory's old-V1 database. The server selects and verifies the objects, builds and
+    sponsors the Sui transaction, and executes it.
 
 ## Walrus Memory: Guides
 
