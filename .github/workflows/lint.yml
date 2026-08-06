@@ -119,6 +119,21 @@ jobs:
         # scripts/network_reference_data.yaml, and fails if the page is stale.
         run: python3 scripts/generate_network_reference.py --check
 
+  diagram-fallbacks:
+    runs-on: ubuntu-latest
+    name: Check interactive diagram fallback assets
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check that changed interactive diagrams ship their fallback assets
+        # Asserts that every added or modified interactive_*.html diagram has
+        # its sibling .svg and .png fallback assets in the same directory. See
+        # docs/site/README.md, "Interactive diagram fallback assets".
+        run: |
+          node docs/site/src/scripts/check-diagram-fallbacks.mjs \
+            --base "origin/${{ github.base_ref }}"
+
   check-all:
     name: Check if all lint jobs succeeded
     if: always()
@@ -129,6 +144,7 @@ jobs:
       - typos
       - license-headers
       - network-reference
+      - diagram-fallbacks
     runs-on: ubuntu-latest
     steps:
       - name: Decide whether all needed jobs succeeded
