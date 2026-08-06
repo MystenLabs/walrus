@@ -42,7 +42,7 @@ use walrus_core::{
 };
 use walrus_sdk::{
     SuiReadClient,
-    config::{default_configuration_for_rpc_url, load_configuration},
+    config::{default_configuration_for_rpc_url, default_configuration_paths, load_configuration},
     error::ClientErrorKind,
     node_client::{
         NodeCommunicationFactory,
@@ -284,12 +284,16 @@ impl ClientCommandRunner {
                 .and_then(|config| config.communication_config.sui_client_request_timeout),
         );
 
-        // If no configuration file was found and none was specified explicitly, fall back to the
-        // built-in configuration for the network (Mainnet or Testnet) the wallet's RPC URL
-        // points to.
+        // If no configuration file exists in the default locations and none was specified
+        // explicitly, fall back to the built-in configuration for the network (Mainnet or
+        // Testnet) the wallet's RPC URL points to. Errors from an existing configuration file
+        // (for example, a malformed file) are preserved.
         if config.is_err()
             && config_path.is_none()
             && context.is_none()
+            && !default_configuration_paths()
+                .iter()
+                .any(|path| path.exists())
             && let Ok(wallet) = &wallet
             && let Some((derived_config, network)) =
                 default_configuration_for_rpc_url(wallet.get_rpc_url())

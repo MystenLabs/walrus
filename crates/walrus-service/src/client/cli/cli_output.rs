@@ -401,8 +401,15 @@ pub(crate) fn quilt_download_url_entries(
 /// blob-ID-based path if no blob object is known.
 fn blob_download_url_path(result: &BlobStoreResult) -> Option<String> {
     match result {
-        BlobStoreResult::NewlyCreated { blob_object, .. } => {
-            Some(format!("/v1/blobs/by-object-id/{}", blob_object.id))
+        BlobStoreResult::NewlyCreated {
+            blob_object,
+            shared_blob_object,
+            ..
+        } => {
+            // After sharing, the blob object is wrapped in the shared blob object and is no
+            // longer accessible by its own ID.
+            let object_id = shared_blob_object.unwrap_or(blob_object.id);
+            Some(format!("/v1/blobs/by-object-id/{object_id}"))
         }
         BlobStoreResult::AlreadyCertified {
             blob_id,
