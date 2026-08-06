@@ -402,6 +402,10 @@
   color: var(--color-walrus-midnight);
 }
 
+[data-theme="dark"] .githubLink {
+  color: var(--color-walrus-tusk);
+}
+
 .githubLink:hover {
   text-decoration: none;
 }
