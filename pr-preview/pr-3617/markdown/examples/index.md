@@ -2,6 +2,7 @@
 
 Example applications that demonstrate different workflows and use cases on Walrus 
 
+- [Ecosystem](/docs/examples/awesome-walrus): Projects and tools built on Walrus, including Walrus Memory for AI agents, first-party tooling, and the community-maintained Awesome Walrus directory.
 - [Browser and Mobile Apps](/docs/examples/browser-and-mobile): Store blobs from a browser or mobile client through a Walrus upload relay, then read them back through a CDN-backed aggregator.
 - [Sui Archival System](/docs/examples/checkpoint-data): An example application that archives Sui blockchain checkpoint data on Walrus, with instructions to build, run, and query the service.
 - [Building a Data Marketplace](/docs/examples/data-marketplace): Build a data marketplace on Walrus by storing datasets as blobs, escrowing and selling the resulting Sui Blob objects from a Move package, and gating paid content with encryption.

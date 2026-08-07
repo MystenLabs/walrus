@@ -159,6 +159,10 @@ Sui smart contract as the on-chain index.
 
 ## Examples
 
+- [Awesome Walrus](https://docs.wal.app/docs/examples/awesome-walrus.md):
+    Walrus is a storage layer, and the products in this section show what teams build on top of it.
+    Use them directly, or read their source as reference implementations for your own project.
+    First-party products with Walrus as their storage layer.
 - [Browser And Mobile](https://docs.wal.app/docs/examples/browser-and-mobile.md):
     Client apps that run in a browser or on a mobile device cannot open the many connections a
     direct store needs. A blob is split into slivers that go to every storage node, so an
@@ -170,9 +174,9 @@ Sui smart contract as the on-chain index.
 - [Read by blob ID](https://docs.wal.app/docs/examples/data-marketplace.md):
     A data marketplace lets sellers publish datasets and buyers pay to acquire them.
 - [Examples](https://docs.wal.app/docs/examples.md):
-    Example applications that demonstrate different workflows and use cases on Walrus Browser and
-    Mobile Apps: Store blobs from a browser or mobile client through a Walrus upload relay, then
-    read them back through a CDN-backed aggregator.
+    Example applications that demonstrate different workflows and use cases on Walrus Ecosystem:
+    Projects and tools built on Walrus, including Walrus Memory for AI agents, first-party tooling,
+    and the community-maintained Awesome Walrus directory.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md):
     You can store and read Walrus blobs from JavaScript with plain HTTP calls: a publisher accepts
     uploads through PUT requests, and an aggregator serves downloads through GET requests.
@@ -352,6 +356,10 @@ Sui smart contract as the on-chain index.
     Walrus Site Portals are used to access and browse a Walrus Site. The portal you run must match
     the network on which your site is deployed. Each network has its own onchain package, default
     RPC endpoint, and Walrus aggregator.
+- [Production](https://docs.wal.app/docs/sites/production.md):
+    A working deploy and a production site differ in a handful of predictable ways: which portal
+    serves it, how client-side routes resolve, how caches behave across updates, and how new
+    versions ship. Work through each section below before you share a production URL.
 - [Access Control Options](https://docs.wal.app/docs/sites/security/access-control-options.md):
     All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its
     contents directly from a Walrus aggregator, and Walrus does not enforce access control at the
