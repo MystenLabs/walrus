@@ -1891,7 +1891,7 @@ async fn test_repeated_shard_move() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
 
     client
@@ -1913,7 +1913,7 @@ async fn test_repeated_shard_move() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
     assert_eq!(
         walrus_cluster.nodes[1]
@@ -2657,7 +2657,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
                 .as_ref()
                 .unwrap()
                 .node_id,
-            FROST_PER_NODE_WEIGHT * 5,
+            FROST_PER_NODE_WEIGHT * 10,
         )
         .await?;
 
@@ -2672,7 +2672,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
                 .as_ref()
                 .unwrap()
                 .node_id,
-            FROST_PER_NODE_WEIGHT * 30,
+            FROST_PER_NODE_WEIGHT * 60,
         )
         .await?;
 
@@ -2687,7 +2687,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
     assert_eq!(
         walrus_cluster.nodes[0]
@@ -2695,7 +2695,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
     assert_unordered_eq!(
         walrus_cluster.nodes[1]
@@ -2709,7 +2709,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .storage_node()
             .existing_shards_live()
             .await,
-        vec![ShardIndex(0), ShardIndex(1)]
+        vec![ShardIndex(0), ShardIndex(1), ShardIndex(2), ShardIndex(3)]
     );
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(6).await;
@@ -2729,7 +2729,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
 
     Ok(())
