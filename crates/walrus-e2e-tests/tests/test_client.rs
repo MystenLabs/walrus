@@ -1858,7 +1858,7 @@ async fn test_repeated_shard_move() -> TestResult {
             .with_epoch_duration(Duration::from_secs(20))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(&[1, 1])
+                    .with_node_weights(&[2, 2])
                     .build(),
             )
             .build()
@@ -2640,7 +2640,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .with_epoch_duration(Duration::from_secs(20))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(&[1, 1])
+                    .with_node_weights(&[2, 2])
                     .build(),
             )
             .build()

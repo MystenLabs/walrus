@@ -211,6 +211,18 @@ walrus_utils::metrics::define_metric_set! {
         comparison. Note that the label is epoch % EPOCH_BUCKET_COUNT (see consistency_check.rs)."]
         per_object_blob_info_snapshot_digest: IntGaugeVec["epoch"],
 
+        #[help = "The duration of encoding the blob info snapshot into a Walrus blob, in \
+        seconds."]
+        blob_info_snapshot_encode_duration_seconds: Gauge[],
+
+        #[help = "The number of errors while encoding blob info snapshots."]
+        blob_info_snapshot_encode_error_total: IntCounter[],
+
+        #[help = "The blob ID of the blob info snapshot of the labeled epoch, for cross-node \
+        comparison and mismatch alerting. The value is always 1; only the current epoch is \
+        exported."]
+        blob_info_snapshot_info: IntGaugeVec["epoch", "blob_id"],
+
         #[help = "The number of certified per-object blobs scanned during the per-object blob info \
         consistency check."]
         per_object_blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
