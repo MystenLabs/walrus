@@ -35,6 +35,7 @@ use walrus_sdk::{
     utils::{styled_progress_bar_with_disabled_steady_tick, styled_spinner},
 };
 
+use super::cli_output::print_download_url_entries;
 use crate::client::cli::{
     HumanReadableBytes,
     HumanReadableFrost,
@@ -121,6 +122,9 @@ pub(crate) enum ChildUploaderEvent {
         blob_id: String,
         end_epoch: u64,
         event_or_object: String,
+    },
+    DownloadUrls {
+        entries: Vec<(String, String)>,
     },
     Done {
         #[allow(dead_code)]
@@ -263,6 +267,7 @@ where
     let mut lines = reader.lines();
     let mut certified_count = 0;
     let mut command_output: Option<serde_json::Value> = None;
+    let mut download_urls: Vec<(String, String)> = Vec::new();
     let multi = MultiProgress::new();
     let mut per_blob_bars: HashMap<String, ProgressBar> = HashMap::new();
     let mut encoding_spinner: Option<ProgressBar> = None;
@@ -419,6 +424,9 @@ where
                         event_or_object,
                     );
                 }
+                ChildUploaderEvent::DownloadUrls { entries } => {
+                    download_urls = entries;
+                }
                 ChildUploaderEvent::Done {
                     ok,
                     error,
@@ -457,6 +465,8 @@ where
                                 "No blobs were modified or created".bold().walrus_purple()
                             );
                         }
+
+                        print_download_url_entries(&download_urls);
                     }
 
                     return command_output;
@@ -1011,6 +1021,22 @@ mod tests {
         assert_eq!(observed_blob, &BlobId::from_str(blob_id)?);
         assert_eq!(*extra_ms, 10);
 
+        Ok(())
+    }
+
+    #[test]
+    fn download_urls_event_round_trips() -> Result<()> {
+        let event = ChildUploaderEvent::DownloadUrls {
+            entries: vec![(
+                "file.bin".to_string(),
+                "https://aggregator.example/v1/blobs/by-object-id/0x123".to_string(),
+            )],
+        };
+        let json = serde_json::to_string(&event)?;
+        let parsed: ChildUploaderEvent = serde_json::from_str(&json)?;
+        assert!(
+            matches!(parsed, ChildUploaderEvent::DownloadUrls { entries } if entries.len() == 1)
+        );
         Ok(())
     }
 
