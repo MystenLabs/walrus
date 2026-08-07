@@ -153,7 +153,7 @@ Rebuild missing indexed entries for one namespace from Walrus. Incremental, only
 
 ### `health(): Promise<HealthResult>`
 
-Check relayer health. Does not require authentication.
+Check relayer health. Does not require authentication, a successful response confirms the relayer is reachable, not that your `key`/`accountId` are valid. A signed call (for example, `remember()`, `recall()`) can still fail with `401` immediately after a passing `health()`.
 
 **Returns:** `{ status: string, version: string, relayerVersion?: string, apiVersion?: string, minSupportedSdk?: ... }`
 
