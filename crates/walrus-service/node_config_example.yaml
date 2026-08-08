@@ -102,6 +102,9 @@ live_upload_deferral:
     defer_secs: 30
   max_total_defer_secs: 120
   max_checkpoint_lag: 1500
+storage_write:
+  write_timeout_secs: 60
+  min_available_disk_space: 1073741824
 protocol_key_pair:
   path: /opt/walrus/config/protocol.key
 next_protocol_key_pair: null
