@@ -13,6 +13,9 @@
 #   - walrus_per_object_blob_info_consistency_check — same digest per epoch across all nodes
 #   - walrus_per_object_pooled_blob_info_consistency_check — same digest per epoch across all nodes
 #   - walrus_periodic_event_source_for_deterministic_events — same per bucket across all nodes
+#   - walrus_per_object_blob_info_snapshot_digest  — same digest per epoch across all nodes
+#   - walrus_blob_info_snapshot_blob_id            — same blob ID per epoch bucket across nodes
+#   - walrus_blob_info_snapshot_encode_error_total — must stay zero on every node
 #
 # Soft invariants (crash after persistent violation):
 #   - walrus_node_blob_data_fully_stored_ratio               — must equal 1 on every node/epoch
@@ -62,6 +65,9 @@ BLOB_INFO="walrus_blob_info_consistency_check"
 PER_OBJECT_INFO="walrus_per_object_blob_info_consistency_check"
 PER_OBJECT_POOLED_INFO="walrus_per_object_pooled_blob_info_consistency_check"
 EVENT_SOURCE="walrus_periodic_event_source_for_deterministic_events"
+SNAPSHOT_DIGEST="walrus_per_object_blob_info_snapshot_digest"
+SNAPSHOT_BLOB_ID="walrus_blob_info_snapshot_blob_id"
+SNAPSHOT_ENCODE_ERRORS="walrus_blob_info_snapshot_encode_error_total"
 FULLY_STORED_RATIO="walrus_node_blob_data_fully_stored_ratio"
 
 # ---------------------------------------------------------------------------
@@ -283,6 +289,7 @@ blob_info_no_data_streak=0
 per_object_no_data_streak=0
 per_object_pooled_no_data_streak=0
 event_source_no_data_streak=0
+snapshot_digest_no_data_streak=0
 round=0
 
 while true; do
@@ -445,6 +452,92 @@ while true; do
         log "${EVENT_SOURCE}: OK"
         print_metric_values "$EVENT_SOURCE" "bucket"
     fi
+
+    # ------------------------------------------------------------------
+    # Hard invariant 5: blob info snapshot digest must match across nodes.
+    # Same epoch bucket design as invariant 1; see comment above.
+    # ------------------------------------------------------------------
+    v=$(check_cross_node_metric \
+        "$SNAPSHOT_DIGEST" "epoch" \
+        "$WORK_DIR/details_snapshot_digest.txt" "$MAX_EPOCH_BUCKETS")
+    if [ "$v" -eq -2 ]; then
+        log "WARNING: ${SNAPSHOT_DIGEST}: epoch bucket capacity reached" \
+            "(${MAX_EPOCH_BUCKETS}), skipping comparison to avoid false positives from bucket reuse"
+        print_metric_values "$SNAPSHOT_DIGEST" "epoch"
+    elif [ "$v" -eq -1 ]; then
+        snapshot_digest_no_data_streak=$((snapshot_digest_no_data_streak + 1))
+        log "${SNAPSHOT_DIGEST}: no common data across nodes" \
+            "(streak: ${snapshot_digest_no_data_streak}/${NO_DATA_PATIENCE})"
+        print_metric_values "$SNAPSHOT_DIGEST" "epoch"
+        if [ "$snapshot_digest_no_data_streak" -ge "$NO_DATA_PATIENCE" ]; then
+            die "${SNAPSHOT_DIGEST}: no common data for ${NO_DATA_PATIENCE} consecutive rounds — likely silent regression"
+        fi
+    elif [ "$v" -gt 0 ]; then
+        log "INVARIANT VIOLATION — ${SNAPSHOT_DIGEST} (${v} epoch(s)):"
+        cat "$WORK_DIR/details_snapshot_digest.txt"
+        print_metric_values "$SNAPSHOT_DIGEST" "epoch"
+        die "${SNAPSHOT_DIGEST}: mismatched digests across nodes"
+    else
+        snapshot_digest_no_data_streak=0
+        log "${SNAPSHOT_DIGEST}: OK"
+        print_metric_values "$SNAPSHOT_DIGEST" "epoch"
+    fi
+
+    # ------------------------------------------------------------------
+    # Hard invariant 6: blob info snapshot blob ID must match across nodes.
+    # The value is the first 8 bytes of the blob ID, and the label is
+    # `epoch % SNAPSHOT_EPOCH_BUCKET_COUNT` (blob_info_snapshot_writer.rs). No
+    # bucket saturation guard is passed: unlike the metrics above, a node exports
+    # only the bucket of its latest snapshot, so its label cycles through the whole
+    # range by design and a high label says nothing about reuse.
+    #
+    # Unlike the other invariants, absence is not treated as a regression: because
+    # only the latest bucket is exported, nodes that fault injection has driven to
+    # different epochs legitimately share no bucket to compare.
+    #
+    # Note that this check alone cannot detect encoding that stops working: a node
+    # keeps exporting its last successful epoch, and those agree across nodes, so
+    # this stays OK while no blob ID is produced any more. The digest does not cover
+    # it either, being emitted during serialization, before encoding runs. Invariant
+    # 7 below watches the encoding errors for exactly that reason.
+    # ------------------------------------------------------------------
+    v=$(check_cross_node_metric \
+        "$SNAPSHOT_BLOB_ID" "epoch" \
+        "$WORK_DIR/details_snapshot_blob_id.txt" 0)
+    if [ "$v" -eq -1 ]; then
+        log "${SNAPSHOT_BLOB_ID}: no common epoch across nodes"
+        print_metric_values "$SNAPSHOT_BLOB_ID" "epoch"
+    elif [ "$v" -gt 0 ]; then
+        log "INVARIANT VIOLATION — ${SNAPSHOT_BLOB_ID} (${v} epoch(s)):"
+        cat "$WORK_DIR/details_snapshot_blob_id.txt"
+        print_metric_values "$SNAPSHOT_BLOB_ID" "epoch"
+        die "${SNAPSHOT_BLOB_ID}: mismatched blob IDs across nodes"
+    else
+        log "${SNAPSHOT_BLOB_ID}: OK"
+        print_metric_values "$SNAPSHOT_BLOB_ID" "epoch"
+    fi
+
+    # ------------------------------------------------------------------
+    # Hard invariant 7: no node fails to encode a blob info snapshot.
+    #
+    # Encoding is a pure function of a local file, so there is no legitimate reason
+    # for it to fail. Without this check, encoding that stops working is invisible:
+    # see the note on invariant 6.
+    # ------------------------------------------------------------------
+    encode_errors=""
+    for i in "${!NODES[@]}"; do
+        count=$(awk -v m="$SNAPSHOT_ENCODE_ERRORS" \
+            '$1 == m || index($1, m "{") == 1 { v = $NF } END { if (v != "") print v }' \
+            "$WORK_DIR/raw_${NODES[$i]}.prom")
+        log "  node-${i} (${NODES[$i]}): ${SNAPSHOT_ENCODE_ERRORS}=${count:-(no data)}"
+        if [ -n "$count" ] && awk -v c="$count" 'BEGIN { exit (c > 0) ? 0 : 1 }'; then
+            encode_errors="${encode_errors} node-${i} (${NODES[$i]}): ${count}"
+        fi
+    done
+    if [ -n "$encode_errors" ]; then
+        die "${SNAPSHOT_ENCODE_ERRORS}: nodes failed to encode a snapshot:${encode_errors}"
+    fi
+    log "${SNAPSHOT_ENCODE_ERRORS}: OK"
 
     # ------------------------------------------------------------------
     # Soft invariant 1: all blobs fully stored (tolerate recovery lag).
