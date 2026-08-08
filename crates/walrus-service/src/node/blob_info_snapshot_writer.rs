@@ -234,7 +234,7 @@ async fn try_encode_snapshot(
     // recovery symbols, and encoding panics.
     // TODO(WAL-1270): reject such committees where the system is defined, and drop this.
     debug_assert!(
-        encoding_config.n_shards() > encoding_config.n_secondary_source_symbols(),
+        encoding_config.n_shards().get() >= 4,
         "the system must be able to encode"
     );
 
@@ -242,6 +242,8 @@ async fn try_encode_snapshot(
     let path = snapshot_path.to_path_buf();
     let verified_metadata = tokio::task::spawn_blocking(move || {
         let content = fs::read(path)?;
+        // TODO(WAL-1250): certifying the snapshot needs its slivers, so this becomes a full
+        // encode rather than only the metadata.
         encoding_config
             .compute_metadata(&content)
             .map_err(anyhow::Error::from)
