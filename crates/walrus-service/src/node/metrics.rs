@@ -218,10 +218,10 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of errors while encoding blob info snapshots."]
         blob_info_snapshot_encode_error_total: IntCounter[],
 
-        #[help = "The blob ID of the blob info snapshot of the labeled epoch, for cross-node \
-        comparison and mismatch alerting. The value is always 1; only the current epoch is \
-        exported."]
-        blob_info_snapshot_info: IntGaugeVec["epoch", "blob_id"],
+        #[help = "The first 8 bytes of the blob ID of the blob info snapshot, for cross-node \
+        comparison and mismatch alerting. Only the latest snapshot is exported, and the label \
+        is epoch % SNAPSHOT_EPOCH_BUCKET_COUNT (see blob_info_snapshot_writer.rs)."]
+        blob_info_snapshot_blob_id: IntGaugeVec["epoch"],
 
         #[help = "The number of certified per-object blobs scanned during the per-object blob info \
         consistency check."]

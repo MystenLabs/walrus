@@ -48,6 +48,23 @@ impl Default for BlobInfoSnapshotWriterConfig {
     }
 }
 
+/// Number of epoch buckets used as the label of `blob_info_snapshot_blob_id`.
+///
+/// The label is `epoch % SNAPSHOT_EPOCH_BUCKET_COUNT`, which bounds the distinct series a node
+/// ever creates. Bucketing per se is not safe: it is safe here only because the metric is reset
+/// before each write, so a node exports exactly one bucket, the one of its latest snapshot.
+///
+/// Two nodes therefore share a bucket only when their epochs are congruent modulo this count,
+/// which means either the same epoch, a correct comparison, or a divergence of exactly a
+/// multiple of it, a false mismatch. That takes a node running for this many epochs without
+/// writing a snapshot, and it heals as soon as the node writes one again.
+///
+/// Without the reset, a node would keep every bucket it has ever written, every shared bucket
+/// would compare values from epochs a multiple apart, and recovering the node would not clear
+/// them until it had run for a further `SNAPSHOT_EPOCH_BUCKET_COUNT` epochs. Do not export more
+/// than the current bucket without raising this count accordingly.
+const SNAPSHOT_EPOCH_BUCKET_COUNT: Epoch = 100;
+
 /// Returns the directory under which the writer keeps its snapshots.
 pub fn snapshot_base_dir(storage_path: &Path) -> PathBuf {
     storage_path.join("blob_info_snapshots")
@@ -257,16 +274,20 @@ async fn try_encode_snapshot(
         .set(encode_elapsed.as_secs_f64());
 
     let blob_id = *verified_metadata.blob_id();
-    // Export only the current epoch's series, so that a node whose snapshots stalled is never
-    // compared against another epoch's blob ID. Alerts recover earlier epochs from the metric
-    // store with a lookback window, which retains them regardless of what a node still exports.
-    node.metrics.blob_info_snapshot_info.reset();
+    let blob_id_prefix = u64::from_be_bytes(
+        blob_id.as_ref()[..8]
+            .try_into()
+            .expect("blob id has at least 8 bytes"),
+    );
+    // Reset before setting, so that only the bucket of the latest snapshot is exported. The
+    // bucket bound depends on this; see `SNAPSHOT_EPOCH_BUCKET_COUNT`.
+    node.metrics.blob_info_snapshot_blob_id.reset();
+    #[allow(clippy::cast_possible_wrap)] // reinterpreting the bits as i64 is fine
     walrus_utils::with_label!(
-        node.metrics.blob_info_snapshot_info,
-        epoch.to_string(),
-        blob_id.to_string()
+        node.metrics.blob_info_snapshot_blob_id,
+        (epoch % SNAPSHOT_EPOCH_BUCKET_COUNT).to_string()
     )
-    .set(1);
+    .set(blob_id_prefix as i64);
     tracing::info!(
         walrus.epoch = epoch,
         walrus.blob_id = %blob_id,
