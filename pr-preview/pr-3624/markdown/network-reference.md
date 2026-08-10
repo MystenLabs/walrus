@@ -29,13 +29,13 @@ The Walrus client and SDKs read Walrus state from a Sui full node. The default R
 | Mainnet | `https://fullnode.mainnet.sui.io:443` |
 | Testnet | `https://fullnode.testnet.sui.io:443` |
 
-### Transport: gRPC and the Sui JSON-RPC deprecation
+### Transport: JSON-RPC deprecation
 
-Sui is deprecating JSON-RPC in favor of gRPC. Current Walrus clients already read and write Sui state over gRPC, and they reach it at the same full node URL the table above lists. Three consequences follow:
+Sui has deprecated JSON-RPC. Current Walrus clients already read and write Sui state over gRPC, and they reach it at the same full node URL the table above lists. Three consequences follow:
 
 1. **No configuration change.** One URL per network serves both protocols, so `rpc_urls` in the Walrus client configuration and `rpc_url` in the Walrus Sites configuration keep the values above. Walrus has no separate gRPC endpoint setting.
 2. **Upgrade rather than reconfigure.** If a deployment fails against a full node that stopped serving JSON-RPC, upgrade to a current Walrus release, which no longer builds a JSON-RPC client at all. See [Getting Started](/docs/getting-started).
-3. **Custom full nodes must serve gRPC.** The public endpoints above do. A self-hosted full node needs the gRPC API enabled.
+3. **Custom full nodes must serve gRPC.** The public endpoints above do. A self-hosted full node must enable the gRPC API.
 
 > **Caution**
 >

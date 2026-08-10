@@ -87,7 +87,7 @@ $ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/
 
 This pre-filled file includes both the Mainnet and Testnet contexts. For the canonical endpoints, RPC URLs, object IDs, and configuration snippets, see the [Network Reference](/docs/network-reference).
 
-The client reaches the full node over gRPC at the same URL this file already lists, so Sui's JSON-RPC deprecation needs no change on your side. If an older installation fails against a full node that stopped serving JSON-RPC, upgrade Walrus. See [Transport: gRPC and the Sui JSON-RPC deprecation](/docs/network-reference#transport-grpc-and-the-sui-json-rpc-deprecation).
+The client reaches the full node over gRPC at the same URL this file already lists, so Sui's JSON-RPC deprecation needs no change on your side. If an older installation fails against a full node that stopped serving JSON-RPC, upgrade Walrus. See [Transport: JSON-RPC deprecation](/docs/network-reference#transport-json-rpc-deprecation).
 
 Configure the Sui client to connect to Testnet.
 
