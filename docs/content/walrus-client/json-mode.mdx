@@ -44,12 +44,6 @@ answer: >-
 
 JSON mode exposes every Walrus client command and simplifies programmatic access to the [CLI](/docs/walrus-client/walrus-cli). You specify the command and all of its options as a single JSON string, and the CLI prints JSON-formatted results to stdout.
 
-See also:
-
-- [Walrus Client](/docs/walrus-client/walrus-cli) for configuration file locations and global options
-- [Storing Blobs](/docs/walrus-client/storing-blobs) and [Reading Blobs](/docs/walrus-client/reading-blobs) for the underlying commands
-- [HTTP API](/docs/http-api/storing-blobs) for driving a publisher or aggregator over HTTP instead
-
 ## Command structure
 
 Pass a single JSON object to `walrus json`. The object contains the global options (such as `config`, `context`, `wallet`, and `gasBudget`) at the root level, plus a `command` object that holds exactly one command (for example, `store`, `read`, or `blobStatus`) with its options.

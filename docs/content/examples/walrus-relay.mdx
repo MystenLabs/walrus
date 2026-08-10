@@ -40,14 +40,6 @@ answer: >-
 
 The Walrus upload relay lets browser apps store blobs without opening a connection to every storage node: the client sends a single request to the relay, and the relay encodes the blob, distributes the slivers to the storage node committee, and returns an availability certificate. The following example combines the relay with the Walrus TypeScript SDK into a complete React web application: users connect a Sui wallet, upload files through the public Testnet upload relay, and see each uploaded blob rendered on the page.
 
-See also:
-
-- [Deployed instance](https://relay.wal.app): try the app in your browser.
-- [Source code on GitHub](https://github.com/MystenLabs/walrus-sdk-relay-example-app): the complete application.
-- [Browser and Mobile Apps](/docs/examples/browser-and-mobile): the same store flow as standalone SDK code, with the differences for mobile clients.
-- [Upload Relay](/docs/system-overview/relay): when to use a relay and how it batches, retries, and certifies uploads.
-- [Operate an Upload Relay](/docs/operator-guide/upload-relay): the relay's endpoints, tip mechanism, and configuration.
-
 ## Prerequisites
 
 - Node.js 18 or later and the `pnpm` package manager.

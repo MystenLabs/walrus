@@ -42,12 +42,6 @@ answer: >-
 
 An aggregator serves blob reads over HTTP, and a publisher accepts blob uploads over HTTP. Both roles run through the Walrus client's daemon mode: `walrus aggregator` for reads, `walrus publisher` for stores, or `walrus daemon` for both (see [Operate an Aggregator](/docs/operator-guide/aggregators/operating-aggregator) and [Operate a Publisher](/docs/operator-guide/publishers/operating-publisher)). You do not need to run your own daemon to get started: community operators expose public aggregator and publisher services that you can call directly with any HTTP client.
 
-See also:
-
-- [Network Reference](/docs/network-reference#aggregators-and-publishers) for the Mysten Labs reference endpoints and the stable HTTP API paths
-- [Storing Blobs with the HTTP API](/docs/http-api/storing-blobs) for the full store request and response reference
-- [Reading Blobs with the HTTP API](/docs/http-api/reading-blobs) for reads by blob ID or Sui object ID
-
 ## Using a public aggregator or publisher {#public-services}
 
 To read or store a blob through a public service:

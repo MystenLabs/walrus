@@ -44,11 +44,6 @@ answer: >-
 
 Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly from storage nodes returns it immediately. If your app reads blobs through a cached aggregator immediately after upload, plan for a short propagation window.
 
-See also:
-
-- [Reading blobs over HTTP](/docs/http-api/reading-blobs) for the aggregator read endpoints
-- [Verify Blob Availability Before Acting](/docs/walrus-client/verifying-availability) for confirming certification against Sui state
-
 ## Cause
 
 Public aggregators often sit behind a content delivery network (CDN). When a request for a blob arrives before the aggregator sees the blob, the CDN might cache the resulting `404 Not Found` response and keep serving it for a short time after the blob becomes available.
@@ -109,4 +104,4 @@ The command reports whether the blob is certified and its availability period. S
 $ walrus read <BLOB_ID> --out <FILE>
 ```
 
-If the CLI confirms the blob is certified but the aggregator still returns `404`, the fix is one of the cache workarounds above, or simply waiting out the propagation window.
+If the CLI confirms the blob is certified but the aggregator still returns `404`, the fix is one of the cache workarounds above, or waiting out the propagation window.

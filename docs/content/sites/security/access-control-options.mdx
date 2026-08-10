@@ -44,11 +44,6 @@ answer: >-
 
 All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its contents directly from a Walrus aggregator, and Walrus does not enforce access control at the storage layer. Site metadata, including every resource path and blob ID, lives in public objects on Sui. Choose an approach based on what each part of your site needs: publish public content as-is, keep sensitive files out of the deployment, and encrypt confidential application data before it reaches Walrus.
 
-See also:
-
-- [Data Security](/docs/data-security) for the availability, integrity, and confidentiality guarantees of Walrus itself
-- [Known Restrictions](/docs/sites/known-restrictions#no-secret-values) for why site files must not contain secret values
-
 ## Choosing an approach
 
 | **Requirement** | **Approach** |
