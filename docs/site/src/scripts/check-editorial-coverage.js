@@ -35,6 +35,7 @@ function parseArgs(argv) {
     if (a === "--json") args.json = argv[++i];
     else if (a === "--releases-file") args.releasesFile = argv[++i];
     else if (a === "--limit") args.limit = parseInt(argv[++i], 10);
+    else if (a === "--source") args.source = argv[++i];
     else if (a === "--strict") args.strict = true;
   }
   return args;
@@ -140,16 +141,118 @@ function groupReleases(releases) {
   return byVersion;
 }
 
+// Product releases (Walrus Memory packages, Walrus Sites) publish one
+// release per version rather than a Mainnet/Testnet pair, so they group by
+// the version their tag encodes.
+function groupProductReleases(releases, parseTag) {
+  const byKey = new Map();
+  for (const r of releases) {
+    if (r.draft) continue;
+    const parsed = parseTag(r.tag_name);
+    if (!parsed) continue;
+    if (byKey.has(parsed.key)) continue;
+    byKey.set(parsed.key, {
+      version: parsed.version,
+      editorialSlug: parsed.editorialSlug,
+      label: parsed.label,
+      release: {
+        tag: r.tag_name,
+        network: parsed.label,
+        body: r.body || "",
+        date: r.published_at,
+        url: r.html_url,
+      },
+    });
+  }
+  return byKey;
+}
+
+// ── Release sources ────────────────────────────────────────────────
+//
+// The changelog draws on three repositories, but every editorial summary
+// lives in this repository under docs/editorial/. A missing summary for any
+// product is fixed by a pull request here, which is why the tracking issues
+// belong in this repository too.
+
+// Mirrors memwalCategoryKey in generate-release-notes.js.
+function memwalCategoryKey(pkg) {
+  const lower = (pkg || "").toLowerCase();
+  if (lower.includes("mcp")) return "mcp";
+  if (lower.includes("python")) return "python";
+  if (lower.includes("oc-") || lower.includes("openclaw")) return "openclaw";
+  if (lower.includes("memwal")) return "sdk";
+  return null;
+}
+
+const SOURCES = [
+  {
+    id: "walrus",
+    label: "Walrus",
+    repo: "MystenLabs/walrus",
+    // Network-paired releases: mainnet-v1.53.0 and testnet-v1.53.0 are the
+    // same version of the same product.
+    paired: true,
+    editorialPattern: /^walrus-v(\d+\.\d+\.\d+)\.md$/,
+    editorialKey: (match) => `walrus|${match[1]}`,
+    slugFor: (version) => `walrus-v${version}`,
+    titleFor: (version) => `Walrus v${version}`,
+  },
+  {
+    id: "memwal",
+    label: "Walrus Memory",
+    repo: "MystenLabs/MemWal",
+    editorialPattern: /^memwal-(sdk|mcp|python|openclaw)-v(\d+\.\d+\.\d+)\.md$/,
+    editorialKey: (match) => `memwal-${match[1]}|${match[2]}`,
+    // Package releases tagged <package>@<version>.
+    parseTag: (tag) => {
+      const match = tag.match(/^(.+)@(\d+\.\d+\.\d+)$/);
+      if (!match) return null;
+      const category = memwalCategoryKey(match[1]);
+      if (!category) return null;
+      return {
+        key: `memwal-${category}|${match[2]}`,
+        version: match[2],
+        editorialSlug: `memwal-${category}-v${match[2]}`,
+        label: `Walrus Memory ${category}`,
+      };
+    },
+  },
+  {
+    id: "walrus-sites",
+    label: "Walrus Sites",
+    repo: "MystenLabs/walrus-sites",
+    editorialPattern: /^walrus-sites-v(\d+\.\d+\.\d+)\.md$/,
+    editorialKey: (match) => `walrus-sites|${match[1]}`,
+    parseTag: (tag) => {
+      const version = parseVersion(tag);
+      if (!version) return null;
+      return {
+        key: `walrus-sites|${version}`,
+        version,
+        editorialSlug: `walrus-sites-v${version}`,
+        label: "Walrus Sites",
+      };
+    },
+  },
+];
+
 // ── Editorial coverage ─────────────────────────────────────────────
 
+// Returns the covered keys across every product, for example
+// "walrus|1.53.0", "memwal-sdk|0.0.7", "walrus-sites|2.12.0".
 function loadEditorialVersions() {
-  const versions = new Set();
-  if (!fs.existsSync(EDITORIAL_DIR)) return versions;
+  const covered = new Set();
+  if (!fs.existsSync(EDITORIAL_DIR)) return covered;
   for (const file of fs.readdirSync(EDITORIAL_DIR)) {
-    const match = file.match(/^walrus-v(\d+\.\d+\.\d+)\.md$/);
-    if (match) versions.add(match[1]);
+    for (const source of SOURCES) {
+      const match = file.match(source.editorialPattern);
+      if (match) {
+        covered.add(source.editorialKey(match));
+        break;
+      }
+    }
   }
-  return versions;
+  return covered;
 }
 
 // ── Draft skeleton in the docs/editorial house format ──────────────
@@ -163,7 +266,7 @@ function formatDate(isoDate) {
   });
 }
 
-function buildDraft(version, release, hasContent) {
+function buildDraft(title, release, hasContent, productKeyword) {
   const summary = hasContent
     ? "TODO: one short paragraph summarizing the developer-facing changes below."
     : "A maintenance release with no user-facing changes documented in the release notes; see\n" +
@@ -171,11 +274,11 @@ function buildDraft(version, release, hasContent) {
   const description = hasContent
     ? "TODO: first sentence of the summary."
     : "A maintenance release with no user-facing changes documented in the release notes; see the full commit log for...";
-  const keywords = ["walrus", "release notes", "changelog", release.network.toLowerCase()];
+  const keywords = [productKeyword, "release notes", "changelog", release.network.toLowerCase()];
 
   return [
     "---",
-    `title: Walrus v${version}`,
+    `title: ${title}`,
     `description: ${description}`,
     `keywords: [${keywords.map((k) => `"${k}"`).join(", ")}]`,
     "---",
@@ -189,44 +292,99 @@ function buildDraft(version, release, hasContent) {
 
 // ── Main ───────────────────────────────────────────────────────────
 
-async function main() {
-  const args = parseArgs(process.argv);
-
+async function checkSource(source, args, editorial) {
   let releases;
   if (args.releasesFile) {
+    // Testing seam: a single fixture stands in for the source under test.
     releases = JSON.parse(fs.readFileSync(args.releasesFile, "utf8"));
   } else {
-    releases = await fetchAllPages("/repos/MystenLabs/walrus/releases");
+    releases = await fetchAllPages(`/repos/${source.repo}/releases`);
   }
-
-  const editorial = loadEditorialVersions();
-  const byVersion = groupReleases(releases);
-
-  const versions = [...byVersion.keys()]
-    .sort((a, b) => versionSortKey(b) - versionSortKey(a))
-    .slice(0, args.limit);
 
   const missing = [];
-  for (const version of versions) {
-    if (editorial.has(version)) continue;
-    const entry = byVersion.get(version);
-    const release = entry.mainnet || entry.testnet;
-    if (!release) continue;
+  let checked = 0;
 
-    const hasContent = substantiveBody(release.body).length >= 20;
-    missing.push({
-      version,
-      tag: release.tag,
-      network: release.network,
-      date: release.date,
-      url: release.url,
-      hasContent,
-      editorialFile: `docs/editorial/walrus-v${version}.md`,
-      draft: buildDraft(version, release, hasContent),
-    });
+  if (source.paired) {
+    const byVersion = groupReleases(releases);
+    const versions = [...byVersion.keys()]
+      .sort((a, b) => versionSortKey(b) - versionSortKey(a))
+      .slice(0, args.limit);
+    checked = versions.length;
+
+    for (const version of versions) {
+      if (editorial.has(`${source.id}|${version}`)) continue;
+      const entry = byVersion.get(version);
+      const release = entry.mainnet || entry.testnet;
+      if (!release) continue;
+
+      const hasContent = substantiveBody(release.body).length >= 20;
+      const title = source.titleFor(version);
+      missing.push({
+        product: source.label,
+        repo: source.repo,
+        version,
+        tag: release.tag,
+        network: release.network,
+        date: release.date,
+        url: release.url,
+        hasContent,
+        editorialFile: `docs/editorial/${source.slugFor(version)}.md`,
+        draft: buildDraft(title, release, hasContent, source.id),
+      });
+    }
+  } else {
+    const byKey = groupProductReleases(releases, source.parseTag);
+    const keys = [...byKey.keys()]
+      .sort((a, b) => versionSortKey(b.split("|")[1]) - versionSortKey(a.split("|")[1]))
+      .slice(0, args.limit);
+    checked = keys.length;
+
+    for (const key of keys) {
+      if (editorial.has(key)) continue;
+      const entry = byKey.get(key);
+      const hasContent = substantiveBody(entry.release.body).length >= 20;
+      const title = `${entry.label} v${entry.version}`;
+      missing.push({
+        product: entry.label,
+        repo: source.repo,
+        version: entry.version,
+        tag: entry.release.tag,
+        network: entry.release.network,
+        date: entry.release.date,
+        url: entry.release.url,
+        hasContent,
+        editorialFile: `docs/editorial/${entry.editorialSlug}.md`,
+        draft: buildDraft(title, entry.release, hasContent, source.id),
+      });
+    }
   }
 
-  console.log(`Checked newest ${versions.length} Walrus release versions.`);
+  return { checked, missing };
+}
+
+async function main() {
+  const args = parseArgs(process.argv);
+  const editorial = loadEditorialVersions();
+
+  const sources = args.source
+    ? SOURCES.filter((s) => s.id === args.source)
+    : SOURCES;
+  if (sources.length === 0) {
+    console.error(
+      `Unknown source '${args.source}'. Known: ${SOURCES.map((s) => s.id).join(", ")}.`,
+    );
+    process.exit(2);
+  }
+
+  const missing = [];
+  for (const source of sources) {
+    const result = await checkSource(source, args, editorial);
+    console.log(
+      `Checked newest ${result.checked} ${source.label} release version(s) from ${source.repo}.`,
+    );
+    missing.push(...result.missing);
+  }
+
   console.log(`Editorial summaries on disk: ${editorial.size}`);
   if (missing.length === 0) {
     console.log("All checked releases have editorial summaries.");
@@ -234,8 +392,14 @@ async function main() {
     console.log(`\n${missing.length} release(s) missing an editorial summary:\n`);
     for (const m of missing) {
       const kind = m.hasContent ? "raw release body only" : "no release content";
-      console.log(`  - v${m.version} (${m.network}, ${kind}) -> create ${m.editorialFile}`);
+      console.log(
+        `  - ${m.product} v${m.version} (${m.network}, ${kind}) -> create ${m.editorialFile}`,
+      );
     }
+    console.log(
+      "\nEvery summary lives in this repository, so each fix is a pull request here,\n" +
+        "whichever repository published the release.",
+    );
   }
 
   if (args.json) {
