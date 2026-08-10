@@ -4,6 +4,8 @@ This website is built using [Docusaurus](https://docusaurus.io/), a modern stati
 
 ## Installation
 
+Install the site dependencies:
+
 ```bash
 yarn
 ```
