@@ -868,16 +868,14 @@ Sui smart contract as the on-chain index.
 ### Legal
 
 - [Privacy](https://docs.wal.app/docs/legal/privacy.md):
-    Last Updated: February 10, 2024 This Privacy Policy is designed to help you understand how
-    Walrus Foundation (collectively called the “Organization", "we," "us," and "our") collects,
-    uses, and shares your personal information and to help you understand and exercise your privacy
-    rights in accordance with applicable law.
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Testnet TOS](https://docs.wal.app/docs/legal/testnet_tos.md):
-    Last updated: March 26, 2025 By using Walrus Testnet software, technologies, tools, and other
-    services (collectively “Testnet”) offered by Walrus Foundation ("Walrus Foundation", "we",
-    "our"), you agree to the general Walrus Terms of Service and these additional Testnet Terms of
-    Service (together, the “Terms”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Walrus General TOS](https://docs.wal.app/docs/legal/walrus_general_tos.md):
-    Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully because they
-    govern your use of the website, the user interface, and other offerings located at walrus.xyz,
-    (the “Site”) offered by Walrus Foundation (“Walrus Foundation,” “we,” “our”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
