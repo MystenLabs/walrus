@@ -1523,7 +1523,7 @@ mod tests {
                 .with_epoch_duration(epoch_duration)
                 .with_test_nodes_config(
                     TestNodesConfig::builder()
-                        .with_node_weights(&[1, 1])
+                        .with_node_weights(&[2, 2])
                         .build(),
                 )
                 .with_default_num_checkpoints_per_blob()
