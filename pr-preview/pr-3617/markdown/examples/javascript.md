@@ -2,13 +2,6 @@
 
 You can store and read Walrus blobs from JavaScript with plain HTTP calls: a publisher accepts uploads through PUT requests, and an aggregator serves downloads through GET requests. The built-in `fetch` API covers both, so you need no SDK or other dependencies in the browser, in Node.js, or in any other JavaScript runtime.
 
-See also:
-
-- [Storing Blobs](/docs/http-api/storing-blobs): the full publisher API, including all query parameters and quilts.
-- [Reading Blobs](/docs/http-api/reading-blobs): the full aggregator API, including consistency checks.
-- [Browser and Mobile Apps](/docs/examples/browser-and-mobile): store blobs with the TypeScript SDK and an upload relay when the user's wallet should own the upload.
-- [Network Reference](/docs/network-reference#aggregators-and-publishers): public aggregator and publisher endpoints.
-
 ## Choose your endpoints
 
 The examples on the rest of the page use the public Testnet endpoints:

@@ -2,12 +2,6 @@
 
 Every Walrus blob has a corresponding `Blob` object on Sui, defined in the `walrus::blob` module. The `Blob` type has the `key` and `store` abilities, so your own Move packages can hold blobs in custom structs, transfer them between addresses, and manage their lifecycle onchain. Add the Walrus package as a dependency to read blob properties, wrap blobs in your own object types, and call the system functions that extend or delete blobs.
 
-See also:
-
-- [Managing Blobs](/docs/walrus-client/managing-blobs): the CLI equivalents for extending, deleting, sharing, and setting attributes on blobs.
-- [Storage Costs](/docs/system-overview/storage-costs): how registration, certification, and storage resources work onchain.
-- [Building a Data Marketplace](/docs/examples/data-marketplace): a worked example that escrows and sells `Blob` objects from a Move package.
-
 ## Add the Walrus dependency
 
 Declare the Walrus package as a git dependency in your package's `Move.toml`:

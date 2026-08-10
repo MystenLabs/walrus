@@ -2,12 +2,6 @@
 
 The Walrus client lets you check a blob's storage status and certification, download its data, and control the consistency checks that protect reads.
 
-See also:
-
-- [Reading blobs over HTTP](/docs/http-api/reading-blobs) to read through an aggregator instead
-- [Verify Blob Availability Before Acting](/docs/walrus-client/verifying-availability) for the onchain checks to run before depending on a blob
-- [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload) if a freshly stored blob returns `404` from an aggregator
-
 ## Check blob status
 
 You can query the status of a blob through one of the following commands:

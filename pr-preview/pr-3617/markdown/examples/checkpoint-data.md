@@ -2,13 +2,6 @@
 
 The Sui Archival application demonstrates how you can archive blockchain data on Walrus in a reliable, deterministic, and resilient manner. The service continuously downloads Sui checkpoints, the sequential batches of finalized transactions that the Sui network produces, bundles them into compressed blobs, and uploads the blobs to Walrus. Because Walrus erasure-codes every blob across a large committee of storage nodes, the archive stays readable even when individual nodes fail.
 
-See also:
-
-- [Deployed archive](https://walrus-sui-archival.wal.app/): browse the live instance, its archival statistics, and its [technical documentation](https://walrus-sui-archival.wal.app/tech/).
-- [walrus-sui-archival on GitHub](https://github.com/MystenLabs/walrus-sui-archival): the full source code for the service, the frontend, and the Docker configurations.
-- [Core Concepts](/docs/system-overview/core-concepts): how blobs, epochs, and certification work in Walrus.
-- [Getting Started](/docs/getting-started): install and configure the Walrus client that the service uses to store blobs.
-
 ## How it works
 
 Walrus stores data as blobs, immutable units of data that storage nodes keep available for a paid number of epochs (fixed-length periods: 2 weeks on Mainnet, 1 day on Testnet). The archival service runs the following components concurrently:

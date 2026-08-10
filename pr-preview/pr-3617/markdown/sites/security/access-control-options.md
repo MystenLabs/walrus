@@ -1,11 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its contents directly from a Walrus aggregator, and Walrus does not enforce access control at the storage layer. Site metadata, including every resource path and blob ID, lives in public objects on Sui. Choose an approach based on what each part of your site needs: publish public content as-is, keep sensitive files out of the deployment, and encrypt confidential application data before it reaches Walrus.
-
-See also:
-
-- [Data Security](/docs/data-security) for the availability, integrity, and confidentiality guarantees of Walrus itself
-- [Known Restrictions](/docs/sites/known-restrictions#no-secret-values) for why site files must not contain secret values
+Walrus stores every blob publicly by default. Anyone who knows a blob ID can fetch its contents directly from a Walrus aggregator, and Walrus does not enforce access control at the storage layer. Site metadata, including every resource path and blob ID, lives in public objects on Sui. Choose an approach based on what each part of your site needs: publish public content as-is, keep sensitive files out of the deployment, and encrypt confidential application data before it reaches Walrus.
 
 ## Choosing an approach
 
@@ -57,6 +52,6 @@ If content requires per-user authentication and cannot be public even in encrypt
 
 Some approaches look like access control but do not protect the underlying data:
 
-- **Gating a portal:** You can put HTTP authentication, IP restrictions, or rate limits in front of a [self-hosted portal](/docs/sites/portals/deploy-locally), but this only restricts that one portal. Anyone can run their own portal or fetch the site's blobs directly from any aggregator, because the resource paths and blob IDs are public on Sui.
+- **Gating a portal:** You can put HTTP authentication, IP restrictions, or rate limits in front of a [self-hosted portal](/docs/sites/portals/deploy-locally), but this only restricts that one portal. Anyone can run their own portal or fetch the site's blobs directly from any aggregator, because Sui exposes the resource paths and blob IDs publicly.
 - **Obscure URLs:** Unlisted paths offer no protection. The site object on Sui publicly maps every resource path to its blob ID.
 - **Blob IDs as secrets:** Blob IDs are content-derived and discoverable. Do not rely on keeping a blob ID private.

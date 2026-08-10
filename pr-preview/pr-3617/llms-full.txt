@@ -106,7 +106,7 @@ Sui smart contract as the on-chain index.
 - [JSON Mode](https://docs.wal.app/docs/walrus-client/json-mode.md):
     JSON mode exposes every Walrus client command and simplifies programmatic access to the CLI.
     You specify the command and all of its options as a single JSON string, and the CLI prints
-    JSON-formatted results to stdout.
+    JSON-formatted results to stdout. Pass a single JSON object to walrus json.
 - [Managing Blobs](https://docs.wal.app/docs/walrus-client/managing-blobs.md):
     Use the Walrus client to manage blobs and their metadata. Before you extend or depend on a
     blob, check that it is still stored and see when it expires. Use the blob ID: This reports
@@ -361,10 +361,10 @@ Sui smart contract as the on-chain index.
     serves it, how client-side routes resolve, how caches behave across updates, and how new
     versions ship. Work through each section below before you share a production URL.
 - [Access Control Options](https://docs.wal.app/docs/sites/security/access-control-options.md):
-    All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its
-    contents directly from a Walrus aggregator, and Walrus does not enforce access control at the
-    storage layer. Site metadata, including every resource path and blob ID, lives in public
-    objects on Sui.
+    Walrus stores every blob publicly by default. Anyone who knows a blob ID can fetch its contents
+    directly from a Walrus aggregator, and Walrus does not enforce access control at the storage
+    layer. Site metadata, including every resource path and blob ID, lives in public objects on
+    Sui.
 - [Site Data Authentication](https://docs.wal.app/docs/sites/security/site-data-authentication.md):
     Walrus Sites use SHA-256 hashes stored on Sui to verify that every resource served by a portal
     matches the content the site owner originally published.
@@ -388,9 +388,9 @@ Sui smart contract as the on-chain index.
     errors you might encounter when using Walrus. Each entry includes the error message, its cause,
     and how to troubleshoot it.
 - [Reading Blobs After Upload](https://docs.wal.app/docs/troubleshooting/reading-blobs-after-upload.md):
-    Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly
-    from storage nodes returns it immediately. If your app reads blobs through a cached aggregator
-    immediately after upload, plan for a short propagation window.
+    Walrus itself maintains strong consistency. Once the network certifies a blob, any aggregator
+    reading directly from storage nodes returns it immediately. If your app reads blobs through a
+    cached aggregator immediately after upload, plan for a short propagation window.
 
 ## Data Security
 
@@ -865,16 +865,14 @@ Sui smart contract as the on-chain index.
 ### Legal
 
 - [Privacy](https://docs.wal.app/docs/legal/privacy.md):
-    Last Updated: February 10, 2024 This Privacy Policy is designed to help you understand how
-    Walrus Foundation (collectively called the “Organization", "we," "us," and "our") collects,
-    uses, and shares your personal information and to help you understand and exercise your privacy
-    rights in accordance with applicable law.
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Testnet TOS](https://docs.wal.app/docs/legal/testnet_tos.md):
-    Last updated: March 26, 2025 By using Walrus Testnet software, technologies, tools, and other
-    services (collectively “Testnet”) offered by Walrus Foundation ("Walrus Foundation", "we",
-    "our"), you agree to the general Walrus Terms of Service and these additional Testnet Terms of
-    Service (together, the “Terms”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Walrus General TOS](https://docs.wal.app/docs/legal/walrus_general_tos.md):
-    Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully because they
-    govern your use of the website, the user interface, and other offerings located at walrus.xyz,
-    (the “Site”) offered by Walrus Foundation (“Walrus Foundation,” “we,” “our”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.

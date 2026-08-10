@@ -4,11 +4,6 @@ The `headers` section of [`ws-resources.json`](/docs/sites/configuration/site-co
 
 Custom headers let you control how browsers and other clients handle each resource, for example caching, encoding, content types, and download behavior.
 
-See also:
-
-- [Site Configuration](/docs/sites/configuration/site-configuration) for the full `ws-resources.json` reference
-- [Using the Site Builder](/docs/sites/getting-started/using-the-site-builder) for the `deploy`, `publish`, and `update` commands that apply your configuration
-
 ```json
 {
   "headers": {

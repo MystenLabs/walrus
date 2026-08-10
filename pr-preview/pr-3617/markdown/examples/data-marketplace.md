@@ -2,13 +2,6 @@
 
 A data marketplace lets sellers publish datasets and buyers pay to acquire them. Walrus provides the building blocks for all three layers of such an application: Walrus itself stores and serves the dataset bytes, a Move package on Sui handles listings, payments, and ownership, and client-side encryption, for example with [Seal](https://seal-docs.wal.app/), keeps paid content confidential. Every stored blob has a corresponding `Blob` object on Sui with the `key` and `store` abilities, so datasets become assets that smart contracts can escrow, price, and transfer.
 
-See also:
-
-- [Using Walrus with Move](/docs/examples/move): the `Blob` object API and how to depend on the Walrus package.
-- [Storing Blobs](/docs/http-api/storing-blobs) and [Reading Blobs](/docs/http-api/reading-blobs): the HTTP write and read paths.
-- [Data Security](/docs/data-security): what Walrus guarantees and why confidentiality requires client-side encryption.
-- [Managing Blobs](/docs/walrus-client/managing-blobs): extending, sharing, and setting attributes on blobs with the CLI.
-
 > **Blob data is public**
 >
 > Anyone who knows a blob ID can read the blob through any aggregator. Owning the `Blob` object does not restrict reads; the object controls management rights such as extending, deleting, and setting attributes. To sell access to the content itself, encrypt the data before you store it and gate decryption onchain, as described in [Gate paid content with encryption](#gate-paid-content-with-encryption).

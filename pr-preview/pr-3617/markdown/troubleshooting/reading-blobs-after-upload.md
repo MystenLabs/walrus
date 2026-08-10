@@ -1,11 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly from storage nodes returns it immediately. If your app reads blobs through a cached aggregator immediately after upload, plan for a short propagation window.
-
-See also:
-
-- [Reading blobs over HTTP](/docs/http-api/reading-blobs) for the aggregator read endpoints
-- [Verify Blob Availability Before Acting](/docs/walrus-client/verifying-availability) for confirming certification against Sui state
+Walrus itself maintains strong consistency. Once the network certifies a blob, any aggregator reading directly from storage nodes returns it immediately. If your app reads blobs through a cached aggregator immediately after upload, plan for a short propagation window.
 
 ## Cause
 
@@ -25,7 +20,7 @@ The window does not apply in these cases:
 
 ## Solution: retry only when you know the blob should exist
 
-Because Walrus is strongly consistent, a `404` from an uncached aggregator means the blob is not on the network. Retrying every `404` adds latency for missing blobs.
+Because Walrus maintains strong consistency, a `404` from an uncached aggregator means the blob does not exist on the network. Retrying every `404` adds latency for missing blobs.
 
 Retry with backoff only when your app knows the blob has just been certified. Treat other `404` responses as final.
 
@@ -67,4 +62,4 @@ The command reports whether the blob is certified and its availability period. S
 $ walrus read <BLOB_ID> --out <FILE>
 ```
 
-If the CLI confirms the blob is certified but the aggregator still returns `404`, the fix is one of the cache workarounds above, or simply waiting out the propagation window.
+If the CLI confirms the blob is certified but the aggregator still returns `404`, the fix is one of the cache workarounds above, or waiting out the propagation window.
