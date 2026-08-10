@@ -2,6 +2,7 @@
 
 Example applications that demonstrate different workflows and use cases on Walrus 
 
+- [Ecosystem](/docs/examples/awesome-walrus): Projects and tools built on Walrus, including Walrus Memory for AI agents, first-party tooling, and the community-maintained Awesome Walrus directory.
 - [Browser and Mobile Apps](/docs/examples/browser-and-mobile): Store blobs from a browser or mobile client through a Walrus upload relay, then read them back through a CDN-backed aggregator.
 - [Sui Archival System](/docs/examples/checkpoint-data): An example application that demonstrates archiving Sui blockchain checkpoint data on Walrus.
 - [Using Walrus with JavaScript](/docs/examples/javascript): JavaScript code examples to demonstrate how to use Walrus from within a JavaScript application.

@@ -1,26 +1,12 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Client apps that run in a browser or on a mobile device cannot open the many connections a direct
-store needs. A blob is split into slivers that go to every storage node, so an unprivileged client
-would have to manage dozens of parallel uploads and collect a confirmation from each node. The two
-building blocks that make client-side storage practical are an upload relay for writes and a
-CDN-backed aggregator for reads. This page shows the full round trip with the Walrus TypeScript SDK,
-and the points where a mobile app differs from a browser app.
+Client apps that run in a browser or on a mobile device cannot open the many connections a direct store needs. A blob is split into slivers that go to every storage node, so an unprivileged client would have to manage dozens of parallel uploads and collect a confirmation from each node. The two building blocks that make client-side storage practical are an upload relay for writes and a CDN-backed aggregator for reads. The sections below show the full round trip with the Walrus TypeScript SDK, and the points where a mobile app differs from a browser app.
 
-For the upload path tradeoffs, see [Choose your upload path](/docs/getting-started#choose-your-upload-path).
-For a deployed reference app, open [relay.wal.app](https://relay.wal.app) or read the full
-[source code](https://github.com/MystenLabs/walrus-sdk-relay-example-app). For an annotated
-walkthrough of that app, see [Walrus Relay](/docs/examples/walrus-relay).
+For the upload path tradeoffs, see [Choose your upload path](/docs/getting-started#choose-your-upload-path). For a deployed reference app, open [relay.wal.app](https://relay.wal.app) or read the full [source code](https://github.com/MystenLabs/walrus-sdk-relay-example-app). For an annotated walkthrough of that app, see [Walrus Relay](/docs/examples/walrus-relay).
 
 ## Why client apps use a relay
 
-An upload relay accepts a single request, encodes the blob, distributes the slivers to the storage
-nodes, and returns one certificate. Asset management onchain still happens on the client, so the
-client keeps control of registration, payment, and certification while the relay absorbs the
-network fan-out. Browsers and mobile devices benefit the most, since both have limited bandwidth and
-cannot hold many outbound connections open. See the [upload relay](/docs/system-overview/relay)
-overview for the design, and [Operate an Upload Relay](/docs/operator-guide/upload-relay) for the
-endpoints and tip mechanism.
+An upload relay accepts a single request, encodes the blob, distributes the slivers to the storage nodes, and returns one certificate. Asset management onchain still happens on the client, so the client keeps control of registration, payment, and certification while the relay absorbs the network fan-out. Browsers and mobile devices benefit the most, since both have limited bandwidth and cannot hold many outbound connections open. See the [upload relay](/docs/system-overview/relay) overview for the design, and [Operate an Upload Relay](/docs/operator-guide/upload-relay) for the endpoints and tip mechanism.
 
 > **Tip**
 >
@@ -32,9 +18,7 @@ endpoints and tip mechanism.
 > These are also listed in the [Network Reference](/docs/network-reference#upload-relays).
 ## Configure the client
 
-Create a `WalrusClient` with an `uploadRelay` configuration. The `host` points at the relay, and
-`sendTip` sets the maximum tip your client is willing to pay a paid relay. A free relay reports
-`no_tip` and the client pays only the onchain storage fee.
+Create a `WalrusClient` with an `uploadRelay` configuration. The `host` points at the relay, and `sendTip` sets the maximum tip your client is willing to pay a paid relay. A free relay reports `no_tip` and the client pays only the onchain storage fee.
 
 ```ts
 import { getFullnodeUrl, SuiClient } from "@mysten/sui/client";
@@ -59,9 +43,7 @@ export const walrusClient = new WalrusClient({
 
 ## Store a file through the relay
 
-The SDK exposes the relay store as a `writeFilesFlow` with four steps. Each onchain step returns a
-transaction for the connected wallet to sign, so the user keeps custody of the keys and pays the
-fees. The flow is the same in a browser and in a mobile app.
+The SDK exposes the relay store as a `writeFilesFlow` with four steps. Each onchain step returns a transaction for the connected wallet to sign, so the user keeps custody of the keys and pays the fees. The flow is the same in a browser and in a mobile app.
 
 ```ts
 import { WalrusFile } from "@mysten/walrus";
@@ -99,38 +81,89 @@ const storedFiles = await flow.listFiles();
 // storedFiles[0] carries the blob ID and the Sui object ID you read back later.
 ```
 
-After `listFiles` returns, confirm the blob is durable before you depend on it. See
-[Verify blob availability before acting](/docs/walrus-client/verifying-availability).
+After `listFiles` returns, confirm the blob is durable before you depend on it. See [Verify blob availability before acting](/docs/walrus-client/verifying-availability).
 
 ## Browser and mobile differences
 
-The flow above runs unchanged in any JavaScript runtime. Two parts of the surrounding app differ by
-platform.
+The flow above runs unchanged in any JavaScript runtime. Two parts of the surrounding app differ by platform.
 
-- **Reading file bytes.** A browser reads bytes from a `File` with `arrayBuffer`. A React Native app
-  reads them from the device file system or image picker and converts the result to a `Uint8Array`
-  before calling `WalrusFile.from`.
-- **Signing transactions.** A browser app signs the `register` and `certify` transactions through a
-  wallet connector. A mobile app signs through its wallet integration, such as a deep-linked wallet
-  or an embedded signer. The transactions the flow produces are identical either way.
+- **Reading file bytes.** A browser reads bytes from a `File` with `arrayBuffer`. A React Native app reads them from the device file system or image picker and converts the result to a `Uint8Array` before calling `WalrusFile.from`.
+- **Signing transactions.** A browser app signs the `register` and `certify` transactions through a wallet connector. A mobile app signs through its wallet integration, such as a deep-linked wallet or an embedded signer. The transactions the flow produces are identical either way.
 
 > **`WalrusFile` buffer error**
 >
-> If `WalrusFile.from` throws `Cannot read properties of undefined (reading 'buffer')`, it
-> received something other than a typed array for `contents`. The SDK expects a `Uint8Array`, not a
-> `File`, `Blob`, or raw `ArrayBuffer`. Read the bytes first and wrap them, as in the example above:
-> `new Uint8Array(await file.arrayBuffer())`. In a React Native app, convert the bytes you read from
-> the file system or image picker to a `Uint8Array` before you call `WalrusFile.from`.
+> If `WalrusFile.from` throws `Cannot read properties of undefined (reading 'buffer')`, it received something other than a typed array for `contents`. The SDK expects a `Uint8Array`, not a `File`, `Blob`, or raw `ArrayBuffer`. Read the bytes first and wrap them, as in the example above: `new Uint8Array(await file.arrayBuffer())`. In a React Native app, convert the bytes you read from the file system or image picker to a `Uint8Array` before you call `WalrusFile.from`.
 > **Caution**
 >
-> Blobs stored on Walrus are public and readable by anyone. Encrypt sensitive data before you store
-> it, for example with [Seal](/docs/data-security). This applies equally to browser and mobile clients.
+> Blobs stored on Walrus are public and readable by anyone. Encrypt sensitive data before you store it, for example with [Seal](/docs/data-security). This applies equally to browser and mobile clients.
+## Browser requests and CORS
+
+A browser app talks to two Walrus services, and each has its own cross-origin story.
+
+1. **Reads** go to an aggregator. The reference aggregator daemon itself sends permissive CORS headers, but public aggregators often sit behind a CDN, and the CDN configuration decides the policy your browser actually sees: one public endpoint can allow a cross-origin `fetch` while another blocks it.
+2. **Writes** go through an upload relay. The public relays accept browser-origin uploads; the deployed [relay example app](https://relay.wal.app) stores from the browser through the public Testnet relay.
+
+If a cross-origin `fetch` to an aggregator fails, work around it in one of three ways:
+
+1. Load the blob through an element's `src` attribute instead of `fetch`. Media and image elements load cross-origin resources without a CORS preflight:
+
+   ```html
+   <img src="https://aggregator.walrus-testnet.walrus.space/v1/blobs/<BLOB_ID>" alt="Stored image" />
+   ```
+
+2. Switch to a different public aggregator from the [Network Reference](/docs/network-reference#aggregators-and-publishers). CDN policies differ between endpoints, so another endpoint might allow your origin.
+3. Read through an [aggregator you run yourself](/docs/operator-guide/aggregators/operating-aggregator), which gives you full control of the CORS policy.
+
+## The WebAssembly module and bundlers
+
+The Walrus TypeScript SDK encodes blobs locally before upload using a WebAssembly module, in the browser and on the server alike. Most modern bundlers load it without configuration. If your bundler fails on the `.wasm` asset, exclude the WASM package from dependency pre-bundling or serve it as a static asset. For example, the [relay example app](https://github.com/MystenLabs/walrus-sdk-relay-example-app) configures Vite in `vite.config.ts` as follows:
+
+```ts
+optimizeDeps: {
+  exclude: ["@mysten/walrus-wasm"],
+},
+```
+
+The [Walrus TypeScript SDK documentation](https://sdk.mystenlabs.com/walrus) covers the supported bundler setups.
+
+## The signer contract
+
+`flow.register` and `flow.certify` return Sui `Transaction` objects; the flow never signs anything itself. The `signAndExecuteTransaction` in the example stands for any function with this shape: it accepts `{ transaction }`, executes the transaction on Sui, and resolves with an object that includes the transaction `digest`.
+
+- In a browser app, the `useSignAndExecuteTransaction` hook from `@mysten/dapp-kit` matches the contract directly, and the connected wallet signs.
+- In a server or script context, sign with a keypair instead: `suiClient.signAndExecuteTransaction({ signer: keypair, transaction })`.
+
+Either way, pass the digest of the **register** transaction to `flow.upload({ digest })`; the relay uses it to verify the registration before accepting sliver data.
+
+## Reading files stored in a quilt
+
+A [quilt](/docs/system-overview/quilt) addresses each batched file by `QuiltPatchId`, not `BlobId`. A `QuiltPatchId` derives from the composition of the whole quilt, so you cannot compute it from the file contents, and it changes if the file moves to a different quilt. Capture patch IDs at store time, or list them later with [`walrus list-patches-in-quilt`](/docs/walrus-client/quilts). A browser reads a patch the same way it reads a blob:
+
+```ts
+const res = await fetch(`${AGGREGATOR}/v1/blobs/by-quilt-patch-id/${patchId}`);
+```
+
+The patch's identifier and tags come back in response headers. See [Quilt HTTP APIs](/docs/http-api/quilt-http-apis) for the full endpoint set.
+
+## Range reads
+
+Aggregators support the HTTP `Range` header and return `206 Partial Content`, so a browser can seek within large media or fetch just a slice of a blob without downloading all of it. See [streaming media](/docs/http-api/streaming-media) for the header and query-parameter forms.
+
+## Browser and server compatibility
+
+The Walrus TypeScript SDK (`@mysten/walrus`) runs both in the browser and in server-side Node.js. What changes between the two runtimes is the surrounding plumbing:
+
+| **Concern** | **Browser** | **Server (Node.js)** |
+| --- | --- | --- |
+| Encoding | Local, through the SDK's WebAssembly module | Same |
+| Store path | Upload relay (browsers cannot hold the direct-store fan-out) | Direct store or relay |
+| Signing | Wallet connector, for example `@mysten/dapp-kit` | Keypair signer |
+| Reading bytes | `File` → `arrayBuffer` → `Uint8Array` | `fs.readFile` returns a usable buffer |
+| Reads | `fetch` against an aggregator, subject to CORS | Any HTTP client, no CORS |
+
 ## Read through a CDN-backed aggregator
 
-Reads are plain HTTPS GET requests, so a browser or mobile client reads a blob with `fetch` and no
-SDK. Put a CDN in front of an aggregator so repeated reads of popular blobs are served from a nearby
-edge cache, which matters most for mobile clients on slow or metered networks. Set the aggregator
-base URL from an endpoint in the [Network Reference](/docs/network-reference#aggregators-and-publishers).
+Reads are plain HTTPS GET requests, so a browser or mobile client reads a blob with `fetch` and no SDK. Put a CDN in front of an aggregator so repeated reads of popular blobs are served from a nearby edge cache, which matters most for mobile clients on slow or metered networks. Set the aggregator base URL from an endpoint in the [Network Reference](/docs/network-reference#aggregators-and-publishers).
 
 Read by blob ID:
 
@@ -147,13 +180,10 @@ const res = await fetch(`${AGGREGATOR}/v1/blobs/by-object-id/${objectId}`);
 
 > **Reading right after upload**
 >
-> A CDN-fronted aggregator might briefly serve a cached `404` from before the blob propagated to the
-> edge. If your app just certified the blob, retry the read with backoff rather than treating the
-> first `404` as missing. See [Reading blobs right after upload](/docs/troubleshooting/reading-blobs-after-upload).
+> A CDN-fronted aggregator might briefly serve a cached `404` from before the blob propagated to the edge. If your app just certified the blob, retry the read with backoff rather than treating the first `404` as missing. See [Reading blobs right after upload](/docs/troubleshooting/reading-blobs-after-upload).
 ## Related
 
 - [Walrus Relay](/docs/examples/walrus-relay): annotated source for the deployed browser example.
 - [Upload relay](/docs/system-overview/relay): how the relay batches, retries, and certifies.
 - [Reading blobs over HTTP](/docs/http-api/reading-blobs): the full aggregator read API.
-- [Verify blob availability before acting](/docs/walrus-client/verifying-availability): confirm
-  durability before depending on a blob.
+- [Verify blob availability before acting](/docs/walrus-client/verifying-availability): confirm durability before depending on a blob.

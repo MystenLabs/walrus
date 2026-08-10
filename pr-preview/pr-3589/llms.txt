@@ -158,6 +158,10 @@ Sui smart contract as the on-chain index.
 
 ## Examples
 
+- [Awesome Walrus](https://docs.wal.app/docs/examples/awesome-walrus.md):
+    Walrus is a storage layer, and the products in this section show what teams build on top of it.
+    Use them directly, or read their source as reference implementations for your own project.
+    First-party products with Walrus as their storage layer.
 - [Browser And Mobile](https://docs.wal.app/docs/examples/browser-and-mobile.md):
     Client apps that run in a browser or on a mobile device cannot open the many connections a
     direct store needs. A blob is split into slivers that go to every storage node, so an
@@ -169,9 +173,9 @@ Sui smart contract as the on-chain index.
     https://walrus-sui-archival.wal.app/ The application's code is open source and available on
     GitHub.
 - [Examples](https://docs.wal.app/docs/examples.md):
-    Example applications that demonstrate different workflows and use cases on Walrus Browser and
-    Mobile Apps: Store blobs from a browser or mobile client through a Walrus upload relay, then
-    read them back through a CDN-backed aggregator.
+    Example applications that demonstrate different workflows and use cases on Walrus Ecosystem:
+    Projects and tools built on Walrus, including Walrus Memory for AI agents, first-party tooling,
+    and the community-maintained Awesome Walrus directory.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md):
     The following JavaScript example shows how to upload and download a blob through a web form
     using the HTTP API. The following JavaScript example shows how to upload and download a blob
@@ -355,6 +359,10 @@ Sui smart contract as the on-chain index.
     Walrus Site Portals are used to access and browse a Walrus Site. The portal you run must match
     the network on which your site is deployed. Each network has its own onchain package, default
     RPC endpoint, and Walrus aggregator.
+- [Production](https://docs.wal.app/docs/sites/production.md):
+    A working deploy and a production site differ in a handful of predictable ways: which portal
+    serves it, how client-side routes resolve, how caches behave across updates, and how new
+    versions ship. Work through each section below before you share a production URL.
 - [Access Control Options](https://docs.wal.app/docs/sites/security/access-control-options.md):
     All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its
     contents directly from a Walrus aggregator. Access control for Walrus Sites is not enforced at
@@ -860,16 +868,14 @@ Sui smart contract as the on-chain index.
 ### Legal
 
 - [Privacy](https://docs.wal.app/docs/legal/privacy.md):
-    Last Updated: February 10, 2024 This Privacy Policy is designed to help you understand how
-    Walrus Foundation (collectively called the “Organization", "we," "us," and "our") collects,
-    uses, and shares your personal information and to help you understand and exercise your privacy
-    rights in accordance with applicable law.
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Testnet TOS](https://docs.wal.app/docs/legal/testnet_tos.md):
-    Last updated: March 26, 2025 By using Walrus Testnet software, technologies, tools, and other
-    services (collectively “Testnet”) offered by Walrus Foundation ("Walrus Foundation", "we",
-    "our"), you agree to the general Walrus Terms of Service and these additional Testnet Terms of
-    Service (together, the “Terms”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Walrus General TOS](https://docs.wal.app/docs/legal/walrus_general_tos.md):
-    Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully because they
-    govern your use of the website, the user interface, and other offerings located at walrus.xyz,
-    (the “Site”) offered by Walrus Foundation (“Walrus Foundation,” “we,” “our”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.

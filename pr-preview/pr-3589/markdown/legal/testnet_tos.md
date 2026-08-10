@@ -1,5 +1,8 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+> **Looking for the developer documentation?**
+>
+> You are reading a legal document. To build on Walrus, start with [Get started](/docs/getting-started), [Walrus Sites](/docs/sites), or the [Walrus Memory docs](/walrus-memory/), where you can also open the Ask Walrus AI assistant for technical questions.
 Last updated: March 26, 2025
 
 By using Walrus Testnet software, technologies, tools, and other services (collectively
