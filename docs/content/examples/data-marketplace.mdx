@@ -76,50 +76,17 @@ Set `$PUBLISHER` to an endpoint from the [Network Reference](/docs/network-refer
 
 ## Escrow and sell the blob in Move
 
-The marketplace contract escrows the `Blob` object inside a shared `Listing` object so that any buyer can purchase it. The following module shows the core pattern:
+A marketplace contract escrows the `Blob` object so that a buyer can purchase it. The primitive that makes this possible is wrapping: because `Blob` has the `store` ability, a Move package can take a blob by value and hold it inside its own object. The Walrus repository ships that primitive as a runnable example:
 
-```move
-module marketplace::listing {
-    use sui::{coin::Coin, sui::SUI};
-    use walrus::blob::Blob;
+<ImportContent source="docs/examples/move/walrus_dep/sources/wrapped_blob.move" mode="code" org="MystenLabs" repo="walrus" />
 
-    const EIncorrectPayment: u64 = 0;
+A marketplace extends this pattern in three ways:
 
-    /// A shared listing that escrows a Walrus `Blob` object until a buyer
-    /// pays the asking price.
-    public struct Listing has key {
-        id: UID,
-        price: u64,
-        seller: address,
-        blob: Blob,
-    }
+- **Add listing terms to the wrapper.** Alongside the escrowed blob, store the price and the seller's address in the same struct.
+- **Share the wrapper instead of holding it.** `transfer::share_object` makes the listing reachable by any buyer, rather than only its owner.
+- **Add a purchase function.** Unpack the listing, verify the payment coin, transfer the payment to the seller, and transfer the `Blob` object to the buyer with `transfer::public_transfer`.
 
-    /// Escrows the blob in a shared `Listing` that any buyer can purchase.
-    public fun list(blob: Blob, price: u64, ctx: &mut TxContext) {
-        transfer::share_object(Listing {
-            id: object::new(ctx),
-            price,
-            seller: ctx.sender(),
-            blob,
-        })
-    }
-
-    /// Pays the seller and transfers the escrowed `Blob` object to the buyer.
-    public fun buy(listing: Listing, payment: Coin<SUI>, ctx: &mut TxContext) {
-        let Listing { id, price, seller, blob } = listing;
-        assert!(payment.value() == price, EIncorrectPayment);
-        transfer::public_transfer(payment, seller);
-        transfer::public_transfer(blob, ctx.sender());
-        id.delete();
-    }
-}
-```
-
-The module works as follows:
-
-- `list` takes a `Blob` by value, wraps it with a price and the seller's address, and shares the `Listing` so any buyer can call `buy`. While escrowed, not even the seller can extend or delete the blob, unless you add functions for that.
-- `buy` unpacks the `Listing`, checks the payment, pays the seller, and transfers the `Blob` object to the buyer. After the purchase, the buyer owns the object and can extend its lifetime, set attributes, resell it, or wrap it again.
-- The example prices listings in SUI for brevity; change the `Coin` type parameter to price in WAL or any other coin.
+After the purchase, the buyer owns the `Blob` object and can extend its lifetime, set attributes, resell it, or wrap it again. While a blob sits escrowed inside a wrapper, only the wrapping module's functions can reach it, so add explicit functions for any management the seller still needs.
 
 Your package needs the Walrus dependency in its `Move.toml`; see [Add the Walrus dependency](/docs/examples/move#add-the-walrus-dependency) for the exact declaration and build commands.
 
