@@ -18,7 +18,7 @@ Two constraints apply when you pick endpoints:
 
 ## Upload a blob
 
-Send the raw bytes as the body of a PUT request to the publisher's `/v1/blobs` endpoint:
+Send the raw bytes as the body of a PUT request to the publisher's `/v1/blobs` endpoint. The following function condenses the store call from the [runnable example](#complete-example-browser-upload-form) below:
 
 ```js
 async function storeBlob(data, epochs = 1) {
@@ -70,7 +70,7 @@ The `blobId` identifies the data on Walrus: pass it to an aggregator to read the
 
 ## Download a blob
 
-Read the blob back with a GET request to an aggregator's `/v1/blobs/<blobId>` endpoint:
+Read the blob back with a GET request to an aggregator's `/v1/blobs/<blobId>` endpoint. The [runnable example](#complete-example-browser-upload-form) builds the same URL to link each stored blob:
 
 ```js
 async function readBlob(blobId) {
