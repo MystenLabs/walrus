@@ -89,6 +89,8 @@ contexts:
 default_context: mainnet
 ```
 
+The optional `rpc_url` takes a Sui full node URL, and `site-builder` reaches that node over gRPC. Sui's JSON-RPC deprecation therefore needs no change to this file. If an older installation fails against a full node that stopped serving JSON-RPC, upgrade the tooling. See [Transport: JSON-RPC deprecation](/docs/network-reference#transport-json-rpc-deprecation).
+
 ## `site-builder` CLI commands
 
 :::info

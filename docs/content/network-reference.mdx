@@ -87,6 +87,20 @@ The Walrus client and SDKs read Walrus state from a Sui full node. The default R
 | Testnet | `https://fullnode.testnet.sui.io:443` |
 {/* GENERATED:END id=rpc-endpoints */}
 
+### Transport: JSON-RPC deprecation
+
+Sui has deprecated JSON-RPC. Current Walrus clients already read and write Sui state over gRPC, and they reach it at the same full node URL the table above lists. Three consequences follow:
+
+1. **No configuration change.** One URL per network serves both protocols, so `rpc_urls` in the Walrus client configuration and `rpc_url` in the Walrus Sites configuration keep the values above. Walrus has no separate gRPC endpoint setting.
+2. **Upgrade rather than reconfigure.** If a deployment fails against a full node that stopped serving JSON-RPC, upgrade to a current Walrus release, which no longer builds a JSON-RPC client at all. See [Getting Started](/docs/getting-started).
+3. **Custom full nodes must serve gRPC.** The public endpoints above do. A self-hosted full node must enable the gRPC API.
+
+:::caution
+
+`WALRUS_GRPC_MIGRATION_LEVEL` exists as a temporary escape hatch for debugging the migration. Setting it below the client's default forces older JSON-RPC code paths that Sui full nodes are removing, so do not set it in production.
+
+:::
+
 ## Package IDs
 
 The Walrus client and the TypeScript SDK infer package IDs automatically from the system and staking objects, so you do not need to set them manually in most configurations. The values below are provided for contract exploration and for advanced setups that pin a specific deployment.
