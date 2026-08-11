@@ -95,9 +95,10 @@ impl NodeRecoveryHandler {
     /// Spawns the permanent node-recovery service.
     ///
     /// The service is a reconciliation loop: it watches the sync-and-recovery info and,
-    /// whenever the node's persisted status names a recovery target (and the node is not
-    /// catching up), runs a recovery toward it. A run is bound to the sync baseline generation
-    /// it started from and can outlive several epoch changes: a publication that leaves the
+    /// whenever the node's persisted status names a recovery target (and the info names the
+    /// node a committee member that is not catching up), runs a recovery toward it. A run is
+    /// bound to the sync baseline generation it started from and can outlive several epoch
+    /// changes: a publication that leaves the
     /// baseline unchanged (an epoch change advancing the recovery target) extends the run —
     /// its frozen scan bound stays sufficient, since blobs certified at later epochs are
     /// synced through live event processing, and its completion instruction is replaced with
@@ -282,18 +283,44 @@ async fn run_service(
         .await
         .expect("current event epoch watch channel should not be dropped");
 
+    // The `generation` of the info the most recent run started from. A run normally ends by
+    // changing the world — completing (the status leaves `RecoveryInProgress`) or being
+    // superseded by a newer info — but it can also end with the state it started from fully
+    // intact: its completion found no instruction (revoked through an error path) while the
+    // persisted status still names a recovery target. The guard below keeps such a run from
+    // restarting against the very info it just ran under, which would busy-loop identical
+    // full certified-blob scans; the service instead parks until the next publication.
+    let mut last_run_generation: Option<u64> = None;
+
     loop {
         // Bind the next run to the current sync baseline generation; mark the info as seen so
         // that `has_changed` inside the run detects only newer publications.
-        let (baseline, catching_up) = {
+        let (generation, baseline, may_run_recovery) = {
             let info = info_receiver.borrow_and_update();
-            (info.node_recovery_baseline_generation, info.catching_up)
+            // Recovery only runs for a committee member that is not catching up. In
+            // particular, a node that was dropped from the committee while recovering can
+            // restart with a persisted `RecoveryInProgress` status but no completion
+            // instruction (deliberately — its recovery is moot); running would scan the whole
+            // certified-blob table for zero owned shards and complete to nothing. The node
+            // parks here until event replay processes the epoch change that dropped it, which
+            // moves it to `Standby`.
+            (
+                info.generation,
+                info.node_recovery_baseline_generation,
+                !info.catching_up && info.membership.is_member(),
+            )
         };
 
         let target_epoch = match node.storage.node_status() {
-            Ok(NodeStatus::RecoveryInProgress(target_epoch)) if !catching_up => target_epoch,
+            Ok(NodeStatus::RecoveryInProgress(target_epoch))
+                if may_run_recovery && last_run_generation != Some(generation) =>
+            {
+                target_epoch
+            }
             Ok(_) => {
-                // Nothing to recover toward; wait for the next info.
+                // Nothing to run: the status names no recovery target, the info forbids
+                // recovery (catching up, or not a committee member), or a run already ended
+                // under exactly this info. Wait for the next publication.
                 if info_receiver.changed().await.is_err() {
                     // TODO(WAL-1269): terminate the node when the recovery service loop exits;
                     // a node without the recovery service can never complete a recovery.
@@ -308,6 +335,7 @@ async fn run_service(
                 continue;
             }
         };
+        last_run_generation = Some(generation);
 
         tracing::info!(
             walrus.epoch = target_epoch,

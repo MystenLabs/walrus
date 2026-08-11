@@ -752,9 +752,16 @@ impl EpochChangeExecutor {
                     "node is not in the current committee, set node status to 'Standby'"
                 );
                 self.inner.set_node_status(NodeStatus::Standby)?;
-                // A dropout supersedes any pending metadata recovery: the metadata task must
-                // not flip the node back to `Active` when it finishes.
+                // A dropout supersedes the pending completions of both long-running tasks:
+                // neither a still-running metadata recovery nor a still-running node recovery
+                // may transition the node away from `Standby` when it finishes. Both are
+                // revoked here, atomically with the status write inside the critical section:
+                // the attestation routing in `apply_shard_changes` also clears the recovery
+                // instruction, but an error on the way there (locking a lost shard, creating
+                // storage) would otherwise leave it armed for a stale completion — an illegal
+                // `Standby` -> `Active` write.
                 self.shard_sync_handler.clear_metadata_recovery_completion();
+                self.node_recovery_handler.clear_completion_instruction();
             }
             Some(plan::StatusTransition::RecoveryInProgress) => {
                 tracing::info!(
@@ -857,6 +864,21 @@ impl EpochChangeExecutor {
             );
         }
 
+        // Quiesce all sync work, still inside the critical section: after this point no
+        // sync task from an earlier epoch change exists (`quiesce_all_syncs` aborts the
+        // tasks and awaits their termination, and no new sync work can start while this
+        // executor occupies the critical section — the reconciler enters it for every
+        // pass). This must precede the shard locking below: a sync-driving task from an
+        // earlier pass derives its shard list from a pre-change committee view, so it can
+        // consider a moved-away shard owned and, through `start_new_shard_sync` (which
+        // skips only `Active` shards), overwrite a just-written `LockedToMove` status with
+        // `ActiveSync` — silently re-opening the shard for writes for the rest of the
+        // epoch. Quiescing first also keeps the attestation's pending shard syncs recorded
+        // below from being satisfied or consumed by stale work. The reconciler rebuilds the
+        // still-needed syncs from persisted progress once the info published below becomes
+        // visible; at most the in-flight batches are repeated, at the epoch-change cadence.
+        self.shard_sync_handler.quiesce_all_syncs().await;
+
         // Lock the shards that moved out, so that they do not accept any more writes. This
         // must precede the attestation routing and the sync starts below: an attestation may
         // fire as soon as the token is placed (for example, via the already-active fast path
@@ -877,14 +899,6 @@ impl EpochChangeExecutor {
                 .await
                 .context("failed to lock shard")?;
         }
-
-        // Quiesce all sync work, still inside the critical section: after this point no
-        // sync task from an earlier epoch change exists, so the attestation's pending shard
-        // syncs recorded below cannot be satisfied or consumed by stale work. The reconciler
-        // rebuilds the still-needed syncs from persisted progress once the info published
-        // below becomes visible; at most the in-flight batches are repeated, at the
-        // epoch-change cadence.
-        self.shard_sync_handler.quiesce_all_syncs().await;
 
         // Route the `epoch_sync_done` attestation: mint the token for the new epoch and hand
         // it to the owner named in the plan, invalidating any token or instruction held by
