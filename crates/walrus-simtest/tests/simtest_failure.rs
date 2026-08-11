@@ -869,3 +869,7 @@ mod tests {
         sui_macros::clear_fail_point("failpoint_rpc_client_build_client");
     }
 }
+
+// DIAG: layout perturbation to re-roll the msim schedule lottery (roll 1).
+#[allow(dead_code)]
+const DIAG_SCHEDULE_ROLL: u32 = 1;

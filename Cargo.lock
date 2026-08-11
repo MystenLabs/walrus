@@ -8729,6 +8729,7 @@ dependencies = [
  "signal-hook-registry",
  "socket2 0.6.3",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.61.1",
 ]
 
@@ -12430,19 +12431,15 @@ dependencies = [
 [[package]]
 name = "tokio"
 version = "1.52.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
+source = "git+https://github.com/MystenLabs/mysten-sim.git?rev=2c2ec3ffbc1e559c575dc7de1ff2498d1f6700f6#2c2ec3ffbc1e559c575dc7de1ff2498d1f6700f6"
 dependencies = [
  "bytes",
+ "futures",
  "libc",
- "mio 1.2.0",
- "parking_lot 0.12.4",
- "pin-project-lite",
- "signal-hook-registry",
- "socket2 0.6.3",
- "tokio-macros",
+ "mio 0.8.11",
+ "msim",
+ "real_tokio",
  "tracing",
- "windows-sys 0.61.1",
 ]
 
 [[package]]
@@ -15191,3 +15188,8 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "futures-timer"
+version = "3.0.3"
+source = "git+https://github.com/MystenLabs/mysten-sim.git?rev=2c2ec3ffbc1e559c575dc7de1ff2498d1f6700f6#2c2ec3ffbc1e559c575dc7de1ff2498d1f6700f6"
