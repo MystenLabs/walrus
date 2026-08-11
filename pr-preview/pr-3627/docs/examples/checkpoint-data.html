@@ -27,7 +27,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3627/assets/css/styles.3c1f81b6.css">
-<script src="/walrus/pr-preview/pr-3627/assets/js/runtime~main.3a12b6bc.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3627/assets/js/runtime~main.17227a92.js" defer="defer"></script>
 <script src="/walrus/pr-preview/pr-3627/assets/js/main.fbef501c.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -51,12 +51,17 @@
 </ol>
 <p>The service records<!-- --> <!-- -->blob metadata<!-- -->, that is, the Walrus<!-- --> <!-- -->blob ID<!-- -->, the Sui object ID, the checkpoint range, and the size of each archived<!-- --> <!-- -->blob<!-- -->, in a local RocksDB database, and can optionally mirror it to PostgreSQL for fast indexed queries.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="build-and-run-the-service">Build and run the service<a href="#build-and-run-the-service" class="hash-link" aria-label="Direct link to Build and run the service" title="Direct link to Build and run the service" translate="no">​</a></h2>
-<p>Before you start, you need:</p>
-<ol>
-<li class="">A recent Rust toolchain, because the service builds with Cargo.</li>
-<li class="">A<!-- --> <!-- -->Walrus client<!-- --> configuration and a wallet funded with SUI and<!-- --> <!-- -->WAL<!-- -->, because the service pays for the storage it uses. See <a class="" href="/walrus/pr-preview/pr-3627/docs/getting-started">Getting Started</a>.</li>
-<li class="">Optional: a PostgreSQL database if you want indexed queries alongside the local RocksDB store.</li>
-</ol>
+<div class="outlined-tabs"><div class="theme-tabs-container tabs-container tabList_ZYeF"><ul role="tablist" aria-orientation="horizontal" class="tabs"><li role="tab" tabindex="0" aria-selected="true" class="tabs__item tabItem_XvjE tabs__item--active">Prerequisites</li></ul><div class="margin-top--md"><div role="tabpanel" class="tabItem_LDjo"><ul class="contains-task-list containsTaskList_lwFt">
+<li class="task-list-item">
+<p><input type="checkbox" disabled="" checked=""> <!-- -->A recent Rust toolchain, because the service builds with Cargo.</p>
+</li>
+<li class="task-list-item">
+<p><input type="checkbox" disabled="" checked=""> <!-- -->A<!-- --> <!-- -->Walrus client<!-- --> configuration and a wallet funded with SUI and<!-- --> <!-- -->WAL<!-- -->, because the service pays for the storage it uses. See <a class="" href="/walrus/pr-preview/pr-3627/docs/getting-started">Getting Started</a>.</p>
+</li>
+<li class="task-list-item">
+<p><input type="checkbox" disabled="" checked=""> <!-- -->Optional: a PostgreSQL database if you want indexed queries alongside the local RocksDB store.</p>
+</li>
+</ul></div></div></div></div>
 <p>Then build and run the service:</p>
 <ol>
 <li class="">
