@@ -30,14 +30,15 @@ jobs:
       EPOCHS: 10
       BUILD_DIR: site
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # pin@v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - uses: ./.github/actions/set-up-walrus
         with:
           SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
           SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
           WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
           SUI_NETWORK: mainnet
-          SITE_BUILDER_VERSION: v1 # keep uploading this as single blobs instead of quilts for now (SEW-509)
+          # v1 is unmaintained and JSON-RPC only, so it can no longer reach mainnet full nodes.
+          SITE_BUILDER_VERSION: v2
 
       - name: Create temporary directory
         run: "mkdir -p ${{ env.BUILD_DIR }}"
@@ -56,4 +57,3 @@ jobs:
           update --list-directory ${{ env.BUILD_DIR }} ${{ vars.WALRUS_SITE_OBJECT_BIN }}
           --epochs ${{ env.EPOCHS }}
           --permanent
-          --check-extend

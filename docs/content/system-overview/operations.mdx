@@ -38,6 +38,21 @@ answer: Developer guide to Walrus operations for blob management.
 
 Blobs can be interacted with through familiar file system operations such as uploading, reading, downloading, and deleting.
 
+<figure>
+  <iframe src="/diagrams/interactive_blob-lifecycle_v2.html"
+    style={{width:'100%',height:'660px',border:'0'}}
+    title="The life of a Walrus blob: a client buys a storage resource on Sui for a number of epochs, registers the blob, erasure-codes it into slivers, distributes them to the storage node committee, collects signed confirmations from a write quorum of 2f + 1 nodes, and posts the availability certificate to Sui. Walrus then keeps the blob retrievable for the purchased storage period; extend the period to keep it available, or it expires and the system reclaims the space."
+    loading="lazy"></iframe>
+  <figcaption>
+    You buy storage on Walrus for a fixed number of epochs, so every blob has a lifetime.
+    The client acquires storage on Sui, registers the blob, encodes it into slivers,
+    distributes them to the committee, collects a write quorum of 2f + 1 signed confirmations,
+    and posts the availability certificate to Sui. Walrus then keeps the blob retrievable
+    for the purchased period. Extend the period to keep it available, or it
+    expires and the system reclaims the space.
+  </figcaption>
+</figure>
+
 ## Upload
 
 Use the following command to upload a file to Walrus

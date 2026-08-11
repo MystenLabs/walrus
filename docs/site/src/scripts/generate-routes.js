@@ -17,22 +17,28 @@ function isRedirectStub(filePath) {
 }
 
 /**
- * Recursively finds all content HTML files in the build directory,
- * skipping Docusaurus redirect stubs (.html.html, .htm/index.html).
+ * Recursively finds all HTML files in the build directory, split into
+ * content pages and Docusaurus meta-refresh redirect stubs. Stubs still
+ * need routes (they are how configured redirects work on the Walrus
+ * Site), but they must never shadow a content page.
  */
 function findHtmlFiles(dir, baseDir = dir) {
-  const results = [];
+  const results = { content: [], stubs: [] };
   const entries = fs.readdirSync(dir, { withFileTypes: true });
 
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      results.push(...findHtmlFiles(fullPath, baseDir));
+      const nested = findHtmlFiles(fullPath, baseDir);
+      results.content.push(...nested.content);
+      results.stubs.push(...nested.stubs);
     } else if (entry.name.endsWith(".html")) {
+      const relPath = "/" + path.relative(baseDir, fullPath);
       if (isRedirectStub(fullPath)) {
-        continue;
+        results.stubs.push(relPath);
+      } else {
+        results.content.push(relPath);
       }
-      results.push("/" + path.relative(baseDir, fullPath));
     }
   }
 
@@ -149,14 +155,26 @@ const manualRoutes = wsResources.routes || {};
 
 // Generate clean URL routes from HTML build output
 const htmlFiles = findHtmlFiles(buildDir);
-const autoRoutes = generateRoutes(htmlFiles);
+const autoRoutes = generateRoutes(htmlFiles.content);
+
+// Redirect stubs get routes too — without one, a configured redirect
+// (docusaurus.config.js `redirects` and `createRedirects`) 404s on the
+// deployed Walrus Site even though the stub is in the build. Two guards:
+// clean URLs ending in .html/.htm are `fromExtensions` artifacts that
+// would shadow real files, so they are dropped; and stub routes merge at
+// lowest precedence so they never override a content page.
+const redirectRoutes = {};
+for (const [cleanUrl, target] of Object.entries(generateRoutes(htmlFiles.stubs))) {
+  if (/\.html?$/.test(cleanUrl)) continue;
+  redirectRoutes[cleanUrl] = target;
+}
 
 // Generate /docs/*.md -> /markdown/*.md routes for markdown exports
 const markdownDir = path.join(buildDir, "markdown");
 const mdRoutes = generateMarkdownRoutes(markdownDir);
 
-// Merge: manual routes override auto-generated ones
-const mergedRoutes = { ...autoRoutes, ...mdRoutes, ...manualRoutes };
+// Merge: manual routes override auto-generated ones; redirects yield to all
+const mergedRoutes = { ...redirectRoutes, ...autoRoutes, ...mdRoutes, ...manualRoutes };
 
 // Sort keys for readability
 const sortedRoutes = {};
@@ -169,11 +187,13 @@ wsResources.routes = sortedRoutes;
 fs.writeFileSync(outputPath, JSON.stringify(wsResources, null, 2) + "\n", "utf8");
 
 const autoCount = Object.keys(autoRoutes).length;
+const redirectCount = Object.keys(redirectRoutes).length;
 const mdCount = Object.keys(mdRoutes).length;
 const manualCount = Object.keys(manualRoutes).length;
 const totalCount = Object.keys(sortedRoutes).length;
 
 console.log(`  Auto-generated: ${autoCount} clean URL routes from HTML files`);
+console.log(`  Auto-generated: ${redirectCount} redirect-stub routes`);
 console.log(`  Auto-generated: ${mdCount} markdown routes (/docs/*.md)`);
 console.log(`  Manual/legacy:  ${manualCount} existing routes preserved`);
 console.log(`  Total:          ${totalCount} routes written`);

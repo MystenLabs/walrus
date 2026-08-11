@@ -91,6 +91,7 @@ use walrus_sui::{
         ReadClient,
         SuiClientError,
         SuiContractClient,
+        dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
     },
     coin::Coin,
@@ -1411,6 +1412,43 @@ async fn test_read_empty_blob_as_quilt_returns_error() -> TestResult {
     Ok(())
 }
 
+/// Tests that reading a quilt that does not exist on Walrus fails with `BlobIdDoesNotExist`
+/// instead of a generic retrieval error after exhausting sliver requests to the committee.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_read_nonexistent_quilt_returns_blob_id_does_not_exist() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (_sui_cluster_handle, _cluster, client, _, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+    let quilt_client = client.as_ref().quilt_client();
+
+    let nonexistent_quilt_id = BlobId(random());
+
+    let result = quilt_client.get_quilt_metadata(&nonexistent_quilt_id).await;
+    assert!(matches!(
+        result.unwrap_err().kind(),
+        ClientErrorKind::BlobIdDoesNotExist
+    ));
+
+    // A syntactically valid QuiltPatchIdV1 (version byte followed by start and end indices)
+    // pointing into the nonexistent quilt.
+    let patch_id = QuiltPatchId::new(nonexistent_quilt_id, vec![0x01, 1, 0, 2, 0]);
+    let result = quilt_client.get_blobs_by_ids(&[patch_id]).await;
+    assert!(matches!(
+        result.unwrap_err().kind(),
+        ClientErrorKind::BlobIdDoesNotExist
+    ));
+
+    let result = quilt_client.get_all_blobs(&nonexistent_quilt_id).await;
+    assert!(matches!(
+        result.unwrap_err().kind(),
+        ClientErrorKind::BlobIdDoesNotExist
+    ));
+
+    Ok(())
+}
+
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_blocklist() -> TestResult {
@@ -1820,7 +1858,7 @@ async fn test_repeated_shard_move() -> TestResult {
             .with_epoch_duration(Duration::from_secs(20))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(&[1, 1])
+                    .with_node_weights(&[2, 2])
                     .build(),
             )
             .build()
@@ -1853,7 +1891,7 @@ async fn test_repeated_shard_move() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
 
     client
@@ -1875,7 +1913,7 @@ async fn test_repeated_shard_move() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
     assert_eq!(
         walrus_cluster.nodes[1]
@@ -2602,7 +2640,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .with_epoch_duration(Duration::from_secs(20))
             .with_test_nodes_config(
                 TestNodesConfig::builder()
-                    .with_node_weights(&[1, 1])
+                    .with_node_weights(&[2, 2])
                     .build(),
             )
             .build()
@@ -2619,7 +2657,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
                 .as_ref()
                 .unwrap()
                 .node_id,
-            FROST_PER_NODE_WEIGHT * 5,
+            FROST_PER_NODE_WEIGHT * 10,
         )
         .await?;
 
@@ -2634,7 +2672,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
                 .as_ref()
                 .unwrap()
                 .node_id,
-            FROST_PER_NODE_WEIGHT * 30,
+            FROST_PER_NODE_WEIGHT * 60,
         )
         .await?;
 
@@ -2649,7 +2687,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
     assert_eq!(
         walrus_cluster.nodes[0]
@@ -2657,7 +2695,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
     assert_unordered_eq!(
         walrus_cluster.nodes[1]
@@ -2671,7 +2709,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .storage_node()
             .existing_shards_live()
             .await,
-        vec![ShardIndex(0), ShardIndex(1)]
+        vec![ShardIndex(0), ShardIndex(1), ShardIndex(2), ShardIndex(3)]
     );
 
     walrus_cluster.wait_for_nodes_to_reach_epoch(6).await;
@@ -2691,7 +2729,7 @@ async fn test_shard_move_out_and_back_in_immediately() -> TestResult {
             .existing_shards()
             .await
             .len(),
-        2
+        4
     );
 
     Ok(())
@@ -4379,4 +4417,103 @@ async fn test_list_dynamic_fields_pagination() -> TestResult {
     }
 
     Ok(())
+}
+
+/// Tests that the client works end to end against a Sui fullnode that serves only gRPC, like
+/// the public Sui fullnodes. The client under test receives only the gRPC-only fullnode's URL;
+/// the test scaffolding keeps using the cluster's default fullnode.
+///
+/// TODO(WAL-1264): remove this test once Sui removes JSON-RPC from fullnodes entirely and test
+/// clusters are gRPC-only by themselves.
+#[ignore = "ignore E2E tests by default"]
+#[walrus_simtest]
+async fn test_store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
+    Box::pin(store_and_read_with_grpc_only_sui_fullnode()).await
+}
+
+async fn store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
+    walrus_test_utils::init_tracing();
+
+    let (sui_cluster_handle, _cluster, admin_client, system_ctx, _) =
+        test_cluster::E2eTestSetupBuilder::new().build().await?;
+
+    let Some(grpc_only_rpc_url) = sui_cluster_handle
+        .lock()
+        .await
+        .spawn_grpc_only_fullnode()
+        .await
+    else {
+        tracing::warn!(
+            "skipping test: running against an external Sui cluster without a gRPC-only fullnode"
+        );
+        return Ok(());
+    };
+    let rpc_urls = [grpc_only_rpc_url.clone()];
+
+    // The wallet is only used for keys and signing; the client under test dials Sui exclusively
+    // through `rpc_urls`, which contains only the gRPC-only fullnode.
+    let wallet = test_utils::new_wallet_on_sui_test_cluster(sui_cluster_handle.clone()).await?;
+    admin_client
+        .as_ref()
+        .sui_client()
+        .send_wal(FROST_PER_NODE_WEIGHT, wallet.as_ref().active_address())
+        .await?;
+
+    let contract_client = wallet
+        .and_then_async(async |wallet| {
+            system_ctx
+                .new_contract_client(
+                    wallet,
+                    &rpc_urls,
+                    Default::default(),
+                    None,
+                    DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+                )
+                .await
+        })
+        .await?;
+
+    // The WAL transfer above executed through the cluster's default fullnode; the gRPC-only
+    // fullnode only sees it after syncing the containing checkpoint. Wait until the client's
+    // own fullnode shows the funds, otherwise coin selection races the sync and fails with
+    // NoCompatiblePaymentCoin.
+    {
+        let read_client = contract_client.as_ref().read_client();
+        let sui_client = read_client.retriable_sui_client();
+        let address = contract_client.as_ref().address();
+        tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                if matches!(
+                    sui_client
+                        .get_total_balance(address, read_client.wal_coin_type())
+                        .await,
+                    Ok(balance) if balance > 0
+                ) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await
+        .expect("the WAL transfer must become visible on the gRPC-only fullnode");
+    }
+
+    let config = ClientConfig {
+        contract_config: system_ctx.contract_config(),
+        exchange_objects: vec![],
+        wallet_config: None,
+        rpc_urls: vec![grpc_only_rpc_url],
+        communication_config: ClientCommunicationConfig::default_for_test(),
+        refresh_config: Default::default(),
+        quilt_client_config: Default::default(),
+        byte_range_read_client_config: Default::default(),
+        streaming_config: Default::default(),
+    };
+    let client = contract_client
+        .and_then_async(|contract_client| {
+            WalrusNodeClient::new_contract_client_with_refresher(config, contract_client)
+        })
+        .await?;
+
+    basic_store_and_read(&client, 2, 31415, None, || Ok(())).await
 }

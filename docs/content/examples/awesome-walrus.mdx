@@ -1,22 +1,63 @@
 ---
-draft: true
+title: Ecosystem
+sidebar_label: Ecosystem
+description: >-
+  Projects and tools built on Walrus, including Walrus Memory for AI agents, first-party
+  tooling, and the community-maintained Awesome Walrus directory.
+keywords:
+  - walrus ecosystem
+  - built on walrus
+  - awesome walrus
+  - walrus memory
+  - memwal
+  - community projects
 goal:
-  description: Reader can find community-built Walrus projects and examples to learn from
+  description: Reader can find projects and tools built on Walrus to use or learn from
   requires:
-    - pattern: '```'
-      min: 3
-      label: 'Has code blocks for setup, source, and output'
     - has_frontmatter:
         - title
         - description
         - keywords
       label: Has required frontmatter fields
     - min_words: 100
-      label: Has enough content to describe the example
+      label: Has enough content to describe the ecosystem
     - has_questions: true
       label: Needs questions for AI search visibility
     - has_answer: true
       label: Needs answer summary for AI citation
+questions:
+  - What is built on Walrus?
+  - Where do I find projects in the Walrus ecosystem?
+  - What is Walrus Memory?
+answer: >-
+  The Walrus ecosystem includes first-party products such as Walrus Memory (portable,
+  encrypted memory for AI agents), Walrus Sites for decentralized web hosting, and a
+  growing set of community projects cataloged in the Awesome Walrus directory on GitHub.
 ---
 
-https://github.com/MystenLabs/awesome-walrus
+Walrus is a storage layer, and the products in this section show what teams build on top of it. Use them directly, or read their source as reference implementations for your own project.
+
+## Built on Walrus
+
+First-party products with Walrus as their storage layer.
+
+### Walrus Memory
+
+[Walrus Memory](https://docs.wal.app/walrus-memory/) gives AI agents portable, verifiable long-term memory. It stores encrypted memories on Walrus as durable blobs and retrieves them with semantic search; Sui smart contracts enforce ownership onchain. It ships a TypeScript SDK, a Python SDK, an MCP server for agent clients, and a hosted playground.
+
+- App: [memory.walrus.xyz](https://memory.walrus.xyz)
+- Source: [github.com/MystenLabs/MemWal](https://github.com/MystenLabs/MemWal)
+- Docs: [docs.wal.app/walrus-memory](https://docs.wal.app/walrus-memory/)
+
+### Walrus Sites
+
+[Walrus Sites](/docs/sites) hosts static web sites entirely onchain: Sui stores the ownership and resource index, Walrus stores the files, and portals serve the result over standard HTTP. The documentation site you are reading is itself a Walrus Site.
+
+## Community directory
+
+The community maintains [Awesome Walrus](https://github.com/MystenLabs/awesome-walrus), a categorized directory of ecosystem projects: SDKs and client libraries, infrastructure and tooling, and applications built on Walrus. Open a pull request there to add your project.
+
+## Reference implementations
+
+- [Walrus Relay example](/docs/examples/walrus-relay): A deployed browser app storing blobs through the public upload relay, with annotated source.
+- [SDK examples](https://github.com/MystenLabs/ts-sdks/tree/main/packages/walrus/examples): Runnable TypeScript SDK snippets maintained alongside the SDK.

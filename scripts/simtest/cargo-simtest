@@ -57,7 +57,9 @@ fi
 if [[ -z "$MSIM_WATCHDOG_TIMEOUT_MS" ]]; then
   export MSIM_WATCHDOG_TIMEOUT_MS=30000
 else
-  echo "Using MSIM_WATCHDOG_TIMEOUT_MS=$MSIM_WATCHDOG_TIMEOUT_MS from the environment"
+  # Avoid printing the variable name: scripts/simtest/simtest-run.sh greps the test logs for
+  # "TIMEOUT" to detect failures, and the literal name would trip that check.
+  echo "Using msim watchdog timeout of ${MSIM_WATCHDOG_TIMEOUT_MS}ms from the environment"
 fi
 
 rust_flags=( '"--cfg"' '"msim"' )
@@ -71,9 +73,9 @@ if [[ -n "$LOCAL_MSIM_PATH" ]]; then
 else
   cargo_patch_args=(
     --config 'patch.crates-io.tokio.git = "https://github.com/MystenLabs/mysten-sim.git"'
-    --config 'patch.crates-io.tokio.rev = "2c2ec3ffbc1e559c575dc7de1ff2498d1f6700f6"'
+    --config 'patch.crates-io.tokio.rev = "6b8e1e8cdce408e73d46538773fc85a56c082db7"'
     --config 'patch.crates-io.futures-timer.git = "https://github.com/MystenLabs/mysten-sim.git"'
-    --config 'patch.crates-io.futures-timer.rev = "2c2ec3ffbc1e559c575dc7de1ff2498d1f6700f6"'
+    --config 'patch.crates-io.futures-timer.rev = "6b8e1e8cdce408e73d46538773fc85a56c082db7"'
   )
 fi
 

@@ -101,6 +101,25 @@ pub fn load_configuration(
     Ok(config)
 }
 
+/// Returns the embedded default client configuration for the Sui network of the given RPC URL.
+///
+/// Detects Sui Testnet if the URL contains `testnet.sui.io` and Sui Mainnet if it contains
+/// `mainnet.sui.io`. Returns the parsed configuration together with the network name, or `None`
+/// if the network cannot be determined from the URL.
+pub fn default_configuration_for_rpc_url(rpc_url: &str) -> Option<(ClientConfig, &'static str)> {
+    let (network, yaml) = if rpc_url.contains("testnet.sui.io") {
+        ("testnet", TESTNET_CLIENT_CONFIG_YAML)
+    } else if rpc_url.contains("mainnet.sui.io") {
+        ("mainnet", MAINNET_CLIENT_CONFIG_YAML)
+    } else {
+        return None;
+    };
+    let mut config: ClientConfig =
+        load_from_yaml_str(network, yaml, "embedded default client config")?;
+    config.apply_upload_mode_preset();
+    Some((config, network))
+}
+
 /// Config for the client.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ClientConfig {
@@ -553,6 +572,37 @@ mod tests {
     ) -> TestResult {
         let (_config, context) = ClientConfig::load_from_multi_config(path, input_context)?;
         assert_eq!(context.as_deref(), expected_context);
+        Ok(())
+    }
+
+    param_test! {
+        check_default_configuration_for_rpc_url -> TestResult: [
+            testnet: ("https://fullnode.testnet.sui.io:443", Some("testnet")),
+            mainnet: ("https://fullnode.mainnet.sui.io:443", Some("mainnet")),
+            localnet: ("http://127.0.0.1:9000", None),
+            devnet: ("https://fullnode.devnet.sui.io:443", None),
+        ]
+    }
+    /// This test ensures that the embedded default configurations can be derived from known Sui
+    /// RPC URLs.
+    fn check_default_configuration_for_rpc_url(
+        rpc_url: &str,
+        expected_network: Option<&str>,
+    ) -> TestResult {
+        let derived = default_configuration_for_rpc_url(rpc_url);
+        assert_eq!(
+            derived.as_ref().map(|(_, network)| *network),
+            expected_network
+        );
+        if let Some((config, network)) = derived {
+            let expected_yaml = match network {
+                "testnet" => TESTNET_CLIENT_CONFIG_YAML,
+                "mainnet" => MAINNET_CLIENT_CONFIG_YAML,
+                other => panic!("unexpected network: {other}"),
+            };
+            let expected: ClientConfig = serde_yaml::from_str(expected_yaml)?;
+            assert_eq!(config.contract_config, expected.contract_config);
+        }
         Ok(())
     }
 

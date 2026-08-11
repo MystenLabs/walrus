@@ -43,8 +43,9 @@ WAL_PKG_ADDR="356a26eb9e012a68958082340d4c4116e7f55615cf27affcff209cf0ae544f59"
 all_wal_coins_for_addr() {
   ADDRESS=$1
   WAL_COIN_TYPE="0x${WAL_PKG_ADDR}::wal::WAL"
+  # The gRPC-based CLI returns one entry per coin type, each holding its coins under `coins`.
   sui client balance "$ADDRESS" --coin-type "$WAL_COIN_TYPE" --with-coins --json \
-    | jq -r '.[0][0][1] | sort_by(-(.balance | tonumber)) | .[].coinObjectId'
+    | jq -r '[.[0][].coins[]] | sort_by(-(.balance | tonumber)) | .[].coinObjectId'
 }
 
 gas_obj_for_addr() {
