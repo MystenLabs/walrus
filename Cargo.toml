@@ -24,7 +24,7 @@ resolver = "2"
 authors = ["Mysten Labs <build@mystenlabs.com>"]
 edition = "2024"
 license = "Apache-2.0"
-version = "1.54.0"
+version = "1.55.0"
 
 [workspace.dependencies]
 anyhow = "1.0.102"
@@ -42,7 +42,7 @@ byteorder = "1.5.0"
 bytes = { version = "1.11.1", default-features = false, features = ["serde"] }
 bytesize = "2.3"
 checkpoint-downloader = { path = "crates/checkpoint-downloader" }
-chrono = "=0.4.44"
+chrono = "=0.4.45"
 clap = { version = "4.6.1", features = ["deprecated", "derive"] }
 clap_complete = "4.6.5"
 collectable = "0.0.2"

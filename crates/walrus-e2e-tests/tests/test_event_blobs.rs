@@ -83,7 +83,7 @@ async fn test_disabled_event_blob_writer() -> anyhow::Result<()> {
     let (_sui_cluster, _cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
         .with_test_nodes_config(
             TestNodesConfig::builder()
-                .with_node_weights(&[1, 1])
+                .with_node_weights(&[2, 2])
                 .with_disable_event_blob_writer()
                 .build(),
         )

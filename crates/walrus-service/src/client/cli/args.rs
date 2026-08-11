@@ -55,6 +55,10 @@ pub struct App {
     /// 2. If the environment variable `XDG_CONFIG_HOME` is set, in `$XDG_CONFIG_HOME/walrus/`.
     /// 3. In `~/.config/walrus/`.
     /// 4. In `~/.walrus/`.
+    ///
+    /// If no configuration file is found in any of these locations and no context is specified,
+    /// but the Sui wallet points to a known network (`testnet.sui.io` or `mainnet.sui.io`), the
+    /// built-in default configuration for that network is used.
     // NB: Keep this in sync with `crate::cli`.
     #[arg(long, verbatim_doc_comment, global = true)]
     #[serde(
