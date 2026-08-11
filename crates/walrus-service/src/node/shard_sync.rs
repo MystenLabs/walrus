@@ -523,18 +523,38 @@ impl ShardSyncHandler {
             "the shard sync reconciler is already running"
         );
 
-        self.reconcile_in_critical_section(&mut info_receiver).await;
+        let mut deferred_until_epoch = self.reconcile_in_critical_section(&mut info_receiver).await;
 
         let handler = self.clone();
         *service_handle = Some(tokio::spawn(async move {
             loop {
-                if info_receiver.changed().await.is_err() {
+                if let Some(epoch) = deferred_until_epoch {
+                    // The last pass deferred fresh sync work until the node's event position
+                    // reaches the info's epoch (see `reconcile_toward_info`); re-run the pass
+                    // when either the position advances far enough or a newer info supersedes
+                    // the deferred one.
+                    let channel_closed = tokio::select! {
+                        changed = info_receiver.changed() => changed.is_err(),
+                        wait_result =
+                            handler.node.wait_until_event_epoch_at_least(epoch) =>
+                        {
+                            wait_result.is_err()
+                        }
+                    };
+                    if channel_closed {
+                        // TODO(WAL-1269): terminate the node when the shard-sync reconciler
+                        // loop exits; a node without the reconciler silently stops syncing
+                        // its shards.
+                        tracing::info!("channel closed; stopping the shard sync reconciler");
+                        return;
+                    }
+                } else if info_receiver.changed().await.is_err() {
                     // TODO(WAL-1269): terminate the node when the shard-sync reconciler loop
                     // exits; a node without the reconciler silently stops syncing its shards.
                     tracing::info!("info channel closed; stopping the shard sync reconciler");
                     return;
                 }
-                handler
+                deferred_until_epoch = handler
                     .reconcile_in_critical_section(&mut info_receiver)
                     .await;
             }
@@ -544,13 +564,16 @@ impl ShardSyncHandler {
     /// Runs one reconciliation pass inside the epoch-change critical section, against the
     /// latest published info (re-read after entering the critical section, where it is stable:
     /// the info is only ever published from inside the same critical section).
+    ///
+    /// Returns `Some(epoch)` if the pass deferred work until the node's event position reaches
+    /// `epoch` (see [`Self::reconcile_toward_info`]).
     async fn reconcile_in_critical_section(
         &self,
         info_receiver: &mut watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
-    ) {
+    ) -> Option<Epoch> {
         let _critical_section_guard = self.node.epoch_change_critical_section.enter().await;
         let info = info_receiver.borrow_and_update().clone();
-        self.reconcile_toward_info(&info).await;
+        self.reconcile_toward_info(&info).await
     }
 
     /// Reconciles the running sync work toward the given info.
@@ -560,11 +583,28 @@ impl ShardSyncHandler {
     /// by the time a goal becomes visible. This service only rebuilds: it derives the shards
     /// that still need syncing from the info's owned set and the persisted shard statuses
     /// (interrupted syncs resume from their persisted progress) and starts them.
-    async fn reconcile_toward_info(&self, info: &EpochChangeSyncAndRecoveryInfo) {
+    ///
+    /// Fresh syncs (and a pending metadata recovery) only start once the node's event
+    /// position has reached the info's epoch; the pass otherwise defers them and returns
+    /// `Some(info.epoch)` so that the reconciler re-runs it when the position catches up.
+    /// A sync enumerates its work from the node's local certified-blob list, whose coverage
+    /// is tied to the event position, so no enumeration bound is safe for a shard the
+    /// position has not gained yet: a bound beyond the position silently skips blobs the
+    /// node has not learned about (see issue #3609), while a bound at a position below the
+    /// shard's gain epoch skips blobs certified between the two — the node never stored
+    /// them for the shard (it did not own it at those epochs), and their replayed certified
+    /// events skip repair for the same reason. In particular, the info published at startup
+    /// describes the *fetched on-chain* committee, which may be ahead of the replay
+    /// position: a shard re-gained in the unreplayed gap must not sync until replay
+    /// processes the epoch change that gains it. Interrupted syncs are exempt: their shard
+    /// was gained at or before the position (the sync started under an info whose epoch the
+    /// position had reached), so replayed certified events re-cover everything past the
+    /// resumed bound.
+    async fn reconcile_toward_info(&self, info: &EpochChangeSyncAndRecoveryInfo) -> Option<Epoch> {
         if info.catching_up || !info.membership.is_member() {
             // Nothing to rebuild: while catching up the assignment is not authoritative, and a
             // non-member makes no epoch-sync claim.
-            return;
+            return None;
         }
         if info
             .shards_to_fill
@@ -572,40 +612,76 @@ impl ShardSyncHandler {
             .is_some_and(|new_shards| new_shards.fill == ShardFill::ForceActive)
         {
             // The shards are filled by node recovery, not by shard sync.
-            return;
+            return None;
+        }
+
+        let event_epoch_reached = self
+            .node
+            .try_get_current_event_epoch()
+            .is_some_and(|event_epoch| event_epoch >= info.epoch);
+
+        // A node recovering metadata needs the sync-driving task even without shards to sync:
+        // the task performs the metadata recovery and applies its completion instruction (the
+        // transition to `Active`). The whole task is deferred until the event position
+        // reaches the info's epoch: metadata recovery enumerates the same local
+        // certified-blob list, and the task syncs the shards afterwards.
+        let metadata_recovery_pending = matches!(
+            self.node.storage.node_status(),
+            Ok(NodeStatus::RecoverMetadata)
+        );
+        if metadata_recovery_pending && !event_epoch_reached {
+            tracing::info!(
+                info_epoch = info.epoch,
+                "deferring metadata recovery until event processing reaches the info's epoch"
+            );
+            return Some(info.epoch);
         }
 
         let mut shards_to_sync = Vec::new();
+        let mut deferred = false;
         for shard in &info.owned_shards {
             let Some(shard_storage) = self.node.storage.shard_storage(*shard).await else {
                 continue;
             };
             match shard_storage.status().await {
                 Ok(ShardStatus::Active) => {}
-                Ok(_) => shards_to_sync.push(*shard),
-                Err(error) => {
-                    tracing::error!(?error, walrus.shard_index = %shard, "failed to read status");
+                // Interrupted syncs resume from their persisted progress at any position.
+                Ok(ShardStatus::ActiveSync | ShardStatus::ActiveRecover) => {
                     shards_to_sync.push(*shard);
+                }
+                status => {
+                    if let Err(error) = &status {
+                        tracing::error!(
+                            ?error,
+                            walrus.shard_index = %shard,
+                            "failed to read the shard status"
+                        );
+                    }
+                    if event_epoch_reached {
+                        shards_to_sync.push(*shard);
+                    } else {
+                        tracing::info!(
+                            walrus.shard_index = %shard,
+                            ?status,
+                            info_epoch = info.epoch,
+                            "deferring fresh shard sync until event processing reaches the \
+                            info's epoch"
+                        );
+                        deferred = true;
+                    }
                 }
             }
         }
 
-        // A node recovering metadata needs the sync-driving task even without shards to sync:
-        // the task performs the metadata recovery and applies its completion instruction (the
-        // transition to `Active`).
-        let metadata_recovery_pending = matches!(
-            self.node.storage.node_status(),
-            Ok(NodeStatus::RecoverMetadata)
-        );
-        if shards_to_sync.is_empty() && !metadata_recovery_pending {
-            return;
-        }
-        if let Err(error) = self.start_sync_shards(shards_to_sync).await {
+        if (!shards_to_sync.is_empty() || metadata_recovery_pending)
+            && let Err(error) = self.start_sync_shards(shards_to_sync).await
+        {
             tracing::error!(
                 ?error,
                 "failed to start the shard syncs for the published info"
             );
         }
+        deferred.then_some(info.epoch)
     }
 
     /// Aborts the sync-driving task and every per-shard sync task, waiting for them to

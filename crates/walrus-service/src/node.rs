@@ -2482,6 +2482,20 @@ impl StorageNodeInner {
         *self.latest_event_epoch_watcher.borrow()
     }
 
+    /// Blocks until the node has processed an event of at least the given epoch, and returns
+    /// the event epoch that satisfied the wait. Returns an error if the event epoch channel is
+    /// closed.
+    async fn wait_until_event_epoch_at_least(
+        &self,
+        epoch: Epoch,
+    ) -> Result<Epoch, watch::error::RecvError> {
+        let mut watcher = self.latest_event_epoch_watcher.clone();
+        let event_epoch = watcher
+            .wait_for(|event_epoch| event_epoch.is_some_and(|event_epoch| event_epoch >= epoch))
+            .await?;
+        Ok(event_epoch.expect("the awaited value is Some by the wait_for predicate"))
+    }
+
     fn current_committee_epoch(&self) -> Epoch {
         self.committee_service.get_epoch()
     }
