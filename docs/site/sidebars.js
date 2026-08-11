@@ -156,6 +156,7 @@ const sidebars = {
       items: [
         "troubleshooting/network-errors",
         "troubleshooting/error-handling",
+        "troubleshooting/grpc-migration",
         "troubleshooting/reading-blobs-after-upload",
       ],
     },
