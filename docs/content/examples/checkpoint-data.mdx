@@ -59,11 +59,21 @@ The service records blob metadata, that is, the Walrus blob ID, the Sui object I
 
 ## Build and run the service
 
-Before you start, you need:
+<div className="outlined-tabs">
 
-1. A recent Rust toolchain, because the service builds with Cargo.
-2. A Walrus client configuration and a wallet funded with SUI and WAL, because the service pays for the storage it uses. See [Getting Started](/docs/getting-started).
-3. Optional: a PostgreSQL database if you want indexed queries alongside the local RocksDB store.
+<Tabs>
+<TabItem value="prereq" label="Prerequisites">
+
+- [x] A recent Rust toolchain, because the service builds with Cargo.
+
+- [x] A Walrus client configuration and a wallet funded with SUI and WAL, because the service pays for the storage it uses. See [Getting Started](/docs/getting-started).
+
+- [x] Optional: a PostgreSQL database if you want indexed queries alongside the local RocksDB store.
+
+</TabItem>
+</Tabs>
+
+</div>
 
 Then build and run the service:
 
