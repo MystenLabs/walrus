@@ -382,9 +382,8 @@ Sui smart contract as the on-chain index.
     programmatically in your applications. For a reference of specific error messages and their
     solutions, see Troubleshooting Common Errors. Not all errors are equal.
 - [Grpc Migration](https://docs.wal.app/docs/troubleshooting/grpc-migration.md):
-    Sui has deprecated JSON-RPC. The following sections cover the failures that deprecation causes
-    across the Walrus CLI, the TypeScript SDK, site-builder, and self-hosted full nodes, with the
-    cause and fix for each.
+    Sui has deprecated JSON-RPC. For the Sui API surface itself, see the Sui API reference. The fix
+    is almost always an upgrade, not a configuration change.
 - [Troubleshooting](https://docs.wal.app/docs/troubleshooting.md):
     Resolve common issues with the Walrus CLI, configuration, and network connectivity. Before
     undertaking any other steps, make sure you have the latest walrus binary. If you have multiple

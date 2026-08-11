@@ -1,10 +1,10 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Sui has deprecated JSON-RPC. The following sections cover the failures that deprecation causes across the Walrus CLI, the TypeScript SDK, `site-builder`, and self-hosted full nodes, with the cause and fix for each.
+Sui has deprecated JSON-RPC. For the Sui API surface itself, see the [Sui API reference](https://docs.sui.io/references/sui-api).
 
-Start here, because it answers most reports in one line: **the fix is almost always an upgrade, not a configuration change.** Current Walrus clients already reach Sui over gRPC, and they do it at the same full node URL your configuration already lists. Walrus has no separate gRPC endpoint setting to point somewhere new.
+**The fix is almost always an upgrade, not a configuration change.** Current Walrus clients already reach Sui over gRPC at the same full node URL the configuration already lists, and Walrus has no separate gRPC endpoint setting.
 
-For the canonical explanation of the transport and what it means for configuration, see [Transport: JSON-RPC deprecation](/docs/network-reference#transport-json-rpc-deprecation).
+The sections below cover the failures the deprecation causes in the Walrus CLI, `site-builder`, and self-hosted full nodes, with the cause and fix for each. For the transport itself and what it means for configuration, see [Transport: JSON-RPC deprecation](/docs/network-reference#transport-json-rpc-deprecation).
 
 ## Walrus client errors
 
@@ -35,7 +35,7 @@ $ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/
 
 #### `rpc.discover` returns `404` against a working full node
 
-**Cause:** The public full nodes serve Sui client and SDK traffic rather than JSON-RPC method discovery. A `404` from `rpc.discover` does not mean the node is down or misconfigured, and normal client calls against the same URL succeed.
+**Cause:** The public full nodes serve Sui client and SDK traffic rather than JSON-RPC method discovery. A `404` from `rpc.discover` does not indicate a down or misconfigured node, and normal client calls against the same URL succeed.
 
 **Solution:** Ignore the discovery call and drive the node through `sui client` and the Walrus configuration file instead of calling JSON-RPC methods against it by hand.
 
@@ -71,9 +71,3 @@ For the full configuration file, see the [Site Builder Reference](/docs/sites/ge
 > **Caution**
 >
 > Do not set `WALRUS_GRPC_MIGRATION_LEVEL` in production. If you set it while debugging, unset it before you deploy.
-## See also
-
-- [Transport: JSON-RPC deprecation](/docs/network-reference#transport-json-rpc-deprecation) for the canonical explanation and the full node URLs.
-- [Getting Started](/docs/getting-started) for installing a current client.
-- [Site Builder Reference](/docs/sites/getting-started/using-the-site-builder) for the `site-builder` configuration file.
-- [Troubleshooting Common Errors](/docs/troubleshooting/network-errors) for connectivity and configuration errors unrelated to the transport.
