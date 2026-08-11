@@ -61,6 +61,7 @@ const sidebars = {
       link: { type: "doc", id: "examples/index" },
       items: [
         "examples/checkpoint-data",
+        "examples/data-marketplace",
         "examples/javascript",
         "examples/move",
         "examples/python",
