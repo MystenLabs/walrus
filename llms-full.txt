@@ -102,8 +102,9 @@ Sui smart contract as the on-chain index.
     input and output. Managing Blobs: Use the Walrus client to check, extend, delete, burn, share,
     and set attributes on blobs across their lifecycle.
 - [JSON Mode](https://docs.wal.app/docs/walrus-client/json-mode.md):
-    All Walrus client commands are available in JSON mode, which simplifies programmatic access to
-    the CLI. You can specify all command-line flags of the original CLI command in JSON format.
+    JSON mode exposes every Walrus client command and simplifies programmatic access to the CLI.
+    You specify the command and all of its options as a single JSON string, and the CLI prints
+    JSON-formatted results to stdout. Pass a single JSON object to walrus json.
 - [Managing Blobs](https://docs.wal.app/docs/walrus-client/managing-blobs.md):
     Use the Walrus client to manage blobs and their metadata. Before you extend or depend on a
     blob, check that it is still stored and see when it expires. Use the blob ID: This reports
@@ -114,8 +115,8 @@ Sui smart contract as the on-chain index.
     cost. Learn more about quilts. You can interact with quilts using a dedicated set of walrus
     subcommands.
 - [Reading Blobs](https://docs.wal.app/docs/walrus-client/reading-blobs.md):
-    You can query the status of a blob through one of the following commands: Each command returns
-    output that indicates whether the specified blob is stored and its availability period.
+    The Walrus client lets you check a blob's storage status and certification, download its data,
+    and control the consistency checks that protect reads.
 - [Storing Blobs](https://docs.wal.app/docs/walrus-client/storing-blobs.md):
     All blobs stored in Walrus are public and discoverable by all. Do not store sensitive data on
     Walrus without additional protection. Store blobs on Walrus with the following command: After
