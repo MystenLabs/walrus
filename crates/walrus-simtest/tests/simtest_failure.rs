@@ -343,6 +343,9 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_repeated_node_crash() {
+        // DIAG: capture tracing output (the test does not initialize a subscriber by default,
+        // so DIAG error logs would otherwise be dropped).
+        walrus_test_utils::init_tracing();
         // We use a very short epoch duration of 10 seconds so that we can exercise more epoch
         // changes in the test.
         let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()

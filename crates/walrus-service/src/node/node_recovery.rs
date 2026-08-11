@@ -362,7 +362,10 @@ async fn run_service(
         .await
         {
             RunOutcome::Completed => {
-                tracing::error!(walrus.epoch = target_epoch, "DIAG node recovery run completed")
+                tracing::error!(
+                    walrus.epoch = target_epoch,
+                    "DIAG node recovery run completed"
+                )
             }
             RunOutcome::Superseded => {
                 tracing::error!("DIAG node recovery run superseded by a newer info")
