@@ -4,7 +4,7 @@ You can store and read Walrus blobs from JavaScript with plain HTTP calls: a pub
 
 ## Choose your endpoints
 
-The examples on the rest of the page use the public Testnet endpoints:
+The following examples use the public Testnet endpoints:
 
 ```js
 const PUBLISHER = "https://publisher.walrus-testnet.walrus.space";
