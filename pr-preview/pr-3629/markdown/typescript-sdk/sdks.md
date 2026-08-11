@@ -6,27 +6,7 @@ Official SDKs from Mysten Labs, community-maintained SDKs, and community tools c
 
 Mysten Labs has built and published a [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus), which supports a wide variety of operations. See also the related [examples](https://github.com/MystenLabs/ts-sdks/tree/main/packages/walrus/examples).
 
-Install the SDK together with the Sui TypeScript SDK from npm:
-
-```sh
-$ npm install @mysten/walrus @mysten/sui
-```
-
-Create a `WalrusClient` by selecting a network and passing a `SuiClient`:
-
-```ts
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
-import { WalrusClient } from '@mysten/walrus';
-
-const suiClient = new SuiClient({
-  url: getFullnodeUrl('mainnet'),
-});
-
-const walrusClient = new WalrusClient({
-  network: 'mainnet',
-  suiClient,
-});
-```
+For installation and client setup, follow the [SDK documentation](https://sdk.mystenlabs.com/walrus), which the SDK team maintains as the source of truth.
 
 The SDK bundles the package and object IDs for each network, so selecting a network applies the correct values automatically. To configure a custom or pinned deployment, pass the system and staking object IDs from the [Network Reference](/docs/network-reference#system-and-staking-object-ids). For a complete browser upload flow through an upload relay, see the [browser and mobile apps example](/docs/examples/browser-and-mobile), and for SDK error-handling patterns, see [error handling](/docs/troubleshooting/error-handling).
 
