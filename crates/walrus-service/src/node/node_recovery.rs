@@ -413,6 +413,14 @@ async fn run_recovery(
             "scanning blobs to recover certified blobs before epoch {}",
             target_epoch
         );
+        // TODO(WAL-1272): dropping read errors here is unsound in one case. A persistent
+        // RocksDB status error re-yields on every pass, so the scan spins rather than falsely
+        // completing — but a key or value deserialization failure makes the underlying
+        // `SafeIter` yield `None` and silently *end* the iterator, so a truncated pass reads
+        // as clean and, with all owned shards active, the run completes and attests epoch
+        // sync done despite unknown coverage. Treat any `Err` as a pass failure (retry the
+        // pass with backoff) and make `SafeIter` surface deserialization failures as errors
+        // instead of iterator end.
         for (blob_id, blob_info) in node
             .storage
             .certified_blob_info_iter_before_epoch(target_epoch)

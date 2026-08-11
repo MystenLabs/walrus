@@ -70,6 +70,13 @@ pub(crate) struct PlanInputs {
     /// Whether shard-sync tasks (from this or earlier epochs) are still running at planning
     /// time. Outstanding syncs mean the node's epoch-sync claim is not yet complete, so the
     /// attestation must wait for them instead of being sent by the finisher.
+    // TODO(WAL-1271): the live-task count misses a terminally failed sync, which leaves its
+    // shard persisted as `ActiveSync`/`ActiveRecover` with incomplete data and zero running
+    // tasks. At the next epoch change without gained shards this routes the token to the
+    // finisher, which attests without consulting the persisted shard statuses — a false
+    // `epoch_sync_done`. Instead of this flag, the apply step should always compute the
+    // pending set from the persisted statuses (as the shard-sync owner arm already does) and
+    // hand the finisher the token only when that set is empty.
     pub has_ongoing_shard_syncs: bool,
     /// The shard sets affected by this epoch change.
     pub shards: ShardDiff,

@@ -764,6 +764,19 @@ impl EpochChangeExecutor {
                 self.node_recovery_handler.clear_completion_instruction();
             }
             Some(plan::StatusTransition::RecoveryInProgress) => {
+                // TODO(WAL-1273): writing `RecoveryInProgress` before the shard storage is
+                // created (section 2) makes the exited-catch-up transition non-replayable: a
+                // crash (or an error-driven event retry) in between leaves shards that were
+                // assigned during the skipped catch-up backlog without storage, and the
+                // replayed event — routed on the now-persisted `RecoveryInProgress` — creates
+                // only the previous-to-current committee diff, so node recovery waits for the
+                // missing storage forever. Fix by moving this write after storage creation and
+                // force-activation, mirroring `RecoverMetadata`'s "status implies storage
+                // exists" ordering; a crash then replays through the catch-up route, which
+                // re-plans the full recovery. Until fixed, the remedy for a stuck node is to
+                // stop it and rewrite the persisted node status to `RecoveryCatchUp`: the next
+                // epoch change then re-plans the full recovery, which creates storage for all
+                // owned shards while keeping the existing shard data.
                 tracing::info!(
                     walrus.epoch = event.epoch,
                     "setting the node recovery target to the event's epoch"
