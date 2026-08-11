@@ -9,7 +9,7 @@
 
 @theme {
 --font-sans: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
---font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+--font-mono: "Google Sans Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
 "Liberation Mono", "Courier New", monospace;
 
 --color-walrus-midnight: #000;
@@ -1793,4 +1793,40 @@ html.kapa-sidebar-open .col[class*="docItemCol"] {
   .next-steps-header h3 {
     font-size: 1.25rem;
   }
+}
+
+/* ── Inline Ask Walrus AI entry point (AskAiCta component) ─────────── */
+.askai-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1.5rem 0;
+  padding: 0.85rem 1.25rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 10px;
+  background: var(--ifm-background-surface-color);
+}
+
+.askai-cta-text {
+  color: var(--ifm-font-color-base);
+}
+
+.askai-cta-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid #37c3b0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ifm-font-color-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.askai-cta-button:hover {
+  background: rgba(55, 195, 176, 0.12);
 }

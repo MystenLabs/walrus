@@ -409,31 +409,44 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
     /// If not enough slivers can be retrieved for the quilt index, the entire blob will be read.
     pub async fn get_quilt_metadata(&self, quilt_id: &BlobId) -> ClientResult<QuiltMetadata> {
         self.client.check_blob_is_blocked(quilt_id)?;
-        let (certified_epoch, _) = self
+        let (certified_epoch, blob_status) = self
             .client
             .get_blob_status_and_certified_epoch(quilt_id, None)
             .await?;
-        let metadata = self
+        // The read future is boxed to keep the enclosing futures small; unboxed, the nested quilt
+        // read futures can overflow the stack.
+        let (metadata, quilt_index) = self
             .client
-            .retrieve_metadata(certified_epoch, quilt_id)
-            .await?;
+            .race_read_with_status_check(
+                quilt_id,
+                blob_status,
+                Box::pin(async {
+                    let metadata = self
+                        .client
+                        .retrieve_metadata(certified_epoch, quilt_id)
+                        .await?;
 
-        // Try to retrieve the quilt index from the slivers.
-        let quilt_index =
-            if let Ok(quilt_index) = self.retrieve_quilt_index(&metadata, certified_epoch).await {
-                quilt_index
-            } else {
-                // If the quilt index cannot be retrieved from the slivers, try to retrieve the
-                // quilt.
-                tracing::debug!(
-                    "failed to retrieve index slivers, trying to get quilt instead {}",
-                    quilt_id
-                );
-                // TODO(WAL-879): Cache the quilt.
-                self.get_full_quilt(&metadata, certified_epoch)
-                    .await?
-                    .get_quilt_index()?
-            };
+                    // Try to retrieve the quilt index from the slivers.
+                    let quilt_index = if let Ok(quilt_index) =
+                        self.retrieve_quilt_index(&metadata, certified_epoch).await
+                    {
+                        quilt_index
+                    } else {
+                        // If the quilt index cannot be retrieved from the slivers, try to
+                        // retrieve the quilt.
+                        tracing::debug!(
+                            "failed to retrieve index slivers, trying to get quilt instead {}",
+                            quilt_id
+                        );
+                        // TODO(WAL-879): Cache the quilt.
+                        self.get_full_quilt(&metadata, certified_epoch)
+                            .await?
+                            .get_quilt_index()?
+                    };
+                    Ok((metadata, quilt_index))
+                }),
+            )
+            .await?;
 
         let quilt_metadata = match quilt_index {
             QuiltIndex::V1(quilt_index) => QuiltMetadata::V1(QuiltMetadataV1 {
@@ -639,25 +652,35 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
                 .all(|quilt_patch_id| quilt_patch_id.quilt_id == quilt_id)
         );
 
-        let (certified_epoch, _) = self
+        let (certified_epoch, blob_status) = self
             .client
             .get_blob_status_and_certified_epoch(&quilt_id, None)
             .await?;
-        let metadata = self
-            .client
-            .retrieve_metadata(certified_epoch, &quilt_id)
-            .await?;
+        self.client
+            .race_read_with_status_check(
+                &quilt_id,
+                blob_status,
+                // The read future is boxed to keep the enclosing futures small; unboxed, the
+                // nested quilt read futures can overflow the stack.
+                Box::pin(async {
+                    let metadata = self
+                        .client
+                        .retrieve_metadata(certified_epoch, &quilt_id)
+                        .await?;
 
-        match version_enum {
-            QuiltVersionEnum::V1 => {
-                self.get_blobs_from_quilt_by_internal_ids_impl::<QuiltVersionV1>(
-                    &metadata,
-                    certified_epoch,
-                    quilt_patch_ids,
-                )
-                .await
-            }
-        }
+                    match version_enum {
+                        QuiltVersionEnum::V1 => {
+                            self.get_blobs_from_quilt_by_internal_ids_impl::<QuiltVersionV1>(
+                                &metadata,
+                                certified_epoch,
+                                quilt_patch_ids,
+                            )
+                            .await
+                        }
+                    }
+                }),
+            )
+            .await
     }
 
     async fn get_blobs_from_quilt_by_internal_ids_impl<V: QuiltVersion>(
@@ -689,18 +712,28 @@ impl<T: ReadClient> QuiltClient<'_, WalrusNodeClient<T>> {
         &self,
         quilt_id: &BlobId,
     ) -> ClientResult<Vec<QuiltStoreBlob<'static>>> {
-        let (certified_epoch, _) = self
+        let (certified_epoch, blob_status) = self
             .client
             .get_blob_status_and_certified_epoch(quilt_id, None)
             .await?;
-        let metadata = self
-            .client
-            .retrieve_metadata(certified_epoch, quilt_id)
-            .await?;
+        self.client
+            .race_read_with_status_check(
+                quilt_id,
+                blob_status,
+                // The read future is boxed to keep the enclosing futures small; unboxed, the
+                // nested quilt read futures can overflow the stack.
+                Box::pin(async {
+                    let metadata = self
+                        .client
+                        .retrieve_metadata(certified_epoch, quilt_id)
+                        .await?;
 
-        let mut quilt_reader =
-            QuiltReader::<'_, QuiltVersionV1, _>::new(self, self.config.clone(), None);
-        quilt_reader.get_all_blobs(&metadata, certified_epoch).await
+                    let mut quilt_reader =
+                        QuiltReader::<'_, QuiltVersionV1, _>::new(self, self.config.clone(), None);
+                    quilt_reader.get_all_blobs(&metadata, certified_epoch).await
+                }),
+            )
+            .await
     }
 
     /// Retrieves the quilt from Walrus.

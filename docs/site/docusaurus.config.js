@@ -353,8 +353,8 @@ const config = {
             position: "left",
           },
           {
-            to: "/docs/release-notes",
-            label: "Release Notes",
+            to: "/changelog",
+            label: "Changelog",
             position: "right",
           },
           {
@@ -367,6 +367,26 @@ const config = {
       },
       footer: {
         style: "dark",
+        links: [
+          {
+            title: "Walrus",
+            items: [
+              { label: "walrus.xyz", href: "https://www.walrus.xyz" },
+              { label: "Walrus Memory", href: "https://memory.walrus.xyz" },
+              { label: "GitHub", href: "https://github.com/MystenLabs/walrus" },
+              { label: "Discord", href: "https://discord.gg/walrusprotocol" },
+            ],
+          },
+          {
+            title: "Documentation",
+            items: [
+              { label: "Get started", to: "/docs/getting-started" },
+              { label: "Walrus Sites", to: "/docs/sites" },
+              { label: "Walrus Memory docs", to: "/walrus-memory/" },
+              { label: "Ecosystem", to: "/docs/examples/awesome-walrus" },
+            ],
+          },
+        ],
         copyright: `Copyright © ${new Date().getFullYear()}
                     Walrus Foundation. All rights reserved.`,
       },

@@ -65,6 +65,8 @@ const sidebars = {
         "examples/move",
         "examples/python",
         "examples/walrus-relay",
+        "examples/browser-and-mobile",
+        "examples/awesome-walrus",
       ],
     },
     {
@@ -254,6 +256,7 @@ const sidebars = {
         "sites/security/access-control-options",
       ],
     },
+    "sites/production",
     "sites/known-restrictions",
     "sites/troubleshooting",
   ],
