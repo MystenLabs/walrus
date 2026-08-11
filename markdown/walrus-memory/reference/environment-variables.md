@@ -71,7 +71,9 @@ These are not all enforced at boot, but most real deployments need them.
 | `OPENAI_API_BASE` | `https://api.openai.com/v1` | OpenAI-compatible base URL |
 | `SUI_NETWORK` | `mainnet` | Picks the fallback RPC URL and network-driven service defaults |
 | `SUI_RPC_URL` | network default | Override the Sui fullnode JSON-RPC URL |
-| `SUI_GRPC_URL` | none (JSON-RPC) | When set to a Sui gRPC fullnode URL, the relayer uses gRPC instead of JSON-RPC for both the write path (Walrus register and certify, Seal, and Enoki build) and the blob query and restore path. Empty keeps the existing JSON-RPC behavior, so this is a no-op until you set it. Added ahead of the Sui JSON-RPC sunset in July 2026 |
+| `SUI_GRPC_URL` | network public fullnode | Sui gRPC endpoint used for current-object reads and writes |
+| `SUI_GRAPHQL_URL` | network public GraphQL service | Archival Sui GraphQL endpoint used to resolve immutable Blob creation provenance. It must retain historical transactions and object versions; `/ready` rejects a wrong-network endpoint |
+| `RESTORE_REQUESTS_PER_OWNER_PER_MINUTE` | `10` | Maximum authenticated restore calls per owner in a one-minute sliding window; `0` disables this dedicated guard |
 | `WALRUS_PUBLISHER_URL` | Walrus Mainnet publisher | Override upload endpoint |
 | `WALRUS_AGGREGATOR_URL` | Walrus Mainnet aggregator | Override download endpoint |
 | `WALRUS_AGGREGATOR_URLS` | none | Optional comma-separated extra aggregator/proxy endpoints for cold-read tail racing. `WALRUS_AGGREGATOR_URL` remains the primary |
