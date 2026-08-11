@@ -574,6 +574,12 @@ impl EpochChangeExecutor {
             plan = ?epoch_change_plan,
             "planned epoch change"
         );
+        tracing::error!(
+            walrus.epoch = event.epoch,
+            inputs = ?inputs,
+            plan = ?epoch_change_plan,
+            "DIAG planned epoch change"
+        );
 
         self.apply_epoch_change_plan(
             event_handle,

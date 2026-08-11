@@ -2416,7 +2416,11 @@ impl StorageNodeInner {
             for shard_storage in active_shard_storages {
                 if !shard_storage.may_have_sliver_pair(blob_id)? {
                     let shard = shard_storage.id();
-                    tracing::debug!(%blob_id, %shard, "blob not stored at shard");
+                    tracing::error!(
+                        %blob_id, %shard,
+                        stage = "bloom",
+                        "DIAG blob not stored at shard"
+                    );
                     return Ok(false);
                 }
             }
@@ -2424,7 +2428,11 @@ impl StorageNodeInner {
         for shard_storage in active_shard_storages {
             if !shard_storage.is_sliver_pair_stored(blob_id)? {
                 let shard = shard_storage.id();
-                tracing::debug!(%blob_id, %shard, "blob not stored at shard");
+                tracing::error!(
+                    %blob_id, %shard,
+                    stage = "authoritative",
+                    "DIAG blob not stored at shard"
+                );
                 return Ok(false);
             }
         }

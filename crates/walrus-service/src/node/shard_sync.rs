@@ -343,6 +343,7 @@ impl ShardSyncHandler {
             tracing::info!("event epoch channel closed; not syncing blob metadata");
             return Ok(());
         };
+        tracing::error!(epoch_bound, "DIAG metadata sync starting");
         let blob_infos = self
             .node
             .storage
@@ -702,6 +703,13 @@ impl ShardSyncHandler {
             "syncing shard to the beginning of epoch {}",
             current_committee_epoch
         );
+        let diag_status = shard_storage.status().await;
+        tracing::error!(
+            shard = %shard_storage.id(),
+            epoch_bound = current_committee_epoch,
+            shard_status = ?diag_status,
+            "DIAG shard sync starting"
+        );
 
         let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
         let Entry::Vacant(entry) = shard_sync_in_progress.entry(shard_storage.id()) else {
@@ -794,6 +802,15 @@ impl ShardSyncHandler {
                     }
                 }
             }
+
+            let diag_final_status = shard_storage.status().await;
+            tracing::error!(
+                shard = %shard_index,
+                shard_sync_success,
+                epoch_bound = current_committee_epoch,
+                final_status = ?diag_final_status,
+                "DIAG shard sync task ended"
+            );
 
             // Remove the task from the shard_sync_in_progress map upon completion, and record
             // the synced shard with the attestation. All sync work is quiesced inside the

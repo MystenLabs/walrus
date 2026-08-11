@@ -347,9 +347,11 @@ fn compose_blob_list_digest_and_check_sliver_data_existence(
                     #[cfg(msim)]
                     if total_fully_stored_before == total_fully_stored {
                         // This helps to detect which certified blobs are not fully stored.
-                        tracing::debug!(
+                        tracing::error!(
                             blob_id=%blob_info.0,
-                            "sliver data consistency check: blob not fully stored"
+                            epoch,
+                            blob_info = ?blob_info.1,
+                            "DIAG sliver data consistency check: blob not fully stored"
                         );
                     }
                 }

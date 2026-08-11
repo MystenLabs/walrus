@@ -342,6 +342,11 @@ async fn run_service(
             baseline,
             "starting a node recovery run"
         );
+        tracing::error!(
+            walrus.epoch = target_epoch,
+            baseline,
+            "DIAG node recovery run starting"
+        );
         fail_point_async!("start_node_recovery_entry");
 
         match run_recovery(
@@ -357,10 +362,10 @@ async fn run_service(
         .await
         {
             RunOutcome::Completed => {
-                tracing::info!(walrus.epoch = target_epoch, "node recovery run completed")
+                tracing::error!(walrus.epoch = target_epoch, "DIAG node recovery run completed")
             }
             RunOutcome::Superseded => {
-                tracing::info!("node recovery run superseded by a newer info")
+                tracing::error!("DIAG node recovery run superseded by a newer info")
             }
         }
     }
@@ -658,18 +663,18 @@ async fn complete_recovery_once_shards_synced(
             // committee, entering recovery mode) superseded this recovery; the task then
             // finishes without touching the node status.
             let Some(instruction) = completion_instruction.take() else {
-                tracing::warn!(
+                tracing::error!(
                     node_status = %current_node_status,
-                    "node recovery task finished, but its completion was superseded by a \
+                    "DIAG node recovery task finished, but its completion was superseded by a \
                     concurrent transition; skipping the status change and attestation"
                 );
                 return false;
             };
 
-            tracing::info!(
+            tracing::error!(
                 node_status = %current_node_status,
                 ?instruction,
-                "node recovery task finished; applying its completion instruction"
+                "DIAG node recovery task finished; applying its completion instruction"
             );
             let attestation = match instruction.apply_status(node) {
                 Ok(attestation) => attestation,
