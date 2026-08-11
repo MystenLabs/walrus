@@ -230,7 +230,7 @@ Returns `200` with the file summary under `data`: `id`, `bucket_id`, `name`, `bl
 
 `DELETE /api/v1/buckets/{id}/files/{fileId}`
 
-Marks the file as `deleting` and enqueues a background job to remove the underlying blob. Returns `204` immediately. Storage is released after the worker confirms the delete. Repeated calls for the same file ID are deduplicated.
+Marks the file as `deleting` and enqueues a background job to remove the underlying blob. Returns `204` immediately. The worker releases storage after confirming the delete. Repeated calls for the same file ID are deduplicated.
 
 ### Get upload status
 

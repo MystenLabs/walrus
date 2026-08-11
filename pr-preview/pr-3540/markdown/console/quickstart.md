@@ -4,7 +4,7 @@ This quickstart takes you from sign-up to a working encrypted upload: create an 
 
 > **Info**
 >
-> The Console developer API is in alpha and currently available on Testnet only, hosted under the Harbor name at `api.testnet.harbor.walrus.xyz`. Endpoint shapes might change before it reaches Mainnet at GA. In alpha, all bucket creation goes through the private, Seal-encrypted flow; public bucket creation is disabled at the API boundary. For the full endpoint surface, see the [API reference](./api-reference); for the product model, see the [concepts and overview](./overview).
+> The Console developer API is in alpha and currently available on Testnet only, hosted under the Harbor name at `api.testnet.harbor.walrus.xyz`. Endpoint shapes might change before it reaches Mainnet at GA. In alpha, all bucket creation goes through the private, Seal-encrypted flow; Console disables public bucket creation at the API boundary. For the full endpoint surface, see the [API reference](./api-reference); for the product model, see the [concepts and overview](./overview).
 ## Prerequisites
 
 - [x] A Google account for sign-in.

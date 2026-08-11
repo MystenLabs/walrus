@@ -7,7 +7,7 @@ Walrus storage is time-bound. Your data stays available for a set amount of stor
 > The current beta includes storage, epochs, and automatic renewal. For related cost details, see the [concepts and overview](./overview).
 ## How storage epochs work
 
-Walrus measures storage in epochs, which are fixed periods defined by the Walrus network. One epoch lasts two weeks on Mainnet and one day on Testnet, and storage can be bought for at most 53 epochs at a time. For the current values, see the [Network Reference](/docs/network-reference). When you store a file, you reserve storage for a number of epochs. While that storage is funded, the network keeps your data available. When it runs out and you do not renew it, the data expires and is no longer retrievable.
+Walrus measures storage in epochs, which are fixed periods defined by the Walrus network. One epoch lasts two weeks on Mainnet and one day on Testnet, and storage can be bought for at most 53 epochs at a time. For the current values, see the [Network Reference](/docs/network-reference). When you store a file, you reserve storage for a number of epochs. While you keep that storage funded, the network keeps your data available. When it runs out and you do not renew it, the data expires and is no longer retrievable.
 
 Console handles the underlying payment and epoch accounting for you through your [Pearl wallet](./auth#your-pearl-wallet). You store a file, and Console reserves and funds its storage. You do not buy epochs or sign renewal transactions yourself.
 

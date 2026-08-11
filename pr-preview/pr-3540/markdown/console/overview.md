@@ -19,7 +19,7 @@ A **space** is the top-level container tied to your account. Console creates a *
 
 A **bucket** is a named container inside a space that holds files. Every bucket has a visibility setting. In the current beta, all buckets are private and encrypted with [Seal](/docs/data-security); public buckets are planned for a later release.
 
-A **file** is an individual object stored inside a bucket. Uploads are asynchronous: you upload a file, then poll its status until Console confirms it is stored on Walrus. Each file can carry metadata you define, which you can use later to search and organize your data.
+A **file** is an individual object that lives inside a bucket. Uploads are asynchronous: you upload a file, then poll its status until Console confirms that Walrus stores it. Each file can carry metadata you define, which you can use later to search and organize your data.
 
 ## Encryption and privacy
 
