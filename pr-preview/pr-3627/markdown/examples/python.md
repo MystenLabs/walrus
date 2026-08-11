@@ -4,24 +4,13 @@ Walrus does not ship an official Python SDK, but you can drive every core Walrus
 
 ## Prerequisites
 
-The complete, runnable example files live in the [`docs/examples/python`](https://github.com/MystenLabs/walrus/tree/main/docs/examples/python) directory of the Walrus repository. Before you run them:
+The complete, runnable example files live in the [`docs/examples/python`](https://github.com/MystenLabs/walrus/tree/main/docs/examples/python) directory of the Walrus repository.
 
-1. Install and configure the `walrus` CLI and a funded Sui wallet, as described in [Getting Started](/docs/getting-started). The JSON API and event tracking examples invoke the CLI binary and read its client configuration file.
+- [x] Install and configure the `walrus` CLI and a funded Sui wallet, as described in [Getting Started](/docs/getting-started). The JSON API and event tracking examples invoke the CLI binary and read its client configuration file.
 
-2. Optional: create and activate a Python virtual environment:
+- [x] Install the only third-party dependency, the `requests` HTTP library, with `pip install requests`. Optionally create and activate a virtual environment first with `python -m venv .venv` and `source .venv/bin/activate`.
 
-   ```sh
-   python -m venv .venv
-   source .venv/bin/activate
-   ```
-
-3. Install the only third-party dependency, the `requests` HTTP library:
-
-   ```sh
-   pip install requests
-   ```
-
-4. Update the constants in [`utils.py`](https://github.com/MystenLabs/walrus/blob/main/docs/examples/python/utils.py) to match your system: `PATH_TO_WALRUS` (the path to your `walrus` binary), `PATH_TO_WALRUS_CONFIG` (the path to your client configuration file), and `FULL_NODE_URL` (a Sui full node RPC URL, for example `https://fullnode.testnet.sui.io:443` for Testnet).
+- [x] Update the constants in [`utils.py`](https://github.com/MystenLabs/walrus/blob/main/docs/examples/python/utils.py) to match your system: `PATH_TO_WALRUS` (the path to your `walrus` binary), `PATH_TO_WALRUS_CONFIG` (the path to your client configuration file), and `FULL_NODE_URL` (a Sui full node RPC URL, for example `https://fullnode.testnet.sui.io:443` for Testnet).
 
 ## Use the HTTP API
 
