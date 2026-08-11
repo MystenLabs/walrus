@@ -12,7 +12,8 @@
 # published the release, so every fix is a pull request here and the
 # tracking issues belong here too.
 #
-# Ownership and process: docs/contributing/release-notes-sop.md.
+# Ownership, format, and turnaround live in the release-notes editorial
+# SOP, which the teams involved maintain outside this repository.
 
 name: Editorial coverage
 
@@ -97,9 +98,6 @@ jobs:
                   `\`${m.repo}\`, so the fix is a pull request here.`,
                 "",
                 "After adding the file, run `npm run gen:release-notes` in `docs/site` and open a docs PR. Close this issue when the entry is live.",
-                "",
-                "Ownership, format, and turnaround: [release-notes editorial SOP]" +
-                  "(https://github.com/MystenLabs/walrus/blob/main/docs/contributing/release-notes-sop.md).",
               ].join("\n");
 
               await github.rest.issues.create({
