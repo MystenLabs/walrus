@@ -44,19 +44,7 @@ Every Walrus blob has a corresponding `Blob` object on Sui, defined in the `walr
 
 Declare the Walrus package as a git dependency in your package's `Move.toml`:
 
-```toml
-[package]
-name = "walrus_dep"
-edition = "2024.beta"
-
-[dependencies]
-Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "testnet-v1.35.0" }
-Walrus = { git = "https://github.com/MystenLabs/walrus.git", rev = "main", subdir = "contracts/walrus" }
-
-[addresses]
-sui = "0x2"
-walrus_dep = "0x0"
-```
+<ImportContent source="docs/examples/move/walrus_dep/Move.toml" mode="code" />
 
 The `contracts/walrus` subdirectory contains the development sources. The Walrus repository also tracks the sources deployed on each network in the [`mainnet-contracts`](https://github.com/MystenLabs/walrus/tree/main/mainnet-contracts) and [`testnet-contracts`](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) directories, and the [Network Reference](/docs/network-reference#package-ids) lists the deployed package and object IDs.
 
