@@ -52,8 +52,8 @@ Sui smart contract as the on-chain index.
     pitfalls to avoid.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md):
     Blobs can be interacted with through familiar file system operations such as uploading,
-    reading, downloading, and deleting. Use the following command to upload a file to Walrus >
-    Danger > > All blobs stored in Walrus are public and discoverable by all.
+    reading, downloading, and deleting. You buy storage on Walrus for a fixed number of epochs, so
+    every blob has a lifetime.
 - [Public Aggregators And Publishers](https://docs.wal.app/docs/system-overview/public-aggregators-and-publishers.md):
     The Walrus client offers a daemon mode that runs a simple web server that provides HTTP
     interfaces you can use to store and read blobs in an aggregator or publisher role respectively.
@@ -158,6 +158,10 @@ Sui smart contract as the on-chain index.
 
 ## Examples
 
+- [Awesome Walrus](https://docs.wal.app/docs/examples/awesome-walrus.md):
+    Walrus is a storage layer, and the products in this section show what teams build on top of it.
+    Use them directly, or read their source as reference implementations for your own project.
+    First-party products with Walrus as their storage layer.
 - [Browser And Mobile](https://docs.wal.app/docs/examples/browser-and-mobile.md):
     Client apps that run in a browser or on a mobile device cannot open the many connections a
     direct store needs. A blob is split into slivers that go to every storage node, so an
@@ -169,9 +173,9 @@ Sui smart contract as the on-chain index.
     https://walrus-sui-archival.wal.app/ The application's code is open source and available on
     GitHub.
 - [Examples](https://docs.wal.app/docs/examples.md):
-    Example applications that demonstrate different workflows and use cases on Walrus Browser and
-    Mobile Apps: Store blobs from a browser or mobile client through a Walrus upload relay, then
-    read them back through a CDN-backed aggregator.
+    Example applications that demonstrate different workflows and use cases on Walrus Ecosystem:
+    Projects and tools built on Walrus, including Walrus Memory for AI agents, first-party tooling,
+    and the community-maintained Awesome Walrus directory.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md):
     The following JavaScript example shows how to upload and download a blob through a web form
     using the HTTP API. The following JavaScript example shows how to upload and download a blob
@@ -355,6 +359,10 @@ Sui smart contract as the on-chain index.
     Walrus Site Portals are used to access and browse a Walrus Site. The portal you run must match
     the network on which your site is deployed. Each network has its own onchain package, default
     RPC endpoint, and Walrus aggregator.
+- [Production](https://docs.wal.app/docs/sites/production.md):
+    A working deploy and a production site differ in a handful of predictable ways: which portal
+    serves it, how client-side routes resolve, how caches behave across updates, and how new
+    versions ship. Work through each section below before you share a production URL.
 - [Access Control Options](https://docs.wal.app/docs/sites/security/access-control-options.md):
     All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its
     contents directly from a Walrus aggregator. Access control for Walrus Sites is not enforced at
@@ -410,9 +418,9 @@ Sui smart contract as the on-chain index.
 - [Quick Start](https://docs.wal.app/walrus-memory/getting-started/quick-start.md):
     The fastest way to get Walrus Memory running is through the TypeScript SDK.
 - [What Is Walrus Memory](https://docs.wal.app/walrus-memory/getting-started/what-is-walrus-memory.md):
-    > Note > > Walrus Memory is in beta and actively evolving. It is fully usable today, and the
-    developer experience and operational guidance keep improving. Feedback from early builders
-    helps shape the product.
+    Walrus Memory enables AI agents to operate reliably across apps and sessions, without losing
+    context. Portable, verifiable, and fully controlled by you, it's the memory layer that lets
+    agents handle complex workflows and coordinate using data they can trust.
 
 ## Walrus Memory: Fundamentals
 
@@ -576,6 +584,13 @@ Sui smart contract as the on-chain index.
     withMemWal(model, options) | Field | Required | Notes | | --- | --- | --- | | key | yes |
     Delegate private key in hex | | accountId | yes | MemWalAccount object ID on Sui | | serverUrl
     | no | Relayer URL.
+- [Console Identity Link](https://docs.wal.app/walrus-memory/reference/console-identity-link.md):
+    Console (Walrus Console) and Walrus Memory (WM) are separate Enoki zkLogin applications.
+- [Enoki Connect Requirements](https://docs.wal.app/walrus-memory/reference/enoki-connect-requirements.md):
+    Enoki Connect lets an external application (a "connecting app," for example, Console)
+    authenticate its users through Walrus Memory's Enoki-hosted identity flow. This requires
+    configuration on two sides: WM's own Enoki app settings, and each connecting app's origin being
+    allowlisted.
 - [Environment Variables](https://docs.wal.app/walrus-memory/reference/environment-variables.md):
     This page lists the supported, public environment variables across Walrus Memory, grouped by
     where you set it: the client SDKs, the MCP server, the self-hosted relayer, and frontend apps.
@@ -593,21 +608,6 @@ Sui smart contract as the on-chain index.
     GET /health and GET /version The health and version endpoints are intentionally left
     unauthenticated and unsigned. They do not require a valid Ed25519 signature in headers like the
     rest of the API.
-
-## Walrus Memory: Contributing
-
-- [Docs Workflow](https://docs.wal.app/walrus-memory/contributing/docs-workflow.md):
-    Walrus Memory is still in beta, so documentation is an active part of product hardening. If you
-    see unclear guidance, outdated flows, or missing examples, contributions are welcome. The docs
-    source of truth is the markdown content under docs/ in this repository.
-- [Run Docs Locally](https://docs.wal.app/walrus-memory/contributing/run-docs-locally.md):
-    Run these commands from the repository root: Source: contributing/run-docs-locally.md This
-    starts the Mintlify site using the docs in this repository. Use Node 20 LTS for Mintlify local
-    preview. Mintlify fails on Node 25+.
-- [Docs site (Mintlify)](https://docs.wal.app/walrus-memory/contributing/run-repo-locally.md):
-    | Tool | Version | Check | |------|---------|-------| | Node.js | ≥ 20 | node -v | | pnpm | ≥
-    9.12 | pnpm -v | | Rust | latest stable (only for backend services) | rustc --version | > Tip >
-    > If you only work on TypeScript apps or docs, you don't need Rust.
 
 ## Walrus Memory: Examples
 
@@ -728,17 +728,22 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Walrus Platform — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory,
-    including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+    Walrus — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory, including
+    the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
+    Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    July 31, 2026 | GitHub Require a localhost preflight handshake proving the exact state, public
-    key, and relayer before accepting a delegate-key login callback. Authenticate MCP SSE POST
-    messages and replayed requests with the delegate credentials.
+    July 31, 2026 | GitHub --- June 12, 2026 | GitHub Adds the automatic memory plugin for Claude
+    Code, Codex, Cursor, and Antigravity, along with new memwalrememberbulk and memwal_health tools
+    and proactive memory behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Testnet July 29, 2026 | GitHub --- --- Mainnet July 22, 2026 | GitHub --- --- Testnet July 15,
-    2026 | GitHub --- --- Mainnet July 9, 2026 | GitHub #3479: walrus info committee gains a
+    Mainnet | August 5, 2026 | GitHub --- Mainnet | July 22, 2026 | GitHub --- Testnet | July 15,
+    2026 | GitHub --- Mainnet | July 9, 2026 | GitHub walrus info committee gains a
     --commission-receivers flag that prints, as CSV, the commission receiver of every node in the
     previous, current, and next committees (including the owning address for object receivers).
+- [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
+    July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
+    (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
+    methods ahead of the JSON-RPC deprecation.
 
 ## Sponsored Uploads
 
@@ -887,16 +892,14 @@ Sui smart contract as the on-chain index.
 ### Legal
 
 - [Privacy](https://docs.wal.app/docs/legal/privacy.md):
-    Last Updated: February 10, 2024 This Privacy Policy is designed to help you understand how
-    Walrus Foundation (collectively called the “Organization", "we," "us," and "our") collects,
-    uses, and shares your personal information and to help you understand and exercise your privacy
-    rights in accordance with applicable law.
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Testnet TOS](https://docs.wal.app/docs/legal/testnet_tos.md):
-    Last updated: March 26, 2025 By using Walrus Testnet software, technologies, tools, and other
-    services (collectively “Testnet”) offered by Walrus Foundation ("Walrus Foundation", "we",
-    "our"), you agree to the general Walrus Terms of Service and these additional Testnet Terms of
-    Service (together, the “Terms”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Walrus General TOS](https://docs.wal.app/docs/legal/walrus_general_tos.md):
-    Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully because they
-    govern your use of the website, the user interface, and other offerings located at walrus.xyz,
-    (the “Site”) offered by Walrus Foundation (“Walrus Foundation,” “we,” “our”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.

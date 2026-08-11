@@ -1,5 +1,8 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+> **Looking for the developer documentation?**
+>
+> You are reading a legal document. To build on Walrus, start with [Get started](/docs/getting-started), [Walrus Sites](/docs/sites), or the [Walrus Memory docs](/walrus-memory/), where you can also open the Ask Walrus AI assistant for technical questions.
 **Last Updated:** February 10, 2024
 
 This Privacy Policy is designed to help you understand how Walrus Foundation (collectively called the “**Organization**", "**we**," "**us**," and "**our**") collects, uses, and shares your personal information and to help you understand and exercise your privacy rights in accordance with applicable law. This Policy applies when you use the Website, contact our team members, engage with us on social media or otherwise interact with us. Any capitalized terms that are undefined shall have the meaning as set forth in the [Walrus Airdrop Terms and Conditions](https://claim.walrus.xyz/airdrop/terms-and-conditions)

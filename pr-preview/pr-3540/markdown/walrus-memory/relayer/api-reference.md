@@ -388,6 +388,9 @@ Rebuild missing vector entries for one namespace. Queries onchain blobs by owner
   "skipped": 7,
   "total": 10,
   "namespace": "demo",
-  "owner": "0x..."
+  "owner": "0x...",
+  "truncated": false
 }
 ```
+
+`truncated` is `true` when this restore is known-incomplete: either more onchain blobs were missing locally than `limit` allowed this call to restore, or the sidecar's raw onchain candidate fetch (bounded per owner, shared across all of the owner's namespaces, hard-capped independent of `limit`) hit its own cap before this namespace's blobs were even filtered out of that set. The second case can produce `truncated: true` even when `total` is `0` for this namespace, because a cap hit elsewhere can starve this namespace's fetch entirely. Raising `limit` only helps with the first case, past the sidecar's cap, only a cursor/pagination-based restore would.

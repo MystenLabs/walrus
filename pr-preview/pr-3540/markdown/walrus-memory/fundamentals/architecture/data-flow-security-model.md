@@ -84,4 +84,4 @@ Every protected API call goes through Ed25519 signature verification:
 
 ## Current status
 
-This describes the production beta model. The trust boundaries continue to evolve: future versions might introduce client-side encryption by default or additional verifiability layers. Self-hosting remains the strongest option for teams that need full control today.
+This describes the current production model. The trust boundaries continue to evolve: future versions might introduce client-side encryption by default or additional verifiability layers. Self-hosting remains the strongest option for teams that need full control today.

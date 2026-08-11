@@ -4,6 +4,15 @@ A Walrus Site is a static web site published entirely onchain, with no origin se
 
 This page explains how those pieces fit together. For a description of each component in detail, see [Walrus Sites Components](/docs/sites/introduction/components).
 
+  
+  
+    Publishing and loading a Walrus Site. To publish, the site-builder batches your files into a
+    Walrus quilt and writes a site object to Sui that maps each URL path to its quilt patch. To
+    load, the portal resolves the site name through SuiNS, reads the site object on Sui to find
+    the resource for the requested path, fetches that patch from Walrus through an aggregator,
+    and returns a standard HTTP response to the browser. No app server sits anywhere on the path.
+  
+
 ## Publishing a site
 
 When you run [`site-builder deploy`](/docs/sites/getting-started/using-the-site-builder#deploy), the CLI tool performs 2 operations in sequence.

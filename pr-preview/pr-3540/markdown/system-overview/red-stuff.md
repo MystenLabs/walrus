@@ -39,6 +39,15 @@ RedStuff is based on the RaptorQ fountain code. RaptorQ is one of the fastest an
 
 ## RedStuff encoding
 
+  
+  
+    RedStuff encodes each blob into slivers held by a committee of n = 3f + 1 storage
+    nodes. Any f + 1 honest shards reconstruct the blob, so the committee tolerates up to 2f
+    node failures if f + 1 honest shards remain. Click a shard to take that node
+    offline. Storage costs 4.5 times the blob size plus a fixed 64 MB metadata term, and
+    the expansion factor holds at 4.5 times as the committee grows.
+  
+
 An established approach in distributed storage is to use an erasure code to encode blobs of data across multiple storage nodes. By using a $k/N$ rate erasure code for $N$ nodes and $k$ source symbols, the system can tolerate $N - k$ node failures, with just an $N/k$ factor of storage overhead. However, in the case of a node failure, the recovery process is inefficient: the failed node needs to fetch $k$ other parts, reconstruct the blob, and then re-encode its own part. Therefore, the communication overhead for recovery is on the order of the size of the whole blob, $S$.
 
 The Twin-Code framework aims to solve this issue by allowing for efficient node recovery. This section briefly describes how the framework is used in RedStuff. For specific details, refer to the original paper. The RedStuff encoding algorithm is an adaptation of the Twin-Code framework, which allows for efficient node recovery in erasure-coded storage systems.
