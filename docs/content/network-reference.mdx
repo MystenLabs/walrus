@@ -76,6 +76,26 @@ Other parameters, including system capacity, storage price, and the per-write fe
 
 Walrus does not operate a public Devnet. Use Mainnet for production and Testnet for testing.
 
+### How Testnet compares with Mainnet
+
+The tables give the values for each network. The differences that catch people out when they move a working Testnet integration to Mainnet are behavioral rather than numeric:
+
+| **Aspect** | **Testnet** | **Mainnet** |
+|---|---|---|
+| Data persistence | Walrus wipes the data periodically without warning | Walrus keeps the data for the epochs you buy |
+| Tokens | Free from a faucet | Real SUI for gas and WAL for storage |
+| Public publisher | Available | Not provided, see below |
+| Package IDs | Change whenever Walrus redeploys the contracts | Stable; see the tables below |
+| Epoch length | Much shorter, so storage expires sooner in wall-clock time | Longer, see the parameters above |
+
+The publisher difference blocks more Mainnet launches than any other item here. Walrus does not run a public unauthenticated publisher on Mainnet, so an integration that uploads through the public Testnet publisher has no direct Mainnet equivalent. Before you migrate, pick one of the three supported production paths:
+
+1. Run a [private authenticated publisher](/docs/operator-guide/publishers/mainnet-production-guide).
+2. Use an [upload relay](#upload-relays).
+3. Integrate the [TypeScript SDK](#typescript-sdk) directly.
+
+Because Testnet package IDs move, read them from the `Move.lock` files in the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) rather than pinning a copied value. For everything specific to Testnet, including faucets and how to recover after a reset, see the [Testnet Reference](/docs/testnet-reference).
+
 ## Sui RPC endpoints
 
 The Walrus client and SDKs read Walrus state from a Sui full node. The default RPC URLs are:
