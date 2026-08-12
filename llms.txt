@@ -180,12 +180,12 @@ Sui smart contract as the on-chain index.
     and the community-maintained Awesome Walrus directory.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md):
     The following JavaScript example shows how to upload and download a blob through a web form
-    using the HTTP API. The following JavaScript example shows how to upload and download a blob
-    through a web form using the HTTP API.
+    using the HTTP API. The page takes a publisher URL, an aggregator URL, and a storage duration
+    in epochs.
 - [Move](https://docs.wal.app/docs/examples/move.md):
-    The following Move example showcases how to import and use Walrus onchain objects. The
-    following Move example showcases how to import and use Walrus onchain objects. The following
-    Move example showcases how to import and use Walrus onchain objects.
+    The following Move example showcases how to import and use Walrus onchain objects. A certified
+    blob exists on Sui as a Blob object, so Move code can hold one the same way it holds any other
+    object.
 - [Python](https://docs.wal.app/docs/examples/python.md):
     You can interact with Walrus from within Python code. Use the HTTP API to store and read blobs.
     Use the JSON API to store, read, and check the availability of a blob. Checking the
