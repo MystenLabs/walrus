@@ -256,8 +256,8 @@ fn plan_for_epoch_change_execution_for_caught_up_node(
 
     if matches!(inputs.node_status, NodeStatus::RecoveryInProgress(_)) {
         // The node is already recovering (it cannot also be catching up). Newly gained shards
-        // are synced from their previous owners; the recovery target advances, superseding the
-        // current recovery run.
+        // are synced from their previous owners; the recovery target in node status is advanced
+        // to new epoch.
         return EpochChangePlan::Apply(EpochChangeExecutionInfo {
             sync_done_owner: EpochSyncDoneAttestationOwner::RecoveryTask,
             ..epoch_change_execution_info(inputs, Some(StatusTransition::RecoveryInProgress))

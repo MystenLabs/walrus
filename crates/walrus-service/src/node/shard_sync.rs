@@ -528,30 +528,13 @@ impl ShardSyncHandler {
         let handler = self.clone();
         *service_handle = Some(tokio::spawn(async move {
             loop {
-                if let Some(epoch) = deferred_until_epoch {
-                    // The last pass deferred fresh sync work until the node's event position
-                    // reaches the info's epoch (see `reconcile_toward_info`); re-run the pass
-                    // when either the position advances far enough or a newer info supersedes
-                    // the deferred one.
-                    let channel_closed = tokio::select! {
-                        changed = info_receiver.changed() => changed.is_err(),
-                        wait_result =
-                            handler.node.wait_until_event_epoch_at_least(epoch) =>
-                        {
-                            wait_result.is_err()
-                        }
-                    };
-                    if channel_closed {
-                        // TODO(WAL-1269): terminate the node when the shard-sync reconciler
-                        // loop exits; a node without the reconciler silently stops syncing
-                        // its shards.
-                        tracing::info!("channel closed; stopping the shard sync reconciler");
-                        return;
-                    }
-                } else if info_receiver.changed().await.is_err() {
+                let watched_channel_closed = !handler
+                    .wait_for_next_reconciliation(&mut info_receiver, deferred_until_epoch)
+                    .await;
+                if watched_channel_closed {
                     // TODO(WAL-1269): terminate the node when the shard-sync reconciler loop
                     // exits; a node without the reconciler silently stops syncing its shards.
-                    tracing::info!("info channel closed; stopping the shard sync reconciler");
+                    tracing::info!("channel closed; stopping the shard sync reconciler");
                     return;
                 }
                 deferred_until_epoch = handler
@@ -559,6 +542,26 @@ impl ShardSyncHandler {
                     .await;
             }
         }));
+    }
+
+    /// Waits for the trigger of the next reconciliation pass: a newly published info, or —
+    /// when the previous pass deferred fresh sync work until the node's event position
+    /// reaches `deferred_until_epoch` (see [`Self::reconcile_toward_info`]) — the position
+    /// advancing that far, whichever comes first.
+    ///
+    /// Returns `false` if a watched channel closed and the reconciler should stop.
+    async fn wait_for_next_reconciliation(
+        &self,
+        info_receiver: &mut watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
+        deferred_until_epoch: Option<Epoch>,
+    ) -> bool {
+        let Some(epoch) = deferred_until_epoch else {
+            return info_receiver.changed().await.is_ok();
+        };
+        tokio::select! {
+            changed = info_receiver.changed() => changed.is_ok(),
+            wait_result = self.node.wait_until_event_epoch_at_least(epoch) => wait_result.is_ok(),
+        }
     }
 
     /// Runs one reconciliation pass inside the epoch-change critical section, against the
@@ -584,22 +587,17 @@ impl ShardSyncHandler {
     /// that still need syncing from the info's owned set and the persisted shard statuses
     /// (interrupted syncs resume from their persisted progress) and starts them.
     ///
-    /// Fresh syncs (and a pending metadata recovery) only start once the node's event
-    /// position has reached the info's epoch; the pass otherwise defers them and returns
-    /// `Some(info.epoch)` so that the reconciler re-runs it when the position catches up.
-    /// A sync enumerates its work from the node's local certified-blob list, whose coverage
-    /// is tied to the event position, so no enumeration bound is safe for a shard the
-    /// position has not gained yet: a bound beyond the position silently skips blobs the
-    /// node has not learned about (see issue #3609), while a bound at a position below the
-    /// shard's gain epoch skips blobs certified between the two — the node never stored
-    /// them for the shard (it did not own it at those epochs), and their replayed certified
-    /// events skip repair for the same reason. In particular, the info published at startup
-    /// describes the *fetched on-chain* committee, which may be ahead of the replay
-    /// position: a shard re-gained in the unreplayed gap must not sync until replay
-    /// processes the epoch change that gains it. Interrupted syncs are exempt: their shard
-    /// was gained at or before the position (the sync started under an info whose epoch the
-    /// position had reached), so replayed certified events re-cover everything past the
-    /// resumed bound.
+    /// Fresh syncs (and a pending metadata recovery) start only once the node has processed
+    /// events up to the info's epoch; until then the pass defers them and returns
+    /// `Some(info.epoch)` so that the reconciler retries once event processing catches up.
+    ///
+    /// The deferral is needed because a sync enumerates the blobs to fetch from the node's
+    /// local certified-blob list, which is only complete up to the processed events. Syncing
+    /// a shard before processing the epoch change that assigns it therefore misses blobs —
+    /// and nothing repairs them afterwards, because event processing only stores blobs to
+    /// the shards the node owned at each event's epoch. Resuming an interrupted sync is
+    /// exempt: the assigning epoch change was processed before the sync first started, so
+    /// event processing covers every blob certified past the resumed enumeration.
     async fn reconcile_toward_info(&self, info: &EpochChangeSyncAndRecoveryInfo) -> Option<Epoch> {
         if info.catching_up || !info.membership.is_member() {
             // Nothing to rebuild: while catching up the assignment is not authoritative, and a
@@ -758,17 +756,13 @@ impl ShardSyncHandler {
     async fn start_shard_sync_impl(&self, shard_storage: Arc<ShardStorage>) {
         // Sync up to the node's current *event* epoch, not the fetched on-chain epoch: the sync
         // enumerates its work from the local certified-blob list, which is only complete up to
-        // the events the node has processed. After a restart, syncs can resume while event
-        // replay is still behind the on-chain epoch; a bound beyond the replay position would
-        // silently skip blobs certified in the unreplayed gap — they are absent from the local
-        // list, so they are neither fetched from the source nor scheduled for recovery, and the
-        // later replay of their certified events skips them too (the node did not own the shard
-        // at the event's epoch). See the data-loss analysis in issue #3609. Each replayed epoch
-        // change re-quiesces and restarts the sync with an advanced bound, so the sync
-        // converges to the on-chain epoch as replay completes. For epoch changes processed at
-        // the head of the stream, the executor records the event epoch inside the critical
-        // section before publishing, so this equals the new epoch.
-        let Ok(current_committee_epoch) = self.node.current_event_epoch().await else {
+        // the processed events, so a larger bound would silently skip blobs the node has not
+        // learned about yet. For epoch changes processed at the head of the stream, the
+        // executor records the event epoch before publishing, so this equals the new epoch. A
+        // sync resumed during event replay uses the replay position instead; each replayed
+        // epoch change restarts it with an advanced bound, so it converges to the on-chain
+        // epoch as replay completes.
+        let Ok(current_event_epoch) = self.node.current_event_epoch().await else {
             tracing::info!("event epoch channel closed; not starting the shard sync");
             return;
         };
@@ -776,7 +770,7 @@ impl ShardSyncHandler {
         tracing::info!(
             walrus.shard_index = %shard_storage.id(),
             "syncing shard to the beginning of epoch {}",
-            current_committee_epoch
+            current_event_epoch
         );
 
         let mut shard_sync_in_progress = self.shard_sync_in_progress.lock().await;
@@ -812,12 +806,12 @@ impl ShardSyncHandler {
                     shard_index=%shard_index,
                     ?directly_recover_shard,
                     "syncing shard to the beginning of epoch {}",
-                    current_committee_epoch
+                    current_event_epoch
                 );
                 match shard_sync_handler_clone
                     .sync_shard_impl(
                         shard_storage.clone(),
-                        current_committee_epoch,
+                        current_event_epoch,
                         directly_recover_shard,
                     )
                     .await

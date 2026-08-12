@@ -637,7 +637,7 @@ impl EpochChangeExecutor {
     /// Applies an [`plan::EpochChangePlan`] in one linear pass.
     ///
     /// This function contains no decisions of its own: all branching on the node's situation
-    /// lives in [`plan::plan_epoch_change`]. The plan is applied in four sections, in this
+    /// lives in [`plan::plan_epoch_change`]. The plan is applied in three sections, in this
     /// order:
     ///
     /// 1. [node status changes][Self::apply_node_status_changes] and
