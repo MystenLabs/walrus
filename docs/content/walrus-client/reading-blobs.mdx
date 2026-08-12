@@ -42,6 +42,10 @@ answer: >-
   --strict-consistency-check and --skip-consistency-check flags.
 ---
 
+<AgentPrompt
+  prompt="Read a blob from Walrus using the CLI given its blob ID, save it to a file, and check its status and expiry. Then run a consistency check to verify the stored data matches what I uploaded."
+/>
+
 The Walrus client lets you check a blob's storage status and certification, download its data, and control the consistency checks that protect reads.
 
 ## Check blob status
