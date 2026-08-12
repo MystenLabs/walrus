@@ -88,7 +88,7 @@
 - [Overview](https://docs.wal.app/walrus-memory/mcp/overview.md):
     The Walrus Memory MCP server exposes your portable Walrus Memory as Model Context Protocol
     tools, so an AI agent can decide when to save and recall memories on its own.
-- [Reference](https://docs.wal.app/walrus-memory/mcp/reference.md):
+- [Output example: GxK9pL2mQr8vN3jF5Ys7hT6wZ1cD4eR8](https://docs.wal.app/walrus-memory/mcp/reference.md):
     This page documents every tool, flag, environment variable, and transport route the Walrus
     Memory MCP package exposes. For per-client setup, start with the MCP overview.
 

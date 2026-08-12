@@ -40,6 +40,31 @@ For example, to keep a 50 GB file for 1 year:
 
 The result is USD-denominated. Storage is paid in WAL, so the WAL amount changes with the WAL price. Use `walrus info` or the [Walrus Cost Calculator](https://costcalculator.wal.app/) to convert to a current WAL figure, and `walrus store --dry-run ...` to confirm the exact encoded size before you spend anything.
 
+#### Estimate cost for many small files
+
+The same formula explains why a batch of small files costs far more than its contents suggest. Take 600 files of 10 KiB each, roughly 6 MB of data altogether.
+
+If you store them as individual blobs, every file pays the fixed metadata overhead in full:
+
+```text
+per_blob_GB      = 4.5 * 0.00001 + 0.064, roughly 0.064
+six_hundred_GB   = 0.064 * 600, roughly 38.4
+monthly_cost_USD = 38.4 * 0.023, roughly $0.88
+```
+
+You hold 6 MB and pay for 38.4 GB, about 6,000 times the data you actually store, because the fixed overhead applies once per blob and dwarfs 10 KiB of content. The file size barely enters the arithmetic.
+
+If you store them as a single quilt, the batch pays that overhead once instead of 600 times:
+
+```text
+encoded_GB       = 4.5 * 0.006 + 0.064, roughly 0.09
+monthly_cost_USD = 0.09 * 0.023, roughly $0.002
+```
+
+Measured runs agree with the shape of that estimate. The [cost comparison table](/docs/system-overview/quilt#lower-cost) recorded a 409x saving for exactly this case, 600 files of 10 KiB stored for one epoch on Testnet. Treat the measured table as the expected saving and this arithmetic as the reason behind it.
+
+The advantage narrows as files grow, because the per-blob overhead stops dominating: the same table shows 13x at 1 MiB per file. To decide whether to batch a specific workload, work through the [decision guide](/docs/system-overview/quilt#decision-guide).
+
 ## What you get for $0.023/GB/month
 
 At $0.023 per GB per month, Walrus is in line with centralized storage providers but includes additional capabilities and lower configuration requirements.

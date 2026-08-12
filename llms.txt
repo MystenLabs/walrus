@@ -491,7 +491,7 @@ Sui smart contract as the on-chain index.
 - [Overview](https://docs.wal.app/walrus-memory/mcp/overview.md):
     The Walrus Memory MCP server exposes your portable Walrus Memory as Model Context Protocol
     tools, so an AI agent can decide when to save and recall memories on its own.
-- [Reference](https://docs.wal.app/walrus-memory/mcp/reference.md):
+- [Output example: GxK9pL2mQr8vN3jF5Ys7hT6wZ1cD4eR8](https://docs.wal.app/walrus-memory/mcp/reference.md):
     This page documents every tool, flag, environment variable, and transport route the Walrus
     Memory MCP package exposes. For per-client setup, start with the MCP overview.
 
@@ -713,10 +713,9 @@ Sui smart contract as the on-chain index.
     Code, Codex, Cursor, and Antigravity, along with new memwalrememberbulk and memwal_health tools
     and proactive memory behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Mainnet | August 5, 2026 | GitHub --- Mainnet | July 22, 2026 | GitHub --- Testnet | July 15,
-    2026 | GitHub --- Mainnet | July 9, 2026 | GitHub walrus info committee gains a
-    --commission-receivers flag that prints, as CSV, the commission receiver of every node in the
-    previous, current, and next committees (including the owning address for object receivers).
+    Testnet | August 12, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
+    now return 404 BLOBNOTFOUND within about a second, instead of 503 BLOBUNAVAILABLE after a 10-20
+    second fan-out.
 - [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
     July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
     (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
