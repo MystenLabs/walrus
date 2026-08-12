@@ -4,6 +4,9 @@ When choosing a platform to store and verify data, you should consider reliabili
 
 ## Estimate storage costs
 
+> **Storing many small files?**
+>
+> Every blob pays a fixed metadata overhead whatever its size, so a batch of small files stored separately costs far more than the bytes suggest. [Walrus Quilt](/docs/system-overview/quilt) spreads that overhead across one stored unit. Read [Reducing costs for small blobs](#reducing-costs-for-small-blobs-with-quilt) before you model the cost of many small blobs.
 Use the embedded Walrus Cost Calculator to estimate storage costs before you upload. The calculator models storage size, duration, encoding overhead, WAL storage costs, and SUI transaction costs together.
 
 If the calculator does not load, open the [Walrus Cost Calculator](https://costcalculator.wal.app/) in a new tab.

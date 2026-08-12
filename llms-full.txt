@@ -81,7 +81,8 @@ Sui smart contract as the on-chain index.
 - [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md):
     When choosing a platform to store and verify data, you should consider reliability, uptime,
     availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated
-    storage cost of $0.023/GB/month, allowing you to budget and scale with confidence.
+    storage cost of $0.023/GB/month, allowing you to budget and scale with confidence. > Storing
+    many small files?
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md):
     Storage limits, cost considerations, memory requirements, and other constraints to consider
     when building on Walrus. This page describes the practical limits and constraints you should
@@ -496,9 +497,9 @@ Sui smart contract as the on-chain index.
 ## Walrus Memory: Relayer
 
 - [API Reference](https://docs.wal.app/walrus-memory/relayer/api-reference.md):
-    The Rust relayer exposes these routes. Routes are defined in services/server/src/main.rs. See
-    also: Environment Variables Configuration Versioning and Compatibility All /api/ routes require
-    signed headers. The SDK handles this automatically.
+    The Rust relayer exposes these routes. The route table lives in services/server/src/main.rs.
+    See also: Environment Variables Configuration Versioning and Compatibility The routes below
+    require signed headers, except the MCP transports, which use bearer authentication.
 - [Benchmark CI Setup](https://docs.wal.app/walrus-memory/relayer/benchmark-ci-setup.md):
     This document records how to configure the relayer benchmark workflows. The live benchmark
     intentionally runs only the public relayer /api/recall path.
@@ -741,6 +742,11 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: Guides
 
+- [Agent Runtimes](https://docs.wal.app/walrus-memory/guides/agent-runtimes.md):
+    Agents built on EVM, Base, Virtuals, or any other stack can use Walrus Memory. The runtime your
+    agent executes in and the chain it transacts on are independent of where its memory lives.
+    Walrus Memory stores memories as encrypted blobs on Walrus and records ownership in a Sui
+    account.
 - [Delete Memories Programmatically](https://docs.wal.app/walrus-memory/guides/delete-memories-programmatically.md):
     Use the Security Delete API to find memories owned by a wallet, select memories older than a
     cutoff date, and permanently delete them. The API prepares and sponsors the Sui transaction;
