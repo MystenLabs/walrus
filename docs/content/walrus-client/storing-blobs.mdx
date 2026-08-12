@@ -58,6 +58,12 @@ $ walrus store *.png --epochs <EPOCHS>
 
 This example stores all PNG files in the current directory.
 
+:::tip Storing many small files?
+
+Every blob pays a fixed metadata overhead whatever its size, so storing many small files as separate blobs costs far more than the files themselves. [Walrus Quilt](/docs/system-overview/quilt) batches them into one stored unit and spreads that overhead across the batch. See [Reducing costs for small blobs](/docs/system-overview/storage-costs#reducing-costs-for-small-blobs-with-quilt) for when the tradeoff pays off.
+
+:::
+
 ## Blob lifetimes
 
 You must set a mandatory CLI argument to specify the lifetime for the blob. There are currently 3 methods for setting a blob's lifetime:
