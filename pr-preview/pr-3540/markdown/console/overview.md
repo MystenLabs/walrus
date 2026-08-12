@@ -30,13 +30,11 @@ Console private buckets solve this by encrypting every file client-side with [Se
 
 ## Asset types
 
-Console is built around a single navigation shell that treats your data as typed assets. Files, memory, and datasets are all first-class asset types managed the same way.
+Console is built around a single navigation shell that treats your data as typed assets. Files and memory are both first-class asset types managed the same way.
 
 **Files** are general-purpose objects you upload and retrieve. This is the asset type available in the current beta.
 
 **Memory** refers to Walrus Memory namespaces, the portable memory layer for AI agents. At GA you can browse, search, and manage your agent memory directly in Console, without touching the SDK. Console plans to add memory storage renewal in a post-GA release.
-
-**Datasets** are a planned asset type for published collections with metadata and an access model. Their scope and availability are still being defined.
 
 ## Accounts and sign-in
 
@@ -80,4 +78,3 @@ Capabilities roll out in phases. The current beta is a subset of the full produc
 | Memory storage renewal in Console | After GA |
 | Mainnet billing and free tier | After GA |
 | Existing-blob discovery, Team Spaces | After GA |
-| Datasets as an asset type | Planned |
