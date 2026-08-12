@@ -246,11 +246,13 @@ Exactly one query pattern must be specified. Valid query patterns are:
 
 **Cause:** The `get-wal` command requires an exchange object ID, but none was provided. This command is only available on Testnet.
 
-**Solution:** Specify the exchange object ID:
+**Solution:** Confirm you are on Testnet, then specify the exchange object ID:
 
 ```
-$ walrus get-wal --exchange-id EXCHANGE_OBJECT_ID
+$ walrus get-wal --context testnet --exchange-id EXCHANGE_OBJECT_ID
 ```
+
+On Mainnet, the configuration declares no exchange objects, so no flag clears this error. See [Acquire WAL on Mainnet](/docs/walrus-client/walrus-cli#acquire-wal-on-mainnet).
 
 #### `operation cancelled by user`
 
@@ -501,4 +503,4 @@ Error: no WAL coins found for storage payment
 
 **Cause:** Your WAL may be from a different package than the Walrus client expects. Some third-party Testnet faucets distribute WAL from a non-canonical package, and the client rejects it with an `insufficient balance` error even though a balance appears in your wallet.
 
-**Solution:** Acquire WAL through the official path documented in [Getting Started](/docs/getting-started), not third-party faucets. On Testnet, use the WAL exchange (`walrus get-wal`); on Mainnet, swap SUI for WAL through a supported exchange. WAL from an unsupported package cannot be used for storage payments.
+**Solution:** Acquire WAL through the official path documented in [Getting Started](/docs/getting-started), not third-party faucets. On Testnet, use the WAL exchange (`walrus get-wal`); on Mainnet, swap SUI for WAL through a supported exchange. For both paths, and for moving WAL between addresses, see [Acquire and move WAL](/docs/walrus-client/walrus-cli#acquire-and-move-wal). WAL from an unsupported package cannot be used for storage payments.
