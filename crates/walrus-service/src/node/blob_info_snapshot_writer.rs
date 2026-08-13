@@ -8,6 +8,8 @@
 //! The size and content digest are reported through metrics and a log line for cross-node
 //! comparison.
 
+#[cfg(msim)]
+use std::{collections::HashMap, sync::Mutex};
 use std::{
     fs,
     hash::Hasher as _,
@@ -19,6 +21,8 @@ use std::{
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(msim)]
+use sui_types::base_types::ObjectID;
 use twox_hash::XxHash64;
 use walrus_core::{DEFAULT_ENCODING, Epoch, encoding::EncodingFactory as _};
 
@@ -221,6 +225,19 @@ async fn write_snapshot_file(
         digest = %digest_hex,
         path = %final_path.display(),
         "serialized blob info snapshot in-process"
+    );
+
+    // No-op outside of simtest.
+    sui_macros::fail_point_arg!(
+        "storage_node_blob_info_snapshot_digest",
+        |digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>| {
+            digest_map
+                .lock()
+                .expect("failed to lock the digest map")
+                .entry(epoch)
+                .or_default()
+                .insert(node.node_capability, digest);
+        }
     );
     Ok(())
 }
