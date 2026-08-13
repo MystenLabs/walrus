@@ -22,27 +22,27 @@ Walrus does not operate a public Devnet. Use Mainnet for production and Testnet 
 
 ### How Testnet compares with Mainnet
 
-The tables give the values for each network. The differences that catch people out when they move a working Testnet integration to Mainnet are behavioral rather than numeric:
+The parameters above list each network's values. What breaks a working Testnet integration on Mainnet is usually behavior rather than a number:
 
 | **Aspect** | **Testnet** | **Mainnet** |
 |---|---|---|
 | Data persistence | Walrus wipes the data periodically without warning | Walrus keeps the data for the epochs you buy |
-| Tokens | Free | Real SUI for gas and WAL for storage |
-| Public publisher | Available | Not provided, see below |
-| Package IDs | Change whenever Walrus redeploys the contracts | Stable; see the tables below |
-| Epoch length | Much shorter, so storage expires sooner in wall-clock time | Longer, see the parameters above |
+| Tokens | Cost nothing | Cost real SUI for gas and WAL for storage |
+| Public publisher | Walrus runs one | Walrus runs none, see below |
+| Package IDs | Walrus redeploys the contracts periodically, so the IDs change | Walrus keeps the IDs fixed between upgrades, and the tables above list them |
+| Epoch length | Lasts one day, so storage expires sooner in wall-clock time | Lasts two weeks, as the parameters above list |
 
-The publisher difference blocks more Mainnet launches than any other item here. Walrus does not run a public unauthenticated publisher on Mainnet, so an integration that uploads through the public Testnet publisher has no direct Mainnet equivalent. Before you migrate, pick one of the three supported production paths:
+The publisher difference blocks more Mainnet launches than any other item here. Walrus does not run a public unauthenticated publisher on Mainnet, so an integration that uploads through the public Testnet publisher has no direct Mainnet equivalent. Before you migrate, pick one of the supported production paths:
 
 | **Path** | **Pick it when** | **What you operate** |
 |---|---|---|
-| [Private authenticated publisher](/docs/operator-guide/publishers/mainnet-production-guide) | Controlled Mainnet clients need an HTTP upload interface, and you want the Testnet publisher's request shape without exposing it publicly | A publisher you run, fund, and authenticate |
-| [Upload relay](#upload-relays) | Browser or mobile clients upload directly and cannot hold WAL or run an encoder | Nothing, if you use a public relay; the client pays a tip per upload |
-| [TypeScript SDK](#typescript-sdk) | An application integrates Walrus in code and can hold a wallet | Nothing beyond your application, which signs and pays for its own writes |
+| [Run your own authenticated publisher](/docs/operator-guide/publishers/mainnet-production-guide) | Controlled Mainnet clients need an HTTP upload interface, and you want the Testnet publisher's request shape without exposing it publicly | A publisher you run, fund, and authenticate |
+| [Send uploads through an upload relay](#upload-relays) | Browser or mobile clients upload directly and cannot hold WAL or run an encoder | Nothing, if you use a public relay; the client pays a tip per upload |
+| [Write from your application with the TypeScript SDK](#typescript-sdk) | An application integrates Walrus in code and can hold a wallet | Nothing beyond your application, which signs and pays for its own writes |
 
-The choice turns on where the upload runs and who holds the wallet. Server-side code that already has a funded wallet integrates the SDK. A browser or mobile client that cannot hold WAL uses an upload relay. A fleet of internal clients that expects an HTTP endpoint gets a private authenticated publisher. For the full set of upload paths, including the CLI, see [Choose your upload path](/docs/getting-started#choose-your-upload-path).
+The choice depends on where the upload runs and who holds the wallet. Server-side code that already has a funded wallet should integrate with the SDK. A browser or mobile client that cannot hold WAL should use an upload relay. A fleet of internal clients that expects an HTTP endpoint should get a private authenticated publisher. For the full set of upload paths, including the CLI, see [Choose your upload path](/docs/getting-started#choose-your-upload-path).
 
-Because Testnet package IDs move, read them from the `Move.lock` files in the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) rather than pinning a copied value. For everything specific to Testnet, including faucets and how to recover after a reset, see the [Testnet Reference](/docs/testnet-reference).
+Testnet package IDs change whenever Walrus redeploys the contracts, so read them from the `Move.lock` files in the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) rather than pinning a copied value. For everything specific to Testnet, including faucets and how to recover after a reset, see the [Testnet Reference](/docs/testnet-reference).
 
 ## Sui RPC endpoints
 
