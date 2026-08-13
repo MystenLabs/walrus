@@ -2,9 +2,9 @@
 
 Sui has deprecated JSON-RPC. For the Sui API surface itself, see the [Sui API reference](https://docs.sui.io/references/sui-api).
 
-**The fix is almost always an upgrade, not a configuration change.** Current Walrus clients already reach Sui over gRPC at the same full node URL the configuration already lists, and Walrus has no separate gRPC endpoint setting.
+When a Walrus tool fails against a full node that has stopped serving JSON-RPC, the fix is almost always an upgrade rather than a configuration change. Current Walrus clients already reach Sui over gRPC at the same full node URL the configuration already lists, and Walrus has no separate gRPC endpoint setting to point at.
 
-The sections below cover the failures the deprecation causes in the Walrus CLI, `site-builder`, and self-hosted full nodes, with the cause and fix for each. For the transport itself and what it means for configuration, see [Transport: JSON-RPC deprecation](/docs/network-reference#transport-json-rpc-deprecation).
+The deprecation causes distinct failures in the Walrus CLI, in `site-builder`, and on self-hosted full nodes, each with its own cause and fix. For the transport itself and what it means for configuration, see [Transport: JSON-RPC deprecation](/docs/network-reference#transport-json-rpc-deprecation).
 
 ## Walrus client errors
 
@@ -43,7 +43,7 @@ $ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/
 
 #### `site-builder` fails against a full node that stopped serving JSON-RPC
 
-**Cause:** The same one as the CLI: an older `site-builder` build still constructs a JSON-RPC client.
+**Cause:** The installed `site-builder` build is old enough to still construct a JSON-RPC client. Current builds do not, so they keep working against full nodes that have dropped the protocol.
 
 **Solution:** Upgrade the tooling. The optional `rpc_url` field in `sites-config.yaml` takes a Sui full node URL, and `site-builder` reaches that node over gRPC, so the deprecation needs no change to the file:
 
