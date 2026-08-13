@@ -251,6 +251,10 @@
     memories and delete any you'd like to clear. > Warning > > Deleting a memory is permanent and
     you cannot undo it.
 
+## Walrus Memory: Migration
+
+- [Ceremony Environments](https://docs.wal.app/walrus-memory/migration/ceremony-environments.md)
+
 ## Walrus Memory: Python SDK
 
 - [API Reference](https://docs.wal.app/walrus-memory/python-sdk/api-reference.md):
