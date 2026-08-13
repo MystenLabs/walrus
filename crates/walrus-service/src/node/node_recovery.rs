@@ -5,8 +5,7 @@ use std::{sync::Arc, time::Duration};
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use sui_macros::fail_point_async;
-use tokio::sync::Mutex;
-use typed_store::TypedStoreError;
+use tokio::sync::{Mutex, watch};
 use walrus_core::{Epoch, ShardIndex};
 use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
@@ -18,6 +17,10 @@ use super::{
 };
 use crate::node::{
     NodeStatus,
+    epoch_change::{
+        completion::{BackgroundSyncTaskCompletionInstruction, CompletionSlot},
+        goal::EpochChangeSyncAndRecoveryInfo,
+    },
     storage::{ShardStatus, blob_info::CertifiedBlobInfoApi},
 };
 
@@ -42,19 +45,14 @@ pub struct NodeRecoveryHandler {
     // to it.
     shard_sync_handler: ShardSyncHandler,
 
-    // There can be at most one background shard removal task at a time.
-    task_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    // The permanent recovery service task, spawned once at startup.
+    service_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
-    // Serializes recovery-related node status transitions: the epoch-change path advances the
-    // recovery target and starts shard syncs while holding this mutex, the catch-up path holds
-    // it across writing a new recovery target and aborting the previous recovery task, and the
-    // recovery task transitions the node to `Active` while holding it. This guarantees that a
-    // completing recovery task either observes the advanced target together with the new shard
-    // syncs, or has completed entirely before the transition (in which case the epoch-change
-    // path starts a new task) — and that a task from before a catch-up can never complete a
-    // recovery target written after the catch-up, which its scan does not cover (blob certified
-    // events are skipped while catching up).
-    status_mutex: Arc<Mutex<()>>,
+    // Holds the completion instruction while node recovery owns the epoch-change completion
+    // (that is, while the node status is `RecoveryInProgress`): the status transition to
+    // perform and the `epoch_sync_done` attestation to send. The recovery task consumes it on
+    // completion.
+    completion_instruction: CompletionSlot,
 
     // Configuration for node recovery.
     config: NodeRecoveryConfig,
@@ -71,318 +69,95 @@ impl NodeRecoveryHandler {
             node,
             blob_sync_handler,
             shard_sync_handler,
-            task_handle: Arc::new(Mutex::new(None)),
-            status_mutex: Arc::new(Mutex::new(())),
+            service_handle: Arc::new(Mutex::new(None)),
+            completion_instruction: CompletionSlot::default(),
             config,
         }
     }
 
-    /// Locks the recovery status mutex.
-    ///
-    /// The epoch-change path must hold the returned guard across advancing the recovery target
-    /// (setting the node status to a newer `RecoveryInProgress` epoch), starting the shard
-    /// syncs for newly gained shards, and locking the shards that moved away, so that these are
-    /// atomic with respect to the recovery task's completion; otherwise, the task could attest
-    /// epoch sync done while the node still accepts slivers for shards it no longer owns. The
-    /// catch-up path must hold it across writing its recovery target and aborting the previous
-    /// recovery task (via [`Self::start_node_recovery`]), so that a task from before the
-    /// catch-up cannot complete a target whose blobs it never scanned.
-    ///
-    /// Lock ordering: this mutex must be acquired *before* the storage shard map lock. The
-    /// recovery task's completion attempt reads shard statuses (which takes the shard map read
-    /// lock) while holding this mutex, so acquiring this mutex while holding the shard map lock
-    /// deadlocks with it.
-    pub async fn lock_status(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.status_mutex.lock().await
-    }
-
-    /// Aborts the running recovery task, if any, and waits for it to exit.
-    ///
-    /// The catch-up path calls this while holding the status mutex, before writing its new
-    /// recovery target: the stale task must be gone before the target becomes visible, so that
-    /// it cannot complete the target even if the caller fails and returns before reaching
-    /// [`Self::start_node_recovery`] (which would otherwise perform the abort).
-    pub async fn abort_recovery_task(&self) {
-        abort_task(self.task_handle.lock().await.take()).await;
-    }
-
-    /// Ensures a recovery task is running to recover to the given epoch.
-    ///
-    /// The recovery task keeps running across epoch changes and picks up the advanced recovery
-    /// target on its own, so this normally does nothing. A new task is only started if the
-    /// caller observed that the previous task completed concurrently with the epoch change
-    /// (`task_completed_concurrently`), or if no task is running (for example, because it
-    /// stopped unexpectedly).
-    pub async fn ensure_recovery_task_running(
+    /// Hands node recovery its completion instruction — the status transition to perform and
+    /// the `epoch_sync_done` attestation to send when the recovery completes. Called by the
+    /// epoch-change apply step, from inside the epoch-change critical section, whenever it sets
+    /// or advances the recovery target.
+    pub(crate) fn set_completion_instruction(
         &self,
-        epoch: Epoch,
-        task_completed_concurrently: bool,
-    ) -> Result<(), TypedStoreError> {
-        let task_running = self
-            .task_handle
-            .lock()
-            .await
-            .as_ref()
-            .is_some_and(|handle| !handle.is_finished());
-
-        if task_completed_concurrently || !task_running {
-            tracing::info!(
-                walrus.epoch = epoch,
-                task_completed_concurrently,
-                task_running,
-                "no running node recovery task; starting a new one"
-            );
-            self.start_node_recovery(epoch).await?;
-        }
-
-        Ok(())
+        instruction: BackgroundSyncTaskCompletionInstruction,
+    ) {
+        self.completion_instruction.put(instruction);
     }
 
-    /// Starts the node recovery process to recover blobs that are certified before the given epoch.
-    /// For blobs that are certified after `certified_before_epoch`, the event processing is in
-    /// charge of making sure the blob is stored at all shards.
-    ///
-    /// The task keeps running across epoch changes: blobs certified after the scan bound are
-    /// covered by event processing, and shards gained at later epoch changes are covered by shard
-    /// sync (which the task waits for), so the scan bound stays valid. The task completes only
-    /// once blob recovery is done and every owned shard is in `Active` status, that is, shard
-    /// sync has delivered every gained shard; it then attests epoch sync done for the recovery
-    /// target currently recorded in the node status, which the epoch-change path advances.
-    ///
-    /// Any existing recovery task will be canceled.
-    // TODO(WAL-864): Refactor this function to make it readable.
-    pub async fn start_node_recovery(
-        &self,
-        certified_before_epoch: Epoch,
-    ) -> Result<(), TypedStoreError> {
-        let mut locked_task_handle = self.task_handle.lock().await;
+    /// Revokes any pending completion instruction held by node recovery. Called when a
+    /// transition supersedes the running recovery.
+    pub(crate) fn clear_completion_instruction(&self) {
+        self.completion_instruction.clear();
+    }
 
-        // Cancel any existing recovery task.
-        abort_task(locked_task_handle.take()).await;
+    /// Spawns the permanent node-recovery service.
+    ///
+    /// The service is a reconciliation loop: it watches the sync-and-recovery info and,
+    /// whenever the node's persisted status names a recovery target (and the info names the
+    /// node a committee member that is not catching up), runs a recovery toward it. A run is
+    /// bound to the sync baseline generation it started from and can outlive several epoch
+    /// changes: a publication that leaves the
+    /// baseline unchanged (an epoch change advancing the recovery target) extends the run —
+    /// its frozen scan bound stays sufficient, since blobs certified at later epochs are
+    /// synced through live event processing, and its completion instruction is replaced with
+    /// one attesting the new epoch — while a baseline-changing publication (the node entered
+    /// catch-up or left the committee) supersedes the run, which abandons its work and
+    /// re-evaluates against the latest info (completed per-blob work persists, so a superseded
+    /// run only repeats its scan). This replaces the previous start/ensure/abort lifecycle
+    /// driven by the epoch-change logic: epoch changes only publish infos and mint completion
+    /// instructions; the service makes its own decisions.
+    // TODO(WAL-1263): cancel the node-recovery service when the node is shut down.
+    pub(crate) fn spawn_background_recovery(
+        &self,
+        info_receiver: watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
+    ) {
+        let mut service_handle = self
+            .service_handle
+            .try_lock()
+            .expect("spawn_background_recovery is called once, at startup");
+        assert!(
+            service_handle.is_none(),
+            "the node recovery service is already running"
+        );
 
         let node = self.node.clone();
         let blob_sync_handler = self.blob_sync_handler.clone();
         let shard_sync_handler = self.shard_sync_handler.clone();
-        let status_mutex = self.status_mutex.clone();
+        let completion_instruction = self.completion_instruction.clone();
         let max_concurrent_blob_syncs_during_recovery =
             self.config.max_concurrent_blob_syncs_during_recovery;
-        let task_handle = tokio::spawn(async move {
-            tracing::info!("waiting for latest event epoch to be set to restart node recovery");
-            // When current_event_epoch() returns during node start up, if the node is lagging
-            // behind, the node status will also be set to RecoveryCatchUp. So the recovery
-            // task does not need to run in this case.
-            node.current_event_epoch()
-                .await
-                .expect("current event epoch watch channel should not be dropped");
-
-            tracing::info!(
-                "starting node recovery task to recover blobs certified before epoch {}",
-                certified_before_epoch
-            );
-
-            fail_point_async!("start_node_recovery_entry");
-
-            loop {
-                // Block until the node is ready to run a recovery scan pass. Stops the recovery
-                // task if the node started catching up.
-                match wait_until_ready_to_scan(&node, &shard_sync_handler).await {
-                    ScanReadiness::Ready => {}
-                    ScanReadiness::CatchingUp => return,
-                }
-
-                // Keep track of ongoing blob syncs. Note that the memory usage of this list
-                // is capped by `max_concurrent_blob_syncs_during_recovery`.
-                let mut ongoing_syncs = FuturesUnordered::new();
-
-                // Keep track of whether there are more blobs to recover.
-                let mut has_more_blobs = false;
-                // Whether this scan pass was interrupted because a shard sync started. An
-                // interrupted pass has not verified all blobs, so a new pass is required even if
-                // no blob needing recovery was found. This is deliberately kept separate from
-                // `has_more_blobs`: once blob sync outcomes are tracked directly and the
-                // verification re-scan is removed (WAL-669), an interrupted pass still requires
-                // a new round of blob recovery.
-                let mut scan_pass_interrupted = false;
-                tracing::info!(
-                    "scanning blobs to recover certified blobs before epoch {}",
-                    certified_before_epoch
-                );
-                for (blob_id, blob_info) in node
-                    .storage
-                    .certified_blob_info_iter_before_epoch(certified_before_epoch)
-                    .filter_map(|blob_result| {
-                        blob_result
-                            .inspect_err(|error| {
-                                tracing::error!(?error, "failed to read certified blob")
-                            })
-                            .ok()
-                    })
-                {
-                    // An epoch change may have started shard syncs for newly gained shards while
-                    // this pass is running. Stop starting new blob syncs and park: per-blob
-                    // recovery would redundantly decode slivers for the shards that shard sync is
-                    // copying in bulk. The loop drains the in-flight syncs and starts a new scan
-                    // pass after the park.
-                    if shard_sync_handler.has_sync_in_progress() {
-                        tracing::info!(
-                            "shard sync started during recovery scan pass; pausing blob recovery"
-                        );
-                        scan_pass_interrupted = true;
-                        break;
-                    }
-
-                    node.metrics
-                        .node_recovery_recover_blob_progress
-                        .set(i64::from(blob_id.first_two_bytes()));
-
-                    // Note that here we need to use the current epoch to check if the blob is
-                    // still certified. If the blob is retired, we don't need to recover it anymore.
-                    if !blob_info.is_certified(node.current_committee_epoch()) {
-                        // Skip blobs that are not certified in the given epoch. This
-                        // includes blobs that are invalid or expired.
-                        tracing::debug!(
-                            walrus.blob_id = %blob_id,
-                            walrus.blob_certified_before_epoch = certified_before_epoch,
-                            walrus.current_epoch = node.current_committee_epoch(),
-                            "skip non-certified blob"
-                        );
-                        continue;
-                    }
-
-                    // The node will only enter recovery mode if it has caught up to the latest
-                    // epoch. So we only need to check the latest epoch for the shard assignment.
-                    if let Ok(stored_at_all_shards) =
-                        node.is_stored_at_all_shards_at_latest_epoch(&blob_id).await
-                    {
-                        if stored_at_all_shards {
-                            tracing::debug!(
-                                walrus.blob_certified_before_epoch = certified_before_epoch,
-                                walrus.current_epoch = node.current_committee_epoch(),
-                                "blob is stored at all shards; skip recovery"
-                            );
-                            continue;
-                        }
-                    } else {
-                        tracing::warn!(
-                            walrus.blob_id = %blob_id,
-                            "failed to check if blob is stored at all shards; start blob sync"
-                        );
-                    }
-
-                    // There are more blobs to recover.
-                    has_more_blobs = true;
-
-                    // Limit the number of concurrent blob syncs to avoid overwhelming the system.
-                    // Note that checking the length of `ongoing_syncs` is sufficient since the loop
-                    // adds blob sync tasks sequentially.
-                    if ongoing_syncs.len() >= max_concurrent_blob_syncs_during_recovery {
-                        tracing::debug!(
-                            walrus.blob_id = %blob_id,
-                            number_of_tasks = %ongoing_syncs.len(),
-                            "max concurrent blob syncs reached; wait for one to complete"
-                        );
-                        while ongoing_syncs.len() >= max_concurrent_blob_syncs_during_recovery {
-                            ongoing_syncs.next().await;
-                        }
-
-                        // Since there is a wait, the blob might not be certified anymore. Check
-                        // again before starting the sync.
-                        if !blob_info.is_certified(node.current_committee_epoch()) {
-                            // Skip blobs that are not certified in the given epoch. This
-                            // includes blobs that are invalid or expired.
-                            tracing::debug!(
-                                walrus.blob_id = %blob_id,
-                                walrus.blob_certified_before_epoch = certified_before_epoch,
-                                walrus.current_epoch = node.current_committee_epoch(),
-                                "skip non-certified blob, post concurrency limit wait"
-                            );
-                            continue;
-                        }
-                    }
-
-                    tracing::debug!(
-                        walrus.blob_id = %blob_id,
-                        recoverying_epoch = certified_before_epoch,
-                        "start recovery sync for blob"
-                    );
-                    node.metrics.node_recovery_ongoing_blob_syncs.inc();
-                    let start_sync_result = blob_sync_handler
-                        .start_sync(
-                            blob_id,
-                            blob_info.initial_certified_epoch().expect(
-                                "certified blob should have an initial certified epoch set",
-                            ),
-                            None,
-                        )
-                        .await;
-                    sui_macros::fail_point!("fail_point_node_recovery_start_sync");
-                    match start_sync_result {
-                        Ok(mut receiver) => {
-                            let node_clone = node.clone();
-                            // Create a future that releases the permit when the sync completes
-                            let notify_with_permit = async move {
-                                // We don't care about the outcome here — this loop re-scans
-                                // and re-evaluates whether the blob still needs recovery.
-                                let _ = receiver
-                                    .wait_for(|status| matches!(status, SyncStatus::Done(_)))
-                                    .await;
-                                node_clone.metrics.node_recovery_ongoing_blob_syncs.dec();
-                            };
-                            ongoing_syncs.push(notify_with_permit);
-                        }
-                        Err(err) => {
-                            // The only place where start_sync can fail is when marking the
-                            // event complete, which is not applicable here since the there
-                            // is no event associated with the recovery task.
-                            panic!("failed to start recovery sync for blob {blob_id}: {err}",);
-                        }
-                    }
-                }
-
-                // Wait for all ongoing syncs to complete
-                while (ongoing_syncs.next().await).is_some() {
-                    // Each sync completion automatically releases its permit
-                }
-
-                // An interrupted pass has not verified all blobs; run a new pass (which parks
-                // until the shard syncs that interrupted it have finished).
-                if scan_pass_interrupted {
-                    continue;
-                }
-
-                if has_more_blobs {
-                    // TODO(WAL-669): right now, we have to do one more loop to check if all the
-                    // blobs are recovered. This is not efficient because checking blob existence
-                    // is expensive. It's better that blob sync handler can return the blob sync
-                    // status and we can avoid the extra loop of all the blob syncs finished
-                    // successfully.
-                    continue;
-                }
-
-                // Blob recovery (this task's scan) is done; wait for shard sync to deliver
-                // every owned shard and then complete the recovery.
-                complete_recovery_once_shards_synced(&node, &shard_sync_handler, &status_mutex)
-                    .await;
-                return;
-            }
-        });
-        *locked_task_handle = Some(task_handle);
-
-        Ok(())
+        *service_handle = Some(tokio::spawn(run_service(
+            node,
+            blob_sync_handler,
+            shard_sync_handler,
+            completion_instruction,
+            max_concurrent_blob_syncs_during_recovery,
+            info_receiver,
+        )));
     }
+}
 
-    /// Restarts any in progress recovery.
-    pub async fn restart_recovery(&self) -> anyhow::Result<()> {
-        if let NodeStatus::RecoveryInProgress(recovering_epoch) = self.node.storage.node_status()? {
-            tracing::info!(
-                "restarting node recovery to recover to the epoch {}",
-                recovering_epoch
-            );
-
-            self.start_node_recovery(recovering_epoch).await?;
+/// Returns `true` if a publication has superseded the recovery run bound to `run_baseline`
+/// (or the info channel closed). Publications that leave the sync baseline unchanged — an
+/// epoch change advancing the recovery target — extend the run instead of superseding it: the
+/// run's frozen scan bound stays sufficient because the node syncs blobs certified at later
+/// epochs through live event processing, and its completion attests the advanced target via
+/// the replaced completion instruction.
+fn run_is_superseded(
+    info_receiver: &mut watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
+    run_baseline: u64,
+) -> bool {
+    match info_receiver.has_changed() {
+        Err(_) => true,
+        Ok(true) => {
+            info_receiver
+                .borrow_and_update()
+                .node_recovery_baseline_generation
+                != run_baseline
         }
-
-        Ok(())
+        Ok(false) => false,
     }
 }
 
@@ -482,6 +257,350 @@ async fn wait_until_ready_to_scan(
     readiness
 }
 
+/// The outcome of one recovery run.
+enum RunOutcome {
+    /// The recovery completed: the completion instruction was applied and epoch sync done
+    /// attested.
+    Completed,
+    /// A newer info was published (or the node started catching up); the run abandoned its
+    /// work and the service re-evaluates against the latest info.
+    Superseded,
+}
+
+/// The permanent recovery service loop.
+async fn run_service(
+    node: Arc<StorageNodeInner>,
+    blob_sync_handler: Arc<BlobSyncHandler>,
+    shard_sync_handler: ShardSyncHandler,
+    completion_instruction: CompletionSlot,
+    max_concurrent_blob_syncs_during_recovery: usize,
+    mut info_receiver: watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
+) {
+    tracing::info!("waiting for the latest event epoch to start the node recovery service");
+    // When current_event_epoch() returns during node startup, a lagging node has already been
+    // moved to `RecoveryCatchUp`, so the loop below parks instead of recovering.
+    node.current_event_epoch()
+        .await
+        .expect("current event epoch watch channel should not be dropped");
+
+    // The `generation` of the info the most recent run started from. A run normally ends by
+    // changing the world — completing (the status leaves `RecoveryInProgress`) or being
+    // superseded by a newer info — but it can also end with the state it started from fully
+    // intact: its completion found no instruction (revoked through an error path) while the
+    // persisted status still names a recovery target. The guard below keeps such a run from
+    // restarting against the very info it just ran under, which would busy-loop identical
+    // full certified-blob scans; the service instead parks until the next publication.
+    let mut last_run_generation: Option<u64> = None;
+
+    loop {
+        // Bind the next run to the current sync baseline generation; mark the info as seen so
+        // that `has_changed` inside the run detects only newer publications.
+        let (generation, baseline, may_run_recovery) = {
+            let info = info_receiver.borrow_and_update();
+            // Recovery only runs for a committee member that is not catching up. In
+            // particular, a node that was dropped from the committee while recovering can
+            // restart with a persisted `RecoveryInProgress` status but no completion
+            // instruction (deliberately — its recovery is moot); running would scan the whole
+            // certified-blob table for zero owned shards and complete to nothing. The node
+            // parks here until event replay processes the epoch change that dropped it, which
+            // moves it to `Standby`.
+            (
+                info.generation,
+                info.node_recovery_baseline_generation,
+                !info.catching_up && info.membership.is_member(),
+            )
+        };
+
+        let target_epoch = match node.storage.node_status() {
+            Ok(NodeStatus::RecoveryInProgress(target_epoch))
+                if may_run_recovery && last_run_generation != Some(generation) =>
+            {
+                target_epoch
+            }
+            Ok(_) => {
+                // Nothing to run: the status names no recovery target, the info forbids
+                // recovery (catching up, or not a committee member), or a run already ended
+                // under exactly this info. Wait for the next publication.
+                if info_receiver.changed().await.is_err() {
+                    // TODO(WAL-1269): terminate the node when the recovery service loop exits;
+                    // a node without the recovery service can never complete a recovery.
+                    tracing::info!("info channel closed; stopping the node recovery service");
+                    return;
+                }
+                continue;
+            }
+            Err(error) => {
+                tracing::error!(?error, "failed to read the node status; retrying");
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                continue;
+            }
+        };
+        last_run_generation = Some(generation);
+
+        tracing::info!(
+            walrus.epoch = target_epoch,
+            baseline,
+            "starting a node recovery run"
+        );
+        fail_point_async!("start_node_recovery_entry");
+
+        match run_recovery(
+            &node,
+            &blob_sync_handler,
+            &shard_sync_handler,
+            &completion_instruction,
+            max_concurrent_blob_syncs_during_recovery,
+            &mut info_receiver,
+            baseline,
+            target_epoch,
+        )
+        .await
+        {
+            RunOutcome::Completed => {
+                tracing::info!(walrus.epoch = target_epoch, "node recovery run completed")
+            }
+            RunOutcome::Superseded => {
+                tracing::info!("node recovery run superseded by a newer info")
+            }
+        }
+    }
+}
+
+/// One recovery run: recovers all blobs certified before `target_epoch` that are not stored at
+/// all owned shards, then completes the recovery. The run continues across publications that
+/// leave the sync baseline unchanged and returns early with [`RunOutcome::Superseded`] when
+/// the baseline changes (see [`run_is_superseded`]).
+#[allow(clippy::too_many_arguments)]
+async fn run_recovery(
+    node: &Arc<StorageNodeInner>,
+    blob_sync_handler: &BlobSyncHandler,
+    shard_sync_handler: &ShardSyncHandler,
+    completion_instruction: &CompletionSlot,
+    max_concurrent_blob_syncs_during_recovery: usize,
+    info_receiver: &mut watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
+    baseline: u64,
+    target_epoch: Epoch,
+) -> RunOutcome {
+    loop {
+        // Block until the node is ready to run a recovery scan pass. Stops the recovery
+        // task if the node started catching up.
+        // A baseline-changing publication supersedes this run before it even scans.
+        if run_is_superseded(info_receiver, baseline) {
+            return RunOutcome::Superseded;
+        }
+
+        match wait_until_ready_to_scan(node, shard_sync_handler).await {
+            ScanReadiness::Ready => {}
+            ScanReadiness::CatchingUp => return RunOutcome::Superseded,
+        }
+
+        // Keep track of ongoing blob syncs. Note that the memory usage of this list
+        // is capped by `max_concurrent_blob_syncs_during_recovery`.
+        let mut ongoing_syncs = FuturesUnordered::new();
+
+        // Keep track of whether there are more blobs to recover.
+        let mut has_more_blobs = false;
+        // Whether this scan pass was interrupted because a shard sync started. An
+        // interrupted pass has not verified all blobs, so a new pass is required even if
+        // no blob needing recovery was found. This is deliberately kept separate from
+        // `has_more_blobs`: once blob sync outcomes are tracked directly and the
+        // verification re-scan is removed (WAL-669), an interrupted pass still requires
+        // a new round of blob recovery.
+        let mut scan_pass_interrupted = false;
+        // Whether a newly published info superseded this run mid-pass.
+        let mut superseded = false;
+        tracing::info!(
+            "scanning blobs to recover certified blobs before epoch {}",
+            target_epoch
+        );
+        // TODO(WAL-1272): dropping read errors here is unsound in one case. A persistent
+        // RocksDB status error re-yields on every pass, so the scan spins rather than falsely
+        // completing — but a key or value deserialization failure makes the underlying
+        // `SafeIter` yield `None` and silently *end* the iterator, so a truncated pass reads
+        // as clean and, with all owned shards active, the run completes and attests epoch
+        // sync done despite unknown coverage. Treat any `Err` as a pass failure (retry the
+        // pass with backoff) and make `SafeIter` surface deserialization failures as errors
+        // instead of iterator end.
+        for (blob_id, blob_info) in node
+            .storage
+            .certified_blob_info_iter_before_epoch(target_epoch)
+            .filter_map(|blob_result| {
+                blob_result
+                    .inspect_err(|error| tracing::error!(?error, "failed to read certified blob"))
+                    .ok()
+            })
+        {
+            // An epoch change may have started shard syncs for newly gained shards while
+            // this pass is running. Stop starting new blob syncs and park: per-blob
+            // recovery would redundantly decode slivers for the shards that shard sync is
+            // copying in bulk. The loop drains the in-flight syncs and starts a new scan
+            // pass after the park.
+            if shard_sync_handler.has_sync_in_progress() {
+                tracing::info!(
+                    "shard sync started during recovery scan pass; pausing blob recovery"
+                );
+                scan_pass_interrupted = true;
+                break;
+            }
+
+            // A baseline-changing publication supersedes this run entirely: stop scanning,
+            // drain the in-flight syncs below, and let the service re-evaluate. A publication
+            // that keeps the baseline (a target advancement) extends the run instead.
+            if run_is_superseded(info_receiver, baseline) {
+                superseded = true;
+                break;
+            }
+
+            node.metrics
+                .node_recovery_recover_blob_progress
+                .set(i64::from(blob_id.first_two_bytes()));
+
+            // Note that here we need to use the current epoch to check if the blob is
+            // still certified. If the blob is retired, we don't need to recover it anymore.
+            if !blob_info.is_certified(node.current_committee_epoch()) {
+                // Skip blobs that are not certified in the given epoch. This
+                // includes blobs that are invalid or expired.
+                tracing::debug!(
+                    walrus.blob_id = %blob_id,
+                    walrus.blob_target_epoch = target_epoch,
+                    walrus.current_epoch = node.current_committee_epoch(),
+                    "skip non-certified blob"
+                );
+                continue;
+            }
+
+            // The node will only enter recovery mode if it has caught up to the latest
+            // epoch. So we only need to check the latest epoch for the shard assignment.
+            if let Ok(stored_at_all_shards) =
+                node.is_stored_at_all_shards_at_latest_epoch(&blob_id).await
+            {
+                if stored_at_all_shards {
+                    tracing::debug!(
+                        walrus.blob_target_epoch = target_epoch,
+                        walrus.current_epoch = node.current_committee_epoch(),
+                        "blob is stored at all shards; skip recovery"
+                    );
+                    continue;
+                }
+            } else {
+                tracing::warn!(
+                    walrus.blob_id = %blob_id,
+                    "failed to check if blob is stored at all shards; start blob sync"
+                );
+            }
+
+            // There are more blobs to recover.
+            has_more_blobs = true;
+
+            // Limit the number of concurrent blob syncs to avoid overwhelming the system.
+            // Note that checking the length of `ongoing_syncs` is sufficient since the loop
+            // adds blob sync tasks sequentially.
+            if ongoing_syncs.len() >= max_concurrent_blob_syncs_during_recovery {
+                tracing::debug!(
+                    walrus.blob_id = %blob_id,
+                    number_of_tasks = %ongoing_syncs.len(),
+                    "max concurrent blob syncs reached; wait for one to complete"
+                );
+                while ongoing_syncs.len() >= max_concurrent_blob_syncs_during_recovery {
+                    ongoing_syncs.next().await;
+                }
+
+                // Since there is a wait, the blob might not be certified anymore. Check
+                // again before starting the sync.
+                if !blob_info.is_certified(node.current_committee_epoch()) {
+                    // Skip blobs that are not certified in the given epoch. This
+                    // includes blobs that are invalid or expired.
+                    tracing::debug!(
+                        walrus.blob_id = %blob_id,
+                        walrus.blob_target_epoch = target_epoch,
+                        walrus.current_epoch = node.current_committee_epoch(),
+                        "skip non-certified blob, post concurrency limit wait"
+                    );
+                    continue;
+                }
+            }
+
+            tracing::debug!(
+                walrus.blob_id = %blob_id,
+                recoverying_epoch = target_epoch,
+                "start recovery sync for blob"
+            );
+            node.metrics.node_recovery_ongoing_blob_syncs.inc();
+            let start_sync_result = blob_sync_handler
+                .start_sync(
+                    blob_id,
+                    blob_info
+                        .initial_certified_epoch()
+                        .expect("certified blob should have an initial certified epoch set"),
+                    None,
+                )
+                .await;
+            sui_macros::fail_point!("fail_point_node_recovery_start_sync");
+            match start_sync_result {
+                Ok(mut receiver) => {
+                    let node_clone = node.clone();
+                    // Create a future that releases the permit when the sync completes
+                    let notify_with_permit = async move {
+                        // We don't care about the outcome here — this loop re-scans
+                        // and re-evaluates whether the blob still needs recovery.
+                        let _ = receiver
+                            .wait_for(|status| matches!(status, SyncStatus::Done(_)))
+                            .await;
+                        node_clone.metrics.node_recovery_ongoing_blob_syncs.dec();
+                    };
+                    ongoing_syncs.push(notify_with_permit);
+                }
+                Err(err) => {
+                    // The only place where start_sync can fail is when marking the
+                    // event complete, which is not applicable here since the there
+                    // is no event associated with the recovery task.
+                    panic!("failed to start recovery sync for blob {blob_id}: {err}",);
+                }
+            }
+        }
+
+        // Wait for all ongoing syncs to complete
+        while (ongoing_syncs.next().await).is_some() {
+            // Each sync completion automatically releases its permit
+        }
+
+        if superseded {
+            return RunOutcome::Superseded;
+        }
+
+        // An interrupted pass has not verified all blobs; run a new pass (which parks
+        // until the shard syncs that interrupted it have finished).
+        if scan_pass_interrupted {
+            continue;
+        }
+
+        if has_more_blobs {
+            // TODO(WAL-669): right now, we have to do one more loop to check if all the
+            // blobs are recovered. This is not efficient because checking blob existence
+            // is expensive. It's better that blob sync handler can return the blob sync
+            // status and we can avoid the extra loop of all the blob syncs finished
+            // successfully.
+            continue;
+        }
+
+        // Blob recovery (this run's scan) is done; wait for shard sync to deliver
+        // every owned shard and then complete the recovery.
+        return if complete_recovery_once_shards_synced(
+            node,
+            shard_sync_handler,
+            completion_instruction,
+            info_receiver,
+            baseline,
+        )
+        .await
+        {
+            RunOutcome::Completed
+        } else {
+            RunOutcome::Superseded
+        };
+    }
+}
+
 /// Completes node recovery once shard sync has delivered every owned shard, then attests epoch
 /// sync done. Called after the recovery task's blob scan has finished cleanly; returns when the
 /// recovery task should exit.
@@ -497,17 +616,33 @@ async fn wait_until_ready_to_scan(
 /// separation still holds for the work itself: a shard that reached `Active` needs no re-scan,
 /// and a shard that has not is shard sync's job to finish — never the recovery task's.
 ///
-/// The checks run under the status mutex, which serializes completion against the epoch-change
-/// path: either this task observes the advanced target together with the not-yet-`Active` gained
-/// shards, or it completes entirely before the target is advanced (and the epoch-change path
-/// starts a new task).
+/// The checks run inside the epoch-change critical section, which serializes completion against
+/// the epoch-change path: either this task observes the advanced target together with the
+/// not-yet-`Active` gained shards (and keeps waiting for their syncs), or it completes
+/// entirely before the target is advanced.
 async fn complete_recovery_once_shards_synced(
     node: &StorageNodeInner,
     shard_sync_handler: &ShardSyncHandler,
-    status_mutex: &Mutex<()>,
-) {
+    completion_instruction: &CompletionSlot,
+    info_receiver: &mut watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
+    run_baseline: u64,
+) -> bool {
     loop {
-        let status_guard = status_mutex.lock().await;
+        let critical_section_guard = node.epoch_change_critical_section.enter().await;
+
+        // Validate that this run is still current, inside the critical section: goals are
+        // published inside the same critical section, so an unchanged sync baseline here means
+        // no invalidating transition (entering catch-up or leaving the committee, however
+        // briefly) has superseded the run since it started. Target advancements leave the
+        // baseline unchanged: the completion below then consumes the instruction minted for
+        // the advanced target and attests the newest epoch.
+        if info_receiver.borrow().node_recovery_baseline_generation != run_baseline {
+            drop(critical_section_guard);
+            tracing::info!(
+                "recovery completion superseded by an invalidating info; abandoning the run"
+            );
+            return false;
+        }
 
         let unsynced_shards = unsynced_owned_shards(node).await;
         if unsynced_shards.is_empty() {
@@ -515,44 +650,67 @@ async fn complete_recovery_once_shards_synced(
                 .storage
                 .node_status()
                 .expect("reading node status should not fail");
-            let NodeStatus::RecoveryInProgress(target_epoch) = current_node_status else {
+
+            // Consume the completion instruction while still inside the critical section, so
+            // that it belongs to the recovery target observed by this pass: the epoch-change
+            // path replaces the instruction and the target atomically inside the same critical
+            // section. No instruction means a concurrent transition (dropping out of the
+            // committee, entering recovery mode) superseded this recovery; the task then
+            // finishes without touching the node status.
+            let Some(instruction) = completion_instruction.take() else {
                 tracing::warn!(
                     node_status = %current_node_status,
-                    "node recovery task finished; but node status is not RecoveryInProgress; \
-                    skip setting node status to active"
+                    "node recovery task finished, but its completion was superseded by a \
+                    concurrent transition; skipping the status change and attestation"
                 );
-                return;
+                return false;
             };
 
             tracing::info!(
-                walrus.epoch = target_epoch,
-                "node recovery task finished; set node status to active"
+                node_status = %current_node_status,
+                ?instruction,
+                "node recovery task finished; applying its completion instruction"
             );
-            if let Err(error) = node.set_node_status(NodeStatus::Active) {
-                tracing::error!(?error, "failed to set node status to active");
-                return;
-            }
-            drop(status_guard);
+            let attestation = match instruction.apply_status(node) {
+                Ok(attestation) => attestation,
+                Err(error) => {
+                    tracing::error!(?error, "failed to apply the recovery completion status");
+                    return false;
+                }
+            };
+            drop(critical_section_guard);
 
-            // While the node is recovering, this is the only place that attests epoch sync
-            // done: shard sync skips its own attestation in RecoveryInProgress state (see the
-            // epoch_sync_done handling in shard_sync.rs), so that the attestation covers both
-            // the recovered blobs and all synced shards. The attested epoch is the recovery
-            // target currently recorded in the node status, which may be newer than the epoch
-            // this task was started with.
-            node.contract_service
-                .epoch_sync_done(target_epoch, node.node_capability())
-                .await;
-            return;
+            // While the node is recovering, node recovery holds the attestation (bundled in the
+            // completion instruction), so this is the only place that attests epoch sync done,
+            // and the attestation covers both the recovered blobs and all synced shards. The
+            // attested epoch is the recovery target most recently recorded by the epoch-change
+            // path, which may be newer than the epoch this task was started with.
+            if let Some(token) = attestation {
+                token.attest(node).await;
+            }
+            return true;
         }
-        drop(status_guard);
+        drop(critical_section_guard);
 
         if shard_sync_handler.has_sync_in_progress() {
             tracing::info!(
                 ?unsynced_shards,
                 "waiting for ongoing shard syncs before completing node recovery"
             );
-            shard_sync_handler.wait_until_no_sync_in_progress().await;
+            tokio::select! {
+                _ = shard_sync_handler.wait_until_no_sync_in_progress() => {}
+                changed = info_receiver.changed() => {
+                    // Re-evaluate: only a baseline-changing publication supersedes the run; a
+                    // target advancement (possibly gaining shards) just widens what to wait
+                    // for, which the next iteration picks up.
+                    if changed.is_err()
+                        || info_receiver.borrow_and_update().node_recovery_baseline_generation
+                            != run_baseline
+                    {
+                        return false;
+                    }
+                }
+            }
         } else {
             // The syncs for these shards stopped without reaching `Active` status (a terminally
             // failed shard sync requires a node restart to be retried). Completing now would
@@ -563,18 +721,18 @@ async fn complete_recovery_once_shards_synced(
                 "owned shards are not active and no shard sync is running; node recovery \
                 cannot complete; restart the node to retry shard sync"
             );
-            tokio::time::sleep(UNSYNCED_SHARD_RECHECK_INTERVAL).await;
+            tokio::select! {
+                _ = tokio::time::sleep(UNSYNCED_SHARD_RECHECK_INTERVAL) => {}
+                changed = info_receiver.changed() => {
+                    if changed.is_err()
+                        || info_receiver.borrow_and_update().node_recovery_baseline_generation
+                            != run_baseline
+                    {
+                        return false;
+                    }
+                }
+            }
         }
-    }
-}
-
-/// Aborts the given recovery task, if any, and waits for it to exit.
-async fn abort_task(task: Option<tokio::task::JoinHandle<()>>) {
-    if let Some(old_task) = task {
-        tracing::info!("canceling existing node recovery task");
-        old_task.abort();
-        // Wait for the old task to finish (it will return a JoinError due to cancellation).
-        let _ = old_task.await;
     }
 }
 

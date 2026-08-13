@@ -161,6 +161,154 @@ impl NodeStatus {
             NodeStatus::RecoveryCatchUpWithIncompleteHistory { .. }
         )
     }
+
+    /// Returns `true` if a transition from `self` to `new` is a legal node-status transition.
+    ///
+    /// This is the single source of truth for the node-status state machine. The legal
+    /// transitions, besides writing the same variant again (which includes advancing the
+    /// [`RecoveryInProgress`][Self::RecoveryInProgress] target epoch), are listed below;
+    /// `RecoveryCatchUp*` stands for both `RecoveryCatchUp` and
+    /// `RecoveryCatchUpWithIncompleteHistory`. The incomplete-history variant is only entered
+    /// from `Standby`, by a fresh node whose earliest event blobs have expired.
+    ///
+    /// | From                 | To                   | Trigger                                |
+    /// |----------------------|----------------------|----------------------------------------|
+    /// | `Standby`            | `RecoverMetadata`    | joined the committee                   |
+    /// | `Standby`            | `RecoveryCatchUp*`   | lag detected or expired event history  |
+    /// | `Active`             | `Standby`            | dropped out of the committee           |
+    /// | `Active`             | `RecoveryCatchUp`    | lag detected                           |
+    /// | `RecoverMetadata`    | `Active`             | metadata recovery finished             |
+    /// | `RecoverMetadata`    | `Standby`            | dropped out of the committee           |
+    /// | `RecoverMetadata`    | `RecoveryCatchUp`    | lag detected                           |
+    /// | `RecoveryCatchUp*`   | `Standby`            | caught up; not a committee member      |
+    /// | `RecoveryCatchUp*`   | `RecoverMetadata`    | caught up; new committee member        |
+    /// | `RecoveryCatchUp*`   | `RecoveryInProgress` | caught up; continuing committee member |
+    /// | `RecoveryInProgress` | `Active`             | node recovery completed                |
+    /// | `RecoveryInProgress` | `Standby`            | dropped out of the committee           |
+    /// | `RecoveryInProgress` | `RecoveryCatchUp`    | lag detected                           |
+    pub fn can_transition_to(&self, new: &NodeStatus) -> bool {
+        use NodeStatus::*;
+
+        // Writing the same variant again is always legal: status writes are idempotent under
+        // event replay, and the epoch-change path advances the `RecoveryInProgress` target by
+        // rewriting the variant with a newer epoch.
+        if std::mem::discriminant(self) == std::mem::discriminant(new) {
+            return true;
+        }
+
+        matches!(
+            (self, new),
+            (
+                Standby,
+                RecoverMetadata | RecoveryCatchUp | RecoveryCatchUpWithIncompleteHistory { .. }
+            ) | (Active, Standby | RecoveryCatchUp)
+                | (RecoverMetadata, Active | Standby | RecoveryCatchUp)
+                | (
+                    RecoveryCatchUp | RecoveryCatchUpWithIncompleteHistory { .. },
+                    Standby | RecoverMetadata | RecoveryInProgress(_)
+                )
+                | (RecoveryInProgress(_), Active | Standby | RecoveryCatchUp)
+        )
+    }
+}
+
+#[cfg(test)]
+mod node_status_transition_tests {
+    use super::*;
+
+    /// All variants, with representative payloads.
+    fn all_statuses() -> Vec<NodeStatus> {
+        vec![
+            NodeStatus::Standby,
+            NodeStatus::Active,
+            NodeStatus::RecoverMetadata,
+            NodeStatus::RecoveryCatchUp,
+            NodeStatus::RecoveryInProgress(5),
+            NodeStatus::RecoveryCatchUpWithIncompleteHistory {
+                first_complete_epoch: 3,
+                epoch_at_start: 7,
+            },
+        ]
+    }
+
+    #[test]
+    fn same_variant_transitions_are_always_legal() {
+        for status in all_statuses() {
+            assert!(
+                status.can_transition_to(&status),
+                "rewriting {status} must be legal"
+            );
+        }
+        // Advancing the recovery target rewrites the variant with a different payload.
+        assert!(
+            NodeStatus::RecoveryInProgress(5).can_transition_to(&NodeStatus::RecoveryInProgress(8))
+        );
+    }
+
+    #[test]
+    fn transition_table_matches_documentation() {
+        use NodeStatus::*;
+
+        let incomplete_history = || RecoveryCatchUpWithIncompleteHistory {
+            first_complete_epoch: 3,
+            epoch_at_start: 7,
+        };
+        // (from, to) pairs that are legal besides the same-variant rewrites.
+        let legal: Vec<(NodeStatus, NodeStatus)> = vec![
+            (Standby, RecoverMetadata),
+            (Standby, RecoveryCatchUp),
+            (Standby, incomplete_history()),
+            (Active, Standby),
+            (Active, RecoveryCatchUp),
+            (RecoverMetadata, Active),
+            (RecoverMetadata, Standby),
+            (RecoverMetadata, RecoveryCatchUp),
+            (RecoveryCatchUp, Standby),
+            (RecoveryCatchUp, RecoverMetadata),
+            (RecoveryCatchUp, RecoveryInProgress(5)),
+            (incomplete_history(), Standby),
+            (incomplete_history(), RecoverMetadata),
+            (incomplete_history(), RecoveryInProgress(5)),
+            (RecoveryInProgress(5), Active),
+            (RecoveryInProgress(5), Standby),
+            (RecoveryInProgress(5), RecoveryCatchUp),
+        ];
+
+        for from in all_statuses() {
+            for to in all_statuses() {
+                if std::mem::discriminant(&from) == std::mem::discriminant(&to) {
+                    continue;
+                }
+                let expected = legal.iter().any(|(legal_from, legal_to)| {
+                    std::mem::discriminant(legal_from) == std::mem::discriminant(&from)
+                        && std::mem::discriminant(legal_to) == std::mem::discriminant(&to)
+                });
+                assert_eq!(
+                    from.can_transition_to(&to),
+                    expected,
+                    "transition {from} -> {to} should be {}",
+                    if expected { "legal" } else { "illegal" },
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn key_illegal_transitions_are_rejected() {
+        use NodeStatus::*;
+
+        // A catching-up node must never jump straight to Active: it exits catch-up only through
+        // Standby, RecoverMetadata, or a full recovery.
+        assert!(!RecoveryCatchUp.can_transition_to(&Active));
+        // Only a catching-up node may start a full recovery.
+        assert!(!Active.can_transition_to(&RecoveryInProgress(5)));
+        assert!(!Standby.can_transition_to(&RecoveryInProgress(5)));
+        // Only a node coming from Standby (joining the committee) recovers metadata mid-epoch.
+        assert!(!Active.can_transition_to(&RecoverMetadata));
+        // Standby means "up to date but not a member"; becoming Active requires going through
+        // metadata recovery.
+        assert!(!Standby.can_transition_to(&Active));
+    }
 }
 
 impl Display for NodeStatus {

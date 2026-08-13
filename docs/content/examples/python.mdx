@@ -38,6 +38,10 @@ answer: >-
   over JSON-RPC.
 ---
 
+<AgentPrompt
+  prompt="Show me how to store and read Walrus blobs from Python using the HTTP API. Include examples for both the REST endpoint and the JSON API, and show how to track blob events."
+/>
+
 Walrus does not ship an official Python SDK. Python reaches Walrus through the interfaces that are language-agnostic instead: the HTTP API, the CLI, and Sui JSON-RPC. The following examples show all three: storing and reading blobs with plain `requests` calls, driving the Walrus CLI's JSON mode as a subprocess, and querying Sui JSON-RPC to track Walrus storage events.
 
 ## Prerequisites

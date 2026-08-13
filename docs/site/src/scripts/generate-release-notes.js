@@ -331,7 +331,7 @@ function versionKey(v) {
 
 // ── Source 1: Walrus GitHub releases ───────────────────────────────
 
-async function loadWalrusReleases() {
+async function loadWalrusReleases(editorialWalrus = new Map()) {
   console.log("  Fetching MystenLabs/walrus releases...");
   const releases = await fetchAllPages(
     "/repos/MystenLabs/walrus/releases",
@@ -368,6 +368,12 @@ async function loadWalrusReleases() {
   for (const [, entry] of byVersion) {
     const rel = entry.mainnet || entry.testnet;
     if (!rel) continue;
+    // Skip releases with an empty body ONLY when no editorial summary
+    // exists for the version: with an editorial file present, the entry
+    // renders from the summary alone, so writing docs/editorial/ coverage
+    // is sufficient to publish a release that shipped without content.
+    const emptyBody = !rel.body || rel.body.trim().length < 20;
+    if (emptyBody && !editorialWalrus.has(versionKey(entry.version))) continue;
 
     results.push({
       title: `Walrus ${cleanTag(rel.tag)}`,
@@ -536,9 +542,23 @@ async function main() {
   let sitesReleases = [];
 
   try {
-    walrusReleases = await loadWalrusReleases();
+    walrusReleases = await loadWalrusReleases(editorial.walrus);
   } catch (err) {
     console.warn("  Warning: could not fetch Walrus releases:", err.message);
+  }
+
+  const missingEditorial = walrusReleases.filter(
+    (rel) => !editorial.walrus.has(versionKey(rel.version)),
+  );
+  if (missingEditorial.length > 0) {
+    console.warn(
+      `  Warning: ${missingEditorial.length} Walrus release(s) render without an editorial summary:`,
+    );
+    for (const rel of missingEditorial) {
+      const v = versionKey(rel.version);
+      console.warn(`    - v${v} (add docs/editorial/walrus-v${v}.md)`);
+    }
+    console.warn("  Run check-editorial-coverage.js for ready-to-edit drafts.");
   }
 
   try {

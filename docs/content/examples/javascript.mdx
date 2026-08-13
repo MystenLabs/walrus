@@ -40,6 +40,10 @@ answer: >-
   without an SDK.
 ---
 
+<AgentPrompt
+  prompt="Build a simple web form in JavaScript that uploads a file to Walrus and downloads it back using the HTTP API. Show me how to handle the upload response and retrieve the blob by ID."
+/>
+
 You can store and read Walrus blobs from JavaScript with plain HTTP calls: a publisher accepts uploads through PUT requests, and an aggregator serves downloads through GET requests. The built-in `fetch` API covers both.
 
 ## Store and read a blob
