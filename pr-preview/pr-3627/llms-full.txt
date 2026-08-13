@@ -81,7 +81,8 @@ Sui smart contract as the on-chain index.
 - [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md):
     When choosing a platform to store and verify data, you should consider reliability, uptime,
     availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated
-    storage cost of $0.023/GB/month, allowing you to budget and scale with confidence.
+    storage cost of $0.023/GB/month, allowing you to budget and scale with confidence. > Storing
+    many small files?
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md):
     Storage limits, cost considerations, memory requirements, and other constraints to consider
     when building on Walrus. This page describes the practical limits and constraints you should
@@ -102,8 +103,9 @@ Sui smart contract as the on-chain index.
     input and output. Managing Blobs: Use the Walrus client to check, extend, delete, burn, share,
     and set attributes on blobs across their lifecycle.
 - [JSON Mode](https://docs.wal.app/docs/walrus-client/json-mode.md):
-    All Walrus client commands are available in JSON mode, which simplifies programmatic access to
-    the CLI. You can specify all command-line flags of the original CLI command in JSON format.
+    JSON mode exposes every Walrus client command and simplifies programmatic access to the CLI.
+    You specify the command and all of its options as a single JSON string, and the CLI prints
+    JSON-formatted results to stdout. Pass a single JSON object to walrus json.
 - [Managing Blobs](https://docs.wal.app/docs/walrus-client/managing-blobs.md):
     Use the Walrus client to manage blobs and their metadata. Before you extend or depend on a
     blob, check that it is still stored and see when it expires. Use the blob ID: This reports
@@ -114,8 +116,8 @@ Sui smart contract as the on-chain index.
     cost. Learn more about quilts. You can interact with quilts using a dedicated set of walrus
     subcommands.
 - [Reading Blobs](https://docs.wal.app/docs/walrus-client/reading-blobs.md):
-    You can query the status of a blob through one of the following commands: Each command returns
-    output that indicates whether the specified blob is stored and its availability period.
+    The Walrus client lets you check a blob's storage status and certification, download its data,
+    and control the consistency checks that protect reads.
 - [Storing Blobs](https://docs.wal.app/docs/walrus-client/storing-blobs.md):
     All blobs stored in Walrus are public and discoverable by all. Do not store sensitive data on
     Walrus without additional protection. Store blobs on Walrus with the following command: After
@@ -166,22 +168,23 @@ Sui smart contract as the on-chain index.
     unprivileged client would have to manage dozens of parallel uploads and collect a confirmation
     from each node.
 - [List all archived blobs recorded in the local database](https://docs.wal.app/docs/examples/checkpoint-data.md):
-    The Sui Archival application demonstrates how you can archive blockchain data on Walrus in a
-    reliable, deterministic, and resilient manner.
+    This page covers an example application, not the official Sui Archival service. The example
+    uses that service as a checkpoint source and stores the archived data on Walrus, and it shows
+    how to archive blockchain data in a reliable, deterministic, and resilient manner.
 - [Examples](https://docs.wal.app/docs/examples.md):
     Example applications that demonstrate different workflows and use cases on Walrus Ecosystem:
     Projects and tools built on Walrus, including Walrus Memory for AI agents, first-party tooling,
     and the community-maintained Awesome Walrus directory.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md):
     You can store and read Walrus blobs from JavaScript with plain HTTP calls: a publisher accepts
-    uploads through PUT requests, and an aggregator serves downloads through GET requests.
+    uploads through PUT requests, and an aggregator serves downloads through GET requests. The
+    built-in fetch API covers both.
 - [Move](https://docs.wal.app/docs/examples/move.md):
-    Every Walrus blob has a corresponding Blob object on Sui, defined in the walrus:blob module.
-    The Blob type has the key and store abilities, so your own Move packages can hold blobs in
-    custom structs, transfer them between addresses, and manage their lifecycle onchain.
+    Every Walrus blob has a corresponding Blob object on Sui. In Move, the type of that object is
+    Blob, defined in the walrus:blob module of the Walrus package.
 - [Python](https://docs.wal.app/docs/examples/python.md):
-    Walrus does not ship an official Python SDK, but you can drive every core Walrus operation from
-    Python.
+    Walrus does not ship an official Python SDK. Python reaches Walrus through the interfaces that
+    are language-agnostic instead: the HTTP API, the CLI, and Sui JSON-RPC.
 - [Walrus Relay](https://docs.wal.app/docs/examples/walrus-relay.md):
     The Walrus upload relay lets browser apps store blobs without opening a connection to every
     storage node: the client sends a single request to the relay, and the relay encodes the blob,
@@ -433,6 +436,11 @@ Sui smart contract as the on-chain index.
 - [How Storage Works](https://docs.wal.app/walrus-memory/fundamentals/architecture/how-storage-works.md):
     When you call memwal.remember(...), the relayer accepts a background job immediately and then
     stores the memory asynchronously. Here's what happens.
+- [Tracking Agent Storage](https://docs.wal.app/walrus-memory/fundamentals/architecture/tracking-agent-storage.md):
+    Every memory an agent writes becomes a durable object on two systems: an encrypted blob on
+    Walrus, and a Blob object on Sui that records who owns that blob and how long it lives. An
+    agent that depends on its memory has to know which blobs it owns, when each one expires, and
+    when to renew or drop it.
 - [How Agent Memory Works](https://docs.wal.app/walrus-memory/fundamentals/concepts/how-agent-memory-works.md):
     AI agent memory is a durable, searchable store of what an agent has learned, kept outside the
     model so it survives across sessions, apps, and workflows.
@@ -484,16 +492,16 @@ Sui smart contract as the on-chain index.
 - [Overview](https://docs.wal.app/walrus-memory/mcp/overview.md):
     The Walrus Memory MCP server exposes your portable Walrus Memory as Model Context Protocol
     tools, so an AI agent can decide when to save and recall memories on its own.
-- [Reference](https://docs.wal.app/walrus-memory/mcp/reference.md):
+- [Output example: GxK9pL2mQr8vN3jF5Ys7hT6wZ1cD4eR8](https://docs.wal.app/walrus-memory/mcp/reference.md):
     This page documents every tool, flag, environment variable, and transport route the Walrus
     Memory MCP package exposes. For per-client setup, start with the MCP overview.
 
 ## Walrus Memory: Relayer
 
 - [API Reference](https://docs.wal.app/walrus-memory/relayer/api-reference.md):
-    The Rust relayer exposes these routes. Routes are defined in services/server/src/main.rs. See
-    also: Environment Variables Configuration Versioning and Compatibility All /api/ routes require
-    signed headers. The SDK handles this automatically.
+    The Rust relayer exposes these routes. The route table lives in services/server/src/main.rs.
+    See also: Environment Variables Configuration Versioning and Compatibility The routes below
+    require signed headers, except the MCP transports, which use bearer authentication.
 - [Benchmark CI Setup](https://docs.wal.app/walrus-memory/relayer/benchmark-ci-setup.md):
     This document records how to configure the relayer benchmark workflows. The live benchmark
     intentionally runs only the public relayer /api/recall path.
@@ -706,10 +714,9 @@ Sui smart contract as the on-chain index.
     Code, Codex, Cursor, and Antigravity, along with new memwalrememberbulk and memwal_health tools
     and proactive memory behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Mainnet | August 5, 2026 | GitHub --- Mainnet | July 22, 2026 | GitHub --- Testnet | July 15,
-    2026 | GitHub --- Mainnet | July 9, 2026 | GitHub walrus info committee gains a
-    --commission-receivers flag that prints, as CSV, the commission receiver of every node in the
-    previous, current, and next committees (including the owning address for object receivers).
+    Testnet | August 12, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
+    now return 404 BLOBNOTFOUND within about a second, instead of 503 BLOBUNAVAILABLE after a 10-20
+    second fan-out.
 - [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
     July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
     (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
@@ -737,6 +744,11 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: Guides
 
+- [Agent Runtimes](https://docs.wal.app/walrus-memory/guides/agent-runtimes.md):
+    Agents built on EVM, Base, Virtuals, or any other stack can use Walrus Memory. The runtime your
+    agent executes in and the chain it transacts on are independent of where its memory lives.
+    Walrus Memory stores memories as encrypted blobs on Walrus and records ownership in a Sui
+    account.
 - [Delete Memories Programmatically](https://docs.wal.app/walrus-memory/guides/delete-memories-programmatically.md):
     Use the Security Delete API to find memories owned by a wallet, select memories older than a
     cutoff date, and permanently delete them. The API prepares and sponsors the Sui transaction;
@@ -747,6 +759,18 @@ Sui smart contract as the on-chain index.
     memories you no longer want stored on Walrus Memory. This guide shows you how to preview your
     memories and delete any you'd like to clear. > Warning > > Deleting a memory is permanent and
     you cannot undo it.
+- [Manage Your Memory](https://docs.wal.app/walrus-memory/guides/manage-your-memory.md):
+    Your Walrus Memory account accumulates memories over time. See what you have stored, organize
+    it with namespaces, renew memories before they expire, and delete the ones you no longer want,
+    from the dashboard or through the SDK. [x] A Sui wallet that owns the memories you want to
+    manage.
+- [Returning User](https://docs.wal.app/walrus-memory/guides/returning-user.md):
+    Your memories live on Walrus and your account lives on Sui, so they persist no matter which
+    device you sign in from. Only the delegate key your browser used last time stays behind.
+
+## Walrus Memory: Migration
+
+- [Ceremony Environments](https://docs.wal.app/walrus-memory/migration/ceremony-environments.md)
 
 ## Walrus Memory: Python SDK
 

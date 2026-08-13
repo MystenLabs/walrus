@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Every Walrus blob has a corresponding `Blob` object on Sui, defined in the `walrus::blob` module. The `Blob` type has the `key` and `store` abilities, so your own Move packages can hold blobs in custom structs, transfer them between addresses, and manage their lifecycle onchain. Add the Walrus package as a dependency to read blob properties, wrap blobs in your own object types, and call the system functions that extend or delete blobs.
+Every Walrus blob has a corresponding `Blob` object on Sui. In Move, the type of that object is `Blob`, defined in the `walrus::blob` module of the Walrus package. It has the `key` and `store` abilities, so your own Move packages can hold blobs in custom structs, transfer them between addresses, and manage their lifecycle onchain. Add the Walrus package as a dependency to read blob properties, wrap blobs in your own object types, and call the system functions that extend or delete blobs.
 
 ## Add the Walrus dependency
 
@@ -16,7 +16,7 @@ Because `Blob` has the `store` ability, you can embed it in your own object type
 
 <!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus/blob/main/docs/examples/move/walrus_dep/sources/wrapped_blob.move -->
 
-After wrapping, only the functions of the wrapping module can reach the blob again, which gives your package full control over how the blob moves and who can manage it. A marketplace escrow, a vault, or an app-specific asset type all follow this pattern.
+After wrapping, only the functions of the wrapping module can reach the blob again, which gives your package full control over where the blob can be transferred next and who can manage it. A marketplace escrow, a vault, or an app-specific asset type all follow this pattern.
 
 ## Read blob properties
 
@@ -35,16 +35,7 @@ The `walrus::blob` module exposes accessors for every `Blob` field:
 | `is_deletable` | `bool` | Whether the owner can delete the blob before expiry. |
 | `encoded_size` | `u64` | The encoded size in bytes for a given number of shards. |
 
-For example, the following function checks that a blob is certified and that its storage covers the current epoch, which you can read from the shared system object with `system.epoch()`:
-
-```move
-use walrus::blob::Blob;
-
-/// Returns true if `blob` is certified and its storage covers `current_epoch`.
-public fun is_live(blob: &Blob, current_epoch: u32): bool {
-    blob.certified_epoch().is_some() && blob.end_epoch() > current_epoch
-}
-```
+To check whether a blob is still live, read `certified_epoch`, which stays `none` until Walrus certifies the blob, and compare `end_epoch` against the current epoch from the shared system object with `system.epoch()`.
 
 ## Manage the blob lifecycle
 

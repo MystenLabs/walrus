@@ -4,11 +4,11 @@ The Walrus upload relay lets browser apps store blobs without opening a connecti
 
 ## Prerequisites
 
-- [x] Node.js 18 or later and the `pnpm` package manager.
+- [x] Node.js 18 or later ([install Node.js](https://nodejs.org/en/download)) and the `pnpm` package manager ([install pnpm](https://pnpm.io/installation)).
 
 - [x] A Sui browser wallet with Testnet SUI and WAL. The wallet signs the transactions that register and certify each blob and pay for its storage.
 
-- [x] No API key. The app points at the public Testnet upload relay that Mysten Labs runs at `https://upload-relay.testnet.walrus.space`, listed in the [Network Reference](/docs/network-reference#upload-relays).
+- [x] No API key or credential of your own. The app points at the public Testnet upload relay that Mysten Labs runs at `https://upload-relay.testnet.walrus.space`, listed in the [Network Reference](/docs/network-reference#upload-relays).
 
 ## Run the app locally
 
