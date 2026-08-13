@@ -46,7 +46,7 @@ Site resources themselves (the HTML, CSS, and JavaScript that the portal serves)
 
 ## Serving private content outside Walrus
 
-If content requires per-user authentication and cannot be public even in encrypted form, do not store it on Walrus. Serve it from a backend you control, behind your own authentication, and let your Walrus Site call that service from client-side code. Privileged operations can also run through Sui smart contracts with a [Sui-compatible wallet](https://docs.sui.io/guides/developer/wallets/what-is-a-wallet), which keeps secrets out of the deployed site assets entirely.
+If content requires per-user authentication and cannot be public even in encrypted form, do not store it on Walrus. Serve it from a backend you control, behind your own authentication, and let your Walrus Site call that service from client-side code. Privileged operations can also run through Sui smart contracts instead of a backend. Your site's client-side code connects the visitor's wallet with the [Sui dApp Kit](https://sdk.mystenlabs.com/dapp-kit) and asks them to sign a transaction, so the contract enforces the permission onchain and the visitor's key never leaves their wallet. See [Transactions](https://docs.sui.io/guides/developer/transactions/txn-overview) for how signing works. This keeps secrets out of the deployed site assets entirely, because there is no secret to deploy.
 
 ## What does not restrict access
 

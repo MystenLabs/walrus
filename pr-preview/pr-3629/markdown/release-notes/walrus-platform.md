@@ -1,5 +1,16 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+### Walrus v1.54.0
+
+`Testnet` | August 12, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.54.0)
+
+#### Changes
+
+- [Requests for quilt patches of expired or nonexistent quilts now return 404 `BLOB_NOT_FOUND` within about a second, instead of 503 `BLOB_UNAVAILABLE` after a 10-20 second fan-out.](https://github.com/MystenLabs/walrus/pull/3604)
+- [`walrus read-quilt` fails immediately with "the blob ID does not exist" for expired or never-certified quilts, instead of timing out against the storage nodes.](https://github.com/MystenLabs/walrus/pull/3604)
+
+---
+
 ### Walrus v1.53.0
 
 `Mainnet` | August 5, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.53.0)

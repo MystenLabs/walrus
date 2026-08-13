@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-The `headers` section of [`ws-resources.json`](/docs/sites/configuration/site-configuration) sets custom HTTP response headers for individual resources on your Walrus Site. Each key in the `headers` object is the exact path of a resource, always starting from the root `/` (no wildcards), and each value is an object that maps header names to the values the portal attaches to the response.
+The `headers` section of [`ws-resources.json`](/docs/sites/configuration/site-configuration) sets custom HTTP response headers for individual resources on your Walrus Site. Each key in the `headers` object is the exact path of a resource, always starting from the root `/`. Each value is an object that maps header names to the values the portal attaches to the response. Values must be full names, no wildcard characters are supported.
 
 Custom headers let you control how browsers and other clients handle each resource, for example caching, encoding, content types, and download behavior.
 
