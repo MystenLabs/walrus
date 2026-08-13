@@ -73,7 +73,7 @@ The `walrus::blob` module exposes accessors for every `Blob` field:
 | `is_deletable` | `bool` | Whether the owner can delete the blob before expiry. |
 | `encoded_size` | `u64` | The encoded size in bytes for a given number of shards. |
 
-To check whether a blob is still live, read `certified_epoch`, which is `none` until the blob is certified, and compare `end_epoch` against the current epoch from the shared system object with `system.epoch()`.
+To check whether a blob is still live, read `certified_epoch`, which stays `none` until Walrus certifies the blob, and compare `end_epoch` against the current epoch from the shared system object with `system.epoch()`.
 
 ## Manage the blob lifecycle
 
