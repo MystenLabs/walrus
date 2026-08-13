@@ -38,7 +38,7 @@ answer: >-
   over JSON-RPC.
 ---
 
-Walrus does not ship an official Python SDK, but you can drive every core Walrus operation from Python. The following examples show three integration paths: the HTTP API for storing and reading blobs with plain `requests` calls, the Walrus CLI's JSON mode driven as a subprocess, and Sui JSON-RPC queries for tracking Walrus storage events.
+Walrus does not ship an official Python SDK. Python reaches Walrus through the interfaces that are language-agnostic instead: the HTTP API, the CLI, and Sui JSON-RPC. The following examples show all three: storing and reading blobs with plain `requests` calls, driving the Walrus CLI's JSON mode as a subprocess, and querying Sui JSON-RPC to track Walrus storage events.
 
 ## Prerequisites
 
@@ -49,9 +49,9 @@ The complete, runnable example files live in the [`docs/examples/python`](https:
 <Tabs>
 <TabItem value="prereq" label="Prerequisites">
 
-- [x] Install and configure the `walrus` CLI and a funded Sui wallet, as described in [Getting Started](/docs/getting-started). The JSON API and event tracking examples invoke the CLI binary and read its client configuration file.
+- [x] The `walrus` CLI and a funded Sui wallet. See [Getting Started](/docs/getting-started).
 
-- [x] Install the only third-party dependency, the `requests` HTTP library, with `pip install requests`. Optionally create and activate a virtual environment first with `python -m venv .venv` and `source .venv/bin/activate`.
+- [x] The `requests` HTTP library: `pip install requests`. It is the only third-party dependency.
 
 - [x] Update the constants in [`utils.py`](https://github.com/MystenLabs/walrus/blob/main/docs/examples/python/utils.py) to match your system: `PATH_TO_WALRUS` (the path to your `walrus` binary), `PATH_TO_WALRUS_CONFIG` (the path to your client configuration file), and `FULL_NODE_URL` (a Sui full node RPC URL, for example `https://fullnode.testnet.sui.io:443` for Testnet).
 
