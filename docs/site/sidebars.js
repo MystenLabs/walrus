@@ -33,6 +33,7 @@ const sidebars = {
       items: [
         "system-overview/core-concepts",
         "system-overview/operations",
+        "system-overview/aggregators-publishers-relays",
         "system-overview/storage-costs",
         "system-overview/caching",
         "system-overview/quilt",
