@@ -163,6 +163,10 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "Indicates the current node status"]
         current_node_status: IntGauge[],
 
+        #[help = "The number of published sync-and-recovery infos that invalidated the \
+        node-recovery baseline, superseding any in-flight node-recovery run"]
+        node_recovery_baseline_invalidations_total: IntCounter[],
+
         #[help = "The number of blob metadata synced"]
         sync_blob_metadata_count: IntCounter[],
 
