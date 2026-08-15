@@ -36,6 +36,12 @@ const SHARD_NOT_CREATED_BACKOFF_MAX: Duration = Duration::from_secs(60);
 /// sync requires a node restart to be retried).
 const UNSYNCED_SHARD_RECHECK_INTERVAL: Duration = Duration::from_secs(60);
 
+/// Exponential backoff bounds for retrying a recovery scan pass after a certified-blob read
+/// error. A failed read leaves the pass's coverage unknown, so the pass must be retried rather
+/// than completed; the backoff keeps a persistent storage error from spinning the scan hot.
+const SCAN_READ_ERROR_BACKOFF_MIN: Duration = Duration::from_secs(1);
+const SCAN_READ_ERROR_BACKOFF_MAX: Duration = Duration::from_secs(60);
+
 #[derive(Debug, Clone)]
 pub struct NodeRecoveryHandler {
     node: Arc<StorageNodeInner>,
@@ -381,6 +387,16 @@ async fn run_recovery(
     baseline: u64,
     target_epoch: Epoch,
 ) -> RunOutcome {
+    // Backoff between scan-pass retries after a certified-blob read error. Recreated after a
+    // clean pass so a fresh failure episode starts at the small bound. The seed only feeds the
+    // jitter offset; a constant keeps it deterministic under the simulator.
+    let mut scan_read_error_backoff = ExponentialBackoff::new_with_seed(
+        SCAN_READ_ERROR_BACKOFF_MIN,
+        SCAN_READ_ERROR_BACKOFF_MAX,
+        None,
+        0,
+    );
+
     loop {
         // Block until the node is ready to run a recovery scan pass. Stops the recovery
         // task if the node started catching up.
@@ -407,29 +423,29 @@ async fn run_recovery(
         // verification re-scan is removed (WAL-669), an interrupted pass still requires
         // a new round of blob recovery.
         let mut scan_pass_interrupted = false;
+        // Whether a certified-blob read failed during this pass. A failed read leaves the
+        // pass's coverage unknown, so a failed pass must be retried; completing the run
+        // anyway would attest epoch sync done despite possibly missed blobs.
+        let mut scan_pass_failed = false;
         // Whether a newly published info superseded this run mid-pass.
         let mut superseded = false;
         tracing::info!(
             "scanning blobs to recover certified blobs before epoch {}",
             target_epoch
         );
-        // TODO(WAL-1272): dropping read errors here is unsound in one case. A persistent
-        // RocksDB status error re-yields on every pass, so the scan spins rather than falsely
-        // completing — but a key or value deserialization failure makes the underlying
-        // `SafeIter` yield `None` and silently *end* the iterator, so a truncated pass reads
-        // as clean and, with all owned shards active, the run completes and attests epoch
-        // sync done despite unknown coverage. Treat any `Err` as a pass failure (retry the
-        // pass with backoff) and make `SafeIter` surface deserialization failures as errors
-        // instead of iterator end.
-        for (blob_id, blob_info) in node
+        for blob_result in node
             .storage
             .certified_blob_info_iter_before_epoch(target_epoch)
-            .filter_map(|blob_result| {
-                blob_result
-                    .inspect_err(|error| tracing::error!(?error, "failed to read certified blob"))
-                    .ok()
-            })
         {
+            let (blob_id, blob_info) = match blob_result {
+                Ok(entry) => entry,
+                Err(error) => {
+                    tracing::error!(?error, "failed to read certified blob info; failing pass");
+                    scan_pass_failed = true;
+                    break;
+                }
+            };
+
             // An epoch change may have started shard syncs for newly gained shards while
             // this pass is running. Stop starting new blob syncs and park: per-blob
             // recovery would redundantly decode slivers for the shards that shard sync is
@@ -567,6 +583,27 @@ async fn run_recovery(
         if superseded {
             return RunOutcome::Superseded;
         }
+
+        // A failed pass has unknown coverage; retry it after a backoff so a persistent
+        // storage error does not spin the scan hot.
+        if scan_pass_failed {
+            let delay = scan_read_error_backoff
+                .next_delay()
+                .unwrap_or(SCAN_READ_ERROR_BACKOFF_MAX);
+            tracing::warn!(
+                ?delay,
+                "recovery scan pass failed due to a read error; retrying after backoff"
+            );
+            tokio::time::sleep(delay).await;
+            continue;
+        }
+        // The pass read cleanly; a later read error starts a fresh backoff episode.
+        scan_read_error_backoff = ExponentialBackoff::new_with_seed(
+            SCAN_READ_ERROR_BACKOFF_MIN,
+            SCAN_READ_ERROR_BACKOFF_MAX,
+            None,
+            0,
+        );
 
         // An interrupted pass has not verified all blobs; run a new pass (which parks
         // until the shard syncs that interrupted it have finished).

@@ -823,6 +823,44 @@ fn open_rocksdb<P: AsRef<Path>>(path: P, opt_cfs: &[&str]) -> Arc<RocksDB> {
 }
 
 #[tokio::test]
+async fn test_safe_iter_surfaces_deserialization_errors() {
+    let rocks = open_rocksdb(temp_dir(), &["test"]);
+    let db =
+        DBMap::<u32, String>::reopen(&rocks, Some("test"), &ReadWriteOptions::default(), false)
+            .expect("failed to open storage");
+    db.insert(&1, &"one".to_string()).expect("failed to insert");
+    db.insert(&3, &"three".to_string())
+        .expect("failed to insert");
+
+    // Write an entry through a differently-typed handle to the same column family, so that its
+    // value does not deserialize as `String`.
+    let corrupting_db =
+        DBMap::<u32, u64>::reopen(&rocks, Some("test"), &ReadWriteOptions::default(), false)
+            .expect("failed to open storage");
+    corrupting_db
+        .insert(&2, &u64::MAX)
+        .expect("failed to insert");
+
+    let mut iter = db.safe_iter().expect("failed to get iterator");
+    assert_eq!(
+        iter.next()
+            .transpose()
+            .expect("first entry should deserialize"),
+        Some((1, "one".to_string()))
+    );
+    // The corrupt entry surfaces as an error instead of silently ending the iterator.
+    assert!(matches!(iter.next(), Some(Err(_))));
+    // The iterator continues past the corrupt entry.
+    assert_eq!(
+        iter.next()
+            .transpose()
+            .expect("third entry should deserialize"),
+        Some((3, "three".to_string()))
+    );
+    assert!(iter.next().is_none());
+}
+
+#[tokio::test]
 async fn test_sampling() {
     let sampling_interval = SamplingInterval::new(Duration::ZERO, 10);
     for _i in 0..10 {
