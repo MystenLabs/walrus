@@ -11,6 +11,7 @@ keywords:
   - permanence
   - lifetimes
   - optimizations
+  - storage pool
 goal:
   description: Reader can store blobs and set their lifetime and permanence with the Walrus client
   requires:
@@ -35,6 +36,7 @@ questions:
   - How do I store a blob using the Walrus CLI?
   - How do I set the storage duration for a blob?
   - How do I use a Walrus upload relay?
+  - How do I store blobs in a storage pool?
 answer: >-
   All blobs stored in Walrus are public and discoverable by all. Do not store
   sensitive data on Walrus without additional protection.
@@ -96,6 +98,33 @@ When storing a blob, the client performs a number of automatic optimizations, in
 - If the blob is already stored as a permanent blob on Walrus for a sufficient number of epochs, the command does not store it again. You can override this behavior with the `--force` CLI option, which stores the blob again and creates a fresh Sui object belonging to the wallet address.
 - If your wallet has a storage resource of suitable size and duration, it is used instead of buying a new one.
 - If the blob is already certified on Walrus but is a deletable blob or is not stored for a sufficient number of epochs, the command skips sending encoded blob data to the storage nodes and just collects the availability certificate.
+
+## Store blobs in a storage pool
+
+Every `walrus store` call buys a storage resource for that blob alone. If your application continuously writes and retires blobs against a stable total footprint, you can instead pre-purchase a shared reservation once, called a [storage pool](/docs/system-overview/storage-pools), and register each blob against it. Each store then pays only the one-off write fee, and deleting a deletable blob frees its capacity for the next store to reuse.
+
+Storage pools are a preview feature available through the Rust SDK and the Move contracts; the CLI does not support them yet. The pooled equivalent of `walrus store <FILES> --epochs 5` looks like this:
+
+```rust
+use walrus_sdk::node_client::{StoreArgs, StoreBlobsInStoragePoolApi};
+
+// One-time setup: reserve 100 MiB of encoded capacity for 10 epochs.
+let pool_id = client
+    .sui_client()
+    .create_storage_pool(100 * 1024 * 1024, 10)
+    .await?;
+
+// Each store draws on the pool's capacity and pays only the write fee.
+let results = client
+    .reserve_and_store_blobs_in_storage_pool(
+        vec![blob_data],
+        pool_id,
+        &StoreArgs::default_with_epochs(5),
+    )
+    .await?;
+```
+
+Pooled blobs get regular blob IDs, so [reading them](/docs/walrus-client/reading-blobs) works exactly like reading any other blob. Unlike blobs stored with `walrus store`, all blobs in a pool share the pool's expiry, and they cannot be transferred or extended individually. See [storage pools](/docs/system-overview/storage-pools) for the full lifecycle, cost breakdown, and guidance on when a pool is the right choice.
 
 ## Use a Walrus upload relay
 
