@@ -38,8 +38,9 @@ impl StartEpochChangeFinisher {
     /// Starts background tasks to finish the epoch change.
     ///
     /// This includes the following:
-    /// - Attesting epoch sync done if the finisher was handed the attestation token (that is, no
-    ///   shard syncs were started and node recovery is not in progress).
+    /// - Attesting epoch sync done if the finisher was handed the attestation token (that is,
+    ///   every owned shard is already up to date and node recovery is not in progress; a
+    ///   non-member's token is dropped without attesting).
     /// - Removing no longer owned storage for shards.
     /// - Marking the event as completed.
     pub fn start_finish_epoch_change_tasks(
@@ -120,9 +121,9 @@ impl StartEpochChangeFinisher {
             .current_committee()
             .contains(self.node.public_key());
         if is_node_in_committee && committees.epoch() == event.epoch {
-            // We are in the current committee, but no shards were gained. Directly signal that
+            // We are in the current committee with no pending sync work. Directly signal that
             // the epoch sync is done.
-            tracing::info!("no shards gained, so signalling that epoch sync is done");
+            tracing::info!("no pending sync work, so signalling that epoch sync is done");
             debug_assert_eq!(token.epoch(), event.epoch);
             token.attest(&self.node).await;
             tracing::info!("epoch sync done signaled");

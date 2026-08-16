@@ -558,7 +558,6 @@ impl EpochChangeExecutor {
             in_previous_committee: committees
                 .previous_committee()
                 .is_some_and(|committee| committee.contains(public_key)),
-            has_ongoing_shard_syncs: self.shard_sync_handler.has_sync_in_progress(),
             shards: plan::ShardDiff {
                 gained: shard_diff_calculator
                     .gained_shards_from_prev_epoch()
@@ -932,10 +931,14 @@ impl EpochChangeExecutor {
             plan::EpochSyncDoneAttestationOwner::ShardSync => {
                 self.node_recovery_handler.clear_completion_instruction();
                 // Record the token's pending shard syncs: every owned shard whose persisted
-                // status is not yet `Active` — exactly the work the reconciler rebuilds. With
-                // all sync work quiesced above, the pending set cannot race stale completions.
-                // An empty pending set means the epoch-sync claim already holds (for example,
-                // when re-processing the event after a crash): the finisher attests directly.
+                // status is not yet `Active` — exactly the work the reconciler rebuilds. This
+                // deliberately consults the persisted statuses rather than any live-task
+                // count: a terminally failed sync from an earlier epoch leaves its shard
+                // persisted mid-sync with no running task, and its data is still incomplete.
+                // With all sync work quiesced above, the pending set cannot race stale
+                // completions. An empty pending set means the epoch-sync claim already holds
+                // (for example, when re-processing the event after a crash): the finisher
+                // attests directly.
                 let mut pending_shards = Vec::new();
                 for shard in &execution_info.owned_shards {
                     let is_active = match self.inner.storage.shard_storage(*shard).await {
@@ -951,6 +954,7 @@ impl EpochChangeExecutor {
                 if pending_shards.is_empty()
                     && self.inner.storage.node_status()? != NodeStatus::RecoverMetadata
                 {
+                    self.shard_sync_handler.clear_epoch_sync_done_token();
                     finisher_attestation = Some(token);
                 } else {
                     // Registered even when no shard is pending while metadata recovery is

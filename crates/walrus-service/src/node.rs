@@ -4427,6 +4427,7 @@ mod tests {
     use crate::test_utils::{
         StorageNodeHandle,
         StorageNodeHandleTrait,
+        StubContractService,
         TestCluster,
         retry_until_success_or_timeout,
     };
@@ -10226,6 +10227,115 @@ mod tests {
             4
         );
         advance_cluster_to_epoch(&cluster, &[&events], 4).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn epoch_change_without_gained_shards_waits_for_leftover_incomplete_sync() -> TestResult {
+        walrus_test_utils::init_tracing();
+
+        // A terminally failed shard sync leaves its shard persisted mid-sync (`ActiveSync`) with
+        // no live sync task and incomplete data. An epoch change that gains no shards must not
+        // attest `epoch_sync_done` until that shard is back up to date.
+        let events = Sender::new(48);
+        let contract_services = [
+            StubContractService::default(),
+            StubContractService::default(),
+        ];
+        let assignment: &[&[u16]] = &[&[0, 1], &[2, 3]];
+        let cluster: TestCluster = {
+            let _lock = global_test_lock().lock().await;
+            TestCluster::<StorageNodeHandle>::builder()
+                .with_shard_assignment(assignment)
+                .with_system_event_providers(events.clone())
+                .with_system_contract_services(contract_services.iter().cloned())
+                .build()
+                .await?
+        };
+        events.send(ContractEvent::EpochChangeEvent(
+            EpochChangeEvent::EpochChangeStart(EpochChangeStart {
+                epoch: 1,
+                event_id: walrus_sui::test_utils::event_id_for_testing(),
+            }),
+        ))?;
+        events.send(ContractEvent::EpochChangeEvent(
+            EpochChangeEvent::EpochChangeDone(EpochChangeDone {
+                epoch: 1,
+                event_id: walrus_sui::test_utils::event_id_for_testing(),
+            }),
+        ))?;
+        advance_cluster_to_epoch(&cluster, &[&events], 2).await?;
+
+        // With every owned shard active, the epoch change attests directly.
+        retry_until_success_or_timeout(TIMEOUT, || async {
+            if contract_services[0].epoch_sync_done_epochs().contains(&2) {
+                Ok(())
+            } else {
+                bail!("epoch 2 not yet attested")
+            }
+        })
+        .await?;
+
+        // Store and certify a blob so that the resumed sync below has real work to do (an
+        // empty sync would complete instantly, hiding the ordering under test).
+        let blob_details = EncodedBlob::new(BLOB, cluster.encoding_config());
+        let object_id = ObjectID::random();
+        events.send(
+            BlobRegistered::for_testing_with_object_id(*blob_details.blob_id(), object_id).into(),
+        )?;
+        store_at_shards(&blob_details, &cluster, |_, _| true).await?;
+        events.send(
+            BlobCertified::for_testing_with_object_id(*blob_details.blob_id(), object_id).into(),
+        )?;
+        wait_until_events_processed(&cluster.nodes[0], 6).await?;
+
+        // Simulate the leftover failed sync: persist shard 0 as mid-sync; no task is running.
+        let shard_storage = cluster.nodes[0]
+            .storage_node
+            .inner
+            .storage
+            .shard_storage(ShardIndex(0))
+            .await
+            .expect("shard 0 should exist");
+        shard_storage.record_start_shard_sync().await?;
+
+        // Advance to epoch 3 without gaining any shards, observing the attestations tightly
+        // from the moment the event is sent.
+        assert_eq!(
+            cluster
+                .lookup_service_handle
+                .as_ref()
+                .expect("should contain lookup service")
+                .advance_epoch(),
+            3
+        );
+        events.send(ContractEvent::EpochChangeEvent(
+            EpochChangeEvent::EpochChangeStart(EpochChangeStart {
+                epoch: 3,
+                event_id: walrus_sui::test_utils::event_id_for_testing(),
+            }),
+        ))?;
+        events.send(ContractEvent::EpochChangeEvent(
+            EpochChangeEvent::EpochChangeDone(EpochChangeDone {
+                epoch: 3,
+                event_id: walrus_sui::test_utils::event_id_for_testing(),
+            }),
+        ))?;
+
+        // The attestation must wait for the shard: when it is first observed, the reconciler
+        // must already have resumed the interrupted sync and brought the shard back to active.
+        let status_when_attested = tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                if contract_services[0].epoch_sync_done_epochs().contains(&3) {
+                    break shard_storage.status().await;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("the resumed sync should complete and attest epoch 3")?;
+        assert_eq!(status_when_attested, ShardStatus::Active);
 
         Ok(())
     }

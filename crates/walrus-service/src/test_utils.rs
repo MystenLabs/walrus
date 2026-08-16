@@ -1758,7 +1758,7 @@ impl CommitteeService for StubCommitteeService {
 /// A stub [`SystemContractService`].
 ///
 /// Performs a no-op when calling [`invalidate_blob_id()`][Self::invalidate_blob_id]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StubContractService {
     pub(crate) system_parameters: FixedSystemParameters,
     pub(crate) node_capability_object: StorageNodeCap,
@@ -1767,6 +1767,18 @@ pub struct StubContractService {
     #[allow(dead_code)]
     pub(crate) certify_event_blob_rx:
         Arc<std::sync::Mutex<tokio::sync::mpsc::Receiver<BlobObjectMetadata>>>,
+    epoch_sync_done_epochs: Arc<std::sync::Mutex<Vec<Epoch>>>,
+}
+
+impl StubContractService {
+    /// Returns the epochs for which `epoch_sync_done` has been called, in call order.
+    /// Clones observe the same calls.
+    pub fn epoch_sync_done_epochs(&self) -> Vec<Epoch> {
+        self.epoch_sync_done_epochs
+            .lock()
+            .expect("mutex should not be poisoned")
+            .clone()
+    }
 }
 
 impl Default for StubContractService {
@@ -1782,6 +1794,7 @@ impl Default for StubContractService {
             node_capability_object: StorageNodeCap::new_for_testing(),
             certify_event_blob_tx: Arc::new(std::sync::Mutex::new(tx)),
             certify_event_blob_rx: Arc::new(std::sync::Mutex::new(rx)),
+            epoch_sync_done_epochs: Arc::default(),
         }
     }
 }
@@ -1799,7 +1812,12 @@ impl SystemContractService for StubContractService {
 
     async fn invalidate_blob_id(&self, _certificate: &InvalidBlobCertificate) {}
 
-    async fn epoch_sync_done(&self, _epoch: Epoch, _node_capability_object_id: ObjectID) {}
+    async fn epoch_sync_done(&self, epoch: Epoch, _node_capability_object_id: ObjectID) {
+        self.epoch_sync_done_epochs
+            .lock()
+            .expect("mutex should not be poisoned")
+            .push(epoch);
+    }
 
     async fn get_epoch_and_state(&self) -> anyhow::Result<(Epoch, EpochState)> {
         anyhow::bail!("stub service does not store the epoch or state")

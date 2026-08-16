@@ -67,17 +67,6 @@ pub(crate) struct PlanInputs {
     pub in_current_committee: bool,
     /// Whether the node was a member of the previous committee.
     pub in_previous_committee: bool,
-    /// Whether shard-sync tasks (from this or earlier epochs) are still running at planning
-    /// time. Outstanding syncs mean the node's epoch-sync claim is not yet complete, so the
-    /// attestation must wait for them instead of being sent by the finisher.
-    // TODO(WAL-1271): the live-task count misses a terminally failed sync, which leaves its
-    // shard persisted as `ActiveSync`/`ActiveRecover` with incomplete data and zero running
-    // tasks. At the next epoch change without gained shards this routes the token to the
-    // finisher, which attests without consulting the persisted shard statuses — a false
-    // `epoch_sync_done`. Instead of this flag, the apply step should always compute the
-    // pending set from the persisted statuses (as the shard-sync owner arm already does) and
-    // hand the finisher the token only when that set is empty.
-    pub has_ongoing_shard_syncs: bool,
     /// The shard sets affected by this epoch change.
     pub shards: ShardDiff,
 }
@@ -108,12 +97,14 @@ pub(crate) enum StatusTransition {
 /// Exactly one component owns the attestation per epoch change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum EpochSyncDoneAttestationOwner {
-    /// No shard-sync work exists at all — none started for this epoch, none still running
-    /// from earlier epochs — and the node is not recovering: the start-epoch-change finisher
-    /// attests directly (it skips the attestation if the node is not in the committee).
+    /// The node is not a member of the new committee and makes no epoch-sync claim: the
+    /// start-epoch-change finisher holds the token and drops it without attesting.
     StartEpochChangeFinisher,
-    /// Shard syncs were started for this epoch or are still running from earlier ones: the
-    /// sync completion that finishes the pending shard syncs attests.
+    /// The node is a committee member that is not recovering: its epoch-sync claim is complete
+    /// once every owned shard is up to date. The apply step computes the pending set from the
+    /// persisted shard statuses — which also covers syncs left over from earlier epochs,
+    /// including terminally failed ones with no live task — and the sync completion that
+    /// empties the set attests; with nothing pending, the finisher attests directly.
     ShardSync,
     /// The node is recovering: the recovery task attests once the blob scan is complete and all
     /// owned shards are active.
@@ -281,16 +272,15 @@ fn epoch_change_execution_info(
     inputs: &PlanInputs,
     status: Option<StatusTransition>,
 ) -> EpochChangeExecutionInfo {
-    // The epoch-sync claim is complete only once every sync has delivered: newly gained
-    // shards, syncs still draining from earlier epochs (for shards the node may still own),
-    // and an unfinished metadata recovery all defer the attestation to shard sync. The
-    // start-epoch-change finisher attests directly only when the node is a committee member
-    // with no sync work at all (and skips the attestation entirely for non-members).
-    let outstanding_sync_work =
-        inputs.has_ongoing_shard_syncs || inputs.node_status == NodeStatus::RecoverMetadata;
-    let sync_done_owner = if inputs.in_current_committee
-        && (!inputs.shards.gained.is_empty() || outstanding_sync_work)
-    {
+    // A member's epoch-sync claim is complete only once every owned shard is up to date:
+    // newly gained shards, syncs left over from earlier epochs (which may have failed
+    // terminally, leaving no live task), and an unfinished metadata recovery all defer the
+    // attestation. Whether any such work remains is a fact about the persisted shard
+    // statuses, which only the apply step can read reliably (after quiescing all sync work),
+    // so a member's attestation is always routed through shard sync; the apply step hands the
+    // token to the finisher when the pending set turns out to be empty. A non-member makes no
+    // epoch-sync claim: the finisher holds its token and drops it without attesting.
+    let sync_done_owner = if inputs.in_current_committee {
         EpochSyncDoneAttestationOwner::ShardSync
     } else {
         EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
@@ -336,7 +326,6 @@ mod tests {
             node_status: NodeStatus::Active,
             in_current_committee: true,
             in_previous_committee: true,
-            has_ongoing_shard_syncs: false,
             shards: ShardDiff {
                 gained: shard_ids(&[1, 2]),
                 lost: shard_ids(&[3]),
@@ -474,7 +463,11 @@ mod tests {
     }
 
     #[test]
-    fn in_sync_member_without_gained_shards_lets_finisher_attest() {
+    fn member_without_gained_shards_still_routes_attestation_through_shard_sync() {
+        // Gaining no shards does not mean the epoch-sync claim is complete: a sync left over
+        // from an earlier epoch may still be mid-flight — or terminally failed, with its shard
+        // persisted mid-sync and no live task. The apply step decides from the persisted shard
+        // statuses, handing the finisher the token only when nothing is pending.
         let inputs = PlanInputs {
             shards: ShardDiff {
                 gained: vec![],
@@ -486,28 +479,6 @@ mod tests {
         };
         let execution_info = expect_apply(plan_epoch_change(&inputs));
         assert_eq!(execution_info.status, None);
-        assert!(execution_info.new_shards.is_none());
-        assert_eq!(
-            execution_info.sync_done_owner,
-            EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
-        );
-    }
-
-    #[test]
-    fn outstanding_syncs_keep_shard_sync_as_attestation_owner() {
-        // Gaining no shards does not mean the epoch-sync claim is complete: syncs from earlier
-        // epochs may still be draining, and the attestation must wait for them.
-        let inputs = PlanInputs {
-            has_ongoing_shard_syncs: true,
-            shards: ShardDiff {
-                gained: vec![],
-                lost: vec![],
-                removed: vec![],
-                all_owned: shard_ids(&[0]),
-            },
-            ..base_inputs()
-        };
-        let execution_info = expect_apply(plan_epoch_change(&inputs));
         assert!(execution_info.new_shards.is_none());
         assert_eq!(
             execution_info.sync_done_owner,
@@ -531,28 +502,6 @@ mod tests {
         assert_eq!(
             execution_info.sync_done_owner,
             EpochSyncDoneAttestationOwner::ShardSync
-        );
-    }
-
-    #[test]
-    fn dropout_with_outstanding_syncs_uses_finisher() {
-        // A non-member makes no epoch-sync claim: the finisher (which skips attestation for
-        // non-members) owns the token even if old syncs are still draining.
-        let inputs = PlanInputs {
-            in_current_committee: false,
-            has_ongoing_shard_syncs: true,
-            shards: ShardDiff {
-                gained: vec![],
-                lost: shard_ids(&[0, 1]),
-                removed: vec![],
-                all_owned: vec![],
-            },
-            ..base_inputs()
-        };
-        let execution_info = expect_apply(plan_epoch_change(&inputs));
-        assert_eq!(
-            execution_info.sync_done_owner,
-            EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
         );
     }
 
@@ -616,7 +565,7 @@ mod tests {
         assert_eq!(execution_info.status, None);
         assert_eq!(
             execution_info.sync_done_owner,
-            EpochSyncDoneAttestationOwner::StartEpochChangeFinisher
+            EpochSyncDoneAttestationOwner::ShardSync
         );
     }
 

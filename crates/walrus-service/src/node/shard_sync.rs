@@ -504,11 +504,9 @@ impl ShardSyncHandler {
     /// the change's quiesce — including for a shard the node just lost, which would
     /// re-activate the shard's locked storage.
     ///
-    /// The initial reconciliation runs synchronously, before this function returns: resumed
-    /// sync work is then already visible to `has_sync_in_progress` when the event processors
-    /// start, so the first epoch-change event cannot be planned against a zero live-task
-    /// count while a resumed sync is still incomplete (which would hand the attestation to
-    /// the finisher prematurely).
+    /// The initial reconciliation runs synchronously, before this function returns, so that
+    /// interrupted syncs resume before the event processors start instead of waiting for the
+    /// reconciler task to be scheduled.
     // TODO(WAL-1263): cancel the shard-sync service when the node is shut down.
     pub(crate) async fn spawn_background_shard_sync_driver(
         &self,
