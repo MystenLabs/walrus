@@ -57,6 +57,10 @@ erasure coding, cryptographic primitives, token economics, and network roles.
 
 **Expiry**: The end epoch at which a blob is no longer available and can be deleted; the end epoch is always exclusive.
 
+**Storage pool**: A single storage reservation shared by many blobs; blobs registered in the pool pay only the write fee, share the pool's expiry, and free their capacity for reuse when deleted.
+
+**Pooled blob**: A blob stored in a *storage pool* rather than with its own storage resource; it shares the pool's expiry and cannot be transferred or extended individually.
+
 **WAL**: The native token of Walrus.
 
 **FROST**: The smallest unit of WAL (similar to MIST for SUI); 1 WAL is equal to 1 billion (1000000000) FROST.
