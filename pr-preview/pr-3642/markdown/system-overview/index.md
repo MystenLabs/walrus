@@ -5,7 +5,7 @@
 - [Caching Hot Reads](/docs/system-overview/caching): Guidance for caching frequently read Walrus blobs, including caching aggregators, CDN fronting, immutability guarantees, and pitfalls to avoid.
 - [Walrus Fundamentals](/docs/system-overview/core-concepts): Technical reference for Walrus fundamentals, including architecture, data storage, and data retrieval.
 - [Operations](/docs/system-overview/operations): Developer guide to Walrus operations for blob management.
-- [Public Aggregators and Publishers](/docs/system-overview/public-aggregators-and-publishers)
+- [Public Aggregators and Publishers](/docs/system-overview/public-aggregators-and-publishers): Find public Walrus aggregator and publisher endpoints and use them to read and store blobs over HTTP without running your own client.
 - [Batch Storage with Quilt](/docs/system-overview/quilt): Comprehensive guide to Walrus Quilt for batch storage of multiple small blobs with cost optimization and metadata management.
 - [RedStuff Encoding Example](/docs/system-overview/red-stuff-details): Step-by-step worked example of RedStuff encoding showing primary and secondary sliver creation with matrix illustrations.
 - [RedStuff Properties and Parameters](/docs/system-overview/red-stuff-parameters): RedStuff encoding properties, Walrus-specific parameters, blob size limits, sliver-to-shard mapping, sliver authentication, and metadata overhead.
