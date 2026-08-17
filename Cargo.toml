@@ -122,8 +122,6 @@ serde_yaml = "0.9"
 sha2 = "0.10.9"
 snap = "1.1.0"
 sui-config = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.77.2" }
-sui-json-rpc-api = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.77.2" }
-sui-json-rpc-types = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.77.2" }
 sui-keys = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.77.2" }
 sui-macros = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.77.2" }
 sui-move-build = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.77.2" }
