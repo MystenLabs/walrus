@@ -147,6 +147,11 @@ function checkBrokenInternalLinks(body, docPaths, filePath) {
     if (target.startsWith('#')) continue;
     if (target.startsWith('mailto:')) continue;
     if (/\.\w+$/.test(target) && !target.endsWith('.mdx') && !target.endsWith('.md')) continue;
+    // Walrus Memory pages come from a separate plugin instance sourced from
+    // docs/walrus-memory-content, and docPaths only indexes docs/content. This
+    // checker cannot resolve those targets, so reporting them as broken is a
+    // false positive. Docusaurus validates them at build time instead.
+    if (target === '/walrus-memory' || target.startsWith('/walrus-memory/')) continue;
 
     // Normalize the target path
     let normalized = target;

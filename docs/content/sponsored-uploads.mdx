@@ -4,6 +4,10 @@ description: "Reference architecture for apps that pay for Walrus storage on beh
 keywords: [walrus, sponsored, walletless, publisher, upload relay, backend, gas, WAL, architecture]
 ---
 
+<AgentPrompt
+  prompt="Help me choose the right pattern for letting users upload to Walrus without holding SUI or WAL. Compare the backend publisher, upload relay, and direct SDK approaches for my use case."
+/>
+
 Most users do not hold SUI or WAL, and most apps do not want to ask them to. To build an app where your backend pays for Walrus storage and users upload without managing a wallet, you need to choose among several patterns. The sections below compare those patterns, show a reference architecture, and document the operational pitfalls teams hit when a single wallet funds many uploads.
 
 For the step-by-step operator instructions, see [Operate a Publisher](/docs/operator-guide/publishers/operating-publisher), [Use the Authenticated Publisher](/docs/operator-guide/publishers/auth-publisher), and [Operate an Upload Relay](/docs/operator-guide/upload-relay).
