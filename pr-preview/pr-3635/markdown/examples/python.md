@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-You can interact with Walrus from within Python code. 
+You can interact with Walrus from within Python code.
 
 ## Use the HTTP API
 

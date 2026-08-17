@@ -1,5 +1,17 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+### Walrus Memory MCP v0.0.8
+
+August 14, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.8)
+
+---
+
+### Walrus Memory MCP v0.0.7
+
+August 14, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.7)
+
+---
+
 ### Walrus Memory MCP v0.0.6
 
 July 31, 2026 | [GitHub](https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.6)
