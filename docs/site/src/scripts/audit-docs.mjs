@@ -311,6 +311,16 @@ function findDuplicateTitles(allPages) {
 
 // ─── Layer 2: Goal Checklist ────────────────────────
 
+// `<ImportContent … mode="code">` renders a code block from a real source file
+// but contains no backticks, so a fence-counting check reads zero on pages that
+// are almost entirely code. Count each code import as one complete fence pair,
+// the same as an inline block, so importing a snippet never scores worse than
+// pasting a copy of it.
+function countCodeImports(body) {
+  const matches = body.match(/<ImportContent\s[^>]*mode="code"[^>]*>/g) || [];
+  return matches.length;
+}
+
 function evaluateGoalRequires(goal, body, data, headings) {
   if (!goal || !goal.requires) return null;
 
@@ -323,8 +333,10 @@ function evaluateGoalRequires(goal, body, data, headings) {
       // Count regex pattern occurrences in body
       const re = new RegExp(req.pattern, 'gi');
       const matches = body.match(re) || [];
-      result.pass = matches.length >= req.min;
-      result.detail = `found ${matches.length}, need >= ${req.min}`;
+      let count = matches.length;
+      if (req.pattern === '```') count += countCodeImports(body) * 2;
+      result.pass = count >= req.min;
+      result.detail = `found ${count}, need >= ${req.min}`;
     } else if (req.headings) {
       // Check that headings matching each pattern exist
       const missing = [];

@@ -1183,23 +1183,26 @@ mod tests {
             );
         }
 
-        // Holds the recovery task of the target node so that the recovery reliably spans
+        // Holds the recovery run of the target node so that the recovery reliably spans
         // multiple epoch changes; released once the node has gained shards while recovering.
-        // Also counts how many recovery tasks are spawned on the target node: epoch changes
-        // processed while recovering must not restart the recovery task.
+        // Also counts how many recovery runs are started on the target node: an epoch change
+        // processed while recovering merely advances the recovery target, which extends the
+        // running recovery instead of superseding it — a recovery can take longer than an
+        // epoch, and its frozen scan bound stays sufficient because blobs certified at later
+        // epochs are synced through live event processing.
         let hold_recovery = Arc::new(AtomicBool::new(true));
-        let recovery_task_spawn_count = Arc::new(AtomicU64::new(0));
+        let recovery_run_count = Arc::new(AtomicU64::new(0));
         {
             let hold_recovery = hold_recovery.clone();
-            let recovery_task_spawn_count = recovery_task_spawn_count.clone();
+            let recovery_run_count = recovery_run_count.clone();
             register_fail_point_async("start_node_recovery_entry", move || {
                 let hold_recovery = hold_recovery.clone();
-                let recovery_task_spawn_count = recovery_task_spawn_count.clone();
+                let recovery_run_count = recovery_run_count.clone();
                 async move {
                     if sui_simulator::current_simnode_id() != target_node_id {
                         return;
                     }
-                    recovery_task_spawn_count.fetch_add(1, Ordering::SeqCst);
+                    recovery_run_count.fetch_add(1, Ordering::SeqCst);
                     tracing::info!("holding node recovery until released by the test");
                     while hold_recovery.load(Ordering::SeqCst) {
                         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -1281,10 +1284,13 @@ mod tests {
             !ordering_violation.load(Ordering::SeqCst),
             "node recovery must not start blob syncs while shard syncs are running"
         );
+        // The epoch change processed while recovering advances the recovery target without
+        // superseding the run: the single held run spans the epoch change, waits for the
+        // gained shards' syncs, and attests for the advanced target on completion.
         assert_eq!(
-            recovery_task_spawn_count.load(Ordering::SeqCst),
+            recovery_run_count.load(Ordering::SeqCst),
             1,
-            "the recovery task must not be restarted by epoch changes processed while recovering"
+            "an epoch change while recovering should extend the running recovery, not re-run it"
         );
 
         // The gained shards should be owned by the node and be ready to serve traffic.
