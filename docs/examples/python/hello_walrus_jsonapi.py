@@ -13,7 +13,7 @@ import base64
 
 import requests
 
-from utils import num_to_blob_id, PATH_TO_WALRUS, PATH_TO_WALRUS_CONFIG, FULL_NODE_URL
+from utils import num_to_blob_id, PATH_TO_WALRUS, PATH_TO_WALRUS_CONFIG, GRAPHQL_URL
 
 try:
     # Create a 1MiB file of random data
@@ -78,30 +78,27 @@ try:
 
     # Part 3. Check the availability of the blob
     if sui_object_id:
-        request = {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "sui_getObject",
-            "params": [
-                sui_object_id,
-                {
-                    "showType": True,
-                    "showOwner": False,
-                    "showPreviousTransaction": True,
-                    "showDisplay": False,
-                    "showContent": True,
-                    "showBcs": False,
-                    "showStorageRebate": False,
-                },
-            ],
+        query = """
+        query ($objectId: SuiAddress!) {
+            object(address: $objectId) {
+                asMoveObject {
+                    contents { json }
+                }
+            }
         }
-        response = requests.post(FULL_NODE_URL, json=request)
-        object_content = response.json()["result"]["data"]["content"]
+        """
+        response = requests.post(
+            GRAPHQL_URL,
+            json={"query": query, "variables": {"objectId": sui_object_id}},
+        )
+        object_content = response.json()["data"]["object"]["asMoveObject"][
+            "contents"
+        ]["json"]
         print("Object content:")
         print(json.dumps(object_content, indent=4))
 
         # Check that the blob ID matches the one we uploaded
-        blob_id_downloaded = int(object_content["fields"]["blob_id"])
+        blob_id_downloaded = int(object_content["blob_id"])
         if num_to_blob_id(blob_id_downloaded) == blob_id:
             print("Blob ID matches certificate!")
         else:

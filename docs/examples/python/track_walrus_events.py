@@ -9,64 +9,68 @@ import datetime
 import requests
 import re
 
-from utils import num_to_blob_id, PATH_TO_WALRUS_CONFIG
+from utils import num_to_blob_id, GRAPHQL_URL, PATH_TO_WALRUS_CONFIG
 
 system_object_id = re.findall(
     r"system_object:[ ]*(.*)", open(PATH_TO_WALRUS_CONFIG).read()
 )[0]
 print(f"System object ID: {system_object_id}")
 
-# Query the Walrus system object on Sui
-request = {
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "sui_getObject",
-    "params": [
-        system_object_id,
-        {
-            "showType": True,
-            "showOwner": False,
-            "showPreviousTransaction": False,
-            "showDisplay": False,
-            "showContent": False,
-            "showBcs": False,
-            "showStorageRebate": False,
-        },
-    ],
+# Query the Walrus system object on Sui through the GraphQL API
+query = """
+query ($objectId: SuiAddress!) {
+    object(address: $objectId) {
+        asMoveObject {
+            contents { type { repr } }
+        }
+    }
 }
-response = requests.post("https://fullnode.testnet.sui.io:443", json=request)
+"""
+response = requests.post(
+    GRAPHQL_URL,
+    json={"query": query, "variables": {"objectId": system_object_id}},
+)
 assert response.status_code == 200
 
-system_object_content = response.json()["result"]["data"]
-walrus_package = re.findall("(0x[0-9a-f]+)::system", system_object_content["type"])[0]
+object_type = response.json()["data"]["object"]["asMoveObject"]["contents"]["type"][
+    "repr"
+]
+walrus_package = re.findall("(0x[0-9a-f]+)::system", object_type)[0]
 print(f"Walrus type: {walrus_package}")
 
-# Query events for the appropriate Walrus type
-request = {
-    "jsonrpc": "2.0",
-    "id": 1,
-    "method": "suix_queryEvents",
-    "params": [
-        # Query by module type
-        {"MoveModule": {"package": walrus_package, "module": "blob"}},
-        None,
-        # Query the latest 100 events
-        100,
-        True, # Indicates descending order
-    ],
+# Query the latest 50 events emitted by the Walrus package (the maximum page size)
+query = """
+query ($eventType: String!) {
+    events(last: 50, filter: { type: $eventType }) {
+        nodes {
+            timestamp
+            contents { type { repr } json }
+            transaction { digest }
+        }
+    }
 }
-response = requests.post("https://fullnode.testnet.sui.io:443", json=request)
+"""
+response = requests.post(
+    GRAPHQL_URL,
+    # Filtering by the `<package>::events` prefix matches all Walrus event types
+    json={"query": query, "variables": {"eventType": f"{walrus_package}::events"}},
+)
 assert response.status_code == 200
 
-events = response.json()["result"]["data"]
-for event in events:
+events = response.json()["data"]["events"]["nodes"]
+# Print the most recent events first
+for event in reversed(events):
     # Parse the Walrus event
-    tx_digest = event["id"]["txDigest"]
-    event_type = event["type"][68 + 13 :] # Skip the package & module prefix
-    parsed_event = event["parsedJson"]
-    blob_id = num_to_blob_id(int(parsed_event["blob_id"]))
-    timestamp_ms = int(event["timestampMs"])
-    time_date = datetime.datetime.fromtimestamp(timestamp_ms / 1000.0)
+    tx_digest = event["transaction"]["digest"]
+    event_type = event["contents"]["type"]["repr"].split("::")[-1]
+    parsed_event = event["contents"]["json"]
+    time_date = datetime.datetime.fromisoformat(
+        event["timestamp"].replace("Z", "+00:00")
+    )
+
+    # Blob lifecycle events carry a blob ID; epoch events do not
+    blob_id_num = parsed_event.get("blob_id")
+    blob_id = num_to_blob_id(int(blob_id_num)) if blob_id_num is not None else ""
 
     # For registered blobs get their size in bytes
     if event_type == "BlobRegistered":

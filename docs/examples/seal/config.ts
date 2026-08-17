@@ -8,7 +8,7 @@
 // fill in the two values below before running the scripts. See the tutorial
 // (Encrypting data with Seal) for the deployment steps and links.
 
-import { getJsonRpcFullnodeUrl, SuiJsonRpcClient } from '@mysten/sui/jsonRpc';
+import { SuiGrpcClient } from '@mysten/sui/grpc';
 import { SealClient } from '@mysten/seal';
 import { walrus } from '@mysten/walrus';
 
@@ -27,12 +27,12 @@ export const ALLOWLIST_ID = '0xYOUR_ALLOWLIST_OBJECT_ID';
 // The Move module inside PACKAGE_ID that defines `seal_approve`.
 export const MODULE_NAME = 'allowlist';
 
-// One Sui client, extended with the Walrus SDK, reused everywhere. The same
-// client instance is passed to Seal and to SessionKey so that policy checks and
-// blob reads/writes all target the same network.
-export const suiClient = new SuiJsonRpcClient({
+// One Sui client (gRPC), extended with the Walrus SDK, reused everywhere. The
+// same client instance is passed to Seal and to SessionKey so that policy
+// checks and blob reads/writes all target the same network.
+export const suiClient = new SuiGrpcClient({
   network: NETWORK,
-  url: getJsonRpcFullnodeUrl(NETWORK),
+  baseUrl: `https://fullnode.${NETWORK}.sui.io:443`,
 }).$extend(walrus());
 
 // A Seal client configured against a single Testnet key server. For threshold

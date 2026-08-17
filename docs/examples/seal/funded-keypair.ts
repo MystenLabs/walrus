@@ -23,8 +23,8 @@ export async function getFundedKeypair(): Promise<Ed25519Keypair> {
   const address = keypair.toSuiAddress();
 
   // Top up SUI from the faucet if the balance is low.
-  const { totalBalance } = await suiClient.getBalance({ owner: address });
-  if (BigInt(totalBalance) < MIST_PER_SUI) {
+  const { balance } = await suiClient.getBalance({ owner: address });
+  if (BigInt(balance.balance) < MIST_PER_SUI) {
     await requestSuiFromFaucetV2({
       host: getFaucetHost(NETWORK),
       recipient: address,

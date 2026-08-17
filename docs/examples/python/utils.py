@@ -4,7 +4,7 @@
 import base64
 
 # Configure these paths to match your system
-FULL_NODE_URL = "https://fullnode.testnet.sui.io:443"
+GRAPHQL_URL = "https://graphql.testnet.sui.io/graphql"
 PATH_TO_WALRUS = "../CONFIG/bin/walrus"
 PATH_TO_WALRUS_CONFIG = "../CONFIG/config_dir/client_config.yaml"
 
