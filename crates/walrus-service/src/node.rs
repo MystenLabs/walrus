@@ -627,8 +627,8 @@ pub(crate) async fn create_read_client(
 pub struct StorageNode {
     inner: Arc<StorageNodeInner>,
     blob_sync_handler: Arc<BlobSyncHandler>,
-    _shard_sync_handler: Arc<ShardSyncHandler>,
-    _node_recovery_handler: Arc<NodeRecoveryHandler>,
+    shard_sync_handler: Arc<ShardSyncHandler>,
+    node_recovery_handler: Arc<NodeRecoveryHandler>,
     epoch_change_driver: EpochChangeDriver,
     start_epoch_change_finisher: Arc<StartEpochChangeFinisher>,
     num_blob_event_processors: NonZeroUsize,
@@ -1002,8 +1002,8 @@ impl StorageNode {
         Ok(StorageNode {
             inner,
             blob_sync_handler,
-            _shard_sync_handler: shard_sync_handler,
-            _node_recovery_handler: node_recovery_handler,
+            shard_sync_handler,
+            node_recovery_handler,
             epoch_change_driver,
             start_epoch_change_finisher,
             epoch_change_executor,
@@ -1057,6 +1057,10 @@ impl StorageNode {
                     checkpoint_manager.shutdown();
                 }
                 self.inner.shut_down();
+                // Shut down the recovery and shard-sync services before cancelling the blob
+                // syncs, so that neither service starts new sync work afterwards.
+                self.node_recovery_handler.shut_down().await;
+                self.shard_sync_handler.shut_down().await;
                 self.blob_sync_handler.cancel_all().await?;
                 self.garbage_collector.abort().await;
             },
@@ -7455,7 +7459,7 @@ mod tests {
             // the epoch-change executor does in production.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .set_metadata_recovery_completion(
                     epoch_change::completion::BackgroundSyncTaskCompletionInstruction::new(
                         NodeStatus::Active,
@@ -7486,7 +7490,7 @@ mod tests {
         // Starts the shard syncing process.
         cluster.nodes[1]
             .storage_node
-            ._shard_sync_handler
+            .shard_sync_handler
             .start_sync_shards(shard_indices)
             .await?;
 
@@ -7616,7 +7620,7 @@ mod tests {
 
         cluster.nodes[1]
             .storage_node
-            ._shard_sync_handler
+            .shard_sync_handler
             .start_sync_shards(vec![ShardIndex(0)])
             .await?;
         wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
@@ -7695,7 +7699,7 @@ mod tests {
 
         cluster.nodes[1]
             .storage_node
-            ._shard_sync_handler
+            .shard_sync_handler
             .start_sync_shards(vec![ShardIndex(0)])
             .await?;
         wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
@@ -7757,7 +7761,7 @@ mod tests {
 
         cluster.nodes[1]
             .storage_node
-            ._shard_sync_handler
+            .shard_sync_handler
             .start_sync_shards(vec![ShardIndex(0)])
             .await?;
         wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
@@ -7857,7 +7861,7 @@ mod tests {
 
         cluster.nodes[1]
             .storage_node
-            ._shard_sync_handler
+            .shard_sync_handler
             .start_sync_shards(vec![ShardIndex(0)])
             .await?;
         wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
@@ -7904,7 +7908,7 @@ mod tests {
         let start = std::time::Instant::now();
         cluster.nodes[1]
             .storage_node
-            ._shard_sync_handler
+            .shard_sync_handler
             .start_sync_shards(vec![ShardIndex(0)])
             .await?;
 
@@ -8080,12 +8084,12 @@ mod tests {
             // break index.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Check that shard sync process is not finished.
             let shard_storage_src = cluster.nodes[0]
@@ -8107,12 +8111,12 @@ mod tests {
             // restart the shard syncing process, to simulate a reboot.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .restart_syncs()
                 .await?;
 
             // Waits for the shard to be synced.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
@@ -8165,12 +8169,12 @@ mod tests {
             // break index.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Check that shard sync process is not finished.
             let shard_storage_src = cluster.nodes[0]
@@ -8197,17 +8201,17 @@ mod tests {
             // restart the shard syncing process, to simulate a reboot.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .clear_shard_sync_tasks()
                 .await;
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .restart_syncs()
                 .await?;
 
             // Waits for the shard to be synced.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
@@ -8282,12 +8286,12 @@ mod tests {
             // break index.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
@@ -8333,12 +8337,12 @@ mod tests {
             // Starts the shard syncing process in the new shard, which will return empty slivers.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
             check_all_blobs_are_synced(&_blob_details, &storage_dst, &shard_storage_dst, &[])?;
 
             // Checks that the shard sync progress is reset.
@@ -8463,12 +8467,12 @@ mod tests {
             // shard sync to sync non-expired certified blobs.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // All blobs should be recovered in the new dst node.
             check_all_blobs_are_synced(&details, &node_inner.storage, &shard_storage_dst, &[])?;
@@ -8546,11 +8550,11 @@ mod tests {
 
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Check that shard sync process is not finished.
             if !restart_after_recovery {
@@ -8577,7 +8581,7 @@ mod tests {
             // restart the shard syncing process, to simulate a reboot.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .restart_syncs()
                 .await?;
 
@@ -8636,7 +8640,7 @@ mod tests {
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .set_metadata_recovery_completion(
                     epoch_change::completion::BackgroundSyncTaskCompletionInstruction::new(
                         NodeStatus::Active,
@@ -8648,12 +8652,12 @@ mod tests {
             // break index.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
 
             // Waits for the shard sync process to stop.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             assert!(
                 shard_storage_dst
@@ -8672,12 +8676,12 @@ mod tests {
             // restart the shard syncing process, to simulate a reboot.
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .restart_syncs()
                 .await?;
 
             // Waits for the shard to be synced.
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // Checks that the shard is completely migrated.
             check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
@@ -8728,7 +8732,7 @@ mod tests {
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
 
-            let shard_sync_handler = &cluster.nodes[1].storage_node._shard_sync_handler;
+            let shard_sync_handler = &cluster.nodes[1].storage_node.shard_sync_handler;
             // Setting `RecoverMetadata` authorizes the metadata-recovery task's completion, as
             // the epoch-change executor does in production. A later epoch change that keeps the
             // node in metadata recovery leaves the instruction in place.
@@ -8823,7 +8827,7 @@ mod tests {
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .set_metadata_recovery_completion(
                     epoch_change::completion::BackgroundSyncTaskCompletionInstruction::new(
                         NodeStatus::Active,
@@ -8833,11 +8837,11 @@ mod tests {
 
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0), ShardIndex(1)])
                 .await?;
 
-            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node._shard_sync_handler).await?;
+            wait_until_no_sync_tasks(&cluster.nodes[1].storage_node.shard_sync_handler).await?;
 
             // The owned shards must be synced and the node must be active.
             assert_eq!(storage_dst.node_status()?, NodeStatus::Active);
@@ -8896,7 +8900,7 @@ mod tests {
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
 
-            let shard_sync_handler = &cluster.nodes[1].storage_node._shard_sync_handler;
+            let shard_sync_handler = &cluster.nodes[1].storage_node.shard_sync_handler;
             // Setting `RecoverMetadata` authorizes the metadata-recovery task's completion, as
             // the epoch-change executor does in production.
             shard_sync_handler.set_metadata_recovery_completion(
@@ -8971,7 +8975,7 @@ mod tests {
             storage_dst.clear_metadata_in_test()?;
             storage_dst.set_node_status(NodeStatus::RecoverMetadata)?;
 
-            let shard_sync_handler = &cluster.nodes[1].storage_node._shard_sync_handler;
+            let shard_sync_handler = &cluster.nodes[1].storage_node.shard_sync_handler;
             // Setting `RecoverMetadata` authorizes the metadata-recovery task's completion, as
             // the epoch-change executor does in production.
             shard_sync_handler.set_metadata_recovery_completion(
@@ -9284,7 +9288,7 @@ mod tests {
 
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
 
@@ -9356,7 +9360,7 @@ mod tests {
 
             cluster.nodes[1]
                 .storage_node
-                ._shard_sync_handler
+                .shard_sync_handler
                 .start_sync_shards(vec![ShardIndex(0)])
                 .await?;
 

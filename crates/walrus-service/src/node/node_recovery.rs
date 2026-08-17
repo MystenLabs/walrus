@@ -108,7 +108,6 @@ impl NodeRecoveryHandler {
     /// run only repeats its scan). This replaces the previous start/ensure/abort lifecycle
     /// driven by the epoch-change logic: epoch changes only publish infos and mint completion
     /// instructions; the service makes its own decisions.
-    // TODO(WAL-1263): cancel the node-recovery service when the node is shut down.
     pub(crate) fn spawn_background_recovery(
         &self,
         info_receiver: watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
@@ -136,6 +135,15 @@ impl NodeRecoveryHandler {
             max_concurrent_blob_syncs_during_recovery,
             info_receiver,
         )));
+    }
+
+    /// Shuts down the node-recovery service, aborting the permanent recovery task and waiting
+    /// for it to exit so that it cannot start new blob syncs afterwards.
+    pub(crate) async fn shut_down(&self) {
+        if let Some(service) = self.service_handle.lock().await.take() {
+            service.abort();
+            let _ = service.await;
+        }
     }
 }
 

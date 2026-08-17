@@ -509,7 +509,6 @@ impl ShardSyncHandler {
     /// start, so the first epoch-change event cannot be planned against a zero live-task
     /// count while a resumed sync is still incomplete (which would hand the attestation to
     /// the finisher prematurely).
-    // TODO(WAL-1263): cancel the shard-sync service when the node is shut down.
     pub(crate) async fn spawn_background_shard_sync_driver(
         &self,
         mut info_receiver: watch::Receiver<EpochChangeSyncAndRecoveryInfo>,
@@ -709,6 +708,17 @@ impl ShardSyncHandler {
             task.abort();
             let _ = task.await;
         }
+    }
+
+    /// Shuts down the shard-sync service: aborts the permanent reconciler task — waiting for
+    /// it to exit so that it cannot start new syncs afterwards — and then quiesces the
+    /// sync-driving task and every per-shard sync task.
+    pub(crate) async fn shut_down(&self) {
+        if let Some(service) = self.service_handle.lock().await.take() {
+            service.abort();
+            let _ = service.await;
+        }
+        self.quiesce_all_syncs().await;
     }
 
     /// Ensures syncs are running for the persisted sync state, as the production startup
@@ -1154,7 +1164,7 @@ mod tests {
         // settle before manipulating the shard statuses with a standalone handler.
         cluster.nodes[0]
             .storage_node
-            ._shard_sync_handler
+            .shard_sync_handler
             .wait_until_no_sync_in_progress()
             .await;
         for i in [0, 2] {
