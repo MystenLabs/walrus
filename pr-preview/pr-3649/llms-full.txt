@@ -717,17 +717,11 @@ Sui smart contract as the on-chain index.
     the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
     Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    August 14, 2026 | GitHub --- August 14, 2026 | GitHub --- July 31, 2026 | GitHub --- June 12,
-    2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity,
-    along with new memwalrememberbulk and memwal_health tools and proactive memory behavior.
+    No Walrus Memory releases found.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Testnet | August 12, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
-    now return 404 BLOBNOTFOUND within about a second, instead of 503 BLOBUNAVAILABLE after a 10-20
-    second fan-out.
+    No Walrus releases found.
 - [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
-    July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
-    (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
-    methods ahead of the JSON-RPC deprecation.
+    No Walrus Sites releases found.
 
 ## Sponsored Uploads
 
