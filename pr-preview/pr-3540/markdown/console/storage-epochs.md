@@ -22,7 +22,7 @@ The current beta includes automatic renewal.
 > **Warning**
 >
 > If a wallet goes dormant, its storage lapses and its data expires. Automatic renewal covers active wallets only. If you store data you want to keep, make sure the account stays active within the activity window, or plan to re-upload.
-Expiring dormant storage is deliberate. It keeps the network from paying indefinitely to store data for accounts that are no longer in use. An account returns to active status as soon as it records a new Walrus transaction within the window.
+Walrus expires dormant storage deliberately. Doing so keeps the network from paying indefinitely to store data for accounts that are no longer in use. An account returns to active status as soon as it records a new Walrus transaction within the window.
 
 ## Checking storage status
 

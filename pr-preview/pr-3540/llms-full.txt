@@ -81,7 +81,8 @@ Sui smart contract as the on-chain index.
 - [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md):
     When choosing a platform to store and verify data, you should consider reliability, uptime,
     availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated
-    storage cost of $0.023/GB/month, allowing you to budget and scale with confidence.
+    storage cost of $0.023/GB/month, allowing you to budget and scale with confidence. > Storing
+    many small files?
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md):
     Storage limits, cost considerations, memory requirements, and other constraints to consider
     when building on Walrus. This page describes the practical limits and constraints you should
@@ -177,12 +178,12 @@ Sui smart contract as the on-chain index.
     and the community-maintained Awesome Walrus directory.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md):
     The following JavaScript example shows how to upload and download a blob through a web form
-    using the HTTP API. The following JavaScript example shows how to upload and download a blob
-    through a web form using the HTTP API.
+    using the HTTP API. The page takes a publisher URL, an aggregator URL, and a storage duration
+    in epochs.
 - [Move](https://docs.wal.app/docs/examples/move.md):
-    The following Move example showcases how to import and use Walrus onchain objects. The
-    following Move example showcases how to import and use Walrus onchain objects. The following
-    Move example showcases how to import and use Walrus onchain objects.
+    The following Move example showcases how to import and use Walrus onchain objects. A certified
+    blob exists on Sui as a Blob object, so Move code can hold one the same way it holds any other
+    object.
 - [Python](https://docs.wal.app/docs/examples/python.md):
     You can interact with Walrus from within Python code. Use the HTTP API to store and read blobs.
     Use the JSON API to store, read, and check the availability of a blob. Checking the
@@ -438,6 +439,11 @@ Sui smart contract as the on-chain index.
 - [How Storage Works](https://docs.wal.app/walrus-memory/fundamentals/architecture/how-storage-works.md):
     When you call memwal.remember(...), the relayer accepts a background job immediately and then
     stores the memory asynchronously. Here's what happens.
+- [Tracking Agent Storage](https://docs.wal.app/walrus-memory/fundamentals/architecture/tracking-agent-storage.md):
+    Every memory an agent writes becomes a durable object on two systems: an encrypted blob on
+    Walrus, and a Blob object on Sui that records who owns that blob and how long it lives. An
+    agent that depends on its memory has to know which blobs it owns, when each one expires, and
+    when to renew or drop it.
 - [How Agent Memory Works](https://docs.wal.app/walrus-memory/fundamentals/concepts/how-agent-memory-works.md):
     AI agent memory is a durable, searchable store of what an agent has learned, kept outside the
     model so it survives across sessions, apps, and workflows.
@@ -496,9 +502,9 @@ Sui smart contract as the on-chain index.
 ## Walrus Memory: Relayer
 
 - [API Reference](https://docs.wal.app/walrus-memory/relayer/api-reference.md):
-    The Rust relayer exposes these routes. Routes are defined in services/server/src/main.rs. See
-    also: Environment Variables Configuration Versioning and Compatibility All /api/ routes require
-    signed headers. The SDK handles this automatically.
+    The Rust relayer exposes these routes. The route table lives in services/server/src/main.rs.
+    See also: Environment Variables Configuration Versioning and Compatibility The routes below
+    require signed headers, except the MCP transports, which use bearer authentication.
 - [Benchmark CI Setup](https://docs.wal.app/walrus-memory/relayer/benchmark-ci-setup.md):
     This document records how to configure the relayer benchmark workflows. The live benchmark
     intentionally runs only the public relayer /api/recall path.
@@ -682,21 +688,25 @@ Sui smart contract as the on-chain index.
 ## Console
 
 - [API Reference](https://docs.wal.app/docs/console/api-reference.md):
-    This reference covers the Walrus Console external API: the endpoints third-party developers use
-    to manage spaces, buckets, and files, plus the Seal sponsorship endpoints that back
-    private-bucket access control. > Info > > This documents the current Testnet surface.
+    The Walrus Console external API covers the endpoints third-party developers use to manage
+    spaces, buckets, and files, plus the Seal sponsorship endpoints that back private-bucket access
+    control. > Info > > This documents the current Testnet surface.
 - [Auth](https://docs.wal.app/docs/console/auth.md):
     Walrus Console uses the same kind of login you already know using Google or Apple; no wallet,
     no seed phrase, no crypto setup. Just sign in and start storing data. > Info > > Walrus Console
     is available on Mainnet through a closed, invite-only beta. It supports Google and Apple
     sign-in.
+- [FAQ](https://docs.wal.app/docs/console/faq.md):
+    Common questions about Walrus Console. For the concepts behind the answers, read What is Walrus
+    Console?, and for a hands-on walkthrough, follow the Quick Start. > Info > > Walrus Console is
+    available on Mainnet through a closed, invite-only beta.
 - [Overview](https://docs.wal.app/docs/console/overview.md):
     Walrus Console is the developer-first interface for interacting with the Walrus network. It
     gives you a hosted place to store, manage, and serve data without running your own Walrus
     client or handling wallets and tokens directly.
 - [Quickstart](https://docs.wal.app/docs/console/quickstart.md):
-    This quickstart takes you from sign-up to a working encrypted upload: create an account, mint
-    an API key, then create a Seal-encrypted bucket and upload, download, and decrypt a file.
+    Go from sign-up to a working encrypted upload: create an account, mint an API key, then create
+    a Seal-encrypted bucket and upload, download, and decrypt a file.
 - [Storage Epochs](https://docs.wal.app/docs/console/storage-epochs.md):
     Walrus storage is time-bound. Your data stays available for a set amount of storage, measured
     in epochs, and expires when that storage runs out. Walrus Console tracks and pays for this so
@@ -731,18 +741,11 @@ Sui smart contract as the on-chain index.
     the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
     Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    July 31, 2026 | GitHub --- June 12, 2026 | GitHub Adds the automatic memory plugin for Claude
-    Code, Codex, Cursor, and Antigravity, along with new memwalrememberbulk and memwal_health tools
-    and proactive memory behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
+    No Walrus Memory releases found.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Mainnet | August 5, 2026 | GitHub --- Mainnet | July 22, 2026 | GitHub --- Testnet | July 15,
-    2026 | GitHub --- Mainnet | July 9, 2026 | GitHub walrus info committee gains a
-    --commission-receivers flag that prints, as CSV, the commission receiver of every node in the
-    previous, current, and next committees (including the owning address for object receivers).
+    No Walrus releases found.
 - [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
-    July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
-    (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
-    methods ahead of the JSON-RPC deprecation.
+    No Walrus Sites releases found.
 
 ## Sponsored Uploads
 
@@ -766,6 +769,11 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: Guides
 
+- [Agent Runtimes](https://docs.wal.app/walrus-memory/guides/agent-runtimes.md):
+    Agents built on EVM, Base, Virtuals, or any other stack can use Walrus Memory. The runtime your
+    agent executes in and the chain it transacts on are independent of where its memory lives.
+    Walrus Memory stores memories as encrypted blobs on Walrus and records ownership in a Sui
+    account.
 - [Delete Memories Programmatically](https://docs.wal.app/walrus-memory/guides/delete-memories-programmatically.md):
     Use the Security Delete API to find memories owned by a wallet, select memories older than a
     cutoff date, and permanently delete them. The API prepares and sponsors the Sui transaction;
@@ -776,6 +784,18 @@ Sui smart contract as the on-chain index.
     memories you no longer want stored on Walrus Memory. This guide shows you how to preview your
     memories and delete any you'd like to clear. > Warning > > Deleting a memory is permanent and
     you cannot undo it.
+- [Manage Your Memory](https://docs.wal.app/walrus-memory/guides/manage-your-memory.md):
+    Your Walrus Memory account accumulates memories over time. See what you have stored, organize
+    it with namespaces, renew memories before they expire, and delete the ones you no longer want,
+    from the dashboard or through the SDK. [x] A Sui wallet that owns the memories you want to
+    manage.
+- [Returning User](https://docs.wal.app/walrus-memory/guides/returning-user.md):
+    Your memories live on Walrus and your account lives on Sui, so they persist no matter which
+    device you sign in from. Only the delegate key your browser used last time stays behind.
+
+## Walrus Memory: Migration
+
+- [Ceremony Environments](https://docs.wal.app/walrus-memory/migration/ceremony-environments.md)
 
 ## Walrus Memory: Python SDK
 

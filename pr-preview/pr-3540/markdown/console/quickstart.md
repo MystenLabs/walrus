@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-This quickstart takes you from sign-up to a working encrypted upload: create an account, mint an API key, then create a Seal-encrypted bucket and upload, download, and decrypt a file.
+Go from sign-up to a working encrypted upload: create an account, mint an API key, then create a Seal-encrypted bucket and upload, download, and decrypt a file.
 
 > **Info**
 >
@@ -98,7 +98,7 @@ Console combines your signature with the gas-sponsor signature and broadcasts th
 { "bucket_id": "…", "seal_policy_id": "…", "state": "active" }
 ```
 
-`seal_policy_id` is the onchain bucket-policy object ID that Seal uses for access checks. The bucket is now usable.
+`seal_policy_id` is the onchain bucket-policy object ID that Seal uses for access checks. You can now use the bucket.
 
 ### Step 5: Encrypt the file with Seal
 

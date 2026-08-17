@@ -15,7 +15,7 @@ Walrus Console sits on top of that protocol as a managed developer surface. It h
 
 Console organizes your data in three levels.
 
-A **space** is the top-level container tied to your account. Console creates a **Personal Space** for you automatically when you sign up. A space tracks how much storage you have used against your storage cap. Team Spaces, which let a group share storage under one managed API key, arrive at general availability.
+A **space** is the top-level container tied to your account. Console creates a **Personal Space** for you automatically when you sign up. A space tracks how much storage you have used against your storage cap. Team Spaces, which let a group share storage under one managed API key, arrive after GA.
 
 A **bucket** is a named container inside a space that holds files. Every bucket has a visibility setting. In the current beta, all buckets are private and encrypted with [Seal](/docs/data-security); public buckets are planned for a later release.
 
@@ -25,7 +25,7 @@ A **file** is an individual object that lives inside a bucket. Uploads are async
 
 > **Warning**
 >
-> On Walrus, stored blobs are public by default. Anyone who has a blob ID can read the bytes. Do not rely on obscurity for sensitive data.
+> On Walrus, anyone who has a blob ID can read the bytes of a stored blob. Do not rely on obscurity for sensitive data.
 Console private buckets solve this by encrypting every file client-side with [Seal](/docs/data-security) before upload. Console stores ciphertext only and never sees your plaintext or your decryption keys. Setting up a private bucket uses a short reserve, sign, and finalize handshake that provisions the bucket's Seal access policy onchain. Encryption on upload and decryption on download both happen on your machine.
 
 ## Asset types

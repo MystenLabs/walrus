@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-This reference covers the Walrus Console external API: the endpoints third-party developers use to manage spaces, buckets, and files, plus the [Seal](/docs/data-security) sponsorship endpoints that back private-bucket access control.
+The Walrus Console external API covers the endpoints third-party developers use to manage spaces, buckets, and files, plus the [Seal](/docs/data-security) sponsorship endpoints that back private-bucket access control.
 
 > **Info**
 >
@@ -36,7 +36,7 @@ List endpoints return an opaque cursor. Pass `limit` to set page size and `curso
 
 ### Asynchronous operations
 
-Upload and delete operations are asynchronous. Upload returns `202` with a file ID, then you poll the file status endpoint until the state is `completed`. Delete returns `204` immediately and releases storage after a background worker confirms the removal.
+Console processes upload and delete operations asynchronously. Upload returns `202` with a file ID, then you poll the file status endpoint until the state is `completed`. Delete returns `204` immediately and releases storage after a background worker confirms the removal.
 
 ## Errors
 
@@ -189,7 +189,7 @@ Returns `200`:
 { "bucket_id": "…", "seal_policy_id": "…", "state": "active" }
 ```
 
-`seal_policy_id` is the onchain bucket-policy object ID used by Seal for access checks. The bucket is now ready for uploads.
+`seal_policy_id` is the onchain bucket-policy object ID used by Seal for access checks. You can now upload to the bucket.
 
 ### List files in a bucket
 
