@@ -1,10 +1,9 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import styles from "../../../css/sidebar.module.css";
+import styles from "@site/src/css/sidebar.module.css";
 
 export default function SidebarIframe({
   url,
