@@ -49,12 +49,4 @@ For the patterns that combine these when your app pays on behalf of its users, s
 
 The [Network Reference](/docs/network-reference#aggregators-and-publishers) maintains the current Mainnet and Testnet endpoints for all three services, along with the community-operated list. Read the values there rather than copying them, because operators change.
 
-Most public aggregators and publishers limit requests to 10 MiB. To move larger blobs, run your own or use the CLI. See [Large Uploads](/docs/large-uploads).
-
-## References
-
-- [Network Reference](/docs/network-reference)
-- [Reading Blobs](/docs/http-api/reading-blobs)
-- [Storing Blobs](/docs/http-api/storing-blobs)
-- [Sponsored and Walletless Uploads](/docs/sponsored-uploads)
-- [Public Aggregators and Publishers](/docs/system-overview/public-aggregators-and-publishers)
+For the request size limit on public services, how to pick one from the community list, and what to do when you outgrow them, see [Public Aggregators and Publishers](/docs/system-overview/public-aggregators-and-publishers).
