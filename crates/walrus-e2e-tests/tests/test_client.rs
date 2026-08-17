@@ -2012,7 +2012,7 @@ async fn test_get_owned_objects_of_type_blob() -> TestResult {
     assert_eq!(fetched_blob.id, blob_object.id);
     assert_eq!(fetched_blob.size, blob_object.size);
 
-    // Cross-check with the JSON-RPC owned_blobs path.
+    // Cross-check with the higher-level owned_blobs path.
     let owned = sui_client
         .owned_blobs(None, ExpirySelectionPolicy::Valid)
         .await?;

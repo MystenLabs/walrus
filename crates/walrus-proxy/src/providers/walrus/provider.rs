@@ -16,11 +16,11 @@ use prometheus::{CounterVec, HistogramOpts, HistogramVec, Opts};
 use super::query::{NodeInfo, get_walrus_nodes};
 use crate::{Allower, NetworkPublicKey, register_metric};
 
-static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
+static SUI_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
     register_metric!(
         CounterVec::new(
             Opts::new(
-                "json_rpc_state",
+                "sui_rpc_state",
                 "Number of successful/failed requests made.",
             ),
             &["rpc_method", "status"]
@@ -28,12 +28,12 @@ static JSON_RPC_STATE: Lazy<CounterVec> = Lazy::new(|| {
         .expect("metric creation cannot fail with valid parameters")
     )
 });
-static JSON_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
+static SUI_RPC_DURATION: Lazy<HistogramVec> = Lazy::new(|| {
     register_metric!(
         HistogramVec::new(
             HistogramOpts::new(
-                "json_rpc_duration_seconds",
-                "The json-rpc latencies in seconds.",
+                "sui_rpc_duration_seconds",
+                "The Sui RPC latencies in seconds.",
             )
             .buckets(vec![
                 0.0008, 0.0016, 0.0032, 0.0064, 0.0128, 0.0256, 0.0512, 0.1024, 0.2048, 0.4096,
@@ -102,7 +102,7 @@ impl WalrusNodeProvider {
             loop {
                 interval.tick().await;
                 let timer =
-                    walrus_utils::with_label!(JSON_RPC_DURATION, "update_peer_count").start_timer();
+                    walrus_utils::with_label!(SUI_RPC_DURATION, "update_peer_count").start_timer();
                 cloned_self.update_walrus_nodes().await;
                 timer.observe_duration();
             }
@@ -119,12 +119,12 @@ impl WalrusNodeProvider {
         .await
         {
             Ok(node_infos) => {
-                walrus_utils::with_label!(JSON_RPC_STATE, "update_peer_count", "success").inc();
+                walrus_utils::with_label!(SUI_RPC_STATE, "update_peer_count", "success").inc();
                 node_infos
             }
             Err(e) => {
                 tracing::error!("unable to perform committee update; {e}");
-                walrus_utils::with_label!(JSON_RPC_STATE, "update_peer_count", "failed").inc();
+                walrus_utils::with_label!(SUI_RPC_STATE, "update_peer_count", "failed").inc();
                 return;
             }
         };
