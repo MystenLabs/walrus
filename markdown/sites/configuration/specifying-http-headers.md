@@ -1,8 +1,8 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-The `headers` section allows you to specify custom HTTP response headers for specific resources. The keys in the `headers` object are the exact paths of the resources (no wildcards), and the values are lists of key-value pairs corresponding to the headers that the portal attaches to the response.
+The `headers` section of [`ws-resources.json`](/docs/sites/configuration/site-configuration) sets custom HTTP response headers for individual resources on your Walrus Site. Each key in the `headers` object is the exact path of a resource, always starting from the root `/`. Each value is an object that maps header names to the values the portal attaches to the response. Values must be full names, no wildcard characters are supported.
 
-This mechanism allows you to control various aspects of the resource delivery, such as caching, encoding, and content types.
+Custom headers let you control how browsers and other clients handle each resource, for example caching, encoding, content types, and download behavior.
 
 ```json
 {
@@ -27,17 +27,27 @@ This mechanism allows you to control various aspects of the resource delivery, s
 }
 ```
 
-In the example [`ws-resources.json`](/docs/sites/configuration/site-configuration), the file `index.html` is served with the `Content-Type` header set to `text/html; charset=utf-8` and the `Cache-Control` header set to `max-age=3500`. The resource path is always represented as starting from the root `/`.
+In this example, the portal serves `index.html` with the `Content-Type` header set to `text/html; charset=utf-8` and the `Cache-Control` header set to `max-age=3500`.
+
+## How the portal applies headers
+
+Headers live onchain, not in a server configuration file:
+
+1. You define the headers in `ws-resources.json`.
+2. When you run [`site-builder deploy`](/docs/sites/getting-started/using-the-site-builder), the tool writes the headers into your site's resource entries on Sui, alongside each resource path and blob ID.
+3. When a visitor requests a resource, the [portal](/docs/sites/portals/mainnet-testnet) reads the headers from the Sui object and attaches them to the HTTP response.
+
+Because the headers live on Sui, editing `ws-resources.json` alone changes nothing on your live site. Run `site-builder deploy` again to apply the new headers.
 
 ## Defaults
 
 By default, you do not need to specify any headers. The `site-builder` automatically tries to infer the `Content-Type` header based on the file extension, and sets the `Content-Encoding` to `identity` (no transformation).
 
-If the content type cannot be inferred, the `Content-Type` is set to `application/octet-stream`. Any headers specified in the `ws-resources.json` file will override these defaults.
+If the `site-builder` cannot infer the content type, it sets the `Content-Type` to `application/octet-stream`. Headers you specify in the `ws-resources.json` file override these defaults.
 
 ## `Content-Type`
 
-Set the `Content-Type` explicitly when the inferred type is incorrect, when you need to specify a charset, or when serving a file type the portal does not recognise.
+Set the `Content-Type` explicitly when the inferred type is incorrect, when you need to specify a charset, or when you serve a file type the `site-builder` does not recognize.
 
 ```json
 "/feed.xml":      { "Content-Type": "application/rss+xml; charset=utf-8" }
@@ -50,7 +60,7 @@ For [raw markdown files served for LLM ingestion](/docs/sites/configuration/site
 
 ## `Cache-Control`
 
-Walrus blobs are immutable, so assets with build-hashed filenames can be cached forever. Entry points should never be cached.
+Walrus blobs are immutable, so browsers can safely cache assets with build-hashed filenames forever. Do not let browsers cache entry points such as `/index.html`, because their content changes on every deployment while their paths stay the same.
 
 ```json
 "/index.html":              { "Cache-Control": "no-cache" }
@@ -59,7 +69,7 @@ Walrus blobs are immutable, so assets with build-hashed filenames can be cached 
 "/data/prices.json":        { "Cache-Control": "max-age=300" }
 ```
 
-| Value | Meaning |
+| **Value** | **Meaning** |
 |---|---|
 | `no-cache` | Revalidate before each use |
 | `no-store` | Never cache |
@@ -68,7 +78,7 @@ Walrus blobs are immutable, so assets with build-hashed filenames can be cached 
 
 ## `Content-Disposition`
 
-Controls whether the browser renders a resource inline or downloads it.
+The `Content-Disposition` header controls whether the browser renders a resource inline or downloads it as a file.
 
 ```json
 "/docs/guide.md":    { "Content-Disposition": "inline" }
@@ -78,7 +88,7 @@ Controls whether the browser renders a resource inline or downloads it.
 
 ## `Content-Encoding`
 
-Use when serving pre-compressed assets from your build pipeline.
+Set `Content-Encoding` when you serve pre-compressed assets from your build pipeline, so browsers decompress them correctly.
 
 ```json
 "/assets/app.js.gz": {
