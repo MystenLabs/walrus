@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-This page covers an example application, not the official Sui Archival service. The example uses that service as a checkpoint source and stores the archived data on Walrus, and it shows how to archive blockchain data in a reliable, deterministic, and resilient manner. The application continuously downloads Sui checkpoints, the sequential batches of finalized transactions that the Sui network produces, bundles them into compressed blobs, and uploads the blobs to Walrus. Because Walrus erasure-codes every blob across a large committee of storage nodes, the archive stays readable even when individual nodes fail.
+The example application below is not the official Sui Archival service. The example uses that service as a checkpoint source and stores the archived data on Walrus, and it shows how to archive blockchain data in a reliable, deterministic, and resilient manner. The application continuously downloads Sui checkpoints, the sequential batches of finalized transactions that the Sui network produces, bundles them into compressed blobs, and uploads the blobs to Walrus. Because Walrus erasure-codes every blob across a large committee of storage nodes, the archive stays readable even when individual nodes fail.
 
 ## How it works
 
