@@ -382,17 +382,17 @@ Sui smart contract as the on-chain index.
     programmatically in your applications. For a reference of specific error messages and their
     solutions, see Troubleshooting Common Errors. Not all errors are equal.
 - [Grpc Migration](https://docs.wal.app/docs/troubleshooting/grpc-migration.md):
-    Sui has deprecated JSON-RPC. For the Sui API surface itself, see the Sui API reference. When a
-    Walrus tool fails against a full node that has stopped serving JSON-RPC, upgrading the client
-    almost always fixes it, rather than changing configuration.
+    Sui has deprecated JSON-RPC. Current Walrus clients already reach Sui over gRPC at the same
+    full node URL your configuration lists, so migrating means upgrading your tooling rather than
+    rewriting your configuration. For the Sui API surface itself, see the Sui API reference.
 - [Troubleshooting](https://docs.wal.app/docs/troubleshooting.md):
     Resolve common issues with the Walrus CLI, configuration, and network connectivity. Before
     undertaking any other steps, make sure you have the latest walrus binary. If you have multiple
     versions in different locations, find the binary that is actually used with which walrus.
 - [Network Errors](https://docs.wal.app/docs/troubleshooting/network-errors.md):
-    Common errors in the Walrus CLI and network, with causes and solutions. This page covers common
-    errors you might encounter when using Walrus. Each entry includes the error message, its cause,
-    and how to troubleshoot it.
+    Common errors in the Walrus CLI and network, with causes and solutions. Each entry below gives
+    an error message you might hit when using Walrus, what causes it, and how to troubleshoot it.
+    Errors in this section occur when the Walrus CLI cannot load or parse its configuration.
 - [Reading Blobs After Upload](https://docs.wal.app/docs/troubleshooting/reading-blobs-after-upload.md):
     Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly
     from storage nodes returns it immediately. Public aggregators often sit behind a content
@@ -726,11 +726,17 @@ Sui smart contract as the on-chain index.
     the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
     Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    No Walrus Memory releases found.
+    August 14, 2026 | GitHub --- August 14, 2026 | GitHub --- July 31, 2026 | GitHub --- June 12,
+    2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity,
+    along with new memwalrememberbulk and memwal_health tools and proactive memory behavior.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    No Walrus releases found.
+    Testnet | August 12, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
+    now return 404 BLOBNOTFOUND within about a second, instead of 503 BLOBUNAVAILABLE after a 10-20
+    second fan-out.
 - [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
-    No Walrus Sites releases found.
+    July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
+    (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
+    methods ahead of the JSON-RPC deprecation.
 
 ## Sponsored Uploads
 

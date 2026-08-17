@@ -1,53 +1,45 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Sui has deprecated JSON-RPC. For the Sui API surface itself, see the [Sui API reference](https://docs.sui.io/references/sui-api).
+Sui has deprecated JSON-RPC. Current Walrus clients already reach Sui over gRPC at the same full node URL your configuration lists, so migrating means upgrading your tooling rather than rewriting your configuration. For the Sui API surface itself, see the [Sui API reference](https://docs.sui.io/references/sui-api).
 
-When a Walrus tool fails against a full node that has stopped serving JSON-RPC, upgrading the client almost always fixes it, rather than changing configuration. Current Walrus clients already reach Sui over gRPC at the same full node URL the configuration already lists, and Walrus has no separate gRPC endpoint setting to point at.
+## What changes, and what stays
 
-The deprecation causes distinct failures in the Walrus CLI, in `site-builder`, and on self-hosted full nodes, each with its own cause and fix. For the transport itself and what it means for configuration, see [Transport: JSON-RPC deprecation](/docs/network-reference#transport-json-rpc-deprecation).
+| **Component** | **What you do** |
+| --- | --- |
+| Walrus CLI | Upgrade to a current release |
+| `site-builder` | Upgrade to a current build |
+| Client configuration (`rpc_urls`) | Nothing, the values stay as they are |
+| `sites-config.yaml` (`rpc_url`) | Nothing, the value stays as it is |
+| A full node you operate | Enable its gRPC API |
 
-## Walrus client errors
+No setting selects gRPC. One URL per network serves both protocols, which is why upgrading fixes a broken deployment and reconfiguring does not. For the transport itself, see [Transport: JSON-RPC deprecation](/docs/network-reference#transport-json-rpc-deprecation).
 
-Errors in this section occur when a Walrus client talks to a Sui full node that no longer serves JSON-RPC.
+## Migrate
 
-#### A `walrus` command fails against a full node that stopped serving JSON-RPC
+Steps 1 and 2 cover most deployments. Step 4 applies only if you run your own Sui full node.
 
-**Cause:** The installed release is old enough to still build a JSON-RPC client. Current releases do not, so they keep working against full nodes that have dropped the protocol.
+### Step 1: Upgrade the Walrus CLI
 
-**Solution:** Upgrade the client. The transport moves to gRPC on its own, and your configuration file stays as it is:
+Older releases still build a JSON-RPC client, so they break against a full node that dropped the protocol. Current releases do not:
 
 ```sh
 $ suiup install walrus
 $ walrus --version
 ```
 
-Then rerun the command that failed. If it still fails, confirm the full node you point at serves gRPC, covered in [Self-hosted full nodes](#self-hosted-full-nodes) below.
+### Step 2: Upgrade site-builder
 
-#### Looking for the setting that selects gRPC
+`site-builder` has the same split, so upgrade it alongside the CLI if you publish Walrus Sites.
 
-**Cause:** There is no such setting. One URL per network serves both protocols, so `rpc_urls` in the Walrus client configuration keeps the same values it always had.
+### Step 3: Leave your configuration alone
 
-**Solution:** Leave the configuration alone. Read the current URLs from the [Network Reference](/docs/network-reference#sui-rpc-endpoints), and use the pre-filled configuration file if you want to be sure it matches:
+Read the current URLs from the [Network Reference](/docs/network-reference#sui-rpc-endpoints), and pull the pre-filled file if you want to be certain yours matches:
 
 ```sh
 $ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
 
-#### `rpc.discover` returns `404` against a working full node
-
-**Cause:** The public full nodes serve Sui client and SDK traffic rather than JSON-RPC method discovery. A `404` from `rpc.discover` does not indicate a down or misconfigured node, and normal client calls against the same URL succeed.
-
-**Solution:** Ignore the discovery call and drive the node through `sui client` and the Walrus configuration file instead of calling JSON-RPC methods against it by hand.
-
-## Site builder errors
-
-These errors come from the `site-builder` binary rather than from the Walrus client.
-
-#### `site-builder` fails against a full node that stopped serving JSON-RPC
-
-**Cause:** The installed `site-builder` build is old enough to still construct a JSON-RPC client. Current builds do not, so they keep working against full nodes that have dropped the protocol.
-
-**Solution:** Upgrade the tooling. The optional `rpc_url` field in `sites-config.yaml` takes a Sui full node URL, and `site-builder` reaches that node over gRPC, so the deprecation needs no change to the file:
+The optional `rpc_url` field in `sites-config.yaml` also stays as it is, because `site-builder` reaches that same node over gRPC:
 
 ```yaml
 contexts:
@@ -56,21 +48,32 @@ contexts:
         # rpc_url: https://fullnode.mainnet.sui.io:443
 ```
 
-For the full configuration file, see the [Site Builder Reference](/docs/sites/getting-started/using-the-site-builder).
+For the full file, see the [Site Builder Reference](/docs/sites/getting-started/using-the-site-builder).
 
-## Self-hosted full nodes
+### Step 4: Enable gRPC on a full node you operate
 
-These errors appear when you point the client at a node you operate rather than at a public endpoint.
+The public endpoints in the [Network Reference](/docs/network-reference#sui-rpc-endpoints) already serve the gRPC API. A node you run has to enable it. Nothing changes on the Walrus side once it does.
 
-#### A custom full node rejects Walrus client traffic
+### Step 5: Rerun what failed
 
-**Cause:** The node does not serve the gRPC API. The public endpoints in the [Network Reference](/docs/network-reference#sui-rpc-endpoints) do, but a self-hosted node has to enable it.
+Run the command that failed before. If it still fails against a public endpoint, you are running an older binary than `walrus --version` reports, so check your `PATH`.
 
-**Solution:** Enable the gRPC API on the node, then point the client at it as before. No Walrus-side configuration changes.
+## Recognize an incomplete migration
+
+These failures all mean the same thing: a client that still speaks JSON-RPC, or a node that does not serve gRPC.
+
+| **What you see** | **What it means** | **Where to go** |
+| --- | --- | --- |
+| A `walrus` command fails against a full node that stopped serving JSON-RPC | The installed release still builds a JSON-RPC client | Step 1 |
+| `site-builder` fails the same way | The installed build still builds a JSON-RPC client | Step 2 |
+| You cannot find the setting that selects gRPC | No such setting exists | Step 3 |
+| A full node you operate rejects Walrus client traffic | The node does not serve the gRPC API | Step 4 |
+
+One failure means nothing is wrong: `rpc.discover` returns `404` against a working full node. The public nodes serve Sui client and SDK traffic rather than JSON-RPC method discovery, and normal calls against the same URL succeed. Drive the node through `sui client` and the Walrus configuration file instead of calling JSON-RPC methods by hand.
 
 ## Do not force the old code paths
 
-`WALRUS_GRPC_MIGRATION_LEVEL` exists as a temporary escape hatch for debugging the migration. If you set it below the client's default, the client falls back to the older JSON-RPC code paths that Sui full nodes are removing, which reintroduces the failures above.
+`WALRUS_GRPC_MIGRATION_LEVEL` exists as a temporary escape hatch for debugging the migration. If you set it below the client's default, the client falls back to the older JSON-RPC code paths that Sui full nodes are removing, which reintroduces every failure above.
 
 > **Caution**
 >
