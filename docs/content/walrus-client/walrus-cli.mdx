@@ -92,7 +92,7 @@ You can access Testnet and Mainnet through the following configuration. This exa
 
 ## Acquire and move WAL
 
-Storing data costs WAL, and every transaction costs SUI for gas. The `walrus` CLI exchanges SUI for WAL on Testnet. Moving WAL between addresses is a Sui operation, so you run it with `sui client`.
+Storing data costs WAL, and every transaction costs SUI for gas. The `walrus` CLI exchanges SUI for WAL on Testnet. To move WAL between addresses, use `sui client`, because Sui handles the transfer rather than Walrus.
 
 ### Exchange SUI for WAL on Testnet
 
@@ -124,7 +124,7 @@ On Mainnet, acquire WAL on an exchange that lists the token, or receive a transf
 
 ### Transfer WAL between addresses
 
-Walrus has no transfer command. WAL is a Sui coin, so `sui client` moves it. You need this when you fund a publisher wallet, a shared team wallet, or an agent wallet that stores blobs for you.
+Walrus has no transfer command. Sui holds WAL as a coin type, so `sui client` moves it. You need this when you fund a publisher wallet, a shared team wallet, or an agent wallet that stores blobs for you.
 
 1. List the WAL coin objects an address holds. Read the fully qualified coin type, which ends in `::wal::WAL`, from the `coinType` field of `sui client balance --json`:
 
