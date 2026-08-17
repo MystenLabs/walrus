@@ -386,9 +386,9 @@ Sui smart contract as the on-chain index.
     undertaking any other steps, make sure you have the latest walrus binary. If you have multiple
     versions in different locations, find the binary that is actually used with which walrus.
 - [Network Errors](https://docs.wal.app/docs/troubleshooting/network-errors.md):
-    Common errors in the Walrus CLI and network, with causes and solutions. This page covers common
-    errors you might encounter when using Walrus. Each entry includes the error message, its cause,
-    and how to troubleshoot it.
+    Common errors in the Walrus CLI and network, with causes and solutions. Each entry below gives
+    an error message you might hit when using Walrus, what causes it, and how to troubleshoot it.
+    Errors in this section occur when the Walrus CLI cannot load or parse its configuration.
 - [Reading Blobs After Upload](https://docs.wal.app/docs/troubleshooting/reading-blobs-after-upload.md):
     Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly
     from storage nodes returns it immediately. Public aggregators often sit behind a content
@@ -439,6 +439,11 @@ Sui smart contract as the on-chain index.
 - [How Storage Works](https://docs.wal.app/walrus-memory/fundamentals/architecture/how-storage-works.md):
     When you call memwal.remember(...), the relayer accepts a background job immediately and then
     stores the memory asynchronously. Here's what happens.
+- [Tracking Agent Storage](https://docs.wal.app/walrus-memory/fundamentals/architecture/tracking-agent-storage.md):
+    Every memory an agent writes becomes a durable object on two systems: an encrypted blob on
+    Walrus, and a Blob object on Sui that records who owns that blob and how long it lives. An
+    agent that depends on its memory has to know which blobs it owns, when each one expires, and
+    when to renew or drop it.
 - [How Agent Memory Works](https://docs.wal.app/walrus-memory/fundamentals/concepts/how-agent-memory-works.md):
     AI agent memory is a durable, searchable store of what an agent has learned, kept outside the
     model so it survives across sessions, apps, and workflows.
@@ -469,7 +474,11 @@ Sui smart contract as the on-chain index.
 - [Claude Code](https://docs.wal.app/walrus-memory/mcp/claude-code.md):
     Add Walrus Memory to Claude Code so it recalls context and saves durable facts as you work.
     Install it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the
-    tools). [x] Node.js 20+ [x] A Walrus Memory account.
+    tools). [x] Install Node.js 20+ with npx on your PATH; check with node --version.
+- [Claude Connector](https://docs.wal.app/walrus-memory/mcp/claude-connector.md):
+    Claude's built-in custom connector flow adds Walrus Memory over OAuth 2.1. You approve access
+    in the browser with your Sui wallet, and Claude never asks you for a delegate private key or a
+    custom header. > Note > > The connector flow needs a relayer that has OAuth turned on.
 - [Claude Desktop](https://docs.wal.app/walrus-memory/mcp/claude-desktop.md):
     Add Walrus Memory to Claude Desktop so the agent can save and recall durable facts. Claude
     Desktop uses the MCP server (the memory tools); the automatic-memory plugin hooks are available
@@ -490,9 +499,14 @@ Sui smart contract as the on-chain index.
 - [Overview](https://docs.wal.app/walrus-memory/mcp/overview.md):
     The Walrus Memory MCP server exposes your portable Walrus Memory as Model Context Protocol
     tools, so an AI agent can decide when to save and recall memories on its own.
+- [Quickstart](https://docs.wal.app/walrus-memory/mcp/quickstart.md):
+    Every supported client runs the same local server, and differs only in where the configuration
+    lives. Pick your client below, add the server, restart, and sign in. [x] You need Node.js 20 or
+    later, because the server runs through npx with no install step. [x] You need a Walrus Memory
+    account.
 - [Output example: GxK9pL2mQr8vN3jF5Ys7hT6wZ1cD4eR8](https://docs.wal.app/walrus-memory/mcp/reference.md):
-    This page documents every tool, flag, environment variable, and transport route the Walrus
-    Memory MCP package exposes. For per-client setup, start with the MCP overview.
+    The Walrus Memory MCP package exposes the tools, flags, environment variables, and transport
+    routes below. For per-client setup, start with the MCP overview.
 
 ## Walrus Memory: Relayer
 
@@ -708,9 +722,9 @@ Sui smart contract as the on-chain index.
     the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
     Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    July 31, 2026 | GitHub --- June 12, 2026 | GitHub Adds the automatic memory plugin for Claude
-    Code, Codex, Cursor, and Antigravity, along with new memwalrememberbulk and memwal_health tools
-    and proactive memory behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
+    August 14, 2026 | GitHub --- August 14, 2026 | GitHub --- July 31, 2026 | GitHub --- June 12,
+    2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity,
+    along with new memwalrememberbulk and memwal_health tools and proactive memory behavior.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
     Testnet | August 12, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
     now return 404 BLOBNOTFOUND within about a second, instead of 503 BLOBUNAVAILABLE after a 10-20
@@ -757,6 +771,14 @@ Sui smart contract as the on-chain index.
     memories you no longer want stored on Walrus Memory. This guide shows you how to preview your
     memories and delete any you'd like to clear. > Warning > > Deleting a memory is permanent and
     you cannot undo it.
+- [Manage Your Memory](https://docs.wal.app/walrus-memory/guides/manage-your-memory.md):
+    Your Walrus Memory account accumulates memories over time. See what you have stored, organize
+    it with namespaces, renew memories before they expire, and delete the ones you no longer want,
+    from the dashboard or through the SDK. [x] A Sui wallet that owns the memories you want to
+    manage.
+- [Returning User](https://docs.wal.app/walrus-memory/guides/returning-user.md):
+    Your memories live on Walrus and your account lives on Sui, so they persist no matter which
+    device you sign in from. Only the delegate key your browser used last time stays behind.
 
 ## Walrus Memory: Migration
 
@@ -814,8 +836,8 @@ Sui smart contract as the on-chain index.
     namespace for memory isolation | For the full config surface, see Configuration.
 - [Cloudflare Workers](https://docs.wal.app/walrus-memory/sdk/cloudflare-workers.md):
     Walrus Memory runs on the Cloudflare Workers runtime, but the edge environment differs from
-    Node.js in a few ways that affect bundling and reliability. This guide covers the configuration
-    and patterns that make it work cleanly.
+    Node.js in a few ways that affect bundling and reliability. The configuration and patterns
+    below make it work cleanly.
 - [Codebase Memory](https://docs.wal.app/walrus-memory/sdk/codebase-memory.md):
     AI coding assistants like Cursor appear to remember a codebase because they retrieve relevant
     context at query time rather than holding an entire repository in the model's context window.
