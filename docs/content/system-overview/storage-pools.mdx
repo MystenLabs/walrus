@@ -97,11 +97,11 @@ Storage pools use the same two prices as regular blobs, the per-epoch storage pr
 
 | Operation | Storage fee | Write fee |
 |---|---|---|
-| Create a pool | Reserved capacity × pool lifetime | — |
-| Register a blob | — | Blob's encoded size, once |
-| Extend the pool's lifetime | Full reserved capacity × added epochs | — |
-| Increase the pool's capacity | Added capacity × remaining epochs | — |
-| Delete a blob | — (frees capacity, no refund) | — |
+| Create a pool | Reserved capacity × pool lifetime | None |
+| Register a blob | None | Blob's encoded size, once |
+| Extend the pool's lifetime | Full reserved capacity × added epochs | None |
+| Increase the pool's capacity | Added capacity × remaining epochs | None |
+| Delete a blob | None (frees capacity, but pays no refund) | None |
 
 Two properties follow from this:
 
@@ -140,13 +140,13 @@ The `walrus::system` Move module exposes the full set of pool operations, and `S
 |---|---|---|
 | `create_storage_pool` | Buys a new pool with the given encoded capacity and lifetime. | Storage fee |
 | `register_pooled_blob` | Adds a blob to the pool; fails if the pool lacks capacity. | Write fee |
-| `certify_pooled_blob` | Certifies a registered pooled blob with a storage confirmation certificate. | — |
-| `delete_pooled_blob` | Removes a deletable blob and frees its capacity for reuse. | — |
+| `certify_pooled_blob` | Certifies a registered pooled blob with a storage confirmation certificate. | None |
+| `delete_pooled_blob` | Removes a deletable blob and frees its capacity for reuse. | None |
 | `extend_storage_pool` | Extends the pool's end epoch for every blob in the pool. | Storage fee |
 | `increase_storage_pool_capacity` | Adds encoded capacity for the pool's remaining epochs. | Storage fee |
-| `decrease_storage_pool_capacity_by_size` | Splits unused capacity out of the pool and returns it as a storage resource (Move only). | — |
-| `burn_expired_pooled_blob` | Cleans up blob objects after the pool expires, regardless of deletability (Move only). | — |
-| `destroy` | Destroys an empty pool and returns its underlying storage resource (Move only). | — |
+| `decrease_storage_pool_capacity_by_size` | Splits unused capacity out of the pool and returns it as a storage resource (Move only). | None |
+| `burn_expired_pooled_blob` | Cleans up blob objects after the pool expires, regardless of deletability (Move only). | None |
+| `destroy` | Destroys an empty pool and returns its underlying storage resource (Move only). | None |
 
 ## Use storage pools with the Rust SDK
 
