@@ -37,8 +37,7 @@ answer: >-
   connectivity.
 ---
 
-<AgentPrompt
-  prompt="My walrus store call on Testnet fails with could not retrieve enough confirmations to certify the blob, and which walrus shows two different binaries on my PATH. Diagnose both, fix them, and show me how to turn on debug logging to confirm which config file the client actually loaded."
+<AgentPrompt prompt="My walrus store call on Testnet fails with could not retrieve enough confirmations to certify the blob, and which walrus shows two different binaries on my PATH. Diagnose both, fix them, and show me how to turn on debug logging to confirm which config file the client actually loaded."
 />
 
 Resolve common issues with the Walrus CLI, configuration, and network connectivity.
@@ -71,7 +70,7 @@ $ RUST_LOG=walrus=debug walrus store file.txt --epochs 5
 ```
 If a freshly uploaded blob returns `404 Not Found` from a CDN-fronted aggregator, you are likely hitting a cached `404` response from before the blob propagated. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload) for when to retry and when not to.
 
-If a deployment started failing against a Sui full node that stopped serving JSON-RPC, upgrade the client rather than reconfiguring it. See [Fix gRPC and JSON-RPC Migration Errors](/docs/troubleshooting/grpc-migration) for the CLI, `site-builder`, and self-hosted full node cases.
+If a deployment fails against a Sui full node that stopped serving JSON-RPC, upgrade the client rather than reconfiguring it. See [Fix gRPC and JSON-RPC Migration Errors](/docs/troubleshooting/grpc-migration) for the CLI, `site-builder`, and self-hosted full node cases.
 
 import DocCardList from '@theme/DocCardList';
 import AskAiCta from '@site/src/shared/components/AskAiCta';
