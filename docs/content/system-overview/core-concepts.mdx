@@ -108,7 +108,7 @@ You can find the Walrus system object ID in the Walrus [`client_config.yaml` fil
 
 #### Events
 
-Storage nodes monitor blockchain events to coordinate their operations and respond to system changes. Walrus uses [custom Sui events](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move) to notify storage nodes of updates concerning stored blobs and the state of the network. Applications can also use [Sui RPC facilities](https://docs.sui.io/references/sui-api) to observe Walrus-related events.
+Storage nodes monitor blockchain events to coordinate their operations and respond to system changes. Walrus uses [custom Sui events](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move) to notify storage nodes of updates concerning stored blobs and the state of the network. Applications can also use the Sui [gRPC](https://docs.sui.io/references/fullnode-protocol) or [GraphQL](https://docs.sui.io/references/sui-graphql) APIs to observe Walrus-related events.
 
 When a blob is first registered, a [`BlobRegistered`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L12-L23) event is emitted that informs storage nodes that they should expect slivers associated with its blob ID. When the blob is certified, a [`BlobCertified`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L25-L35) event is emitted containing information about the blob ID and the epoch after which the blob is deleted. Before that epoch, the blob is guaranteed to be available.
 

@@ -184,7 +184,7 @@ When creating the `Display` for your object type, include the `walrus site addre
 
 ```move
 const VISUALIZATION_SITE: address = @0x901fb0...;
- 
+
 display.add(b"walrus site address".to_string(), VISUALIZATION_SITE.to_string());
 ```
 
@@ -196,7 +196,7 @@ The Walrus Site at `VISUALIZATION_SITE` is a single shared site, but it can rend
 
 1. Read `window.location.hostname` to get the subdomain.
 2. Decode the Base36 subdomain back to the original hex object ID.
-3. Query the Sui RPC for that object's onchain data.
+3. Query a Sui full node for that object's onchain data.
 4. Render the page using the object's properties (color, image, name, and so on).
 
 This produces a unique page for every object without requiring a separate Walrus Site deployment per item. For a complete implementation, see the [`flatland` example](https://github.com/MystenLabs/example-walrus-sites/tree/main/flatland).

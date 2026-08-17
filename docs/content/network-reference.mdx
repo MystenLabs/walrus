@@ -254,11 +254,12 @@ For the full configuration reference, see the [Site Builder Reference](/docs/sit
 The TypeScript SDK bundles the package and object IDs for each network. Select the network with the `network` option, and the SDK applies the correct values:
 
 ```ts
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
+import { SuiGrpcClient } from '@mysten/sui/grpc';
 import { WalrusClient } from '@mysten/walrus';
 
-const suiClient = new SuiClient({
-  url: getFullnodeUrl('mainnet'),
+const suiClient = new SuiGrpcClient({
+  network: 'mainnet',
+  baseUrl: 'https://fullnode.mainnet.sui.io:443',
 });
 
 const walrusClient = new WalrusClient({
