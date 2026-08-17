@@ -2991,6 +2991,9 @@ impl StorageNodeInner {
             let previous = self.epoch_change_sync_and_recovery_info.borrow();
             info.generation = previous.generation + 1;
             info.node_recovery_baseline_generation = if info.invalidates_node_recovery_baseline() {
+                self.metrics
+                    .node_recovery_baseline_invalidations_total
+                    .inc();
                 info.generation
             } else {
                 previous.node_recovery_baseline_generation

@@ -104,7 +104,6 @@ impl EpochChangeSyncAndRecoveryInfo {
     /// Returns `true` if publishing this info invalidates in-flight node-recovery work: while
     /// catching up the node's view of its shard assignment is not authoritative (and blob
     /// events are skipped), and a non-member has no sync work at all.
-    // TODO(WAL-1265): track baseline invalidations (for example, with a metric) for debugging.
     pub(crate) fn invalidates_node_recovery_baseline(&self) -> bool {
         self.catching_up || !self.membership.is_member()
     }
