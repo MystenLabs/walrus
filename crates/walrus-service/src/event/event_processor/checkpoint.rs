@@ -12,14 +12,13 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use futures_util::future::try_join_all;
-use move_core_types::annotated_value::{MoveDatatypeLayout, MoveTypeLayout};
 use sui_package_resolver::Resolver;
-use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{
     SYSTEM_PACKAGE_ADDRESSES,
     base_types::ObjectID,
     committee::Committee,
     effects::TransactionEffectsAPI,
+    event::EventID,
     full_checkpoint_content::CheckpointData,
     message_envelope::Message,
     messages_checkpoint::VerifiedCheckpoint,
@@ -162,27 +161,15 @@ impl CheckpointProcessor {
                 .enumerate()
             {
                 tracing::trace!(?tx_event, "event received");
-                let move_type_layout = self
-                    .package_resolver
-                    .type_layout(move_core_types::language_storage::TypeTag::Struct(
-                        Box::new(tx_event.type_.clone()),
-                    ))
-                    .await?;
-                let move_datatype_layout = match move_type_layout {
-                    MoveTypeLayout::Struct(s) => Some(MoveDatatypeLayout::Struct(s)),
-                    MoveTypeLayout::Enum(e) => Some(MoveDatatypeLayout::Enum(e)),
-                    _ => None,
-                }
-                .ok_or(anyhow!("Failed to get move datatype layout"))?;
-                let sui_event = SuiEvent::try_from(
-                    tx_event,
-                    *tx.transaction.digest(),
-                    seq as u64,
-                    None,
-                    move_datatype_layout,
-                )?;
-                let contract_event: ContractEvent =
-                    walrus_sui::types::EventEnvelope::from(sui_event).try_into()?;
+                let envelope = walrus_sui::types::EventEnvelope {
+                    id: EventID {
+                        tx_digest: *tx.transaction.digest(),
+                        event_seq: u64::try_from(seq).expect("event index fits in u64"),
+                    },
+                    type_: tx_event.type_,
+                    bcs: tx_event.contents,
+                };
+                let contract_event: ContractEvent = envelope.try_into()?;
                 let event_sequence_number = CheckpointEventPosition::new(
                     *checkpoint.checkpoint_summary.sequence_number(),
                     counter,
