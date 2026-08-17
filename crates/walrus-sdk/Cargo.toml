@@ -36,7 +36,6 @@ rustls-native-certs.workspace = true
 serde.workspace = true
 serde_with.workspace = true
 serde_yaml.workspace = true
-sui-sdk.workspace = true
 sui-types.workspace = true
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
