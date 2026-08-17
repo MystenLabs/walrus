@@ -49,6 +49,7 @@ const sidebars = {
         "walrus-client/storing-blobs",
         "walrus-client/reading-blobs",
         "walrus-client/managing-blobs",
+        "walrus-client/network-health",
         "large-uploads",
         "sponsored-uploads",
         "walrus-client/quilts",
