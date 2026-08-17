@@ -1,6 +1,6 @@
 ---
 title: Troubleshooting Common Errors
-description: 'Common errors in the Walrus CLI and network, with causes and solutions.'
+description: Common errors in the Walrus CLI and network, with causes and solutions.
 keywords:
   - walrus
   - troubleshooting
@@ -38,7 +38,7 @@ answer: 'Common errors in the Walrus CLI and network, with causes and solutions.
 
 Common errors in the Walrus CLI and network, with causes and solutions.
 
-This page covers common errors you might encounter when using Walrus. Each entry includes the error message, its cause, and how to troubleshoot it.
+Each entry below gives an error message you might hit when using Walrus, what causes it, and how to troubleshoot it.
 
 ## Configuration errors
 
@@ -73,7 +73,7 @@ Alternatively, download a fresh configuration file:
 $ curl https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
 ```
 
-If you download a fresh file, be aware that any custom configuration may be overwritten or lost. Take precaution to preserve necessary configuration parameters. 
+If you download a fresh file, be aware that any custom configuration might be overwritten or lost. Take precaution to preserve necessary configuration parameters. 
 
 #### `the specified Walrus system object does not exist`
 
@@ -246,11 +246,13 @@ Exactly one query pattern must be specified. Valid query patterns are:
 
 **Cause:** The `get-wal` command requires an exchange object ID, but none was provided. This command is only available on Testnet.
 
-**Solution:** Specify the exchange object ID:
+**Solution:** Confirm you are on Testnet, then specify the exchange object ID:
 
 ```
-$ walrus get-wal --exchange-id EXCHANGE_OBJECT_ID
+$ walrus get-wal --context testnet --exchange-id EXCHANGE_OBJECT_ID
 ```
+
+On Mainnet, the configuration declares no exchange objects, so no flag clears this error. See [Acquire WAL on Mainnet](/docs/walrus-client/walrus-cli#acquire-wal-on-mainnet).
 
 #### `operation cancelled by user`
 
@@ -273,7 +275,7 @@ $ walrus convert-blob-id DECIMAL_VALUE
 ```
 
 :::info
-Some on-chain representations and Sui explorers display blob IDs as large decimal numbers. These are not valid blob IDs for Walrus API calls. Always convert them to URL-safe base64 format before use.
+Some onchain representations and Sui explorers display blob IDs as large decimal numbers. These are not valid blob IDs for Walrus API calls. Always convert them to URL-safe base64 format before use.
 :::
 
 #### `the provided blob ID is invalid`
@@ -291,7 +293,7 @@ Error: Blob not found on Sui
 HTTP 404: Blob ID not registered
 ```
 
-**Cause:** The blob was never uploaded, has expired (past its storage epoch), belongs to a different network, or was marked invalid on-chain.
+**Cause:** The blob was never uploaded, has expired (past its storage epoch), belongs to a different network, or was marked invalid onchain.
 
 **Solution:** Verify the blob ID is correct and that you are querying the correct network. Check the blob status:
 
@@ -310,6 +312,8 @@ If the blob expired, re-upload it. On Mainnet, each storage epoch is approximate
 Retry the upload. If the error persists during high network activity, wait a few minutes and try again. Storage nodes might need time to process recent events.
 
 ## Insufficient funds
+
+These errors mean the wallet lacks the tokens a transaction needs, either SUI for gas or WAL for storage.
 
 #### `Insufficient SUI for gas` or `Insufficient WAL for storage fees`
 
@@ -339,6 +343,8 @@ Add SUI or WAL to your wallet as needed. Use `walrus info` to check current stor
 
 ## Transaction errors
 
+These errors come from the Sui transaction the client submits, rather than from the storage nodes.
+
 #### Transaction timeout
 
 **Error:**
@@ -351,7 +357,7 @@ Error: RPC timeout waiting for transaction
 
 **Cause:** Network congestion on Sui, RPC node issues, or the transaction is stuck in the mempool.
 
-**Solution:** Check whether the transaction succeeded on-chain before retrying:
+**Solution:** Check whether the transaction succeeded onchain before retrying:
 
 ```
 $ sui client tx-block TRANSACTION_ID
@@ -360,7 +366,7 @@ $ sui client tx-block TRANSACTION_ID
 If the transaction succeeded, proceed normally. If it failed or was not found, retry the operation.
 
 :::caution
-Do not assume a timed-out transaction failed. Always check the on-chain state first. Retrying a successful transaction can result in duplicate blob registrations and wasted funds.
+Do not assume a timed-out transaction failed. Always check the onchain state first. Retrying a successful transaction can result in duplicate blob registrations and wasted funds.
 :::
 
 #### Transaction conflict
@@ -410,7 +416,7 @@ Error: Quorum not reached (received 1/2 of signatures)
 
 **Cause:** One or more storage nodes are offline, overloaded, or unreachable due to a network partition.
 
-**Solution:** Retry the upload. The publisher might reach different nodes on subsequent attempts. If 2/3 of storage nodes respond, the upload succeeds. If fewer than 2/3 respond, the upload fails. Check on-chain state to verify whether the blob was registered, then retry if necessary.
+**Solution:** Retry the upload. The publisher might reach different nodes on subsequent attempts. If 2/3 of storage nodes respond, the upload succeeds. If fewer than 2/3 respond, the upload fails. Check onchain state to verify whether the blob was registered, then retry if necessary.
 
 #### Aggregator cannot fetch enough slivers
 
@@ -443,7 +449,7 @@ HTTP 404: Sliver ID not in database
 
 **Cause:** The blob expired or was never stored.
 
-**Solution:** Retry the read. Other nodes hold copies of the slivers through erasure coding. If fewer than 1/3 of nodes lost data, retrieval succeeds normally. If the error persists, check the on-chain blob status with `walrus blob-status`. Re-upload the blob if necessary.
+**Solution:** Retry the read. Other nodes hold copies of the slivers through erasure coding. If fewer than 1/3 of nodes lost data, retrieval succeeds normally. If the error persists, check the onchain blob status with `walrus blob-status`. Re-upload the blob if necessary.
 
 #### Sliver hash mismatch
 
@@ -477,6 +483,8 @@ Error: Certificate verification failed
 
 ## Encoding errors
 
+These errors happen on your own machine while the client encodes a blob, before it reaches the network.
+
 #### Out of memory during encoding
 
 **Error:**
@@ -499,6 +507,6 @@ Error: insufficient balance
 Error: no WAL coins found for storage payment
 ```
 
-**Cause:** Your WAL may be from a different package than the Walrus client expects. Some third-party Testnet faucets distribute WAL from a non-canonical package, and the client rejects it with an `insufficient balance` error even though a balance appears in your wallet.
+**Cause:** Your WAL might be from a different package than the Walrus client expects. Some third-party Testnet faucets distribute WAL from a non-canonical package, and the client rejects it with an `insufficient balance` error even though a balance appears in your wallet.
 
-**Solution:** Acquire WAL through the official path documented in [Getting Started](/docs/getting-started), not third-party faucets. On Testnet, use the WAL exchange (`walrus get-wal`); on Mainnet, swap SUI for WAL through a supported exchange. WAL from an unsupported package cannot be used for storage payments.
+**Solution:** Acquire WAL through the official path documented in [Getting Started](/docs/getting-started), not third-party faucets. On Testnet, use the WAL exchange (`walrus get-wal`); on Mainnet, swap SUI for WAL through a supported exchange. For both paths, and for moving WAL between addresses, see [Acquire and move WAL](/docs/walrus-client/walrus-cli#acquire-and-move-wal). WAL from an unsupported package cannot be used for storage payments.
