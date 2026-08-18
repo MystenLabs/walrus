@@ -130,7 +130,7 @@ jobs:
           git commit -m "$BODY"
           # Push using the app token URL so the push is attributed to the GitHub App,
           # not github-actions[bot]. Pushes with GITHUB_TOKEN don't trigger CI workflows.
-          git push -u \
+          ./scripts/git_push_with_retry.sh -u \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             "$BRANCH"
 
@@ -153,4 +153,4 @@ jobs:
 
           git add Cargo.toml Cargo.lock
           git commit -m "$BODY"
-          git push origin HEAD:"$REF_NAME"
+          ./scripts/git_push_with_retry.sh origin HEAD:"$REF_NAME"
