@@ -74,6 +74,7 @@ These are not all enforced at boot, but most real deployments need them.
 | `SUI_GRPC_URL` | network public fullnode | Sui gRPC endpoint used for current-object reads and writes |
 | `SUI_GRAPHQL_URL` | network public GraphQL service | Archival Sui GraphQL endpoint used to resolve immutable Blob creation provenance. It must retain historical transactions and object versions; `/ready` rejects a wrong-network endpoint |
 | `RESTORE_REQUESTS_PER_OWNER_PER_MINUTE` | `10` | Maximum authenticated restore calls per owner in a one-minute sliding window; `0` disables this dedicated guard |
+| `AUTH_MAX_CLOCK_DRIFT_SECS` | `300` | Accepted clock drift, in seconds each direction, between a client's signed timestamp and the relayer clock. Requests outside the window are rejected with `401` and an `x-auth-error: ERR_TIMESTAMP_OUT_OF_BOUNDS` response header. Allowed range `0`–`900`; `0` requires an exact-second match; out-of-range or unparseable values fall back to `300`. Replay-nonce Redis TTL is `2 × window + 300s` so a future-dated request cannot be replayed after the nonce expires. Redis-down fail-closes (rejects). Keep the window as small as fleet clock sync allows |
 | `WALRUS_PUBLISHER_URL` | Walrus Mainnet publisher | Override upload endpoint |
 | `WALRUS_AGGREGATOR_URL` | Walrus Mainnet aggregator | Override download endpoint |
 | `WALRUS_AGGREGATOR_URLS` | none | Optional comma-separated extra aggregator/proxy endpoints for cold-read tail racing. `WALRUS_AGGREGATOR_URL` remains the primary |
@@ -92,13 +93,19 @@ These are not all enforced at boot, but most real deployments need them.
 | `SEAL_THRESHOLD` | `min(2, total configured weight)` | Required configured server weight for Seal encrypt/decrypt |
 | `ENOKI_API_KEY` | none | Optional Enoki key for sponsored sidecar transactions |
 | `ENOKI_NETWORK` | `mainnet` | Network used for Enoki-sponsored flows |
-| `ENOKI_FALLBACK_TO_DIRECT_SIGN` | `false` | If true, sidecar pays gas directly with the server wallet when Enoki sponsorship fails or is not configured |
+| `DURABLE_ENOKI_REGISTER_ENABLED` | `false` | Enables Enoki sponsorship for durable Walrus registration. Deploy all replicas with this off first, then enable it after old replicas drain |
+| `ENOKI_FALLBACK_TO_DIRECT_SIGN` | `false` | If true, rebuildable Enoki flows might pay gas directly with the server wallet. Durable registration fails closed after `DURABLE_ENOKI_REGISTER_ENABLED=true` |
 | `ENOKI_TRANSIENT_MAX_ATTEMPTS` | `2` | Attempts for sidecar-level retries of transient Enoki failures (`429`, `5xx`, network errors) before failing the wallet job |
 | `ENOKI_TRANSIENT_BASE_DELAY_MS` | `5000` | Base delay for transient Enoki retries when the response does not include `Retry-After` or a retry hint |
 | `ENOKI_TRANSIENT_MAX_DELAY_MS` | `30000` | Maximum delay for one transient Enoki retry, including parsed retry hints such as “try again in 30 seconds” |
 | `ENOKI_INVALIDATED_MAX_ATTEMPTS` | `4` | Attempts for rebuildable sponsored transactions invalidated by Enoki `expired` responses or short Sui object visibility lag before failing the wallet job |
 | `ENOKI_INVALIDATED_BASE_DELAY_MS` | `1000` | Base delay for retrying rebuildable sponsored transactions after Enoki invalidation |
 | `ENOKI_INVALIDATED_MAX_DELAY_MS` | `8000` | Maximum delay for one rebuildable sponsored transaction invalidation retry |
+| `BALANCE_MONITOR_INTERVAL_SECS` | `900` | How often the relayer polls uploader and sponsor address balances for low-balance Slack alerts |
+| `WALLET_BALANCE_LOW_THRESHOLD_WAL` | `50000000000` | Uploader WAL address-balance threshold in FROST (50 WAL). Alerts independently of SUI |
+| `WALLET_BALANCE_LOW_THRESHOLD_SUI` | `5000000000` | Uploader SUI address-balance threshold in MIST (5 SUI). Load-bearing during phase 1, when durable register pays gas from the uploader wallet |
+| `SPONSOR_BALANCE_LOW_THRESHOLD_SUI` | `5000000000` | Sponsor wallet SUI address-balance threshold in MIST (5 SUI) |
+| `WALLET_BALANCE_LOW_ALERT_DEDUP_SECS` | `43200` | Dedup window for wallet low-balance Slack alerts, per `(network, wallet type, token, address)` |
 | `MEMWAL_RELAYER_URL` | `http://127.0.0.1:$PORT` | Relayer URL passed from the Rust server to the sidecar for MCP tool calls |
 | `MCP_MAX_TOTAL_SESSIONS` | `1000` | Maximum active MCP sessions across SSE and Streamable HTTP transports |
 | `MCP_MAX_SESSIONS_PER_IP` | `16` | Maximum active MCP sessions from one source IP |
@@ -108,7 +115,8 @@ These are not all enforced at boot, but most real deployments need them.
 ### Notes
 
 - If both `SERVER_SUI_PRIVATE_KEYS` and `SERVER_SUI_PRIVATE_KEY` are set, the key pool takes priority for uploads. Upload jobs use the pool in round-robin order.
-- Keep `ENOKI_FALLBACK_TO_DIRECT_SIGN=false` in production if the server wallet should not pay gas when sponsorship is missing, expired, or rejected.
+- Roll out durable registration sponsorship in two phases: first deploy all replicas with `DURABLE_ENOKI_REGISTER_ENABLED=false`; after old replicas have drained, set it to `true`. This prevents mixed-version workers from rejecting persisted sponsored journals. During phase 1, if `ENOKI_API_KEY` is set, durable register **direct-signs and pays gas from the uploader wallet**, the new SUI address-balance alert is load-bearing for that window. After phase 2, drain every replica before rolling the gate back to `false`; otherwise old replicas can 409 sponsored journals as `INVALID_PREPARED_REGISTER_TRANSACTION`.
+- Keep `ENOKI_FALLBACK_TO_DIRECT_SIGN=false` in production if the server wallet should not pay gas for rebuildable Enoki flows when sponsorship is missing, expired, or rejected. Durable registration does not fall back after its rollout gate is enabled.
 - `OPENAI_API_KEY` and `OPENAI_API_BASE` control the embedding and fact-extraction provider used by `remember`, `recall`, `analyze`, `ask`, and restore re-indexing.
 - `WALRUS_AGGREGATOR_URLS` is only used after the Redis ciphertext cache misses. Put low-latency cache/proxy endpoints first after the primary and keep 404/5xx cache TTLs short in your proxy.
 - `WALRUS_SKIP_CONSISTENCY_CHECK=true` should only be used for trusted blobs written by the relayer. Restore keeps consistency checks enabled for onchain-discovered blobs.
