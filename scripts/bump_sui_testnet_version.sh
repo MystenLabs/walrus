@@ -6,6 +6,9 @@
 
 set -Eeuo pipefail
 
+# Resolve sibling scripts relative to this file so the script works from any working directory.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Ensure required binaries are available
 for cmd in cargo gh sui git; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -111,13 +114,28 @@ git config user.email \
 # Push branch using AUTOMERGE_TOKEN so the push comes from the walrus-automerge app
 # instead of github-actions[bot]. Pushes made with GITHUB_TOKEN do not trigger CI workflows.
 git commit -m "ci: bump Sui testnet version to ${NEW_TAG}"
+
 if [[ -n "${AUTOMERGE_TOKEN:-}" ]]; then
-  # Configure git to use the automerge token via credential helper to avoid
-  # leaking the token in git error messages or process listings.
-  git -c "http.https://github.com/.extraheader=Authorization: basic $(echo -n "x-access-token:${AUTOMERGE_TOKEN}" | base64)" \
-    push -u origin "$BRANCH"
+  # Authenticate with the automerge token through an extra header.
+  #
+  # `tr -d '\n'` is required: `base64` wraps its output at 76 columns, so a long enough token
+  # yields a value containing a newline. That newline lands inside the Authorization header, which
+  # makes the request malformed and causes GitHub to reset the HTTP/2 stream with "HTTP/2 stream 1
+  # was not closed cleanly before end of the underlying stream".
+  AUTH_HEADER="$(printf '%s' "x-access-token:${AUTOMERGE_TOKEN}" | base64 | tr -d '\n')"
+
+  # Diagnostic: the token length is not sensitive, and lets us confirm whether a future push
+  # failure is caused by an over-long token (see the wrapping note above).
+  echo "AUTOMERGE_TOKEN length: ${#AUTOMERGE_TOKEN}" >&2
+
+  # Pass the header through GIT_CONFIG_* rather than `git -c` so the token stays out of the
+  # command line, where a process listing would expose it.
+  GIT_CONFIG_COUNT=1 \
+  GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+  GIT_CONFIG_VALUE_0="Authorization: basic ${AUTH_HEADER}" \
+    "${SCRIPT_DIR}/git_push_with_retry.sh" -u origin "$BRANCH"
 else
-  git push -u origin "$BRANCH"
+  "${SCRIPT_DIR}/git_push_with_retry.sh" -u origin "$BRANCH"
 fi
 
 # Generate PR body
