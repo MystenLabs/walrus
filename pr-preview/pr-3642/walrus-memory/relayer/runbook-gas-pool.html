@@ -27,7 +27,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3642/assets/css/styles.e5a7158c.css">
-<script src="/walrus/pr-preview/pr-3642/assets/js/runtime~main.17e3a58a.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3642/assets/js/runtime~main.a8ca04c6.js" defer="defer"></script>
 <script src="/walrus/pr-preview/pr-3642/assets/js/main.9f1adf69.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -43,11 +43,20 @@ alert), or relayer logs show wallet jobs aborting with
 <code>classification=gas_pool_exhausted</code> or Enoki <code>dry_run_failed</code> plus
 <code>0x2::balance::split</code> (ENotEnough, abort code 2).</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="what-it-means">What it means<a href="#what-it-means" class="hash-link" aria-label="Direct link to What it means" title="Direct link to What it means" translate="no">​</a></h2>
-<p>The relayer sponsors Walrus register transactions through Enoki. Enoki&#x27;s dry-run
-splits a SUI gas coin on the selected pool wallet to cover the sponsored budget.
-When that wallet has <strong>no single SUI coin large enough</strong> (its gas is fragmented
-into many small coins, or it is low on SUI), Sui aborts in <code>0x2::balance::split</code>
-with <code>ENotEnough</code>.</p>
+<p>Gas ownership depends on the durable-register rollout gate:</p>
+<ul>
+<li class=""><strong>Phase 1</strong> (<code>DURABLE_ENOKI_REGISTER_ENABLED=false</code>, the current staging/prod
+default): durable register <strong>direct-signs</strong>. The <strong>uploader wallet</strong> pays SUI
+gas from its address balance. Top up that wallet; do not send SUI to an Enoki
+pool wallet expecting it to sponsor this path.</li>
+<li class=""><strong>Phase 2</strong> (<code>DURABLE_ENOKI_REGISTER_ENABLED=true</code>): durable register is
+Enoki-sponsored. Enoki&#x27;s dry-run splits a SUI gas coin on the selected pool
+wallet. When that wallet has <strong>no single SUI coin large enough</strong> (fragmented
+or low), Sui aborts in <code>0x2::balance::split</code> with <code>ENotEnough</code>.</li>
+</ul>
+<p>The rest of this runbook is the phase-2 / Enoki-sponsored path. Phase-1
+starvation is a low <strong>uploader</strong> SUI address balance, see the wallet-balance
+alert, not this gas-pool alert.</p>
 <p>The relayer now classifies this as <code>GasPoolExhausted</code> and <strong>aborts the job
 immediately</strong> instead of retrying across the whole pool (which would just
 re-fail on the next equally-starved wallet and burn the attempt budget). The
@@ -81,8 +90,11 @@ Sui address. Derive the addresses (per key):</p>
 <a href="https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/runbook-gas-pool.md" target="_blank" class="code-source-link">Source: relayer/runbook-gas-pool.md</a>
 <div><div class="language-bash codeBlockContainer_gyLn theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-bash !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_p187"><span class="token-line" style="color:#F8F8F2"><span class="token select-none opacity-40 text-lg">$ </span><span class="token plain">sui client pay-all-sui --input-coins &lt;COIN_ID_1&gt; &lt;COIN_ID_2&gt; ... --recipient &lt;POOL_ADDRESS&gt; --gas-budget 5000000</span><br></span></code></pre></div></div></div>
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="top-up">Top up<a href="#top-up" class="hash-link" aria-label="Direct link to Top up" title="Direct link to Top up" translate="no">​</a></h3>
-<p>Send SUI to the starved pool wallets so the largest coin comfortably exceeds
-the sponsored budget with headroom.</p>
+<p><strong>Phase 2 only.</strong> Send SUI to the starved Enoki pool wallets so the largest
+coin comfortably exceeds the sponsored budget with headroom.</p>
+<p><strong>Phase 1:</strong> send SUI to the <strong>uploader</strong> wallet address that fired the
+low-balance alert (<code>WALLET_BALANCE_LOW_THRESHOLD_SUI</code>). Pool-wallet top-ups do
+not pay durable-register gas while the gate is off.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="verify">Verify<a href="#verify" class="hash-link" aria-label="Direct link to Verify" title="Direct link to Verify" translate="no">​</a></h2>
 <p>Re-run the diagnose step. Each pool wallet should have one (or few) large SUI
 coins. Re-trigger a failed upload (or wait for the next job); the gas-pool alert

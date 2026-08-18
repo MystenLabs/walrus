@@ -7,11 +7,20 @@ alert), or relayer logs show wallet jobs aborting with
 
 ## What it means
 
-The relayer sponsors Walrus register transactions through Enoki. Enoki's dry-run
-splits a SUI gas coin on the selected pool wallet to cover the sponsored budget.
-When that wallet has **no single SUI coin large enough** (its gas is fragmented
-into many small coins, or it is low on SUI), Sui aborts in `0x2::balance::split`
-with `ENotEnough`.
+Gas ownership depends on the durable-register rollout gate:
+
+- **Phase 1** (`DURABLE_ENOKI_REGISTER_ENABLED=false`, the current staging/prod
+  default): durable register **direct-signs**. The **uploader wallet** pays SUI
+  gas from its address balance. Top up that wallet; do not send SUI to an Enoki
+  pool wallet expecting it to sponsor this path.
+- **Phase 2** (`DURABLE_ENOKI_REGISTER_ENABLED=true`): durable register is
+  Enoki-sponsored. Enoki's dry-run splits a SUI gas coin on the selected pool
+  wallet. When that wallet has **no single SUI coin large enough** (fragmented
+  or low), Sui aborts in `0x2::balance::split` with `ENotEnough`.
+
+The rest of this runbook is the phase-2 / Enoki-sponsored path. Phase-1
+starvation is a low **uploader** SUI address balance, see the wallet-balance
+alert, not this gas-pool alert.
 
 The relayer now classifies this as `GasPoolExhausted` and **aborts the job
 immediately** instead of retrying across the whole pool (which would just
@@ -79,8 +88,12 @@ $ sui client pay-all-sui --input-coins <COIN_ID_1> <COIN_ID_2> ... --recipient <
 
 ### Top up
 
-Send SUI to the starved pool wallets so the largest coin comfortably exceeds
-the sponsored budget with headroom.
+**Phase 2 only.** Send SUI to the starved Enoki pool wallets so the largest
+coin comfortably exceeds the sponsored budget with headroom.
+
+**Phase 1:** send SUI to the **uploader** wallet address that fired the
+low-balance alert (`WALLET_BALANCE_LOW_THRESHOLD_SUI`). Pool-wallet top-ups do
+not pay durable-register gas while the gate is off.
 
 ## Verify
 
