@@ -22,8 +22,8 @@ Authorization: Bearer hbr_…
 
 Mint keys through the Console web interface. Each key has one of two roles:
 
-- `read_write` keys can change state: create and delete buckets, upload and delete files, and finalize private buckets.
-- `read_only` keys can list, check status, and download only. Any write with a read-only key returns `403` with code `read_only_api_key`.
+1. `read_write` keys can change state: create and delete buckets, upload and delete files, and finalize private buckets.
+2. `read_only` keys can list, check status, and download only. Any write with a read-only key returns `403` with code `read_only_api_key`.
 
 A request with no valid key returns `401`. A key without access to the target resource returns `403`.
 
