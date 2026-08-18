@@ -310,7 +310,13 @@ pub mod simtest_utils {
         }
     }
 
-    /// Starts a background workload that writes and reads random blobs.
+    /// Capacity of the storage pool backing the pooled half of the background workload.
+    const WORKLOAD_POOL_CAPACITY_BYTES: u64 = 64 * 1024 * 1024;
+    /// Lifetime of that pool. The pooled store does not extend it, so it is provisioned to
+    /// outlive the workload.
+    const WORKLOAD_POOL_EPOCHS: EpochCount = 50;
+
+    /// Starts a background workload that writes and reads random owned and pooled blobs.
     pub fn start_background_workload(
         client_clone: Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
         write_only: bool,
@@ -318,6 +324,18 @@ pub mod simtest_utils {
         epochs_max: Option<EpochCount>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
+            // The pooled half needs a pool. Without one the workload still runs, covering owned
+            // blobs only, so a cluster that rejects the pool does not fail the test.
+            let storage_pool_id = client_clone
+                .inner
+                .sui_client()
+                .create_storage_pool(WORKLOAD_POOL_CAPACITY_BYTES, WORKLOAD_POOL_EPOCHS)
+                .await
+                .inspect_err(
+                    |error| tracing::warn!(%error, "no storage pool; writing owned blobs only"),
+                )
+                .ok();
+
             let mut data_length = 64;
             let mut blobs_written = HashSet::new();
             loop {
@@ -338,6 +356,23 @@ pub mod simtest_utils {
                 .await
                 .expect("workload should not fail");
 
+                // Pooled blobs populate the pooled column families, which owned blobs never
+                // touch. Failures only warn: an epoch change during the upload fails the store
+                // but leaves the blob registered in the pool, so the traffic still lands, and
+                // the next iteration uses a new blob id anyway.
+                if let Some(storage_pool_id) = storage_pool_id
+                    && let Err(error) = write_read_and_check_random_pooled_blob(
+                        client_clone.as_ref(),
+                        storage_pool_id,
+                        data_length,
+                        write_only,
+                        deletable,
+                    )
+                    .await
+                {
+                    tracing::warn!(%error, "pooled blob workload iteration failed");
+                }
+
                 maybe_extend_blob(client_clone.as_ref(), &blobs_written).await;
                 if deletable {
                     maybe_delete_blob(client_clone.as_ref(), &blobs_written).await;
@@ -352,17 +387,17 @@ pub mod simtest_utils {
 
     /// Stores a random blob into the given storage pool and reads it back.
     ///
-    /// The pooled store does not extend the pool, so the pool must already outlive
-    /// `epochs_ahead`.
+    /// The blob lives as long as the pool does, so it asks for the shortest lifetime the pool is
+    /// guaranteed to cover; the pooled store neither extends nor grows the pool.
     pub async fn write_read_and_check_random_pooled_blob(
         client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
         storage_pool_id: ObjectID,
         data_length: usize,
+        write_only: bool,
         deletable: bool,
-        epochs_ahead: EpochCount,
     ) -> anyhow::Result<()> {
         let blob = walrus_test_utils::random_data(data_length);
-        let store_args = StoreArgs::default_with_epochs(epochs_ahead)
+        let store_args = StoreArgs::default_with_epochs(1)
             .no_store_optimizations()
             .with_persistence(BlobPersistence::from_deletable(deletable));
 
@@ -382,9 +417,14 @@ pub mod simtest_utils {
             anyhow::bail!("storing the pooled blob failed: {result:?}");
         };
 
+        let blob_id = pooled_blob_object.blob_id;
+        if write_only {
+            tracing::info!(%blob_id, %storage_pool_id, "stored a pooled blob");
+            return Ok(());
+        }
+
         // Absorb the transient unavailability that can follow an upload.
         const READ_ATTEMPTS: usize = 10;
-        let blob_id = pooled_blob_object.blob_id;
         let mut read = client.as_ref().read_blob::<Primary>(&blob_id).await;
         for attempt in 1..=READ_ATTEMPTS {
             if read.is_ok() {
@@ -400,35 +440,6 @@ pub mod simtest_utils {
         );
         tracing::info!(%blob_id, %storage_pool_id, "stored and read back a pooled blob");
         Ok(())
-    }
-
-    /// Starts a background workload that writes and reads random blobs in a storage pool.
-    ///
-    /// Errors are logged and the next iteration continues: the pooled store does not retry
-    /// across epoch changes.
-    pub fn start_pooled_background_workload(
-        client: Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
-        storage_pool_id: ObjectID,
-        epochs_ahead: EpochCount,
-    ) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            let mut data_length = 64;
-            loop {
-                let deletable = rand::thread_rng().gen_bool(0.5);
-                if let Err(error) = write_read_and_check_random_pooled_blob(
-                    client.as_ref(),
-                    storage_pool_id,
-                    data_length,
-                    deletable,
-                    epochs_ahead,
-                )
-                .await
-                {
-                    tracing::warn!(%error, "pooled workload iteration failed; continuing");
-                }
-                data_length += 1;
-            }
-        })
     }
 
     /// BlobInfoConsistencyCheck is a helper struct to check the consistency of the blob info.
