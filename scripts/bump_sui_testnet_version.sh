@@ -111,13 +111,50 @@ git config user.email \
 # Push branch using AUTOMERGE_TOKEN so the push comes from the walrus-automerge app
 # instead of github-actions[bot]. Pushes made with GITHUB_TOKEN do not trigger CI workflows.
 git commit -m "ci: bump Sui testnet version to ${NEW_TAG}"
+
+# Pushes a single attempt, using AUTOMERGE_TOKEN when available.
+push_branch_once() {
+  if [[ -n "${AUTOMERGE_TOKEN:-}" ]]; then
+    # Configure git to use the automerge token via an extra header to avoid leaking the token in
+    # git error messages or process listings.
+    #
+    # `tr -d '\n'` is required: `base64` wraps its output at 76 columns, so a long enough token
+    # yields a value containing a newline. That newline lands inside the Authorization header,
+    # which makes the request malformed and causes GitHub to reset the HTTP/2 stream with
+    # "HTTP/2 stream 1 was not closed cleanly before end of the underlying stream".
+    local auth
+    auth="$(printf '%s' "x-access-token:${AUTOMERGE_TOKEN}" | base64 | tr -d '\n')"
+    git -c "http.https://github.com/.extraheader=Authorization: basic ${auth}" \
+      push -u origin "$BRANCH"
+  else
+    git push -u origin "$BRANCH"
+  fi
+}
+
+# Pushes the branch, retrying to absorb transient network failures.
+push_branch() {
+  local attempt
+  for attempt in 1 2 3; do
+    if push_branch_once; then
+      return 0
+    fi
+    echo "Warning: push attempt ${attempt} failed" >&2
+    if [[ $attempt -lt 3 ]]; then
+      sleep $((attempt * 5))
+    fi
+  done
+  return 1
+}
+
+# Diagnostic: the token length is not sensitive, and lets us confirm whether a future push failure
+# is caused by an over-long token (see the base64 wrapping note above).
 if [[ -n "${AUTOMERGE_TOKEN:-}" ]]; then
-  # Configure git to use the automerge token via credential helper to avoid
-  # leaking the token in git error messages or process listings.
-  git -c "http.https://github.com/.extraheader=Authorization: basic $(echo -n "x-access-token:${AUTOMERGE_TOKEN}" | base64)" \
-    push -u origin "$BRANCH"
-else
-  git push -u origin "$BRANCH"
+  echo "AUTOMERGE_TOKEN length: ${#AUTOMERGE_TOKEN}" >&2
+fi
+
+if ! push_branch; then
+  echo "Error: failed to push ${BRANCH} after 3 attempts" >&2
+  exit 1
 fi
 
 # Generate PR body
