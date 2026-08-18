@@ -55,7 +55,7 @@ Everything programmatic. The API, the MCP server, and uploads from your own code
 
 ### How do you use Console with Claude Code or Cursor?
 
-Through the Walrus Console MCP server, published on npm as `@mysten-incubation/walrus-console-mcp`. It exposes file and bucket operations as tools your agent calls. Run `npx -y @mysten-incubation/walrus-console-mcp install` and give it the two values Console showed you when you minted the key: the `hbr_` API key and the `suiprivkey1` service private key. The installer stores them outside your client configuration, so no key goes in the MCP config file. See [Connect AI clients with the MCP server](./overview#connect-ai-clients-with-the-mcp-server).
+Through the Walrus Console MCP server, the npm package `@mysten-incubation/walrus-console-mcp`, which publishes with the Console beta. It exposes file and bucket operations as tools your agent calls. Run `npx -y @mysten-incubation/walrus-console-mcp install` and give it the two values Console showed you when you minted the key: the `hbr_` API key and the `suiprivkey1` service private key. The installer stores them outside your client configuration, so no key goes in the MCP config file. See [Connect AI clients with the MCP server](./overview#connect-ai-clients-with-the-mcp-server).
 
 ### Can your team share one account?
 

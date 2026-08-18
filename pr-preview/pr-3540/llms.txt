@@ -699,7 +699,8 @@ Sui smart contract as the on-chain index.
 - [API Reference](https://docs.wal.app/docs/console/api-reference.md):
     The Walrus Console external API covers the endpoints third-party developers use to manage
     spaces, buckets, and files, plus the Seal sponsorship endpoints that back private-bucket access
-    control. > Info > > This documents the current Testnet surface.
+    control. > Info > > The Walrus Console external API is in alpha and currently available on
+    Testnet only, at .
 - [Auth](https://docs.wal.app/docs/console/auth.md):
     Walrus Console uses the same kind of login you already know using Google or Apple; no wallet,
     no seed phrase, no crypto setup. Just sign in and start storing data. > Info > > Walrus Console
@@ -709,6 +710,10 @@ Sui smart contract as the on-chain index.
     Common questions about Walrus Console. For the concepts behind the answers, read What is Walrus
     Console?, and for a hands-on walkthrough, follow the Quick Start. > Info > > Walrus Console is
     available on Mainnet through a closed, invite-only beta.
+- [Mcp Server](https://docs.wal.app/docs/console/mcp-server.md):
+    The Walrus Console MCP server gives an AI client the same file and bucket operations you get in
+    the web app. Your agent creates buckets, uploads and downloads files, and checks storage usage,
+    while encryption and signing stay on your machine. The package is , licensed MIT.
 - [Overview](https://docs.wal.app/docs/console/overview.md):
     Walrus Console is the developer-first interface for interacting with the Walrus network. It
     gives you a hosted place to store, manage, and serve data without running your own Walrus
