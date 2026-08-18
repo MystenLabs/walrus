@@ -100,6 +100,7 @@ const sidebars = {
         "console/quickstart",
         "console/storage-epochs",
         "console/api-reference",
+        "console/mcp-server",
         "console/faq",
       ],
     },
