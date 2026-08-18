@@ -53,7 +53,7 @@ The publisher wallet needs both SUI (for gas) and WAL (for storage payments). Ea
 
 If you expect the publisher to handle significant traffic, you need substantially higher amounts to cover storage costs and gas fees. The publisher automatically distributes funds from the main wallet to sub-wallets at startup and refills them periodically during operation. See [Manage SUI coins in sub-wallets](#manage-sub-wallets) for details on configuring refill behavior.
 
-Acquire WAL tokens through the Walrus token distribution or supported exchanges, and transfer both SUI and WAL to the publisher wallet address.
+Acquire WAL tokens through the Walrus token distribution or supported exchanges, and transfer both SUI and WAL to the publisher wallet address. For the commands, see [Transfer WAL between addresses](/docs/walrus-client/walrus-cli#transfer-wal-between-addresses).
 
 > **Caution**
 >

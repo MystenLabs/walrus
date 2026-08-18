@@ -19,7 +19,7 @@ With a Google account or an Apple account. Console uses Sui [zkLogin](https://do
 
 ### How much can you store for free?
 
-Console keeps a perpetual free tier. The planned cap is 5 GB, and that number stays tentative until Console measures real Mainnet usage. See [Billing and the free tier](./overview#billing-and-the-free-tier).
+Console keeps a perpetual free tier, capped at 5 GB of total storage. See [Billing and the free tier](./overview#billing-and-the-free-tier).
 
 ### What happens when you hit the limit?
 
@@ -35,7 +35,7 @@ Files you upload through Console renew automatically, as long as your wallet sta
 
 ### What is the largest file you can upload?
 
-The per-upload cap is 100 MB. An upload above the cap fails with a `payload_too_large` error. See [Errors](./api-reference#errors).
+The per-upload cap is 100 MiB. An upload above the cap fails with a `payload_too_large` error. See [Errors](./api-reference#errors).
 
 ### Can Console see files you already uploaded with the CLI or an SDK?
 
