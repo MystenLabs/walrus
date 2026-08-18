@@ -1,10 +1,15 @@
 # Security Policy
 
 We appreciate your participation in keeping Walrus secure. This document describes how to report
-security vulnerabilities and where to find information about the Walrus Bug Bounty Program.
+security vulnerabilities.
 
 ## Reporting a Vulnerability
 
+Report security issues by email to
+[security@mystenlabs.com](mailto:security@mystenlabs.com).
+**Do not report security issues through GitHub or Discord.**
+
+<!--
 All vulnerability reports must be submitted through
 [HackenProof's secure dashboard](https://hackenproof.com/programs/walrus-smart-contracts).
 **Do not report security issues through GitHub, email, or Discord.**
@@ -27,3 +32,4 @@ details on assets in scope, severity levels, bounty amounts, and eligibility.
 For security concerns or questions outside the scope of the HackenProof Bug Bounty Program, reach
 out through the Walrus community [Discord](https://discord.gg/walrusprotocol) or email
 [security@mystenlabs.com](mailto:security@mystenlabs.com).
+-->
