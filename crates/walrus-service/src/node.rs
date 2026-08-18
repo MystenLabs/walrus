@@ -7518,6 +7518,55 @@ mod tests {
         Ok(())
     }
 
+    // Regression test for the stale shard-sync bound.
+    //
+    // A node gains shard 0 at epoch 2 and its sync is interrupted by a crash. On restart the
+    // durable event cursor is still below the epoch-2 `EpochChangeStart` (an earlier event was
+    // incomplete), so the node's event position is epoch 1. `start_shard_sync_impl` takes its
+    // bound from `current_event_epoch()`, so the resumed sync enumerates only blobs certified
+    // before epoch 1. The test blobs are certified at epoch 1, so it finds nothing to fetch and
+    // flips the shard to `Active` while empty, and nothing revisits an `Active` shard
+    // afterwards. The shard must instead hold every blob certified before the epoch at which it
+    // was gained.
+    #[tokio::test(start_paused = false)]
+    async fn sync_shard_resumed_behind_event_epoch_must_not_activate_empty_shard() -> TestResult {
+        let (cluster, blob_details, storage_dst, shard_storage_set) =
+            setup_cluster_for_shard_sync_tests(None, None, false).await?;
+        let shard_storage_dst = shard_storage_set.shard_storage[0].clone();
+        let node = &cluster.nodes[1].storage_node;
+
+        // The shard was gained at epoch 2 and its sync was interrupted mid-flight.
+        shard_storage_dst
+            .update_status_in_test(ShardStatus::ActiveSync)
+            .await?;
+
+        // After the restart, event replay is still behind the epoch at which the shard was
+        // gained.
+        let _ = node.inner.latest_event_epoch_sender.send(Some(1));
+
+        // Startup republishes the sync-and-recovery info, which is what makes the shard-sync
+        // reconciler resume the interrupted sync.
+        node.epoch_change_executor
+            .publish_startup_sync_and_recovery_info()
+            .await?;
+
+        // Give the resumed sync time to run under whatever bound it chose.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+
+        // Event replay catches up to the epoch at which the shard was gained.
+        let _ = node.inner.latest_event_epoch_sender.send(Some(2));
+
+        // The shard must not be reported as synced until it actually holds the blobs.
+        wait_for_shard_in_active_state(shard_storage_dst.as_ref()).await?;
+        assert_eq!(shard_storage_dst.sliver_count(SliverType::Primary), Ok(23));
+        assert_eq!(
+            shard_storage_dst.sliver_count(SliverType::Secondary),
+            Ok(23)
+        );
+        check_all_blobs_are_synced(&blob_details, &storage_dst, &shard_storage_dst, &[])?;
+        Ok(())
+    }
+
     /// Sets up a test cluster for shard recovery tests.
     async fn setup_shard_recovery_test_cluster_with_blob_count<F, G, H>(
         blob_count: u8,
