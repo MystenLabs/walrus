@@ -33,8 +33,6 @@ const sidebars = {
       items: [
         "system-overview/core-concepts",
         "system-overview/operations",
-        "system-overview/aggregators-publishers-relays",
-        "system-overview/public-aggregators-and-publishers",
         "system-overview/storage-costs",
         "system-overview/caching",
         "system-overview/quilt",
@@ -98,6 +96,8 @@ const sidebars = {
       collapsed: true,
       link: { type: "doc", id: "operator-guide/index" },
       items: [
+        "system-overview/aggregators-publishers-relays",
+        "system-overview/public-aggregators-and-publishers",
         "operator-guide/stake",
         {
           type: "category",
