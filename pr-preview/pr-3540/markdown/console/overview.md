@@ -52,7 +52,7 @@ When you create an encrypted-capable key, Console also returns a service private
 
 ### Connect AI clients with the MCP server
 
-Console publishes an open-source [MCP](https://modelcontextprotocol.io/) server that exposes file and bucket operations as tools for AI clients. You connect Claude Code, Cursor, or any MCP-compliant client using your existing API key, with no separate credential. This is available in beta.
+Console publishes an open-source [MCP](https://modelcontextprotocol.io/) server that exposes file and bucket operations as tools for AI clients. You connect Claude Code, Cursor, or any MCP-compliant client with the API key and service private key you already minted in Console, rather than a new credential. The service private key stays on your machine and does the encryption and signing there. This is available in beta.
 
 ## Storage, epochs, and renewal
 
