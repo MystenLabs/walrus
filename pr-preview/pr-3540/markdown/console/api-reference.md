@@ -1,10 +1,10 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-The Walrus Console external API covers the endpoints third-party developers use to manage spaces, buckets, and files, plus the [Seal](/docs/data-security) sponsorship endpoints that back private-bucket access control.
+The Console developer API covers the endpoints third-party developers use to manage spaces, buckets, and files, plus the [Seal](/docs/data-security) sponsorship endpoints that back private-bucket access control.
 
 > **Info**
 >
-> The Walrus Console external API is in beta at `https://api.console.walrus.xyz`. Endpoint shapes might change before GA. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
+> The Console developer API is in beta at `https://api.console.walrus.xyz`. Endpoint shapes might change before GA. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
 ## Authentication
 
 Every request carries an API key as a bearer token:

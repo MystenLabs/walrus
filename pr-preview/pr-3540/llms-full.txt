@@ -695,10 +695,10 @@ Sui smart contract as the on-chain index.
 ## Console
 
 - [API Reference](https://docs.wal.app/docs/console/api-reference.md):
-    The Walrus Console external API covers the endpoints third-party developers use to manage
-    spaces, buckets, and files, plus the Seal sponsorship endpoints that back private-bucket access
-    control. > Info > > The Walrus Console external API is in beta at . Endpoint shapes might
-    change before GA.
+    The Console developer API covers the endpoints third-party developers use to manage spaces,
+    buckets, and files, plus the Seal sponsorship endpoints that back private-bucket access
+    control. > Info > > The Console developer API is in beta at . Endpoint shapes might change
+    before GA.
 - [Auth](https://docs.wal.app/docs/console/auth.md):
     Walrus Console signs you in with the Google or Apple account you already have. There is no
     wallet to connect, no seed phrase to record, and no crypto setup: you sign in and start storing
