@@ -65,7 +65,7 @@ The following table summarizes how storing a blob in a pool differs from storing
 
 ## How storage pools work
 
-A storage pool is a Sui object that wraps a storage resource with a fixed encoded capacity and a lifetime spanning a start epoch up to, but not including, an end epoch. The pool tracks three things: its reserved encoded capacity, the encoded bytes currently in use, and the number of registered blobs. Blobs stored in a pool are represented by `PooledBlob` objects that live inside the pool rather than as independently owned `Blob` objects.
+A storage pool is a Sui object that wraps a storage resource with a fixed encoded capacity and a lifetime spanning a start epoch up to, but not including, an end epoch. The pool tracks three things: its reserved encoded capacity, the encoded bytes currently in use, and the number of registered blobs. The pool represents each blob as a `PooledBlob` object that lives inside the pool rather than as an independently owned `Blob` object.
 
 Pooled blobs differ from regular blobs in a few important ways:
 
@@ -164,7 +164,7 @@ let pool_id = client
     .await?;
 ```
 
-When sizing the capacity, remember that it is consumed by *encoded* blob sizes. You can compute a blob's exact encoded size with `walrus_core::encoding::encoded_blob_length_for_n_shards`, or check it for a sample file with `walrus store --dry-run`. The pool's lifetime is bounded by the system's maximum blob lifetime, currently 53 epochs, the same limit that applies to [regular blob lifetimes](/docs/walrus-client/managing-blobs).
+When sizing the capacity, remember that blobs consume it at their *encoded* size. You can compute a blob's exact encoded size with `walrus_core::encoding::encoded_blob_length_for_n_shards`, or check it for a sample file with `walrus store --dry-run`. The pool's lifetime is bounded by the system's maximum blob lifetime, currently 53 epochs, the same limit that applies to [regular blob lifetimes](/docs/walrus-client/managing-blobs).
 
 ### Store blobs in the pool
 
@@ -349,7 +349,7 @@ Capacity increases and decreases, burning expired blobs, and destroying a pool d
 
 ## Common pitfalls
 
-- **Sizing the pool in raw bytes.** Reserved capacity is consumed by encoded sizes, about 4.5x the raw size plus roughly 64 MB of metadata per blob. A pool sized to the sum of your raw file sizes runs out of capacity almost immediately.
+- **Sizing the pool in raw bytes.** Blobs consume reserved capacity at their encoded size, about 4.5x the raw size plus roughly 64 MB of metadata per blob. A pool sized to the sum of your raw file sizes runs out of capacity almost immediately.
 - **Using a pool to save on small blobs.** The fixed per-blob metadata overhead applies inside pools too. Batch small files with [Quilt](/docs/system-overview/quilt) first, then store the quilts in a pool if you also need capacity reuse.
 - **Letting a pool expire with live data.** All blobs in a pool become unavailable at the pool's end epoch, silently and at once. Monitor the end epoch from `storage_pool_status` and extend ahead of time.
 - **Registering everything as permanent.** Permanent pooled blobs pin their capacity until the pool expires, which defeats the capacity-reuse benefit. Default to deletable unless you specifically need the non-deletability guarantee.
