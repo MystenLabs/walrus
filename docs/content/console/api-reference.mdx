@@ -8,7 +8,7 @@ The Walrus Console external API covers the endpoints third-party developers use 
 
 :::info
 
-The Walrus Console external API is in alpha and currently available on Testnet only, at `https://api.testnet.harbor.walrus.xyz`. The endpoint structure might change before Mainnet GA. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
+The Walrus Console external API is in beta at `https://api.console.walrus.xyz`. Endpoint shapes might change before GA. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
 
 :::
 
@@ -32,7 +32,7 @@ A request with no valid key returns `401`. A key without access to the target re
 All paths are relative to the base URL and prefixed with `/api/v1`:
 
 ```
-https://api.testnet.harbor.walrus.xyz
+https://api.console.walrus.xyz
 ```
 
 Request and response bodies are JSON unless noted (file upload uses `multipart/form-data`, and download returns a raw byte stream). Resource identifiers are UUIDs.
