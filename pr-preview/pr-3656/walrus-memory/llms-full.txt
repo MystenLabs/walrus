@@ -69,7 +69,11 @@
 - [Claude Code](https://docs.wal.app/walrus-memory/mcp/claude-code.md):
     Add Walrus Memory to Claude Code so it recalls context and saves durable facts as you work.
     Install it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the
-    tools). [x] Node.js 20+ [x] A Walrus Memory account.
+    tools). [x] Install Node.js 20+ with npx on your PATH; check with node --version.
+- [Claude Connector](https://docs.wal.app/walrus-memory/mcp/claude-connector.md):
+    Claude's built-in custom connector flow adds Walrus Memory over OAuth 2.1. You approve access
+    in the browser with your Sui wallet, and Claude never asks you for a delegate private key or a
+    custom header. > Note > > The connector flow needs a relayer that has OAuth turned on.
 - [Claude Desktop](https://docs.wal.app/walrus-memory/mcp/claude-desktop.md):
     Add Walrus Memory to Claude Desktop so the agent can save and recall durable facts. Claude
     Desktop uses the MCP server (the memory tools); the automatic-memory plugin hooks are available
@@ -90,9 +94,14 @@
 - [Overview](https://docs.wal.app/walrus-memory/mcp/overview.md):
     The Walrus Memory MCP server exposes your portable Walrus Memory as Model Context Protocol
     tools, so an AI agent can decide when to save and recall memories on its own.
+- [Quickstart](https://docs.wal.app/walrus-memory/mcp/quickstart.md):
+    Every supported client runs the same local server, and differs only in where the configuration
+    lives. Pick your client below, add the server, restart, and sign in. [x] You need Node.js 20 or
+    later, because the server runs through npx with no install step. [x] You need a Walrus Memory
+    account.
 - [Output example: GxK9pL2mQr8vN3jF5Ys7hT6wZ1cD4eR8](https://docs.wal.app/walrus-memory/mcp/reference.md):
-    This page documents every tool, flag, environment variable, and transport route the Walrus
-    Memory MCP package exposes. For per-client setup, start with the MCP overview.
+    The Walrus Memory MCP package exposes the tools, flags, environment variables, and transport
+    routes below. For per-client setup, start with the MCP overview.
 
 ## Walrus Memory: Relayer
 
@@ -122,7 +131,7 @@
 - [All SUI coins for an address, largest first:](https://docs.wal.app/walrus-memory/relayer/runbook-gas-pool.md):
     When to use this: a gas-pool alert fires (the SUI gas pool maintenance alert), or relayer logs
     show wallet jobs aborting with or Enoki dryrunfailed plus 0x2:balance:split (ENotEnough, abort
-    code 2). The relayer sponsors Walrus register transactions through Enoki.
+    code 2).
 - [Opt the write path into gRPC (testnet example)](https://docs.wal.app/walrus-memory/relayer/self-hosting.md):
     Self-hosting means running your own relayer, either pointing at an existing Walrus Memory
     package ID or deploying an entirely new Walrus Memory instance with your own contract,
@@ -317,8 +326,8 @@
     namespace for memory isolation | For the full config surface, see Configuration.
 - [Cloudflare Workers](https://docs.wal.app/walrus-memory/sdk/cloudflare-workers.md):
     Walrus Memory runs on the Cloudflare Workers runtime, but the edge environment differs from
-    Node.js in a few ways that affect bundling and reliability. This guide covers the configuration
-    and patterns that make it work cleanly.
+    Node.js in a few ways that affect bundling and reliability. The configuration and patterns
+    below make it work cleanly.
 - [Codebase Memory](https://docs.wal.app/walrus-memory/sdk/codebase-memory.md):
     AI coding assistants like Cursor appear to remember a codebase because they retrieve relevant
     context at query time rather than holding an entire repository in the model's context window.

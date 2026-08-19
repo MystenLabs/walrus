@@ -51,10 +51,13 @@ These managed relayer endpoints are provided as a public good by Walrus Foundati
     ```jsonc
     {
       "plugins": {
-        "slots": { "memory": "oc-memwal" },
+        "slots": { "memory": "memory-memwal" },
         "entries": {
-          "oc-memwal": {
+          "memory-memwal": {
             "enabled": true,
+            // Required for auto-capture. OpenClaw blocks the agent_end hook for
+            // non-bundled plugins unless conversation access is granted here.
+            "hooks": { "allowConversationAccess": true },
             "config": {
               "privateKey": "${MEMWAL_PRIVATE_KEY}",           // References the env var
               "accountId": "0x3247e3da...",                     // Your account ID from the dashboard
@@ -65,6 +68,17 @@ These managed relayer endpoints are provided as a public good by Walrus Foundati
       }
     }
     ```
+
+    :::warning
+The config key is **`memory-memwal`**, the plugin's manifest id, not the npm
+    package name `oc-memwal`. The installer reports this as
+    `using manifest id as the config key`. Using `oc-memwal` leaves the plugin
+    unbound, and it never loads.
+
+    `hooks.allowConversationAccess` is equally load-bearing. Without it, OpenClaw
+    logs `typed hook "agent_end" blocked` at startup and **auto-capture silently
+    never runs**, even though the gateway reports the plugin as connected.
+:::
 
     
 Optional settings
@@ -79,6 +93,7 @@ You can add these to the `config` block to tune behavior. The defaults work well
       | `minRelevance` | `0.3` | Relevance threshold (0-1) for memory injection |
       | `captureMaxMessages` | `10` | How many recent messages to analyze for facts |
       | `defaultNamespace` | `"default"` | Memory scope for the main agent |
+      | `requestTimeoutMs` | `10000` | Deadline in ms for each relayer call. Raise it for a slow self-hosted relayer |
 
   ### Start OpenClaw
 
@@ -89,8 +104,8 @@ You can add these to the `config` block to tune behavior. The defaults work well
     You should see in the logs:
 
     ```
-    oc-memwal: registered (server: https://..., key: e21d...ed9b, namespace: default)
-    oc-memwal: connected (status: ok, version: ...)
+    memory-memwal: registered (server: https://..., key: e21d...ed9b, namespace: default)
+    memory-memwal: connected (status: ok, version: ...)
     ```
 
     :::tip
@@ -126,7 +141,7 @@ Check logs, you should see:
 [Source: openclaw/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/quick-start.md)
 
 ```
-oc-memwal: auto-captured 1 facts (agent: main, namespace: default)
+memory-memwal: auto-captured 1 facts (agent: main, namespace: default)
 ```
 
 **2. Recall it**, in a **new conversation**, ask about it:
@@ -141,7 +156,7 @@ Check logs, you should see:
 [Source: openclaw/quick-start.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/openclaw/quick-start.md)
 
 ```
-oc-memwal: auto-recall injected 1 memories (agent: main, namespace: default)
+memory-memwal: auto-recall injected 1 memories (agent: main, namespace: default)
 ```
 
 **3. Search from terminal**, confirm the memory exists through CLI:

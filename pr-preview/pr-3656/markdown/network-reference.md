@@ -1,10 +1,10 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-This page is the single canonical reference for the volatile values you need to integrate with Walrus: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and staking object IDs, token units, and configuration snippets. Other documentation pages link here instead of repeating these values, so that you always read them from one place.
+The volatile values you need to integrate with Walrus all live here: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and staking object IDs, token units, and configuration snippets. Other documentation pages link here instead of repeating these values, so you always read them from one place.
 
 > **Info**
 >
-> This page mirrors the canonical sources. The configuration snippets and the operator list on this page are imported directly from the Walrus repository and the maintained operator list, so they stay current. The authoritative sources are the [client configuration files](https://docs.wal.app/setup/client_config.yaml), the operator list in [JSON format](pathname:///operators.json), and the `Move.lock` files in the [`contracts`](https://github.com/MystenLabs/walrus/tree/main/contracts) and [`testnet-contracts`](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) directories on GitHub.
+> The configuration snippets and the operator list below come straight from the Walrus repository and the maintained operator list, so they stay current. The authoritative sources are the [client configuration files](https://docs.wal.app/setup/client_config.yaml), the operator list in [JSON format](pathname:///operators.json), and the `Move.lock` files in the [`contracts`](https://github.com/MystenLabs/walrus/tree/main/contracts) and [`testnet-contracts`](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) directories on GitHub.
 ## Network parameters
 
 Walrus operates a production Mainnet on Sui Mainnet and a Testnet on Sui Testnet. The following fixed system parameters apply to each network:
@@ -19,6 +19,30 @@ Walrus operates a production Mainnet on Sui Mainnet and a Testnet on Sui Testnet
 Other parameters, including system capacity, storage price, and the per-write fee, are dynamic. Read the current values with `walrus info`, or view them in the [Walruscan explorer](https://walruscan.com/). Do not hardcode dynamic values in integrations.
 
 Walrus does not operate a public Devnet. Use Mainnet for production and Testnet for testing.
+
+### How Testnet compares with Mainnet
+
+The parameters above list each network's values. What breaks a working Testnet integration on Mainnet is usually behavior rather than a number:
+
+| **Aspect** | **Testnet** | **Mainnet** |
+|---|---|---|
+| Data persistence | Walrus wipes the data periodically without warning | Walrus keeps the data for the epochs you buy |
+| Tokens | Cost nothing | Cost real SUI for gas and WAL for storage |
+| Public publisher | Walrus runs one | Walrus runs none, see below |
+| Package IDs | Walrus redeploys the contracts periodically, so the IDs change | Walrus keeps the IDs fixed between upgrades, and the tables above list them |
+| Epoch length | Lasts one day, so storage expires sooner in wall-clock time | Lasts two weeks, as the parameters above list |
+
+The publisher difference blocks more Mainnet launches than any other item here. Walrus does not run a public unauthenticated publisher on Mainnet, so an integration that uploads through the public Testnet publisher has no direct Mainnet equivalent. Before you migrate, compare the supported production paths.
+
+| **Path** | **Pick it when** | **What you operate** |
+|---|---|---|
+| [Run your own authenticated publisher](/docs/operator-guide/publishers/mainnet-production-guide) | You control the Mainnet clients that need an HTTP upload interface, and you want the Testnet publisher's request shape without exposing it publicly | A publisher you run, fund, and authenticate |
+| [Send uploads through an upload relay](#upload-relays) | Browser or mobile clients upload directly and cannot hold WAL or run an encoder | Nothing, if you use a public relay; the client pays a tip per upload |
+| [Write from your application with the TypeScript SDK](#typescript-sdk) | An application integrates Walrus in code and can hold a wallet | Nothing beyond your application, which signs and pays for its own writes |
+
+The choice depends on where the upload runs and who holds the wallet. Server-side code that already has a funded wallet should integrate with the SDK. A browser or mobile client that cannot hold WAL should use an upload relay. A fleet of internal clients that expects an HTTP endpoint should get a private authenticated publisher. For the full set of upload paths, including the CLI, see [Choose your upload path](/docs/getting-started#choose-your-upload-path).
+
+Testnet package IDs change whenever Walrus redeploys the contracts, so read them from the `Move.lock` files in the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) rather than pinning a copied value. For everything specific to Testnet, including faucets and how to recover after a reset, see the [Testnet Reference](/docs/testnet-reference).
 
 ## Sui RPC endpoints
 
@@ -142,6 +166,8 @@ Storage is paid in WAL but priced at a fixed rate of $0.023/GB/month. The amount
 
 ## Configuration snippets
 
+The generator imports each snippet below from the canonical client configuration, so they track the deployed networks.
+
 ### Walrus CLI
 
 Download the pre-filled client configuration, which includes both the Mainnet and Testnet contexts, to a default location:
@@ -172,20 +198,18 @@ The TypeScript SDK bundles the package and object IDs for each network. Select t
 
 ```ts
 import { SuiGrpcClient } from '@mysten/sui/grpc';
-import { WalrusClient } from '@mysten/walrus';
+import { walrus } from '@mysten/walrus';
 
 const suiClient = new SuiGrpcClient({
   network: 'mainnet',
   baseUrl: 'https://fullnode.mainnet.sui.io:443',
-});
+}).$extend(walrus());
 
-const walrusClient = new WalrusClient({
-  network: 'mainnet',
-  suiClient,
-});
+// Walrus SDK methods are available on suiClient.walrus.
+const walrusClient = suiClient.walrus;
 ```
 
-To connect to a custom or updated deployment, pass an explicit package configuration using the system and staking object IDs from this page. For full details, see the [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus) and the [SDKs](/docs/typescript-sdk/sdks) page.
+To connect to a custom or updated deployment, pass an explicit package configuration using the system and staking object IDs above. For full details, see the [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus) and the [SDKs](/docs/typescript-sdk/sdks) page.
 
 ## Deprecated and stale endpoint patterns
 
@@ -195,7 +219,7 @@ Stale endpoints and package IDs are a common cause of integration failures. Avoi
 |------------------------------------------------------|-----------------------------------------------------------|---------------------------------------------------------------------------------|
 | `docs.walrus.site` documentation domain              | Retired                                                   | `docs.wal.app`                                                                  |
 | `mystenlabs.github.io/walrus-docs` and the `walrus-docs` repository | Retired                                    | The [`MystenLabs/walrus`](https://github.com/MystenLabs/walrus) repository      |
-| Devnet endpoints and configuration                   | Discontinued                                              | Mainnet or Testnet values on this page                                          |
+| Devnet endpoints and configuration                   | Discontinued                                              | Mainnet or Testnet values above                                          |
 | A single hardcoded community aggregator or publisher | Unstable, endpoints change                                | The operator list above or a Mysten Labs reference endpoint                     |
 | A Mainnet publisher URL                              | No public unauthenticated Mainnet publisher exists        | A private authenticated publisher, an upload relay, or the TypeScript SDK       |
 | Copied Testnet package IDs pinned in code            | Change when Testnet contracts are redeployed              | IDs inferred from the system object, or read from `testnet-contracts` `Move.lock` |
