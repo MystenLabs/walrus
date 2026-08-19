@@ -37,8 +37,7 @@ answer: >-
   connectivity.
 ---
 
-<AgentPrompt
-  prompt="My walrus store command on Testnet fails with 'could not retrieve enough confirmations to certify the blob' and which walrus shows two different binaries on my PATH. Help me diagnose and fix both issues, then show me how to enable debug logging to confirm which config file the client is loading."
+<AgentPrompt prompt="My walrus store command on Testnet fails with 'could not retrieve enough confirmations to certify the blob' and which walrus shows two different binaries on my PATH. Help me diagnose and fix both issues, then show me how to enable debug logging to confirm which config file the client is loading."
 />
 
 Resolve common issues with the Walrus CLI, configuration, and network connectivity.
@@ -70,6 +69,8 @@ You can enable debug logging for Walrus by setting the environment variable `RUS
 $ RUST_LOG=walrus=debug walrus store file.txt --epochs 5
 ```
 If a freshly uploaded blob returns `404 Not Found` from a CDN-fronted aggregator, you are likely hitting a cached `404` response from before the blob propagated. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload) for when to retry and when not to.
+
+If a deployment fails against a Sui full node that stopped serving JSON-RPC, upgrade the client rather than reconfiguring it. See [Migrate from JSON-RPC to gRPC](/docs/troubleshooting/grpc-migration) for the upgrade steps covering the CLI, `site-builder`, and self-hosted full nodes.
 
 import DocCardList from '@theme/DocCardList';
 import AskAiCta from '@site/src/shared/components/AskAiCta';
