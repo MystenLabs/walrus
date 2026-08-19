@@ -735,7 +735,7 @@ Sui smart contract as the on-chain index.
     2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity,
     along with new memwalrememberbulk and memwal_health tools and proactive memory behavior.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Testnet | August 12, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
+    Mainnet | August 19, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
     now return 404 BLOBNOTFOUND within about a second, instead of 503 BLOBUNAVAILABLE after a 10-20
     second fan-out.
 - [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):

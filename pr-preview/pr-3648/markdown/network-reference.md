@@ -197,17 +197,16 @@ For the full configuration reference, see the [Site Builder Reference](/docs/sit
 The TypeScript SDK bundles the package and object IDs for each network. Select the network with the `network` option, and the SDK applies the correct values:
 
 ```ts
-import { getFullnodeUrl, SuiClient } from '@mysten/sui/client';
-import { WalrusClient } from '@mysten/walrus';
+import { SuiGrpcClient } from '@mysten/sui/grpc';
+import { walrus } from '@mysten/walrus';
 
-const suiClient = new SuiClient({
-  url: getFullnodeUrl('mainnet'),
-});
-
-const walrusClient = new WalrusClient({
+const suiClient = new SuiGrpcClient({
   network: 'mainnet',
-  suiClient,
-});
+  baseUrl: 'https://fullnode.mainnet.sui.io:443',
+}).$extend(walrus());
+
+// Walrus SDK methods are available on suiClient.walrus.
+const walrusClient = suiClient.walrus;
 ```
 
 To connect to a custom or updated deployment, pass an explicit package configuration using the system and staking object IDs above. For full details, see the [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus) and the [SDKs](/docs/typescript-sdk/sdks) page.
