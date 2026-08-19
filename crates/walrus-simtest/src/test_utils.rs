@@ -134,7 +134,8 @@ pub mod simtest_utils {
         let max_retry_count = max_retry_count.unwrap_or(DEFAULT_MAX_RETRY_COUNT);
 
         // Get a random epoch length for the blob to be stored.
-        let epoch_ahead = rand::thread_rng().gen_range(1..=epochs_max.unwrap_or(5));
+        let epoch_ahead =
+            rand::thread_rng().gen_range(1..=epochs_max.unwrap_or(DEFAULT_EPOCHS_MAX));
 
         tracing::info!(
             "generating random blobs of length {data_length} and store them for {epoch_ahead} \
@@ -310,11 +311,11 @@ pub mod simtest_utils {
         }
     }
 
+    /// Epochs a workload blob is stored for when the caller does not cap it.
+    const DEFAULT_EPOCHS_MAX: EpochCount = 5;
+
     /// Capacity of the storage pool backing the pooled half of the background workload.
     const WORKLOAD_POOL_CAPACITY_BYTES: u64 = 64 * 1024 * 1024;
-    /// Lifetime of that pool. The pooled store does not extend it, so it is provisioned to
-    /// outlive the workload.
-    const WORKLOAD_POOL_EPOCHS: EpochCount = 50;
 
     /// Starts a background workload that writes and reads random owned and pooled blobs.
     pub fn start_background_workload(
@@ -324,17 +325,11 @@ pub mod simtest_utils {
         epochs_max: Option<EpochCount>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
-            // The pooled half needs a pool. Without one the workload still runs, covering owned
-            // blobs only, so a cluster that rejects the pool does not fail the test.
-            let storage_pool_id = client_clone
-                .inner
-                .sui_client()
-                .create_storage_pool(WORKLOAD_POOL_CAPACITY_BYTES, WORKLOAD_POOL_EPOCHS)
-                .await
-                .inspect_err(
-                    |error| tracing::warn!(%error, "no storage pool; writing owned blobs only"),
-                )
-                .ok();
+            // The pool is requested for the same span the owned blobs use, so a system that
+            // caps `max_epochs_ahead` accepts it. It is recreated below when missing, which
+            // covers both a rejected request and a pool that has since expired.
+            let pool_epochs = epochs_max.unwrap_or(DEFAULT_EPOCHS_MAX);
+            let mut storage_pool_id = None;
 
             let mut data_length = 64;
             let mut blobs_written = HashSet::new();
@@ -360,10 +355,21 @@ pub mod simtest_utils {
                 // touch. Failures only warn: an epoch change during the upload fails the store
                 // but leaves the blob registered in the pool, so the traffic still lands, and
                 // the next iteration uses a new blob id anyway.
-                if let Some(storage_pool_id) = storage_pool_id
+                if storage_pool_id.is_none() {
+                    storage_pool_id = client_clone
+                        .inner
+                        .sui_client()
+                        .create_storage_pool(WORKLOAD_POOL_CAPACITY_BYTES, pool_epochs)
+                        .await
+                        .inspect_err(|error| {
+                            tracing::warn!(%error, "no storage pool; writing owned blobs only")
+                        })
+                        .ok();
+                }
+                if let Some(pool_id) = storage_pool_id
                     && let Err(error) = write_read_and_check_random_pooled_blob(
                         client_clone.as_ref(),
-                        storage_pool_id,
+                        pool_id,
                         data_length,
                         write_only,
                         deletable,
@@ -371,6 +377,8 @@ pub mod simtest_utils {
                     .await
                 {
                     tracing::warn!(%error, "pooled blob workload iteration failed");
+                    // The pool may have expired or filled up; a fresh one is made next round.
+                    storage_pool_id = None;
                 }
 
                 maybe_extend_blob(client_clone.as_ref(), &blobs_written).await;
