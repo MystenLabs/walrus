@@ -33,6 +33,10 @@ Sui smart contract as the on-chain index.
 
 ## System Overview
 
+- [Aggregators Publishers Relays](https://docs.wal.app/docs/system-overview/aggregators-publishers-relays.md):
+    Walrus exposes three HTTP services. Callers send requests to the wrong one more often than they
+    make any other endpoint mistake. An aggregator reads. A publisher and an upload relay both
+    write, but they differ in who holds the wallet and who pays.
 - [Available Networks](https://docs.wal.app/docs/system-overview/available-networks.md):
     Walrus Mainnet operates a production-quality storage network using corresponding resources on
     the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui Testnet and is used to
@@ -46,10 +50,9 @@ Sui smart contract as the on-chain index.
     as text, video, or source code, you can store on Walrus. All blobs uploaded to Walrus are
     publicly available. Sui is a blockchain that supports programmable transactions.
 - [System Overview](https://docs.wal.app/docs/system-overview.md):
-    Available Networks: Overview of Walrus networks including Mainnet and Testnet configurations,
-    parameters, and setup instructions. Caching Hot Reads: Guidance for caching frequently read
-    Walrus blobs, including caching aggregators, CDN fronting, immutability guarantees, and
-    pitfalls to avoid.
+    Aggregators, Publishers, and Upload Relays: What each Walrus HTTP service does, which direction
+    of traffic it handles, who pays for storage, and which endpoint to call, so you can tell an
+    aggregator from a publisher from an upload relay.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md):
     Blobs can be interacted with through familiar file system operations such as uploading,
     reading, downloading, and deleting. You buy storage on Walrus for a fixed number of epochs, so

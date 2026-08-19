@@ -104,7 +104,7 @@ Set `MEMWAL_MCP_DEBUG=1` to enable verbose stderr logging.
 
 ## Default namespace
 
-Set a default memory namespace once in your client config instead of having the agent pass `namespace` on every call. The package injects it into `memwal_remember`, `memwal_recall`, `memwal_analyze`, and `memwal_restore` calls that don't already carry one.
+Set a default memory namespace once in your client config instead of having the agent pass `namespace` on every call. The package injects it into `memwal_remember`, `memwal_remember_bulk`, `memwal_recall`, `memwal_analyze`, and `memwal_restore` calls that don't already carry one.
 
 Precedence, highest first:
 
