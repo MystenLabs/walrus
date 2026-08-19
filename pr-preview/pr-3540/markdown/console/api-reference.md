@@ -57,7 +57,7 @@ The `code` field is present when a machine-readable value applies. Common error 
 | `bucket_not_finalized` | The bucket has not completed the finalize step. |
 | `mirror_missing_grant` | The onchain access grant has not yet mirrored into the access index. Retry. |
 | `quota_exceeded` | The operation exceeds the plan or storage quota. |
-| `payload_too_large` | The upload exceeds the size limit. |
+| `payload_too_large` | The upload exceeds the 100 MiB per-upload cap. |
 | `bad_request` | The request failed validation. |
 | `USED_NONCE` / `EXPIRED_TIMESTAMP` / `ADDRESS_MISMATCH` / `INVALID_CHALLENGE` | Wallet challenge errors, returned by the signature-authentication flow. |
 

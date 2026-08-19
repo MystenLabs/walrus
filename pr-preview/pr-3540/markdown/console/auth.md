@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Walrus Console uses the same kind of login you already know using Google or Apple; no wallet, no seed phrase, no crypto setup. Just sign in and start storing data.
+Walrus Console signs you in with the Google or Apple account you already have. There is no wallet to connect, no seed phrase to record, and no crypto setup: you sign in and start storing data.
 
 > **Info**
 >

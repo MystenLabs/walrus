@@ -702,10 +702,9 @@ Sui smart contract as the on-chain index.
     control. > Info > > The Walrus Console external API is in beta at . Endpoint shapes might
     change before GA.
 - [Auth](https://docs.wal.app/docs/console/auth.md):
-    Walrus Console uses the same kind of login you already know using Google or Apple; no wallet,
-    no seed phrase, no crypto setup. Just sign in and start storing data. > Info > > Walrus Console
-    is available on Mainnet through a closed, invite-only beta. It supports Google and Apple
-    sign-in.
+    Walrus Console signs you in with the Google or Apple account you already have. There is no
+    wallet to connect, no seed phrase to record, and no crypto setup: you sign in and start storing
+    data. > Info > > Walrus Console is available on Mainnet through a closed, invite-only beta.
 - [FAQ](https://docs.wal.app/docs/console/faq.md):
     Common questions about Walrus Console. For the concepts behind the answers, read What is Walrus
     Console?, and for a hands-on walkthrough, follow the Quick Start. > Info > > Walrus Console is

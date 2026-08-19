@@ -10,8 +10,8 @@ The package is `@mysten-incubation/walrus-console-mcp`, licensed MIT.
 ## Prerequisites
 
 - Node.js 24 or later. The package sets `"node": ">=24"` in its engines field.
-- A Walrus Console account with an API key. Open [console.walrus.xyz](https://console.walrus.xyz), sign in, then go to **Integrations → New API key**, choose **read_write**, and tick **Create**.
-- Both values from that dialog. Console shows them once: the `hbr_` API key and the `suiprivkey1` service private key.
+- A Walrus Console account with an API key. Open [console.walrus.xyz](https://console.walrus.xyz), sign in, then click **Integrations** and **Create API Key** in the top-right corner. Name the key and give it the `read_write` role.
+- Both values Console reveals. It shows them once: the `hbr_` API key and the `suiprivkey1` service private key.
 
 The API key authorizes calls to Console. The service private key signs onchain access grants and unwraps [Seal](/docs/data-security) keys locally, which is why the server needs both.
 
