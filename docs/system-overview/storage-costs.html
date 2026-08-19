@@ -27,7 +27,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.a196b22d.css">
-<script src="/assets/js/runtime~main.e833c6ed.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.2b3c796a.js" defer="defer"></script>
 <script src="/assets/js/main.3d9e1930.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -110,7 +110,7 @@
 <h4 class="anchor anchorTargetStickyNavbar_kP7e" id="sui-object-storage">Sui object storage<a href="#sui-object-storage" class="hash-link" aria-label="Direct link to Sui object storage" title="Direct link to Sui object storage" translate="no">​</a></h4>
 <p>Walrus<!-- --> <!-- -->blobs<!-- --> are represented as <a href="https://docs.sui.io/guides/developer/objects/object-model" target="_blank" rel="noopener noreferrer" class="">Sui objects</a> onchain. Creating these objects deposits SUI into the <a href="https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-fund" target="_blank" rel="noopener noreferrer" class="">Sui storage fund</a>, most of which is refunded when you delete the objects.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="measuring-costs">Measuring costs<a href="#measuring-costs" class="hash-link" aria-label="Direct link to Measuring costs" title="Direct link to Measuring costs" translate="no">​</a></h2>
-<p>The most accurate way to measure costs is to upload a<!-- --> <!-- -->blob<!-- --> and observe SUI and<!-- --> <!-- -->WAL<!-- --> costs in a Sui explorer or through Sui RPC calls.<!-- --> <!-- -->Blob<!-- --> contents do not affect cost.</p>
+<p>The most accurate way to measure costs is to upload a<!-- --> <!-- -->blob<!-- --> and observe SUI and<!-- --> <!-- -->WAL<!-- --> costs in a Sui explorer or through the Sui gRPC API.<!-- --> <!-- -->Blob<!-- --> contents do not affect cost.</p>
 <p>For example, the following command results in 2 transactions:</p>
 <div><div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_p187"><span class="token-line" style="color:#F8F8F2"><span class="token select-none opacity-40 text-lg">$ </span><span class="token plain">walrus store &lt;FILENAME&gt; --epochs 1</span><br></span></code></pre></div></div></div>
 <ol>

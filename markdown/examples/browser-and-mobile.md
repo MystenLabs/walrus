@@ -18,27 +18,28 @@ An upload relay accepts a single request, encodes the blob, distributes the sliv
 > These are also listed in the [Network Reference](/docs/network-reference#upload-relays).
 ## Configure the client
 
-Create a `WalrusClient` with an `uploadRelay` configuration. The `host` points at the relay, and `sendTip` sets the maximum tip your client is willing to pay a paid relay. A free relay reports `no_tip` and the client pays only the onchain storage fee.
+Extend the Sui client with the Walrus SDK, passing an `uploadRelay` configuration. The `host` points at the relay, and `sendTip` sets the maximum tip your client is willing to pay a paid relay. A free relay reports `no_tip` and the client pays only the onchain storage fee.
 
 ```ts
-import { getFullnodeUrl, SuiClient } from "@mysten/sui/client";
-import { WalrusClient } from "@mysten/walrus";
+import { SuiGrpcClient } from "@mysten/sui/grpc";
+import { walrus } from "@mysten/walrus";
 
-export const suiClient = new SuiClient({
-  url: getFullnodeUrl("testnet"),
-});
-
-export const walrusClient = new WalrusClient({
+export const suiClient = new SuiGrpcClient({
   network: "testnet",
-  suiClient,
-  uploadRelay: {
-    host: "https://upload-relay.testnet.walrus.space",
-    sendTip: {
-      max: 1_000,
+  baseUrl: "https://fullnode.testnet.sui.io:443",
+}).$extend(
+  walrus({
+    uploadRelay: {
+      host: "https://upload-relay.testnet.walrus.space",
+      sendTip: {
+        max: 1_000,
+      },
+      timeout: 600_000,
     },
-    timeout: 600_000,
-  },
-});
+  }),
+);
+
+export const walrusClient = suiClient.walrus;
 ```
 
 ## Store a file through the relay

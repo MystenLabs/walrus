@@ -126,7 +126,7 @@ Walrus blobs are represented as [Sui objects](https://docs.sui.io/guides/develop
 
 ## Measuring costs
 
-The most accurate way to measure costs is to upload a blob and observe SUI and WAL costs in a Sui explorer or through Sui RPC calls. Blob contents do not affect cost.
+The most accurate way to measure costs is to upload a blob and observe SUI and WAL costs in a Sui explorer or through the Sui gRPC API. Blob contents do not affect cost.
 
 For example, the following command results in 2 transactions:
 ```sh
