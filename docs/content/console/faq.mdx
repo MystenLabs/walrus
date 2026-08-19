@@ -70,11 +70,11 @@ Programmatic access, agent clients, and what a team shares today.
 
 ### What is the API key for?
 
-Everything programmatic. The API, the MCP server, and uploads from your own code all authenticate with it. You mint keys in Console, choose a `read_write` or `read_only` role for each, and revoke a key whenever you want. Console shows the full key once, at creation, so store it like a cloud secret access key. See [API keys and roles](./overview#api-keys-and-roles).
+Everything programmatic. The API, the MCP server, and uploads from your own code all authenticate with it. You mint keys under **Integrations** in Console, choose a `read_write` or `read_only` role for each, and revoke a key whenever you want. Pick a plain **API key** for the API, the MCP server, and your own code; a **Management API key** mints further keys programmatically but cannot upload, download, or manage assets. Console shows the full key once, at creation, so store it like a cloud secret access key. See [API keys and roles](./overview#api-keys-and-roles).
 
 ### How do you use Console with Claude Code or Cursor?
 
-Through the Walrus Console MCP server, the npm package `@mysten-incubation/walrus-console-mcp`, which publishes with the Console beta. It exposes file and bucket operations as tools your agent calls. Run `npx -y @mysten-incubation/walrus-console-mcp install` and give it the two values Console showed you when you minted the key: the `hbr_` API key and the `suiprivkey1` service private key. The installer stores them outside your client configuration, so no key goes in the MCP config file. See [Connect AI clients with the MCP server](./overview#connect-ai-clients-with-the-mcp-server).
+Through the Walrus Console MCP server, the npm package `@mysten-incubation/walrus-console-mcp`, which publishes with the Console beta. It exposes file and bucket operations as tools your agent calls. Run `npx -y @mysten-incubation/walrus-console-mcp install` and give it the two values Console showed you when you minted the key: the `hbr_` API key and the `suiprivkey1` service private key. The installer stores them outside your client configuration, so no key goes in the MCP config file. See [Connect AI clients with the MCP server](./mcp-server).
 
 ### Can your team share one account?
 
