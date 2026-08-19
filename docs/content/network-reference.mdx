@@ -255,17 +255,15 @@ The TypeScript SDK bundles the package and object IDs for each network. Select t
 
 ```ts
 import { SuiGrpcClient } from '@mysten/sui/grpc';
-import { WalrusClient } from '@mysten/walrus';
+import { walrus } from '@mysten/walrus';
 
 const suiClient = new SuiGrpcClient({
   network: 'mainnet',
   baseUrl: 'https://fullnode.mainnet.sui.io:443',
-});
+}).$extend(walrus());
 
-const walrusClient = new WalrusClient({
-  network: 'mainnet',
-  suiClient,
-});
+// Walrus SDK methods are available on suiClient.walrus.
+const walrusClient = suiClient.walrus;
 ```
 
 To connect to a custom or updated deployment, pass an explicit package configuration using the system and staking object IDs from this page. For full details, see the [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus) and the [SDKs](/docs/typescript-sdk/sdks) page.
