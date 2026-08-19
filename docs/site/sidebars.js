@@ -96,6 +96,8 @@ const sidebars = {
       collapsed: true,
       link: { type: "doc", id: "operator-guide/index" },
       items: [
+        "system-overview/aggregators-publishers-relays",
+        "system-overview/public-aggregators-and-publishers",
         "operator-guide/stake",
         {
           type: "category",
@@ -142,7 +144,6 @@ const sidebars = {
         "system-overview/red-stuff-recovery",
         "system-overview/red-stuff-parameters",
         "system-overview/system-constraints",
-        "system-overview/public-aggregators-and-publishers",
         "system-overview/view-system-info",
         "production-readiness",
         "glossary",
