@@ -25,8 +25,9 @@ pub mod simtest_utils {
         node_client::{
             StoreArgs,
             StoreBlobsApi as _,
+            StoreBlobsInStoragePoolApi as _,
             WalrusNodeClient,
-            responses::BlobStoreResult,
+            responses::{BlobStoreResult, PooledBlobStoreResult},
         },
         uploader::TailHandling,
     };
@@ -133,7 +134,8 @@ pub mod simtest_utils {
         let max_retry_count = max_retry_count.unwrap_or(DEFAULT_MAX_RETRY_COUNT);
 
         // Get a random epoch length for the blob to be stored.
-        let epoch_ahead = rand::thread_rng().gen_range(1..=epochs_max.unwrap_or(5));
+        let epoch_ahead =
+            rand::thread_rng().gen_range(1..=epochs_max.unwrap_or(DEFAULT_EPOCHS_MAX));
 
         tracing::info!(
             "generating random blobs of length {data_length} and store them for {epoch_ahead} \
@@ -309,7 +311,13 @@ pub mod simtest_utils {
         }
     }
 
-    /// Starts a background workload that writes and reads random blobs.
+    /// Epochs a workload blob is stored for when the caller does not cap it.
+    const DEFAULT_EPOCHS_MAX: EpochCount = 5;
+
+    /// Capacity of the storage pool backing the pooled half of the background workload.
+    const WORKLOAD_POOL_CAPACITY_BYTES: u64 = 64 * 1024 * 1024;
+
+    /// Starts a background workload that writes and reads random owned and pooled blobs.
     pub fn start_background_workload(
         client_clone: Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
         write_only: bool,
@@ -317,6 +325,12 @@ pub mod simtest_utils {
         epochs_max: Option<EpochCount>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
+            // The pool is requested for the same span the owned blobs use, so a system that
+            // caps `max_epochs_ahead` accepts it. It is recreated below when missing, which
+            // covers both a rejected request and a pool that has since expired.
+            let pool_epochs = epochs_max.unwrap_or(DEFAULT_EPOCHS_MAX);
+            let mut storage_pool_id = None;
+
             let mut data_length = 64;
             let mut blobs_written = HashSet::new();
             loop {
@@ -337,6 +351,36 @@ pub mod simtest_utils {
                 .await
                 .expect("workload should not fail");
 
+                // Pooled blobs populate the pooled column families, which owned blobs never
+                // touch. Failures only warn: an epoch change during the upload fails the store
+                // but leaves the blob registered in the pool, so the traffic still lands, and
+                // the next iteration uses a new blob id anyway.
+                if storage_pool_id.is_none() {
+                    storage_pool_id = client_clone
+                        .inner
+                        .sui_client()
+                        .create_storage_pool(WORKLOAD_POOL_CAPACITY_BYTES, pool_epochs)
+                        .await
+                        .inspect_err(|error| {
+                            tracing::warn!(%error, "no storage pool; writing owned blobs only")
+                        })
+                        .ok();
+                }
+                if let Some(pool_id) = storage_pool_id
+                    && let Err(error) = write_read_and_check_random_pooled_blob(
+                        client_clone.as_ref(),
+                        pool_id,
+                        data_length,
+                        write_only,
+                        deletable,
+                    )
+                    .await
+                {
+                    tracing::warn!(%error, "pooled blob workload iteration failed");
+                    // The pool may have expired or filled up; a fresh one is made next round.
+                    storage_pool_id = None;
+                }
+
                 maybe_extend_blob(client_clone.as_ref(), &blobs_written).await;
                 if deletable {
                     maybe_delete_blob(client_clone.as_ref(), &blobs_written).await;
@@ -347,6 +391,63 @@ pub mod simtest_utils {
                 data_length += 1;
             }
         })
+    }
+
+    /// Stores a random blob into the given storage pool and reads it back.
+    ///
+    /// The blob lives as long as the pool does, so it asks for the shortest lifetime the pool is
+    /// guaranteed to cover; the pooled store neither extends nor grows the pool.
+    pub async fn write_read_and_check_random_pooled_blob(
+        client: &WithTempDir<WalrusNodeClient<SuiContractClient>>,
+        storage_pool_id: ObjectID,
+        data_length: usize,
+        write_only: bool,
+        deletable: bool,
+    ) -> anyhow::Result<()> {
+        let blob = walrus_test_utils::random_data(data_length);
+        let store_args = StoreArgs::default_with_epochs(1)
+            .no_store_optimizations()
+            .with_persistence(BlobPersistence::from_deletable(deletable));
+
+        let results = client
+            .as_ref()
+            .reserve_and_store_blobs_in_storage_pool(
+                vec![blob.clone()],
+                storage_pool_id,
+                &store_args,
+            )
+            .await?;
+        let result = results
+            .into_iter()
+            .next()
+            .context("the pooled store returned no result")?;
+        let PooledBlobStoreResult::NewlyCreated { pooled_blob_object } = result else {
+            anyhow::bail!("storing the pooled blob failed: {result:?}");
+        };
+
+        let blob_id = pooled_blob_object.blob_id;
+        if write_only {
+            tracing::info!(%blob_id, %storage_pool_id, "stored a pooled blob");
+            return Ok(());
+        }
+
+        // Absorb the transient unavailability that can follow an upload.
+        const READ_ATTEMPTS: usize = 10;
+        let mut read = client.as_ref().read_blob::<Primary>(&blob_id).await;
+        for attempt in 1..=READ_ATTEMPTS {
+            if read.is_ok() {
+                break;
+            }
+            tracing::info!(attempt, %blob_id, "retrying the pooled blob read");
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            read = client.as_ref().read_blob::<Primary>(&blob_id).await;
+        }
+        anyhow::ensure!(
+            read? == blob,
+            "the pooled blob read back does not match what was stored"
+        );
+        tracing::info!(%blob_id, %storage_pool_id, "stored and read back a pooled blob");
+        Ok(())
     }
 
     /// BlobInfoConsistencyCheck is a helper struct to check the consistency of the blob info.
@@ -362,6 +463,9 @@ pub mod simtest_utils {
         per_object_pooled_blob_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
         // Per epoch, the existence check of all nodes.
         blob_existence_check_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, f64>>>>,
+        // Per epoch, the blob info snapshot digest of all nodes, paired with the number of
+        // entries the snapshot holds in its two pool sections.
+        blob_info_snapshot_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
         checked: Arc<AtomicBool>,
     }
 
@@ -378,6 +482,8 @@ pub mod simtest_utils {
             let per_object_pooled_blob_digest_map_clone = per_object_pooled_blob_digest_map.clone();
             let blob_existence_check_map = Arc::new(Mutex::new(HashMap::new()));
             let blob_existence_check_map_clone = blob_existence_check_map.clone();
+            let blob_info_snapshot_digest_map = Arc::new(Mutex::new(HashMap::new()));
+            let blob_info_snapshot_digest_map_clone = blob_info_snapshot_digest_map.clone();
 
             sui_macros::register_fail_point_arg(
                 "storage_node_event_index_source",
@@ -414,12 +520,20 @@ pub mod simtest_utils {
                 },
             );
 
+            sui_macros::register_fail_point_arg(
+                "storage_node_blob_info_snapshot_digest",
+                move || -> Option<Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>> {
+                    Some(blob_info_snapshot_digest_map_clone.clone())
+                },
+            );
+
             Self {
                 event_source_map,
                 certified_blob_digest_map,
                 per_object_blob_digest_map,
                 per_object_pooled_blob_digest_map,
                 blob_existence_check_map,
+                blob_info_snapshot_digest_map,
                 checked: Arc::new(AtomicBool::new(false)),
             }
         }
@@ -457,6 +571,27 @@ pub mod simtest_utils {
             self.check_per_object_blob_digest(min_epoch);
             self.check_per_object_pooled_blob_digest(min_epoch);
             self.check_blob_existence(min_epoch);
+            self.check_blob_info_snapshot_digest(min_epoch);
+        }
+
+        /// Ensures that for all epochs, all nodes have the same blob info snapshot digest.
+        ///
+        /// This is a no-op unless the blob info snapshot writer is enabled in the node config.
+        #[tracing::instrument(skip(self))]
+        pub fn check_blob_info_snapshot_digest(&self, min_epoch: Epoch) {
+            tracing::info!(
+                "checking blob info snapshot digest consistency starting with epoch {min_epoch}"
+            );
+            let digest_map = self.blob_info_snapshot_digest_map.lock().unwrap();
+            for (epoch, node_digest_map) in digest_map.iter().sorted_by_key(|(epoch, _)| *epoch) {
+                if *epoch < min_epoch {
+                    tracing::info!(
+                        "skipping epoch {epoch} because it is before the minimum epoch {min_epoch}"
+                    );
+                    continue;
+                }
+                Self::check_digests_are_equal(*epoch, node_digest_map);
+            }
         }
 
         /// Ensures that for all epochs, all nodes have the same certified blob digest.
@@ -566,6 +701,7 @@ pub mod simtest_utils {
             sui_macros::clear_fail_point("storage_node_certified_blob_object_digest");
             sui_macros::clear_fail_point("storage_node_certified_pooled_blob_object_digest");
             sui_macros::clear_fail_point("storage_node_certified_blob_existence_check");
+            sui_macros::clear_fail_point("storage_node_blob_info_snapshot_digest");
         }
     }
 
