@@ -40,10 +40,8 @@ The code below comes directly from the runnable [`walrus-harbor-quickstart`](htt
 ## Sign up and create an API key
 
 1. Visit the [Walrus Console app](https://console.walrus.xyz/) and sign in with Google. zkLogin provisions your account and a Personal Space automatically.
-2. Open **Integrations**, then click **Create API Key** in the top-right corner. Give the key a name and choose its type:
-   - **Management API key** mints further API keys programmatically through the CLI. It cannot upload, download, or manage assets; use an API key for that.
-   - **API key** cannot mint further API keys. The choice is not permanent, so you can create a Management API key at any time.
-3. If you chose **Management API key**, the reveal screen shows two secrets. Copy both, because Console shows them once and cannot recover them afterward:
+2. Open **Integrations**, then click **Create API Key** in the top-right corner. Give the key a name and choose **API key**. The other type, **Management API key**, only mints further API keys programmatically through the CLI; it cannot upload, download, or manage assets, so the steps below need a plain API key. The choice is not permanent, so you can create a Management API key later if you need one.
+3. On the reveal screen, copy both secrets. Console shows them once and cannot recover them afterward:
    - `hbr_…`, the API key you send as `Authorization: Bearer …` on every request.
    - `suiprivkey1…`, the service private key: an Ed25519 secret in Sui keytool format, bound to this API key. Console stores only the derived public address, and it does not need a token balance. You use it to sign the finalize transaction and to authenticate decrypt sessions with Seal.
 
