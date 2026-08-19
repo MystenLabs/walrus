@@ -42,7 +42,6 @@ impl PendingRecoverBlob {
     }
 
     /// The index of the `BlobCertified` event that required the recovery.
-    #[allow(dead_code)] // The callers land in a follow-up change.
     pub fn event_index(&self) -> u64 {
         match self {
             PendingRecoverBlob::V1(v1) => v1.event_index,
@@ -51,7 +50,6 @@ impl PendingRecoverBlob {
 
     /// The epoch in which the blob was certified, used to route recovery requests to the correct
     /// committee.
-    #[allow(dead_code)] // The callers land in a follow-up change.
     pub fn certified_epoch(&self) -> Epoch {
         match self {
             PendingRecoverBlob::V1(v1) => v1.certified_epoch,

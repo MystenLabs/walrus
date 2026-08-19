@@ -909,12 +909,8 @@ impl StorageNode {
         inner.init_gauges()?;
         inner.start_recovery_deferral_cleanup_task();
 
-        let blob_sync_handler = Arc::new(BlobSyncHandler::new(
-            inner.clone(),
-            config.blob_recovery.max_concurrent_blob_syncs,
-            config.blob_recovery.max_concurrent_sliver_syncs,
-            config.blob_recovery.monitor_interval,
-        ));
+        let blob_sync_handler =
+            Arc::new(BlobSyncHandler::new(inner.clone(), &config.blob_recovery));
 
         let shard_sync_handler = Arc::new(ShardSyncHandler::new(
             inner.clone(),
@@ -998,6 +994,7 @@ impl StorageNode {
             .await;
         node_recovery_handler
             .spawn_background_recovery(inner.subscribe_to_epoch_change_sync_and_recovery_info());
+        BlobSyncHandler::spawn_pending_recovery_executor(blob_sync_handler.clone());
 
         Ok(StorageNode {
             inner,
@@ -1061,6 +1058,9 @@ impl StorageNode {
                 // syncs, so that neither service starts new sync work afterwards.
                 self.node_recovery_handler.shut_down().await;
                 self.shard_sync_handler.shut_down().await;
+                self.blob_sync_handler
+                    .shut_down_pending_recovery_executor()
+                    .await;
                 self.blob_sync_handler.cancel_all().await?;
                 self.garbage_collector.abort().await;
             },
@@ -4203,6 +4203,7 @@ impl ServiceState for StorageNodeInner {
             shard_detail,
             shard_summary,
             latest_checkpoint_sequence_number,
+            pending_recover_blob_count: Some(self.storage.pending_recover_blob_count()),
         }
     }
 
@@ -6570,7 +6571,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn does_not_advance_cursor_past_incomplete_blobs() -> TestResult {
+    async fn advances_cursor_past_incomplete_blobs_with_pending_record() -> TestResult {
         walrus_test_utils::init_tracing();
 
         let shards: &[&[u16]] = &[&[1, 6], &[0, 2, 3, 4, 5]];
@@ -6599,9 +6600,9 @@ mod tests {
         let blob2_registered_event =
             BlobRegistered::for_testing_with_random_object_id(*blob2_details.blob_id());
         events.send(blob2_registered_event.clone().into())?;
-        let blob2_registered_event_id = blob2_registered_event.event_id;
 
-        // The node should not be able to advance past the following event.
+        // Blob2's data is stored nowhere, so its recovery cannot complete; the node still
+        // advances past this event, recording the blob in the pending-recovery table.
         events.send(
             blob2_registered_event
                 .into_corresponding_certified_event_for_testing()
@@ -6614,11 +6615,10 @@ mod tests {
             BlobRegistered::for_testing_with_random_object_id(*blob3_details.blob_id());
         events.send(blob3_registered_event.clone().into())?;
         store_at_shards(&blob3_details, &cluster, store_at_other_node_fn).await?;
-        events.send(
-            blob3_registered_event
-                .into_corresponding_certified_event_for_testing()
-                .into(),
-        )?;
+        let blob3_certified_event =
+            blob3_registered_event.into_corresponding_certified_event_for_testing();
+        let blob3_certified_event_id = blob3_certified_event.event_id;
+        events.send(blob3_certified_event.into())?;
 
         // All shards for blobs 1 and 3 should be synced by the node.
         for blob_details in [blob1_details, blob3_details] {
@@ -6639,15 +6639,27 @@ mod tests {
             }
         }
 
-        // The cursor should not have moved beyond that of blob2 registration, since blob2 is yet
-        // to be synced.
-        let latest_cursor = cluster.nodes[0]
-            .storage_node
-            .inner
-            .storage
-            .get_event_cursor_and_next_index()?
-            .map(|e| e.event_id());
-        assert_eq!(latest_cursor, Some(blob2_registered_event_id));
+        // The cursor advances to the tip (past blob2's certify event) even though blob2 cannot
+        // be synced; blob2's recovery obligation remains in the pending-recovery table.
+        let storage = &cluster.nodes[0].storage_node.inner.storage;
+        retry_until_success_or_timeout(TIMEOUT, || async {
+            let latest_cursor = storage
+                .get_event_cursor_and_next_index()?
+                .map(|e| e.event_id());
+            if latest_cursor == Some(blob3_certified_event_id) {
+                Ok(())
+            } else {
+                bail!("event cursor has not reached the tip yet: {latest_cursor:?}")
+            }
+        })
+        .await?;
+        assert!(
+            storage
+                .scan_pending_recover_blobs()?
+                .iter()
+                .any(|(blob_id, _)| blob_id == blob2_details.blob_id()),
+            "blob2 should have a pending-recovery record"
+        );
 
         Ok(())
     }
@@ -10404,6 +10416,134 @@ mod tests {
             cluster.nodes[0].storage_node.inner.storage.node_status()?,
             NodeStatus::RecoveryCatchUp
         );
+
+        Ok(())
+    }
+
+    // Tests that a certify event requiring blob recovery is persisted immediately, with the
+    // recovery obligation recorded in the pending-recovery table, and that invalidating the blob
+    // deletes the record and cancels the sync.
+    #[tokio::test]
+    async fn certified_event_persisted_while_blob_recovery_pending() -> TestResult {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+
+        let (cluster, events) =
+            cluster_at_epoch1_without_blobs_waiting_for_active_nodes(shards, None).await?;
+        let node = &cluster.nodes[0];
+        let storage = &node.storage_node.inner.storage;
+
+        let baseline_event_count = storage.get_sequentially_processed_event_count()?;
+
+        // Register and certify a blob whose data is stored nowhere, so that its recovery cannot
+        // complete.
+        let blob_id = random_blob_id();
+        events.send(BlobRegistered::for_testing(blob_id).into())?;
+        events.send(BlobCertified::for_testing(blob_id).into())?;
+
+        // The certify event is persisted even though the blob recovery cannot complete, and no
+        // completed events are parked behind it.
+        wait_until_events_processed(node, baseline_event_count + 2).await?;
+        assert_eq!(storage.get_event_cursor_progress()?.pending, 0);
+
+        // The recovery obligation is durably recorded and the executor starts the sync.
+        assert_eq!(storage.pending_recover_blob_count(), 1);
+        retry_until_success_or_timeout(Duration::from_secs(10), || async {
+            if node
+                .storage_node
+                .blob_sync_handler
+                .blob_sync_in_progress()
+                .contains(&blob_id)
+            {
+                Ok(())
+            } else {
+                bail!("blob sync has not started yet")
+            }
+        })
+        .await?;
+
+        // Invalidating the blob deletes the record and cancels the sync.
+        events.send(InvalidBlobId::for_testing(blob_id).into())?;
+        retry_until_success_or_timeout(Duration::from_secs(10), || async {
+            if storage.pending_recover_blob_count() == 0
+                && node
+                    .storage_node
+                    .blob_sync_handler
+                    .blob_sync_in_progress()
+                    .is_empty()
+            {
+                Ok(())
+            } else {
+                bail!("pending-recovery record or blob sync still present")
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    // Tests that deleting a blob whose recovery is pending deletes the pending-recovery record
+    // and cancels the sync.
+    #[tokio::test]
+    async fn blob_deleted_event_deletes_pending_recovery_record() -> TestResult {
+        let shards: &[&[u16]] = &[&[1], &[0, 2, 3, 4, 5, 6]];
+
+        let (cluster, events) =
+            cluster_at_epoch1_without_blobs_waiting_for_active_nodes(shards, None).await?;
+        let node = &cluster.nodes[0];
+        let storage = &node.storage_node.inner.storage;
+
+        // Register and certify a deletable blob whose data is stored nowhere, so that its
+        // recovery cannot complete.
+        let blob_id = random_blob_id();
+        let object_id = ObjectID::random();
+        events.send(
+            BlobRegistered {
+                deletable: true,
+                object_id,
+                ..BlobRegistered::for_testing(blob_id)
+            }
+            .into(),
+        )?;
+        events.send(
+            BlobCertified {
+                deletable: true,
+                object_id,
+                ..BlobCertified::for_testing(blob_id)
+            }
+            .into(),
+        )?;
+
+        retry_until_success_or_timeout(Duration::from_secs(10), || async {
+            if storage.pending_recover_blob_count() == 1 {
+                Ok(())
+            } else {
+                bail!("pending-recovery record not inserted yet")
+            }
+        })
+        .await?;
+
+        // Deleting the blob (its only certification) deletes the record and cancels the sync.
+        events.send(
+            BlobDeleted {
+                object_id,
+                ..BlobDeleted::for_testing(blob_id)
+            }
+            .into(),
+        )?;
+        retry_until_success_or_timeout(Duration::from_secs(10), || async {
+            if storage.pending_recover_blob_count() == 0
+                && node
+                    .storage_node
+                    .blob_sync_handler
+                    .blob_sync_in_progress()
+                    .is_empty()
+            {
+                Ok(())
+            } else {
+                bail!("pending-recovery record or blob sync still present")
+            }
+        })
+        .await?;
 
         Ok(())
     }
