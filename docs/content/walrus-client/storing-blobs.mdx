@@ -39,7 +39,9 @@ questions:
   - How do I store blobs in a storage pool?
 answer: >-
   All blobs stored in Walrus are public and discoverable by all. Do not store
-  sensitive data on Walrus without additional protection.
+  sensitive data on Walrus without additional protection. For workloads that
+  continuously write and retire blobs, a storage pool lets many blobs share one
+  pre-paid reservation so each store pays only the write fee.
 ---
 
 <AgentPrompt
