@@ -12,7 +12,7 @@ use super::{RocksDBRawIter, be_fix_int_ser};
 use crate::{
     TypedStoreError,
     metrics::{DBMetrics, RocksDBPerfContext},
-    rocks::errors::typed_store_err_from_bincode_err,
+    rocks::errors::{typed_store_err_from_bcs_err, typed_store_err_from_bincode_err},
     traits::SeekableIterator,
 };
 
@@ -93,13 +93,19 @@ impl<K: DeserializeOwned, V: DeserializeOwned> Iterator for SafeIter<'_, K, V> {
             self.key_bytes_scanned_counter += raw_key.len();
             self.value_bytes_scanned_counter += raw_value.len();
             self.keys_returned_counter += 1;
-            let key = config.deserialize(raw_key).ok();
-            let value = bcs::from_bytes(raw_value).ok();
+            // Surface deserialization failures as errors instead of silently ending the
+            // iterator: a truncated iteration is indistinguishable from a complete one for
+            // the caller. The underlying iterator still advances, so a caller that chooses
+            // to can skip the corrupt entry and continue.
+            let key = config
+                .deserialize(raw_key)
+                .map_err(typed_store_err_from_bincode_err);
+            let value = bcs::from_bytes(raw_value).map_err(typed_store_err_from_bcs_err);
             match self.direction {
                 Direction::Forward => self.db_iter.next(),
                 Direction::Reverse => self.db_iter.prev(),
             }
-            key.and_then(|k| value.map(|v| Ok((k, v))))
+            Some(key.and_then(|k| value.map(|v| (k, v))))
         } else {
             match self.db_iter.status() {
                 Ok(_) => None,
