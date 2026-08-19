@@ -385,6 +385,10 @@ Sui smart contract as the on-chain index.
     Best practices for handling Walrus errors. This page covers how to handle Walrus errors
     programmatically in your applications. For a reference of specific error messages and their
     solutions, see Troubleshooting Common Errors. Not all errors are equal.
+- [Grpc Migration](https://docs.wal.app/docs/troubleshooting/grpc-migration.md):
+    Sui has deprecated JSON-RPC. Current Walrus clients already reach Sui over gRPC at the same
+    full node URL your configuration lists, so migrating means upgrading your tooling rather than
+    rewriting your configuration. For the Sui API surface itself, see the Sui API reference.
 - [Troubleshooting](https://docs.wal.app/docs/troubleshooting.md):
     Resolve common issues with the Walrus CLI, configuration, and network connectivity. Before
     undertaking any other steps, make sure you have the latest walrus binary. If you have multiple
