@@ -33,6 +33,7 @@ The stdio MCP package reads these environment variables directly. A CLI flag tak
 | `MEMWAL_CLIENT_LABEL` | `--label <text>` | `MCP Client` / `Walrus Memory MCP` | Friendly delegate-key label shown in the dashboard |
 | `MEMWAL_MCP_DEBUG` | none | `0` | Set to `1` for verbose stderr logging |
 | `MEMWAL_MCP_SSE_IDLE_MS` | none | `30000` | Maximum milliseconds of silence on the SSE stream before the bridge treats the session as dead and reconnects. Values below `500` are ignored and fall back to the default. Mainly for tests |
+| `MEMWAL_MCP_CALL_TIMEOUT_MS` | none | `240000` | Maximum milliseconds a single request might wait for its response before the bridge answers with a retryable error. Covers a reply lost while the stream itself stays healthy, which `MEMWAL_MCP_SSE_IDLE_MS` cannot detect. The default is derived in code from the slowest server-side tool deadline plus headroom, so it moves with that tool rather than being pinned here. Values below `1000` are ignored and fall back to the default |
 
 ## Self-hosted relayer
 

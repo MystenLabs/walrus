@@ -4,7 +4,7 @@ Go from sign-up to a working encrypted upload: create an account, mint an API ke
 
 > **Info**
 >
-> The Console developer API is in alpha and currently available on Testnet only, hosted under the Harbor name at `api.testnet.harbor.walrus.xyz`. Endpoint shapes might change before it reaches Mainnet at GA. In alpha, all bucket creation goes through the private, Seal-encrypted flow; Console disables public bucket creation at the API boundary. For the full endpoint surface, see the [API reference](./api-reference); for the product model, see the [concepts and overview](./overview).
+> The Console developer API is in beta at `api.console.walrus.xyz`. Endpoint shapes might change before GA. In beta, all bucket creation goes through the private, Seal-encrypted flow; Console disables public bucket creation at the API boundary. For the full endpoint surface, see the [API reference](./api-reference); for the product model, see the [concepts and overview](./overview).
 ## Prerequisites
 
 - [x] A Google account for sign-in.
@@ -21,7 +21,7 @@ Authorization: Bearer hbr_…
 > The code below comes directly from the runnable [`walrus-harbor-quickstart`](https://github.com/MystenLabs/walrus-harbor-quickstart) example, so the package IDs and Seal key-server IDs stay current with the source. Clone it and run the `pnpm` scripts to try the flow end to end.
 ## Sign up and create an API key
 
-1. Visit the [Walrus Console app](https://testnet.harbor.walrus.xyz/) and sign in with Google. zkLogin provisions your account and a Personal Space automatically.
+1. Visit the [Walrus Console app](https://console.walrus.xyz/) and sign in with Google. zkLogin provisions your account and a Personal Space automatically.
 2. Open **Settings → API Keys → New API key**, give it a name, pick role **`read_write`**, and tick **Create** so the key is encryption-capable. Submit.
 3. On the reveal screen, copy both secrets. Console shows them once and cannot recover them afterward:
    - `hbr_…`, the API key you send as `Authorization: Bearer …` on every request.

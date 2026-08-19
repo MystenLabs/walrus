@@ -697,8 +697,8 @@ Sui smart contract as the on-chain index.
 - [API Reference](https://docs.wal.app/docs/console/api-reference.md):
     The Walrus Console external API covers the endpoints third-party developers use to manage
     spaces, buckets, and files, plus the Seal sponsorship endpoints that back private-bucket access
-    control. > Info > > The Walrus Console external API is in alpha and currently available on
-    Testnet only, at .
+    control. > Info > > The Walrus Console external API is in beta at . Endpoint shapes might
+    change before GA.
 - [Auth](https://docs.wal.app/docs/console/auth.md):
     Walrus Console uses the same kind of login you already know using Google or Apple; no wallet,
     no seed phrase, no crypto setup. Just sign in and start storing data. > Info > > Walrus Console
@@ -718,7 +718,8 @@ Sui smart contract as the on-chain index.
     client or handling wallets and tokens directly.
 - [Quickstart](https://docs.wal.app/docs/console/quickstart.md):
     Go from sign-up to a working encrypted upload: create an account, mint an API key, then create
-    a Seal-encrypted bucket and upload, download, and decrypt a file.
+    a Seal-encrypted bucket and upload, download, and decrypt a file. > Info > > The Console
+    developer API is in beta at api.console.walrus.xyz. Endpoint shapes might change before GA.
 - [Storage Epochs](https://docs.wal.app/docs/console/storage-epochs.md):
     Walrus storage is time-bound. Your data stays available for a set amount of storage, measured
     in epochs, and expires when that storage runs out. Walrus Console tracks and pays for this so
@@ -736,9 +737,9 @@ Sui smart contract as the on-chain index.
 ## Network Reference
 
 - [Network Reference](https://docs.wal.app/docs/network-reference.md):
-    This page is the single canonical reference for the volatile values you need to integrate with
-    Walrus: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and
-    staking object IDs, token units, and configuration snippets.
+    The volatile values you need to integrate with Walrus all live here: aggregator and publisher
+    endpoints, upload relay endpoints, package IDs, system and staking object IDs, token units, and
+    configuration snippets.
 
 ## Production Readiness
 

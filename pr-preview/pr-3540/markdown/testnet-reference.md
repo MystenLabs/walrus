@@ -18,6 +18,8 @@ Walrus Testnet is a free, non-durable network for development and testing. Read 
 
 Confirm you are connected to Testnet by running `walrus info` and checking for `Epoch duration: 1day`. The same output shows current storage pricing.
 
+Planning to move to production? See [Testnet compared with Mainnet](/docs/network-reference#how-testnet-compares-with-mainnet) for what changes, including the public publisher that Mainnet does not provide.
+
 ## Endpoints
 
 The Mysten Labs reference endpoints for Testnet are:
