@@ -40,14 +40,16 @@ The code below comes directly from the runnable [`walrus-harbor-quickstart`](htt
 ## Sign up and create an API key
 
 1. Visit the [Walrus Console app](https://console.walrus.xyz/) and sign in with Google. zkLogin provisions your account and a Personal Space automatically.
-2. Open **Settings → API Keys → New API key**, give it a name, pick role **`read_write`**, and tick **Create** so the key is encryption-capable. Submit.
-3. On the reveal screen, copy both secrets. Console shows them once and cannot recover them afterward:
+2. Open **Integrations**, then click **Create API Key** in the top-right corner. Give the key a name and choose its type:
+   - **Management API key** mints further API keys programmatically through the CLI. It cannot upload, download, or manage assets; use an API key for that.
+   - **API key** cannot mint further API keys. The choice is not permanent, so you can create a Management API key at any time.
+3. If you chose **Management API key**, the reveal screen shows two secrets. Copy both, because Console shows them once and cannot recover them afterward:
    - `hbr_…`, the API key you send as `Authorization: Bearer …` on every request.
    - `suiprivkey1…`, the service private key: an Ed25519 secret in Sui keytool format, bound to this API key. Console stores only the derived public address, and it does not need a token balance. You use it to sign the finalize transaction and to authenticate decrypt sessions with Seal.
 
-   Store both like cloud secret access keys. Paste them into your `.env` as your bearer token and `HARBOR_SERVICE_PRIVKEY`, or into Postman.
+   Store both like cloud secret access keys. Paste them into your `.env` as your bearer token and `CONSOLE_SERVICE_PRIVKEY`, or into Postman.
 
-A `read_only` key (listing, status, and download only) is also available for downstream consumers that should not change your data; every write endpoint returns `403` with code `read_only_api_key` for those keys. The encrypted flow below needs the `read_write` encryption-capable key created above.
+A `read_only` key (listing, status, and download only) is also available for downstream consumers that should not change your data; every write endpoint returns `403` with code `read_only_api_key` for those keys. The encrypted flow below needs a write-capable key and both secrets above.
 
 ## Create an encrypted bucket and upload a file
 
@@ -89,7 +91,7 @@ Response (`201`):
 
 ### The example code
 
-The signing, encryption, and decryption steps below come from the runnable [`walrus-harbor-quickstart`](https://github.com/MystenLabs/walrus-harbor-quickstart) example. Two files hold everything: `config.ts` pins the Testnet package and Seal key-server IDs, and `lib/seal.ts` wraps the signing and Seal encrypt/decrypt helpers. Clone the repo, copy `app/.env.example` to `app/.env`, and set `HARBOR_SERVICE_PRIVKEY` to your service private key.
+The signing, encryption, and decryption steps below come from the runnable [`walrus-harbor-quickstart`](https://github.com/MystenLabs/walrus-harbor-quickstart) example. Two files hold everything: `config.ts` pins the Testnet package and Seal key-server IDs, and `lib/seal.ts` wraps the signing and Seal encrypt/decrypt helpers. Clone the repo, copy `app/.env.example` to `app/.env`, and set the service private key. That file still uses the example's own variable names, `HARBOR_API_KEY` and `HARBOR_SERVICE_PRIVKEY`.
 
 <ImportContent source="app/src/config.ts" mode="code" org="MystenLabs" repo="walrus-harbor-quickstart" />
 
