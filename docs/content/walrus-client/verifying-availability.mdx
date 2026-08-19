@@ -129,28 +129,16 @@ $ walrus blob-status --blob-id <BLOB_ID>
 
 This reports whether the blob is stored and its availability period. When it reports a certified permanent blob, it also returns the related Sui event ID, a transaction ID and a sequence number. Read the current epoch with `walrus info`.
 
-To check programmatically after writing a blob, use the `Blob` object ID from the write result and re-read that object from Sui before depending on it:
+To check programmatically after writing a blob, use the `Blob` object ID from the write result and re-read that object from Sui before depending on it. The TypeScript SDK's `getBlobObject` helper reads the object over gRPC and returns the parsed Move struct. For the client construction, see the [Network Reference](/docs/network-reference#typescript-sdk).
 
 ```ts
-const res = await suiClient.getObject({
-  id: blobObjectId, // blobObject.id from the write result
-  options: { showContent: true },
-});
-if (res.data?.content?.dataType !== "moveObject") {
-  throw new Error("Blob object was not found on Sui");
-}
+const blob = await walrusClient.getBlobObject(blobObjectId); // blobObject.id from the write result
 
-const fields = res.data.content.fields as Record<string, any>;
-const storageFields = fields.storage?.fields;
+// certified_epoch is a parsed Move Option<u32>: null until the blob is certified.
+const certified = blob.certified_epoch != null;
+const endEpoch = blob.storage.end_epoch;
 
-// The parsed Move Option<u32> is Some(epoch) when vec contains one value.
-const certifiedEpoch = fields.certified_epoch?.fields?.vec?.[0] ?? null;
-
-const certified = certifiedEpoch != null;
-const endEpoch = Number(storageFields.end_epoch);
-const deletable = fields.deletable === true;
-
-const durable = certified && currentEpoch < endEpoch && !deletable;
+const durable = certified && currentEpoch < endEpoch && !blob.deletable;
 if (!durable) {
   throw new Error("Blob is not durably available yet; do not depend on it");
 }
@@ -191,28 +179,22 @@ if any check fails. Set `aggregator` to an endpoint from the
 with `walrus info` or from Walrus system state.
 
 ```ts
+import { WalrusClient } from "@mysten/walrus";
+
 async function readVerifiedBlob(
-  suiClient: SuiClient,
+  walrusClient: WalrusClient,
   aggregator: string,
   blobObjectId: string,
   currentEpoch: number,
 ): Promise<Uint8Array> {
   // 1. Read the Blob object from Sui.
-  const res = await suiClient.getObject({
-    id: blobObjectId,
-    options: { showContent: true },
-  });
-  if (res.data?.content?.dataType !== "moveObject") {
-    throw new Error("Blob object was not found on Sui");
-  }
+  const blob = await walrusClient.getBlobObject(blobObjectId);
 
   // 2. Check availability: certified, within its storage period, not deletable.
-  const fields = res.data.content.fields as Record<string, any>;
-  const certifiedEpoch = fields.certified_epoch?.fields?.vec?.[0] ?? null;
-  const endEpoch = Number(fields.storage?.fields?.end_epoch);
-  const deletable = fields.deletable === true;
-
-  const durable = certifiedEpoch != null && currentEpoch < endEpoch && !deletable;
+  const durable =
+    blob.certified_epoch != null &&
+    currentEpoch < blob.storage.end_epoch &&
+    !blob.deletable;
   if (!durable) {
     throw new Error("Blob is not durably available; do not depend on it");
   }
