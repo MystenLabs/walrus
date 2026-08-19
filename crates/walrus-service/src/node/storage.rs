@@ -80,6 +80,10 @@ pub(crate) use event_cursor_table::event_cursor_cf_options;
 
 mod event_sequencer;
 mod metrics;
+mod pending_recover_blobs;
+pub(crate) use pending_recover_blobs::PendingRecoverBlob;
+use pending_recover_blobs::PendingRecoverBlobsTable;
+
 mod shard;
 
 pub(crate) use shard::{PrimarySliverData, SecondarySliverData, ShardStatus, ShardStorage};
@@ -342,6 +346,7 @@ pub struct Storage {
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
+    pending_recover_blobs: PendingRecoverBlobsTable,
     garbage_collector_table: DBMap<String, Epoch>,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     db_table_opts_factory: DatabaseTableOptionsFactory,
@@ -440,6 +445,8 @@ impl Storage {
         let blob_info_column_families = BlobInfoTable::options(&db_table_opts_factory);
         let (event_cursor_cf_name, event_cursor_options) =
             EventCursorTable::options(&db_table_opts_factory);
+        let (pending_recover_blobs_cf_name, pending_recover_blobs_options) =
+            PendingRecoverBlobsTable::options(&db_table_opts_factory);
         let garbage_collector_table_cf_name = garbage_collector_table_cf_name();
         let garbage_collector_table_options = db_table_opts_factory.garbage_collector();
 
@@ -450,6 +457,7 @@ impl Storage {
                 (node_status_cf_name, node_status_options),
                 (metadata_cf_name, metadata_options),
                 (event_cursor_cf_name, event_cursor_options),
+                (pending_recover_blobs_cf_name, pending_recover_blobs_options),
                 (
                     garbage_collector_table_cf_name,
                     garbage_collector_table_options,
@@ -515,6 +523,7 @@ impl Storage {
         )?;
 
         let event_cursor = EventCursorTable::reopen(&database)?;
+        let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
@@ -543,6 +552,7 @@ impl Storage {
             metadata,
             blob_info,
             event_cursor,
+            pending_recover_blobs,
             garbage_collector_table,
             shards,
             db_table_opts_factory,
@@ -1506,6 +1516,48 @@ impl Storage {
     /// Returns the latest event index that has been handled by the node.
     pub(crate) fn get_latest_handled_event_index(&self) -> Result<u64, TypedStoreError> {
         self.blob_info.get_latest_handled_event_index()
+    }
+
+    /// Durably records that the blob needs to be recovered, overwriting any existing record, and
+    /// returns the number of pending-recovery records.
+    ///
+    /// Must be called before the certify event is marked as complete: if the node crashes in
+    /// between, the event is replayed and the record is written again.
+    #[allow(dead_code)] // The callers land in a follow-up change.
+    pub(crate) fn insert_pending_recover_blob(
+        &self,
+        blob_id: &BlobId,
+        event_index: u64,
+        certified_epoch: Epoch,
+    ) -> Result<u64, TypedStoreError> {
+        self.pending_recover_blobs.insert(
+            blob_id,
+            &PendingRecoverBlob::new(event_index, certified_epoch),
+        )
+    }
+
+    /// Deletes the pending-recovery record for the blob, if any, and returns the number of
+    /// remaining pending-recovery records.
+    #[allow(dead_code)] // The callers land in a follow-up change.
+    pub(crate) fn delete_pending_recover_blob(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<u64, TypedStoreError> {
+        self.pending_recover_blobs.delete(blob_id)
+    }
+
+    /// Returns all pending-recovery records.
+    #[allow(dead_code)] // The callers land in a follow-up change.
+    pub(crate) fn scan_pending_recover_blobs(
+        &self,
+    ) -> Result<Vec<(BlobId, PendingRecoverBlob)>, TypedStoreError> {
+        self.pending_recover_blobs.scan_all()
+    }
+
+    /// Returns the number of pending-recovery records.
+    #[allow(dead_code)] // The callers land in a follow-up change.
+    pub(crate) fn pending_recover_blob_count(&self) -> u64 {
+        self.pending_recover_blobs.count()
     }
 
     /// Clears the metadata in the storage for testing purposes.

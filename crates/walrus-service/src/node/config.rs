@@ -1038,6 +1038,13 @@ pub struct BlobRecoveryConfig {
     #[serde_as(as = "DurationSeconds")]
     #[serde(rename = "monitor_interval_secs")]
     pub monitor_interval: Duration,
+    /// The maximum number of concurrent blob syncs started by the pending-recovery executor.
+    pub max_concurrent_pending_recoveries: usize,
+    /// The fallback interval at which the pending-recovery executor re-scans the
+    /// pending-recovery table (it is additionally woken whenever a record is inserted).
+    #[serde_as(as = "DurationSeconds")]
+    #[serde(rename = "pending_recovery_drain_interval_secs")]
+    pub pending_recovery_drain_interval: Duration,
 }
 
 impl Default for BlobRecoveryConfig {
@@ -1048,16 +1055,19 @@ impl Default for BlobRecoveryConfig {
             max_proof_cache_elements: 7_500,
             committee_service_config: CommitteeServiceConfig::default(),
             monitor_interval: Duration::from_mins(1),
+            max_concurrent_pending_recoveries: 100,
+            pending_recovery_drain_interval: Duration::from_mins(1),
         }
     }
 }
 
 impl BlobRecoveryConfig {
-    /// Returns a default configuration with a shorter monitor interval for testing.
+    /// Returns a default configuration with shorter intervals for testing.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn default_for_test() -> Self {
         Self {
             monitor_interval: Duration::from_secs(5),
+            pending_recovery_drain_interval: Duration::from_secs(1),
             ..Default::default()
         }
     }

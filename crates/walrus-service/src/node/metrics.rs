@@ -132,6 +132,16 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of blob recoveries currently pending"]
         recover_blob_backlog: IntGaugeVec["state"],
 
+        #[help = "The number of records in the pending-recovery table"]
+        pending_recover_blob_count: U64Gauge[],
+
+        #[help = "The event index of the oldest record in the pending-recovery table, or 0 if \
+        the table is empty"]
+        pending_recover_blob_oldest_event_index: U64Gauge[],
+
+        #[help = "The number of pending-recovery records handled by the executor, by outcome"]
+        pending_recovery_executor_total: IntCounterVec["outcome"],
+
         #[help = "Time (in seconds) spent processing events"]
         event_process_duration_seconds: HistogramVec["event_type"],
 
