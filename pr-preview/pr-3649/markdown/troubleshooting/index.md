@@ -29,6 +29,9 @@ $ RUST_LOG=walrus=debug walrus store file.txt --epochs 5
 ```
 If a freshly uploaded blob returns `404 Not Found` from a CDN-fronted aggregator, you are likely hitting a cached `404` response from before the blob propagated. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload) for when to retry and when not to.
 
+If a deployment fails against a Sui full node that stopped serving JSON-RPC, upgrade the client rather than reconfiguring it. See [Migrate from JSON-RPC to gRPC](/docs/troubleshooting/grpc-migration) for the upgrade steps covering the CLI, `site-builder`, and self-hosted full nodes.
+
 - [Error Handling](/docs/troubleshooting/error-handling): Best practices for handling Walrus errors.
+- [Migrate from JSON-RPC to gRPC](/docs/troubleshooting/grpc-migration): Upgrade the Walrus CLI and site-builder so they reach Sui over gRPC after the JSON-RPC deprecation, confirm your existing configuration still applies, and recognize the failures that mean you have not migrated yet.
 - [Troubleshooting Common Errors](/docs/troubleshooting/network-errors): Common errors in the Walrus CLI and network, with causes and solutions.
 - [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload): Why blobs might return 404 immediately after certification when using a cached aggregator, and how to handle the propagation window.

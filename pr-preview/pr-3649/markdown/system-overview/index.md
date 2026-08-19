@@ -1,5 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+- [Aggregators, Publishers, and Upload Relays](/docs/system-overview/aggregators-publishers-relays): What each Walrus HTTP service does, which direction of traffic it handles, who pays for storage, and which endpoint to call, so you can tell an aggregator from a publisher from an upload relay.
 - [Available Networks](/docs/system-overview/available-networks): Overview of Walrus networks including Mainnet and Testnet configurations, parameters, and setup instructions.
 - [Caching Hot Reads](/docs/system-overview/caching): Guidance for caching frequently read Walrus blobs, including caching aggregators, CDN fronting, immutability guarantees, and pitfalls to avoid.
 - [Walrus Fundamentals](/docs/system-overview/core-concepts): Technical reference for Walrus fundamentals, including architecture, data storage, and data retrieval.

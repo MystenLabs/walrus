@@ -33,6 +33,10 @@ Sui smart contract as the on-chain index.
 
 ## System Overview
 
+- [Aggregators Publishers Relays](https://docs.wal.app/docs/system-overview/aggregators-publishers-relays.md):
+    Walrus exposes three HTTP services. Callers send requests to the wrong one more often than they
+    make any other endpoint mistake. An aggregator reads. A publisher and an upload relay both
+    write, but they differ in who holds the wallet and who pays.
 - [Available Networks](https://docs.wal.app/docs/system-overview/available-networks.md):
     Walrus Mainnet operates a production-quality storage network using corresponding resources on
     the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui Testnet and is used to
@@ -46,10 +50,9 @@ Sui smart contract as the on-chain index.
     as text, video, or source code, you can store on Walrus. All blobs uploaded to Walrus are
     publicly available. Sui is a blockchain that supports programmable transactions.
 - [System Overview](https://docs.wal.app/docs/system-overview.md):
-    Available Networks: Overview of Walrus networks including Mainnet and Testnet configurations,
-    parameters, and setup instructions. Caching Hot Reads: Guidance for caching frequently read
-    Walrus blobs, including caching aggregators, CDN fronting, immutability guarantees, and
-    pitfalls to avoid.
+    Aggregators, Publishers, and Upload Relays: What each Walrus HTTP service does, which direction
+    of traffic it handles, who pays for storage, and which endpoint to call, so you can tell an
+    aggregator from a publisher from an upload relay.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md):
     Blobs can be interacted with through familiar file system operations such as uploading,
     reading, downloading, and deleting. You buy storage on Walrus for a fixed number of epochs, so
@@ -386,6 +389,10 @@ Sui smart contract as the on-chain index.
     Best practices for handling Walrus errors. This page covers how to handle Walrus errors
     programmatically in your applications. For a reference of specific error messages and their
     solutions, see Troubleshooting Common Errors. Not all errors are equal.
+- [Grpc Migration](https://docs.wal.app/docs/troubleshooting/grpc-migration.md):
+    Sui has deprecated JSON-RPC. Current Walrus clients already reach Sui over gRPC at the same
+    full node URL your configuration lists, so migrating means upgrading your tooling rather than
+    rewriting your configuration. For the Sui API surface itself, see the Sui API reference.
 - [Troubleshooting](https://docs.wal.app/docs/troubleshooting.md):
     Resolve common issues with the Walrus CLI, configuration, and network connectivity. Before
     undertaking any other steps, make sure you have the latest walrus binary. If you have multiple
@@ -540,7 +547,7 @@ Sui smart contract as the on-chain index.
 - [All SUI coins for an address, largest first:](https://docs.wal.app/walrus-memory/relayer/runbook-gas-pool.md):
     When to use this: a gas-pool alert fires (the SUI gas pool maintenance alert), or relayer logs
     show wallet jobs aborting with or Enoki dryrunfailed plus 0x2:balance:split (ENotEnough, abort
-    code 2). The relayer sponsors Walrus register transactions through Enoki.
+    code 2).
 - [Opt the write path into gRPC (testnet example)](https://docs.wal.app/walrus-memory/relayer/self-hosting.md):
     Self-hosting means running your own relayer, either pointing at an existing Walrus Memory
     package ID or deploying an entirely new Walrus Memory instance with your own contract,
@@ -709,9 +716,9 @@ Sui smart contract as the on-chain index.
 ## Network Reference
 
 - [Network Reference](https://docs.wal.app/docs/network-reference.md):
-    This page is the single canonical reference for the volatile values you need to integrate with
-    Walrus: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and
-    staking object IDs, token units, and configuration snippets.
+    The volatile values you need to integrate with Walrus all live here: aggregator and publisher
+    endpoints, upload relay endpoints, package IDs, system and staking object IDs, token units, and
+    configuration snippets.
 
 ## Production Readiness
 
