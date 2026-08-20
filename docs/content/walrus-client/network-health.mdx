@@ -58,6 +58,7 @@ The other statuses come from the node itself:
 | `RecoverMetadata` | In recovery mode, syncing metadata |
 | `RecoveryCatchUp` | In recovery mode, catching up with the chain |
 | `RecoveryInProgress` | In recovery mode, recovering missing slivers |
+| `RecoveryCatchUpWithIncompleteHistory` | In recovery mode, catching up with an incomplete history because event blobs expired |
 
 A node in a recovery status answers the health endpoint, so it never lands in `Error`, but it might not hold every sliver for the shards it owns yet. Count the recovery statuses alongside `Error` when you want a pessimistic reading.
 
