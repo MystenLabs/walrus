@@ -41,7 +41,7 @@ Active: 98
 Error: 7
 ```
 
-Two numbers matter here.
+Read the summary as follows.
 
 `Owned shards` sums only the nodes that answered. Unreachable nodes contribute nothing to it, so on a 1,000-shard network this figure is already your healthy shard count, and 930 means 70 shards sit behind nodes you cannot reach. Compare that number against the thresholds below rather than counting nodes.
 
@@ -75,6 +75,14 @@ You can select a different set of nodes instead. Exactly one selector is require
 
 Walrus tolerates faults as a fraction of **shards**, not of nodes, and one node can own many shards. A committee where 7 of 105 nodes fail can lose far more or far less than 7% of its shards, so the node counts alone tell you little.
 
+For the write threshold, ask the CLI rather than working it out:
+
+```sh
+walrus info bft
+```
+
+That prints the tolerated faults `f`, the quorum threshold `2f + 1`, and the minimum number of correct shards `n - f`, which is the write threshold, for the network you are on. It does not print the read threshold, so derive that one yourself.
+
 Write `n` for the shard count and `f` for the number of faulty shards the protocol tolerates:
 
 1. `f = (n - 1) / 3`, using integer division.
@@ -90,7 +98,7 @@ For a 1,000-shard network:
 | Write | 667 | 333 (33.3%) |
 | Read | 334 | 666 (66.6%) |
 
-Run `walrus info committee` to get the shard count for the network you are on, then apply the same arithmetic.
+Run `walrus info committee` to get the shard count for the network you are on, then apply the same arithmetic for the read threshold.
 
 ## Decide whether to upload
 
