@@ -92,6 +92,20 @@ const sidebars = {
     },
     {
       type: "category",
+      label: "Walrus Console",
+      collapsed: true,
+      link: { type: "doc", id: "console/overview" },
+      items: [
+        "console/auth",
+        "console/quickstart",
+        "console/storage-epochs",
+        "console/api-reference",
+        "console/mcp-server",
+        "console/faq",
+      ],
+    },
+    {
+      type: "category",
       label: "Run Infrastructure",
       collapsed: true,
       link: { type: "doc", id: "operator-guide/index" },
