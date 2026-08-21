@@ -755,6 +755,13 @@ components:
                   nodeStatus:
                     type: string
                     description: The status of the storage node.
+                  pendingRecoverBlobCount:
+                    type:
+                    - integer
+                    - 'null'
+                    format: int64
+                    description: The number of blobs whose recovery is pending.
+                    minimum: 0
                   publicKey:
                     type: array
                     items:
@@ -1075,6 +1082,13 @@ components:
         nodeStatus:
           type: string
           description: The status of the storage node.
+        pendingRecoverBlobCount:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: The number of blobs whose recovery is pending.
+          minimum: 0
         publicKey:
           type: array
           items:

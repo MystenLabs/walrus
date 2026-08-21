@@ -823,6 +823,7 @@ mod tests {
                 shard_detail: None,
                 shard_summary: ShardStatusSummary::default(),
                 latest_checkpoint_sequence_number: None,
+                pending_recover_blob_count: None,
             }
         }
 

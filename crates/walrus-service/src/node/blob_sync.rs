@@ -11,13 +11,14 @@ use futures::{
     FutureExt as _,
     StreamExt,
     TryFutureExt,
-    future::{self, try_join_all},
+    future::{self, BoxFuture, try_join_all},
     stream,
+    stream::FuturesUnordered,
 };
 use mysten_metrics::{GaugeGuard, InflightGuardFutureExt as _};
 use rayon::prelude::*;
 use tokio::{
-    sync::{Semaphore, watch},
+    sync::{Notify, Semaphore, watch},
     task::{JoinHandle, JoinSet},
     time::Instant,
 };
@@ -44,15 +45,20 @@ use super::{
         LIVE_UPLOAD_DEFERRAL_OUTCOME_AVOIDED_RECOVERY,
         LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED,
         NodeMetricSet,
+        STATUS_ALREADY_STORED,
+        STATUS_CANCELLED,
         STATUS_IN_PROGRESS,
         STATUS_QUEUED,
+        STATUS_RETIRED,
+        STATUS_SKIPPED,
+        STATUS_SUCCESS,
     },
-    storage::Storage,
+    storage::{PendingRecoverBlob, Storage},
     system_events::{CompletableHandle, EventHandle},
 };
 use crate::{
     common::utils::{self, FutureHelpers as _},
-    node::NodeStatus,
+    node::{NodeStatus, config::BlobRecoveryConfig},
 };
 
 #[derive(Debug, Clone)]
@@ -92,24 +98,29 @@ pub(crate) struct BlobSyncHandler {
     permits: Permits,
     task_monitors: TaskMonitorFamily<&'static str>,
     monitor_interval: Duration,
+    max_concurrent_pending_recoveries: usize,
+    pending_recovery_drain_interval: Duration,
+    // Wakes the pending-recovery executor when a record is inserted.
+    pending_recovery_notify: Arc<Notify>,
+    pending_recovery_task: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl BlobSyncHandler {
-    pub fn new(
-        node: Arc<StorageNodeInner>,
-        max_concurrent_blob_syncs: usize,
-        max_concurrent_sliver_syncs: usize,
-        monitor_interval: Duration,
-    ) -> Self {
+    pub fn new(node: Arc<StorageNodeInner>, config: &BlobRecoveryConfig) -> Self {
         Self {
             blob_syncs_in_progress: Arc::default(),
             task_monitors: TaskMonitorFamily::new(node.registry.clone()),
             permits: Permits {
-                blob: Arc::new(Semaphore::new(max_concurrent_blob_syncs)),
-                sliver_pairs: Arc::new(Semaphore::new(max_concurrent_sliver_syncs)),
+                blob: Arc::new(Semaphore::new(config.max_concurrent_blob_syncs)),
+                sliver_pairs: Arc::new(Semaphore::new(config.max_concurrent_sliver_syncs)),
             },
             node,
-            monitor_interval,
+            monitor_interval: config.monitor_interval,
+            // A zero bound would make the drain loop busy-wait; treat it as one.
+            max_concurrent_pending_recoveries: config.max_concurrent_pending_recoveries.max(1),
+            pending_recovery_drain_interval: config.pending_recovery_drain_interval,
+            pending_recovery_notify: Arc::default(),
+            pending_recovery_task: Arc::default(),
         }
     }
 
@@ -507,6 +518,241 @@ impl BlobSyncHandler {
             .keys()
             .cloned()
             .collect()
+    }
+
+    /// Wakes the pending-recovery executor to drain newly inserted pending-recovery records.
+    pub fn notify_pending_recovery(&self) {
+        self.pending_recovery_notify.notify_one();
+    }
+
+    /// Spawns the background executor that drains the pending-recovery table by syncing the
+    /// recorded blobs. Called once at startup.
+    pub fn spawn_pending_recovery_executor(this: Arc<BlobSyncHandler>) {
+        let mut task = this
+            .pending_recovery_task
+            .lock()
+            .expect("should be able to acquire lock");
+        assert!(
+            task.is_none(),
+            "the pending-recovery executor is already running"
+        );
+        let handler = this.clone();
+        *task = Some(tokio::spawn(async move {
+            handler.run_pending_recovery_executor().await;
+        }));
+    }
+
+    /// Shuts down the pending-recovery executor, waiting for it to exit so that it cannot start
+    /// new blob syncs afterwards.
+    pub async fn shut_down_pending_recovery_executor(&self) {
+        let task = self
+            .pending_recovery_task
+            .lock()
+            .expect("should be able to acquire lock")
+            .take();
+        if let Some(task) = task {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+
+    /// The pending-recovery executor loop.
+    ///
+    /// Each round scans the table and starts syncs for the recorded blobs, then waits until a
+    /// record is inserted or the fallback interval elapses before scanning again. Syncs run
+    /// independently of the rounds: a sync that cannot finish only occupies one concurrency
+    /// slot and never blocks other records from being processed. The fallback interval also
+    /// retries records whose syncs were cancelled or failed.
+    async fn run_pending_recovery_executor(&self) {
+        // Blob syncs need the current event epoch to determine which shards to recover, so
+        // wait until it is known.
+        if self.node.current_event_epoch().await.is_err() {
+            tracing::info!("event epoch channel closed; stopping the pending-recovery executor");
+            return;
+        }
+
+        // Syncs started by the executor that have not finished yet. Each future resolves to
+        // its blob ID; the blob IDs are mirrored in `in_flight_blobs` so that scans can skip
+        // blobs that are already being synced.
+        let mut in_flight: FuturesUnordered<BoxFuture<'static, BlobId>> = FuturesUnordered::new();
+        let mut in_flight_blobs: HashSet<BlobId> = HashSet::new();
+
+        loop {
+            if let Err(error) = self
+                .start_pending_recoveries(&mut in_flight, &mut in_flight_blobs)
+                .await
+            {
+                tracing::warn!(?error, "pending-recovery pass failed");
+            }
+
+            // Wait for a reason to scan again, keeping the in-flight bookkeeping up to date as
+            // syncs finish in the meantime.
+            loop {
+                tokio::select! {
+                    Some(blob_id) = in_flight.next(), if !in_flight.is_empty() => {
+                        in_flight_blobs.remove(&blob_id);
+                    }
+                    _ = self.pending_recovery_notify.notified() => break,
+                    _ = tokio::time::sleep(self.pending_recovery_drain_interval) => break,
+                }
+            }
+        }
+    }
+
+    /// Runs one pass over the pending-recovery table, starting syncs for the recorded blobs.
+    ///
+    /// Records are processed in event order; records whose blobs are already being synced are
+    /// skipped. A record is deleted right away if its blob is no longer certified or is already
+    /// stored at all owned shards. The remaining blobs are synced, with a bound on how many
+    /// syncs run at once. A record is deleted only when its sync succeeds, so cancelled or
+    /// failed syncs are retried on a later pass.
+    // TODO(WAL-1322): each pass rescans and sorts the whole table and
+    // re-runs the certification and stored-at-all-shards checks for every record not in flight;
+    // bound the per-pass work (chunked scanning with a resume cursor) so large backlogs do not
+    // amplify reads.
+    #[tracing::instrument(skip_all)]
+    async fn start_pending_recoveries(
+        &self,
+        in_flight: &mut FuturesUnordered<BoxFuture<'static, BlobId>>,
+        in_flight_blobs: &mut HashSet<BlobId>,
+    ) -> anyhow::Result<()> {
+        // TODO(WAL-1323): this scan blocks the async runtime thread
+        // and holds the whole table in memory for the duration of the pass; move it behind
+        // `spawn_blocking` and iterate in bounded chunks.
+        let mut records = self.node.storage.scan_pending_recover_blobs()?;
+        self.record_pending_recovery_metrics(&records);
+
+        if records.is_empty() {
+            return Ok(());
+        }
+
+        // While catching up, the node does not yet know its final shard assignment, so
+        // recovery would target the wrong shards. The records stay in the table and are
+        // drained after catch-up completes.
+        if self.node.storage.node_status()?.is_catching_up() {
+            tracing::debug!("node is catching up; skipping the pending-recovery pass");
+            return Ok(());
+        }
+
+        tracing::info!(
+            count = records.len(),
+            "processing the pending-recovery records"
+        );
+
+        // Recover in event order: recovery symbols are then requested roughly in the order the
+        // blobs were written, improving read locality on the serving nodes.
+        records.sort_unstable_by_key(|(_, record)| record.event_index());
+
+        for (blob_id, record) in records {
+            if in_flight_blobs.contains(&blob_id) {
+                continue;
+            }
+
+            while in_flight.len() >= self.max_concurrent_pending_recoveries {
+                if let Some(completed_blob_id) = in_flight.next().await {
+                    in_flight_blobs.remove(&completed_blob_id);
+                }
+            }
+
+            if self.node.is_blob_not_certified(&blob_id) {
+                delete_pending_recover_blob_record(&self.node, &blob_id, STATUS_RETIRED);
+                continue;
+            }
+
+            let current_event_epoch = self.node.current_event_epoch().await?;
+            if self
+                .node
+                .is_stored_at_all_shards_at_epoch(&blob_id, current_event_epoch)
+                .await?
+            {
+                delete_pending_recover_blob_record(&self.node, &blob_id, STATUS_ALREADY_STORED);
+                continue;
+            }
+
+            let mut receiver = self
+                .start_sync(blob_id, record.certified_epoch(), None)
+                .await?;
+            let node = self.node.clone();
+            in_flight_blobs.insert(blob_id);
+            in_flight.push(
+                async move {
+                    let outcome = match receiver
+                        .wait_for(|status| matches!(status, SyncStatus::Done(_)))
+                        .await
+                    {
+                        Ok(status) => match &*status {
+                            SyncStatus::Done(outcome) => *outcome,
+                            SyncStatus::Pending => {
+                                unreachable!("wait_for only returns done statuses")
+                            }
+                        },
+                        Err(_) => {
+                            // The sync task dropped the sender without publishing an outcome;
+                            // leave the record for the next pass.
+                            return blob_id;
+                        }
+                    };
+                    match outcome {
+                        SyncOutcome::Success => {
+                            delete_pending_recover_blob_record(&node, &blob_id, STATUS_SUCCESS);
+                        }
+                        SyncOutcome::Cancelled => walrus_utils::with_label!(
+                            node.metrics.pending_recovery_executor_total,
+                            STATUS_CANCELLED
+                        )
+                        .inc(),
+                        SyncOutcome::Skipped => walrus_utils::with_label!(
+                            node.metrics.pending_recovery_executor_total,
+                            STATUS_SKIPPED
+                        )
+                        .inc(),
+                    }
+                    blob_id
+                }
+                .boxed(),
+            );
+        }
+
+        Ok(())
+    }
+
+    fn record_pending_recovery_metrics(&self, records: &[(BlobId, PendingRecoverBlob)]) {
+        self.node
+            .metrics
+            .pending_recover_blob_count
+            .set(self.node.storage.pending_recover_blob_count());
+        self.node
+            .metrics
+            .pending_recover_blob_oldest_event_index
+            .set(
+                records
+                    .iter()
+                    .map(|(_, record)| record.event_index())
+                    .min()
+                    .unwrap_or(0),
+            );
+    }
+}
+
+/// Deletes the pending-recovery record for the blob and records the outcome in metrics.
+///
+/// A deletion failure is logged but not propagated: the record is then re-evaluated (and the
+/// deletion retried) on the executor's next drain pass.
+fn delete_pending_recover_blob_record(
+    node: &StorageNodeInner,
+    blob_id: &BlobId,
+    outcome: &'static str,
+) {
+    match node.storage.delete_pending_recover_blob(blob_id) {
+        Ok(remaining) => {
+            node.metrics.pending_recover_blob_count.set(remaining);
+            walrus_utils::with_label!(node.metrics.pending_recovery_executor_total, outcome).inc();
+        }
+        Err(error) => tracing::error!(
+            ?error,
+            walrus.blob_id = %blob_id,
+            "failed to delete the pending-recovery record"
+        ),
     }
 }
 
