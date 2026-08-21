@@ -9136,13 +9136,23 @@ mod tests {
                     .get_sequentially_processed_event_count()?
             );
 
-            // Unblock the epoch change start event, and expect that processed event count should
-            // make progress. Use `+2` instead of `+3` is because certify blob initiates a blob
-            // sync, and sync we don't upload the blob data, so it won't get processed. The point
-            // here is that the epoch change start event should be marked completed.
+            // Unblock the epoch change start event, and expect that the processed event count
+            // makes progress. All three new events are persisted: the certify event records the
+            // blob in the pending-recovery table instead of waiting for the blob sync (the blob
+            // data is never uploaded, so its sync cannot finish).
             unblock.notify_one();
-            wait_until_events_processed_exact(&cluster.nodes[0], processed_event_count_initial + 2)
+            wait_until_events_processed_exact(&cluster.nodes[0], processed_event_count_initial + 3)
                 .await?;
+            assert!(
+                cluster.nodes[0]
+                    .storage_node
+                    .inner
+                    .storage
+                    .scan_pending_recover_blobs()?
+                    .iter()
+                    .any(|(blob_id, _)| *blob_id == OTHER_BLOB_ID),
+                "the certified blob should have a pending-recovery record"
+            );
 
             Ok(())
         }
