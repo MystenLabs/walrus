@@ -275,8 +275,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '429':
+          description: The storage node has insufficient free disk space to durably store the data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '500':
           description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '504':
+          description: A storage write did not complete within the configured timeout.
           content:
             application/json:
               schema:
@@ -497,8 +509,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        '429':
+          description: The storage node has insufficient free disk space to durably store the data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         '500':
           description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '504':
+          description: A storage write did not complete within the configured timeout.
           content:
             application/json:
               schema:
