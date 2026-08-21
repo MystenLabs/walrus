@@ -63,3 +63,32 @@ To audit every diagram in the repository locally, run:
 ```bash
 node src/scripts/check-diagram-fallbacks.mjs --all
 ```
+
+### Fallback quality
+
+Presence alone proves little. A diagram passes the gate above with a blank SVG and a one-pixel PNG,
+which satisfies a presence check without giving a reader anything.
+`src/scripts/eval-diagram-quality.mjs` evaluates the fallbacks that do exist:
+
+| **Dimension** | **What it catches** |
+| --- | --- |
+| Substance | Placeholder assets: an SVG under 1 KiB, an SVG with no drawing elements, a PNG under 4 KiB |
+| Accessibility | An SVG with no `<title>`, which announces nothing to a screen reader |
+| Fidelity | A fallback whose last commit predates the diagram it stands in for, so it shows stale content while reporting as compliant |
+| Weight | Interactive HTML over 2 MiB, which a reader waits on |
+
+```bash
+node src/scripts/eval-diagram-quality.mjs --all
+```
+
+Findings do not fail by default, because teams switch off a gate nobody can pass. Pass `--strict`
+to exit non-zero once coverage arrives, and `--json` for machine-readable output. The script
+reports a diagram missing its fallbacks as unevaluated rather than failed, so it and the presence
+gate never disagree about the same file.
+
+### Scheduled health report
+
+`.github/workflows/diagram-health.yml` runs both scripts across the whole repository every Monday,
+and on demand through **Run workflow**. It writes the results to the job summary and never fails,
+because the lint gate only checks diffs and would otherwise hide the true coverage number until
+someone happened to touch a diagram.

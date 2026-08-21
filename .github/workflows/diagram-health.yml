@@ -1,0 +1,58 @@
+# Copyright (c) Walrus Foundation
+# SPDX-License-Identifier: Apache-2.0
+
+# Repository-wide health report for the interactive diagrams standard.
+#
+# The lint job in lint.yml is diff-scoped: it only checks diagrams a PR adds or
+# modifies, so a diagram that predates the standard never fails until someone
+# happens to touch it. That keeps the gate fair, and it also means nobody sees
+# the real compliance number.
+#
+# This workflow runs the full audit on a schedule and reports it. It does not
+# gate anything, because the point is visibility, not another red X.
+name: Diagram health
+
+on:
+  schedule:
+    # Mondays, early UTC, so the report is waiting at the start of the week.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagram-health:
+    runs-on: ubuntu-latest
+    name: Interactive diagram health report
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
+        with:
+          # Full history so the fidelity check can compare commit timestamps
+          # between a diagram and its fallback assets.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pin@v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Fallback asset coverage
+        id: coverage
+        # Never fails the job: a repository below full coverage still needs the
+        # number reported rather than the workflow switched off.
+        continue-on-error: true
+        working-directory: docs/site
+        run: |
+          echo "## Interactive diagram fallback coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node src/scripts/check-diagram-fallbacks.mjs --all 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fallback asset quality
+        continue-on-error: true
+        working-directory: docs/site
+        run: |
+          echo "## Interactive diagram quality findings" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          node src/scripts/eval-diagram-quality.mjs --all 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
