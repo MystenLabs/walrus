@@ -1038,7 +1038,14 @@ pub struct BlobRecoveryConfig {
     #[serde_as(as = "DurationSeconds")]
     #[serde(rename = "monitor_interval_secs")]
     pub monitor_interval: Duration,
-    /// The maximum number of concurrent blob syncs started by the pending-recovery executor.
+    /// The maximum number of blob syncs the pending-recovery executor keeps in flight at once.
+    ///
+    /// This bound is separate from `max_concurrent_blob_syncs`, which limits how many syncs
+    /// actively recover data: every started sync also exists as a task and is tracked in the
+    /// shared sync state even while it waits for its turn to run. Without this bound, a large
+    /// backlog of recorded blobs would start one sync per record all at once, bloating the
+    /// shared sync state and delaying syncs started by other parts of the node. Syncs started
+    /// by the executor therefore never run more than the smaller of the two bounds at a time.
     pub max_concurrent_pending_recoveries: usize,
     /// The fallback interval at which the pending-recovery executor re-scans the
     /// pending-recovery table (it is additionally woken whenever a record is inserted).
