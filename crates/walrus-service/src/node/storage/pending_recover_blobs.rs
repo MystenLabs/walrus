@@ -83,7 +83,13 @@ impl PendingRecoverBlobsTable {
             false,
         )?;
 
-        let count = u64::try_from(inner.safe_iter()?.count()).expect("count fits in u64");
+        // Count with error propagation: an iterator that keeps yielding a read error would
+        // otherwise be counted forever and hang the open.
+        let mut count: u64 = 0;
+        for entry in inner.safe_iter()? {
+            entry?;
+            count += 1;
+        }
 
         Ok(Self {
             inner,
