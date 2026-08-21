@@ -163,6 +163,22 @@
     "definition": "The end epoch at which a blob is no longer available and can be deleted; the end epoch is always exclusive."
   },
   {
+    "id": "storage-pool",
+    "label": "Storage pool",
+    "definition": "A single storage reservation shared by many blobs; blobs registered in the pool pay only the write fee, share the pool's expiry, and free their capacity for reuse when deleted.",
+    "aliases": [
+      "storage pools"
+    ]
+  },
+  {
+    "id": "pooled-blob",
+    "label": "Pooled blob",
+    "definition": "A blob stored in a *storage pool* rather than with its own storage resource; it shares the pool's expiry and cannot be transferred or extended individually.",
+    "aliases": [
+      "pooled blobs"
+    ]
+  },
+  {
     "id": "wal",
     "label": "WAL",
     "definition": "The native token of Walrus."
