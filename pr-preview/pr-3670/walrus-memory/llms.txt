@@ -242,6 +242,12 @@
 
 ## Walrus Memory: API
 
+- [Memory Read API](https://docs.wal.app/walrus-memory/api/memory-read-api.md):
+    Registered routes (colon form used by the docs freshness check): GET /v1/owners/:owner/agents
+    Owner-scoped, cursor-based, read-only.
+- [Owner Token Auth](https://docs.wal.app/walrus-memory/api/owner-token-auth.md):
+    Issuance route: POST /v1/owner-tokens. Lets Console call WM's owner-scoped read API without
+    ever holding a delegate key.
 - [1. Request and sign the returned personal-message challenge in the wallet.](https://docs.wal.app/walrus-memory/api/security-delete.md):
     The Security Delete API permanently deletes legacy Walrus Blob objects that were tracked in
     Walrus Memory's old-V1 database. The server selects and verifies the objects, builds and

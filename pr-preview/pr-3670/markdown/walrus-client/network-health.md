@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-Intermittent upload failures usually mean storage nodes are unreachable, not that your client is misconfigured. Query the committee first, compare the result against the thresholds below, and you can tell the difference before you open a support request.
+Intermittent upload failures usually mean storage nodes are unreachable, not that your client is misconfigured. Query the committee first, then compare the result against the thresholds below:
 
 ## Query the committee
 
@@ -8,7 +8,7 @@ Intermittent upload failures usually mean storage nodes are unreachable, not tha
 walrus health --committee
 ```
 
-This contacts every storage node in the current committee and prints a table with one row per node, then a summary:
+This contacts every storage node in the current committee and prints a table with one row per node, then a summary. Add `--detail` for extended per-node health information, or `--json` to get the same data as structured output for scripting:
 
 ```
 Summary
@@ -25,13 +25,13 @@ Active: 98
 Error: 7
 ```
 
-Read the summary as follows.
+`Owned shards` sums only the nodes that answered. On a 1,000-shard network, this figure of 930 means 70 shards sit behind nodes you cannot reach.
 
-`Owned shards` sums only the nodes that answered. Unreachable nodes contribute nothing to it, so on a 1,000-shard network this figure is already your healthy shard count, and 930 means 70 shards sit behind nodes you cannot reach. Compare that number against the thresholds below rather than counting nodes.
+The per-node `# Shards (Ready / Owned)` column reports how many of the shards a node owns are ready to serve.
 
-The per-node `# Shards (Ready / Owned)` column splits it further. A node reports how many of the shards it owns are ready to serve, so a node part-way through recovery shows a ready count below its owned count.
+`Error` counts nodes the client could not reach or that failed to answer the health endpoint. The client queries up to 60 nodes at once, so lower `--concurrent-requests <N>` if querying the whole committee saturates your own connection and produces false `Error` results.
 
-`Error` counts nodes the client could not reach or that failed to answer the health endpoint. Those are the nodes to care about first.
+Add `--sort-by status` to group the failing nodes together, which is what you want when you are counting them. It also accepts `id`, `name`, and `url`, and defaults to `status`.
 
 The other statuses come from the node itself:
 
@@ -44,9 +44,9 @@ The other statuses come from the node itself:
 | `RecoveryInProgress` | In recovery mode, recovering missing slivers |
 | `RecoveryCatchUpWithIncompleteHistory` | In recovery mode, catching up with an incomplete history because event blobs expired |
 
-A node in a recovery status answers the health endpoint, so it never lands in `Error`, but it might not hold every sliver for the shards it owns yet. Count the recovery statuses alongside `Error` when you want a pessimistic reading.
+A node in a recovery status answers the health endpoint, so it never lands in `Error`, but it might not hold every sliver for the shards it owns yet.
 
-You can select a different set of nodes instead. Exactly one selector is required:
+You can select a different set of nodes instead:
 
 | **Selector** | **What it queries** |
 | --- | --- |
@@ -55,17 +55,15 @@ You can select a different set of nodes instead. Exactly one selector is require
 | `--node-ids <ID>...` | Specific nodes by object ID |
 | `--node-urls <URL>...` | Specific nodes by URL |
 
-## Work out your thresholds
+## Fault tolerance thresholds
 
-Walrus tolerates faults as a fraction of **shards**, not of nodes, and one node can own many shards. A committee where 7 of 105 nodes fail can lose far more or far less than 7% of its shards, so the node counts alone tell you little.
-
-For the write threshold, ask the CLI rather than working it out:
+Walrus tolerates faults as a fraction of shards, not of nodes, and one node can own many shards. For the write threshold, use the following command to get tolerated fault thresholds:
 
 ```sh
 walrus info bft
 ```
 
-That prints the tolerated faults `f`, the quorum threshold `2f + 1`, and the minimum number of correct shards `n - f`, which is the write threshold, for the network you are on. It does not print the read threshold, so derive that one yourself.
+This returns the tolerated faults `f`, the quorum threshold `2f + 1`, and the minimum number of correct shards `n - f` for the network you are on. `n - f` represents the write threshold. It does not print the read threshold.
 
 Write `n` for the shard count and `f` for the number of faulty shards the protocol tolerates:
 
@@ -73,7 +71,7 @@ Write `n` for the shard count and `f` for the number of faulty shards the protoc
 2. A write certifies when at least `n - f` shards respond.
 3. A read reconstructs when at least `n - 2f` shards respond.
 
-Reads survive far more damage than writes, because a read rebuilds from the primary slivers while a write has to reach a quorum.
+Reads have a higher fault tolerance than writes because a read rebuilds from the primary slivers while a write has to reach a quorum.
 
 For a 1,000-shard network:
 
@@ -93,19 +91,3 @@ Compare the healthy shard count against the write threshold:
 - **Healthy shards below `n - f`.** Writes cannot certify. Wait for the network to recover rather than retrying, and read traffic keeps working down to `n - 2f`.
 
 A 24% shard outage on a 1,000-shard network illustrates the middle case: 760 shards stay healthy against a threshold of 667, so writes still certify, with 93 shards of margin. That is why the failures look intermittent rather than total.
-
-## Useful flags
-
-| **Flag** | **Default** | **Effect** |
-| --- | --- | --- |
-| `--detail` | off | Prints extended health information per node |
-| `--sort-by <FIELD>` | `status` | Sorts by `status`, `id`, `name`, or `url` |
-| `--concurrent-requests <N>` | `60` | Caps how many nodes the client queries at once |
-
-Sorting by `status` groups the failing nodes together, which is what you want when you are counting them. Lower `--concurrent-requests` if querying the whole committee saturates your own connection and produces false `Error` results.
-
-Pass `--json` to get the same data as structured output for scripting:
-
-```sh
-walrus health --committee --json
-```

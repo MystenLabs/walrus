@@ -117,8 +117,7 @@ Sui smart contract as the on-chain index.
     whether the blob is stored and its availability period.
 - [Network Health](https://docs.wal.app/docs/walrus-client/network-health.md):
     Intermittent upload failures usually mean storage nodes are unreachable, not that your client
-    is misconfigured. Query the committee first, compare the result against the thresholds below,
-    and you can tell the difference before you open a support request.
+    is misconfigured.
 - [Quilts](https://docs.wal.app/docs/walrus-client/quilts.md):
     For efficiently storing large numbers of small blobs, Walrus provides the quilt feature. A
     quilt batches multiple blobs into a single storage unit, significantly reducing overhead and
@@ -757,6 +756,12 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: API
 
+- [Memory Read API](https://docs.wal.app/walrus-memory/api/memory-read-api.md):
+    Registered routes (colon form used by the docs freshness check): GET /v1/owners/:owner/agents
+    Owner-scoped, cursor-based, read-only.
+- [Owner Token Auth](https://docs.wal.app/walrus-memory/api/owner-token-auth.md):
+    Issuance route: POST /v1/owner-tokens. Lets Console call WM's owner-scoped read API without
+    ever holding a delegate key.
 - [1. Request and sign the returned personal-message challenge in the wallet.](https://docs.wal.app/walrus-memory/api/security-delete.md):
     The Security Delete API permanently deletes legacy Walrus Blob objects that were tracked in
     Walrus Memory's old-V1 database. The server selects and verifies the objects, builds and
