@@ -1,0 +1,109 @@
+---
+title: Check Network Health
+description: Run walrus health --committee to see how many storage nodes are reachable, compare the result against the write and read thresholds, and decide whether to upload now.
+keywords: [walrus health, committee, storage nodes, node outage, upload failures, shards, thresholds, diagnostics]
+questions:
+  - How do I check Walrus network health before uploading?
+  - What does walrus health --committee show?
+  - How many storage nodes can be down before Walrus uploads fail?
+  - Why do my Walrus uploads fail intermittently?
+answer: >-
+  Run `walrus health --committee` to query every storage node in the current committee and print
+  each node's status along with a summary of total nodes, owned shards, and read-only shards. A
+  write certifies when at least `n_shards - f` shards respond, and a read reconstructs from
+  `n_shards - 2f` shards, where `f = (n_shards - 1) / 3`. On a 1,000-shard network that means
+  writes need 667 shards and reads need 334. Uploads that fail intermittently rather than
+  consistently usually mean the network sits above the write threshold but without much margin.
+---
+
+Intermittent upload failures usually mean storage nodes are unreachable, not that your client is misconfigured. Query the committee first, then compare the result against the thresholds below:
+
+## Query the committee
+
+```sh
+walrus health --committee
+```
+
+This contacts every storage node in the current committee and prints a table with one row per node, then a summary. Add `--detail` for extended per-node health information, or `--json` to get the same data as structured output for scripting:
+
+```
+Summary
+
+ Idx | Name | Node ID | Address | # Shards         | Status
+     |      |         |         | (Ready / Owned)  |
+
+Total nodes: 105
+Owned shards: 930
+Read-only shards: 0
+
+Node Status Breakdown
+Active: 98
+Error: 7
+```
+
+`Owned shards` sums only the nodes that answered. On a 1,000-shard network, this figure of 930 means 70 shards sit behind nodes you cannot reach.
+
+The per-node `# Shards (Ready / Owned)` column reports how many of the shards a node owns are ready to serve.
+
+`Error` counts nodes the client could not reach or that failed to answer the health endpoint. The client queries up to 60 nodes at once, so lower `--concurrent-requests <N>` if querying the whole committee saturates your own connection and produces false `Error` results.
+
+Add `--sort-by status` to group the failing nodes together, which is what you want when you are counting them. It also accepts `id`, `name`, and `url`, and defaults to `status`.
+
+The other statuses come from the node itself:
+
+| **Status** | **Meaning** |
+| --- | --- |
+| `Active` | A committee member that is up to date with events |
+| `Standby` | Up to date with events, but not a committee member |
+| `RecoverMetadata` | In recovery mode, syncing metadata |
+| `RecoveryCatchUp` | In recovery mode, catching up with the chain |
+| `RecoveryInProgress` | In recovery mode, recovering missing slivers |
+| `RecoveryCatchUpWithIncompleteHistory` | In recovery mode, catching up with an incomplete history because event blobs expired |
+
+A node in a recovery status answers the health endpoint, so it never lands in `Error`, but it might not hold every sliver for the shards it owns yet.
+
+You can select a different set of nodes instead:
+
+| **Selector** | **What it queries** |
+| --- | --- |
+| `--committee` | Every node in the current committee |
+| `--active-set` | Every node in the active set |
+| `--node-ids <ID>...` | Specific nodes by object ID |
+| `--node-urls <URL>...` | Specific nodes by URL |
+
+## Fault tolerance thresholds
+
+Walrus tolerates faults as a fraction of shards, not of nodes, and one node can own many shards. For the write threshold, use the following command to get tolerated fault thresholds:
+
+```sh
+walrus info bft
+```
+
+This returns the tolerated faults `f`, the quorum threshold `2f + 1`, and the minimum number of correct shards `n - f` for the network you are on. `n - f` represents the write threshold. It does not print the read threshold.
+
+Write `n` for the shard count and `f` for the number of faulty shards the protocol tolerates:
+
+1. `f = (n - 1) / 3`, using integer division.
+2. A write certifies when at least `n - f` shards respond.
+3. A read reconstructs when at least `n - 2f` shards respond.
+
+Reads have a higher fault tolerance than writes because a read rebuilds from the primary slivers while a write has to reach a quorum.
+
+For a 1,000-shard network:
+
+| **Operation** | **Shards needed** | **Shards that can be down** |
+| --- | --- | --- |
+| Write | 667 | 333 (33.3%) |
+| Read | 334 | 666 (66.6%) |
+
+Run `walrus info committee` to get the shard count for the network you are on, then apply the same arithmetic for the read threshold.
+
+## Decide whether to upload
+
+Compare the healthy shard count against the write threshold:
+
+- **Healthy shards well above `n - f`.** Upload normally.
+- **Healthy shards just above `n - f`.** Expect slow and intermittent writes. The network can still certify, but individual attempts fail whenever the specific nodes a write needs fall in the unreachable set, and the client spends longer retrying. Large uploads suffer most, because they hold the write open for longer.
+- **Healthy shards below `n - f`.** Writes cannot certify. Wait for the network to recover rather than retrying, and read traffic keeps working down to `n - 2f`.
+
+A 24% shard outage on a 1,000-shard network illustrates the middle case: 760 shards stay healthy against a threshold of 667, so writes still certify, with 93 shards of margin. That is why the failures look intermittent rather than total.
