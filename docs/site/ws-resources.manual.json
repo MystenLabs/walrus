@@ -160,7 +160,7 @@
     "/docs/walrus-sites/ci-cd-gh-workflow.md": "/markdown/sites/ci-cd/github-actions-workflow.md",
     "/docs/walrus-sites/ci-cd.md": "/markdown/sites/ci-cd/github-actions-workflow.md",
     "/docs/walrus-sites/commands.md": "/markdown/sites/getting-started/using-the-site-builder.md",
-    "/docs/walrus-sites/intro.md": "/markdown/sites/introduction/components.md",
+    "/docs/walrus-sites/intro.md": "/markdown/sites/index.md",
     "/docs/walrus-sites/overview.md": "/markdown/sites/introduction/technical-overview.md",
     "/docs/walrus-sites/portal.md": "/markdown/sites/portals/deploy-locally.md",
     "/docs/walrus-sites/redirects.md": "/markdown/sites/linking/redirects.md",
@@ -428,7 +428,7 @@
       "status_code": 301
     },
     "/docs/walrus-sites/intro": {
-      "location": "/docs/sites/introduction/components",
+      "location": "/docs/sites",
       "status_code": 301
     },
     "/docs/walrus-sites/linking": {
@@ -612,7 +612,7 @@
       "status_code": 301
     },
     "/walrus-sites/intro": {
-      "location": "/docs/sites/introduction/components",
+      "location": "/docs/sites",
       "status_code": 301
     },
     "/walrus-sites/linking": {
@@ -1024,11 +1024,11 @@
       "status_code": 301
     },
     "/walrus-sites/intro.html": {
-      "location": "/docs/sites/introduction/components",
+      "location": "/docs/sites",
       "status_code": 301
     },
     "/walrus-sites/intro/index": {
-      "location": "/docs/sites/introduction/components",
+      "location": "/docs/sites",
       "status_code": 301
     },
     "/walrus-sites/overview.html": {
