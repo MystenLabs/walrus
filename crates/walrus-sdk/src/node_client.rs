@@ -3016,10 +3016,15 @@ pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
     /// Stores a list of blobs to Walrus, retrying if it fails because of epoch change.
     /// Similar to `[Client::reserve_and_store_blobs_retry_committees]`, except the result
     /// includes the corresponding path for blob.
+    ///
+    /// The `attributes` vector must be either empty or have the same length as
+    /// `blobs_with_paths`. If it is empty, a default (empty) attribute will be used for each
+    /// blob.
     #[tracing::instrument(skip_all, fields(blob_id))]
     fn reserve_and_store_blobs_retry_committees_with_path(
         &self,
         blobs_with_paths: Vec<(PathBuf, Vec<u8>)>,
+        attributes: Vec<BlobAttribute>,
         store_args: &StoreArgs,
     ) -> impl Future<Output = ClientResult<Vec<BlobStoreResultWithPath>>> + Send {
         async {
@@ -3028,7 +3033,7 @@ pub trait StoreBlobsApi: internal::StoreBlobApiInternal + Sized {
             let walrus_store_blobs =
                 WalrusStoreBlobMaybeFinished::unencoded_blobs_with_default_identifiers(
                     blobs,
-                    vec![],
+                    attributes,
                     self.encoding_config()
                         .await?
                         .get_for_type(store_args.encoding_type),
