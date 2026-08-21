@@ -85,6 +85,9 @@ impl PendingRecoverBlobsTable {
 
         // Count with error propagation: an iterator that keeps yielding a read error would
         // otherwise be counted forever and hang the open.
+        // TODO(zhewu-create-issue-before-merging): this iterates the whole table (including
+        // RocksDB tombstones) and delays the storage open when the table is large; use a
+        // cheaper way to initialize the count.
         let mut count: u64 = 0;
         for entry in inner.safe_iter()? {
             entry?;
@@ -139,6 +142,12 @@ impl PendingRecoverBlobsTable {
     }
 
     /// Returns all pending-recovery records.
+    // TODO(zhewu-create-issue-before-merging): this materializes the whole table in memory
+    // (tens of MB per million records); replace with bounded chunked iteration with a resume
+    // cursor so large backlogs are processed with capped memory.
+    // TODO(zhewu-create-issue-before-merging): the insert-then-delete churn of this table
+    // leaves tombstones that slow scans until compaction; consider a periodic or post-drain
+    // manual compaction of this column family.
     pub fn scan_all(&self) -> Result<Vec<(BlobId, PendingRecoverBlob)>, TypedStoreError> {
         self.inner.safe_iter()?.collect()
     }
