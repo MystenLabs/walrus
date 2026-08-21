@@ -606,12 +606,19 @@ impl BlobSyncHandler {
     /// stored at all owned shards. The remaining blobs are synced, with a bound on how many
     /// syncs run at once. A record is deleted only when its sync succeeds, so cancelled or
     /// failed syncs are retried on a later pass.
+    // TODO(zhewu-create-issue-before-merging): each pass rescans and sorts the whole table and
+    // re-runs the certification and stored-at-all-shards checks for every record not in flight;
+    // bound the per-pass work (chunked scanning with a resume cursor) so large backlogs do not
+    // amplify reads.
     #[tracing::instrument(skip_all)]
     async fn start_pending_recoveries(
         &self,
         in_flight: &mut FuturesUnordered<BoxFuture<'static, BlobId>>,
         in_flight_blobs: &mut HashSet<BlobId>,
     ) -> anyhow::Result<()> {
+        // TODO(zhewu-create-issue-before-merging): this scan blocks the async runtime thread
+        // and holds the whole table in memory for the duration of the pass; move it behind
+        // `spawn_blocking` and iterate in bounded chunks.
         let mut records = self.node.storage.scan_pending_recover_blobs()?;
         self.record_pending_recovery_metrics(&records);
 
