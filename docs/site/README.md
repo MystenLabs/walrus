@@ -64,6 +64,32 @@ To audit every diagram in the repository locally, run:
 node src/scripts/check-diagram-fallbacks.mjs --all
 ```
 
+### Generating the fallbacks
+
+`src/scripts/generate-diagram-fallbacks.mjs` produces both assets from the interactive HTML, so you
+do not export them by hand. Each diagram renders its content as a single inline SVG that already
+carries `xmlns`, a `viewBox`, `role="img"`, a `<title>`, and a `<desc>`, and styles itself with
+presentation attributes rather than document CSS, so the fallback serializes what the reader sees
+rather than re-drawing it.
+
+Playwright is not a dependency of this package, because the generation step runs rarely. Install it
+for the run:
+
+```bash
+npm install --no-save playwright-core
+node src/scripts/generate-diagram-fallbacks.mjs --all
+```
+
+Pass `--missing-only` to skip diagrams that already have both assets, and `--scale <n>` to change
+the PNG device scale factor, which defaults to 2.
+
+Expect it to take a while. Several diagrams animate a walkthrough that reveals elements in sequence
+over roughly 24 seconds and then loops, so a fixed wait captures an arbitrary frame with parts of
+the diagram still faded out. The generator polls until nothing sits below full opacity and captures
+that frame instead, and fails the diagram rather than freezing a partial walkthrough into its
+fallback. It also refuses to write anything for a page that threw while rendering, or whose SVG has
+no `<title>`.
+
 ### Fallback quality
 
 Presence alone proves little. A diagram passes the gate above with a blank SVG and a one-pixel PNG,
