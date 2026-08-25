@@ -1523,7 +1523,6 @@ impl Storage {
     ///
     /// Must be called before the certify event is marked as complete: if the node crashes in
     /// between, the event is replayed and the record is written again.
-    #[allow(dead_code)] // The callers land in a follow-up change.
     pub(crate) fn insert_pending_recover_blob(
         &self,
         blob_id: &BlobId,
@@ -1538,7 +1537,6 @@ impl Storage {
 
     /// Deletes the pending-recovery record for the blob, if any, and returns the number of
     /// remaining pending-recovery records.
-    #[allow(dead_code)] // The callers land in a follow-up change.
     pub(crate) fn delete_pending_recover_blob(
         &self,
         blob_id: &BlobId,
@@ -1547,7 +1545,6 @@ impl Storage {
     }
 
     /// Returns all pending-recovery records.
-    #[allow(dead_code)] // The callers land in a follow-up change.
     pub(crate) fn scan_pending_recover_blobs(
         &self,
     ) -> Result<Vec<(BlobId, PendingRecoverBlob)>, TypedStoreError> {
@@ -1555,7 +1552,6 @@ impl Storage {
     }
 
     /// Returns the number of pending-recovery records.
-    #[allow(dead_code)] // The callers land in a follow-up change.
     pub(crate) fn pending_recover_blob_count(&self) -> u64 {
         self.pending_recover_blobs.count()
     }

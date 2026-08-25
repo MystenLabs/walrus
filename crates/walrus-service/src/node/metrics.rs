@@ -45,6 +45,8 @@ pub(crate) const STATUS_BLOB_INFO_CLEANUP_COMPLETED: &str = "blob_info_cleanup_c
 pub(crate) const STATUS_DATA_DELETION_STARTED: &str = "data_deletion_started";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
+pub(crate) const STATUS_RETIRED: &str = "retired";
+pub(crate) const STATUS_ALREADY_STORED: &str = "already_stored";
 pub(crate) const LIVE_UPLOAD_DEFERRAL_OUTCOME_AVOIDED_RECOVERY: &str = "avoided_recovery";
 pub(crate) const LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED: &str = "recovery_needed";
 

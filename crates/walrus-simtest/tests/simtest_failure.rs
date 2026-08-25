@@ -198,6 +198,155 @@ mod tests {
         // kill_current_node is implemented using a panic.
     }
 
+    // Tests that certify events requiring blob recovery are persisted immediately and that the
+    // recorded recovery obligations survive a node restart: after each restart, the node's event
+    // cursor stays at the tip (no event replay) while the pending-recovery table drives the
+    // remaining recoveries.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_pending_recovery_survives_node_restart() {
+        let (_sui_cluster, walrus_cluster, client, _, _) = test_cluster::E2eTestSetupBuilder::new()
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[1, 2, 3, 3, 4])
+                    .build(),
+            )
+            .with_communication_config(
+                ClientCommunicationConfig::default_for_test_with_reqwest_timeout(
+                    Duration::from_secs(2),
+                ),
+            )
+            .build_generic::<SimStorageNodeHandle>()
+            .await
+            .unwrap();
+
+        let blob_info_consistency_check = BlobInfoConsistencyCheck::new();
+        let target_node_id = walrus_cluster.nodes[0]
+            .node_id
+            .expect("node id should be set");
+
+        // Block sliver recovery on the target node until the flag is cleared, so that its
+        // pending recoveries cannot complete.
+        let block_recovery = Arc::new(AtomicBool::new(true));
+        let block_recovery_clone = block_recovery.clone();
+        sui_macros::register_fail_point_async(
+            "fail_point_recover_sliver_before_put_sliver",
+            move || {
+                let block_recovery = block_recovery_clone.clone();
+                async move {
+                    if sui_simulator::current_simnode_id() != target_node_id {
+                        return;
+                    }
+                    while block_recovery.load(std::sync::atomic::Ordering::SeqCst) {
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                    }
+                }
+            },
+        );
+
+        // Crash the target node whenever `crash_armed` is set, restarting it after 30 seconds.
+        let crash_armed = Arc::new(AtomicBool::new(false));
+        let crash_armed_clone = crash_armed.clone();
+        sui_macros::register_fail_points(CRASH_NODE_FAIL_POINTS, move || {
+            if !crash_armed_clone.load(std::sync::atomic::Ordering::SeqCst)
+                || sui_simulator::current_simnode_id() != target_node_id
+            {
+                return;
+            }
+            crash_armed_clone.store(false, std::sync::atomic::Ordering::SeqCst);
+            tracing::warn!("crashing target node for 30 seconds");
+            sui_simulator::task::kill_current_node(Some(Duration::from_secs(30)));
+        });
+
+        // Crash the target node, and write blobs while it is down, so that after the restart it
+        // must recover them based on the certify events.
+        crash_armed.store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut blobs_written = HashSet::new();
+        let mut data_length = 27182;
+        while crash_armed.load(std::sync::atomic::Ordering::SeqCst) {
+            simtest_utils::write_read_and_check_random_blob(
+                &client,
+                data_length,
+                true,
+                false,
+                &mut blobs_written,
+                None,
+                None,
+            )
+            .await
+            .expect("workload should not fail");
+            data_length += 1024;
+        }
+        for _ in 0..5 {
+            simtest_utils::write_read_and_check_random_blob(
+                &client,
+                data_length,
+                true,
+                false,
+                &mut blobs_written,
+                None,
+                None,
+            )
+            .await
+            .expect("workload should not fail");
+            data_length += 1024;
+        }
+
+        // After the restart, the node catches up with events without waiting for the blocked
+        // recoveries: recovery records are pending while no completed events are parked behind
+        // an incomplete one.
+        let wait_for_pending_records_and_caught_up_cursor = || async {
+            tokio::time::timeout(Duration::from_mins(3), async {
+                loop {
+                    let mut infos =
+                        simtest_utils::try_get_nodes_health_info(&walrus_cluster.nodes[..1]).await;
+                    if let Ok(info) = infos.remove(0)
+                        && info.pending_recover_blob_count.unwrap_or(0) > 0
+                        && info.event_progress.pending == 0
+                    {
+                        return info;
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+            })
+            .await
+            .expect("node should catch up with events while recoveries are pending")
+        };
+        let info_before_restart = wait_for_pending_records_and_caught_up_cursor().await;
+
+        // Crash the node again while its recoveries are still pending. After the restart, the
+        // records must still be there (they survive in the pending-recovery table), with the
+        // event cursor still at the tip.
+        crash_armed.store(true, std::sync::atomic::Ordering::SeqCst);
+        while crash_armed.load(std::sync::atomic::Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        let info_after_restart = wait_for_pending_records_and_caught_up_cursor().await;
+        assert!(
+            info_after_restart.event_progress.persisted
+                >= info_before_restart.event_progress.persisted
+        );
+
+        // Unblock recovery: the node drains the pending-recovery table.
+        block_recovery.store(false, std::sync::atomic::Ordering::SeqCst);
+        tokio::time::timeout(Duration::from_mins(3), async {
+            loop {
+                let mut infos =
+                    simtest_utils::try_get_nodes_health_info(&walrus_cluster.nodes[..1]).await;
+                if let Ok(info) = infos.remove(0)
+                    && info.pending_recover_blob_count == Some(0)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        })
+        .await
+        .expect("pending recoveries should drain after unblocking");
+
+        blob_info_consistency_check.check_storage_node_consistency();
+    }
+
     // This integration test simulates a scenario where a node is lagging behind and recovers.
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
