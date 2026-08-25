@@ -4,11 +4,12 @@
 import React from "react";
 import DocItem from "@theme-original/DocItem";
 import { useLocation } from "@docusaurus/router";
+import StructuredData from "@site/src/components/StructuredData";
 
 export default function DocItemWrapper(props) {
   const doc = props?.content ?? {};
-  const frontMatter = doc.frontMatter ?? {};
   const metadata = doc.metadata ?? {};
+  const toc = doc.toc ?? [];
 
   const { pathname } = useLocation();
 
@@ -21,6 +22,7 @@ export default function DocItemWrapper(props) {
           }
         `}</style>
       )}
+      <StructuredData metadata={metadata} toc={toc} />
       <DocItem {...props} />
     </>
   );

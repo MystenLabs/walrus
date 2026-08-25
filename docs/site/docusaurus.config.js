@@ -89,6 +89,24 @@ const config = {
         type: "application/xml",
       },
     },
+    {
+      tagName: "script",
+      attributes: {
+        type: "application/ld+json",
+      },
+      innerHTML: JSON.stringify({
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "@id": "https://docs.wal.app/#website",
+        url: "https://docs.wal.app",
+        name: "Walrus Docs",
+        description:
+          "Technical documentation for Walrus, a decentralized storage protocol built on Sui",
+        publisher: {
+          "@id": "https://walrus.xyz/#organization",
+        },
+      }),
+    },
   ],
 
   clientModules: [
