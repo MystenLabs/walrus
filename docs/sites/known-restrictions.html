@@ -27,7 +27,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.a196b22d.css">
-<script src="/assets/js/runtime~main.cb42c321.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.c183de69.js" defer="defer"></script>
 <script src="/assets/js/main.aaf8d3bb.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -44,7 +44,7 @@
 <ul>
 <li class=""><strong>No server-side rendering (SSR):</strong> Frameworks that require a Node.js (or equivalent) server to render pages per request (such as Next.js in SSR mode, Nuxt.js, or Remix) cannot run their server component on Walrus Sites. Only the pre-built static output of those frameworks (i.e., exported HTML/CSS/JS) can be deployed.</li>
 <li class=""><strong>No server-side logic:</strong> There are no endpoints, no request handlers, and no databases. Operations that would normally be handled by a backend (such as form processing, authentication sessions, or database queries) must be implemented using<!-- --> <!-- -->client<!-- -->-side code integrated with external APIs or Sui smart contracts.</li>
-<li class=""><strong>No runtime redirects:</strong> Redirect plugins that execute at serve time (for example, the Docusaurus redirect plugin that routes <code>/old-path</code> to <code>/new-path</code> at the server level) do not function as expected.<!-- --> <!-- -->Client<!-- -->-side redirect workarounds must be used instead. See the <a href="https://docs.wal.app/walrus-sites/routing.html" target="_blank" rel="noopener noreferrer" class="">routing documentation</a> for supported approaches.</li>
+<li class=""><strong>No runtime redirects:</strong> Redirect plugins that execute at serve time (for example, the Docusaurus redirect plugin that routes <code>/old-path</code> to <code>/new-path</code> at the server level) do not function as expected.<!-- --> <!-- -->Client<!-- -->-side redirect workarounds must be used instead. See <a class="" href="/docs/sites/linking/redirects">Redirects</a> for supported approaches.</li>
 </ul>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="no-secret-values">No secret values<a href="#no-secret-values" class="hash-link" aria-label="Direct link to No secret values" title="Direct link to No secret values" translate="no">​</a></h2>
 <p>All content stored on Walrus Sites is fully public. Site files are stored as<!-- --> <!-- -->blobs<!-- --> on Walrus, and site metadata is stored on Sui. Because there is no private execution environment, developers must not embed secret values anywhere in a site&#x27;s source files. This includes:</p>
