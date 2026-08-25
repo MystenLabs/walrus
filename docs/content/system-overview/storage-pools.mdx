@@ -1,0 +1,356 @@
+---
+title: Storage Pools
+description: >-
+  Guide to Walrus storage pools, which let many blobs share a single storage
+  reservation so you pay for capacity once and only pay the write fee for each
+  additional blob.
+keywords:
+  - walrus
+  - storage pool
+  - pooled blob
+  - shared capacity
+  - cost optimization
+  - blob lifecycle
+  - rust sdk
+goal:
+  description: Reader can explain what a storage pool is, when to use one, and how to store blobs in a pool with the Rust SDK or Move contracts
+  requires:
+    - has_frontmatter:
+        - title
+        - description
+        - keywords
+      label: Has required frontmatter fields
+    - min_words: 300
+      label: Needs more content depth
+    - pattern: '```'
+      min: 1
+      label: Has code examples
+    - pattern: '\]\(/[^)]+\)'
+      min: 2
+      label: Links to related documentation
+    - has_questions: true
+      label: Needs questions for AI search visibility
+    - has_answer: true
+      label: Needs answer summary for AI citation
+questions:
+  - What is a Walrus storage pool?
+  - How do I store blobs in a storage pool?
+  - When should I use a storage pool instead of individual blobs?
+answer: >-
+  A Walrus storage pool is a single storage reservation that many blobs share.
+  You buy encoded capacity for a range of epochs once, then register any number
+  of blobs against it, paying only the one-off write fee for each blob. Deleting
+  a deletable blob frees its capacity for reuse within the pool.
+---
+
+A storage pool is a single storage reservation that many blobs share. In the standard flow, every blob you store owns its own storage resource, bought for that blob's exact size and lifetime. With a storage pool, you instead reserve a block of encoded capacity for a range of epochs once, then register any number of blobs against it. Each registration pays only the one-off write fee, and deleting a deletable blob frees its capacity for the next blob to reuse. This makes pools a good fit for workloads that continuously write and retire blobs against a stable amount of total storage.
+
+:::warning
+
+Storage pools are a preview feature. They are currently available through the Rust SDK (`walrus-sdk` and `walrus-sui` crates) and the Move contracts. The `walrus` CLI, the HTTP publisher and aggregator APIs, and the TypeScript SDK do not expose storage pool operations yet. Reading pooled blobs, however, works everywhere, because pooled blobs have regular blob IDs.
+
+:::
+
+## Storage pools at a glance
+
+The following table summarizes how storing a blob in a pool differs from storing it in the standard flow.
+
+| | Regular blob | Pooled blob |
+|---|---|---|
+| **Storage payment** | Buys its own storage resource per blob, paying the storage fee for its exact size and lifetime. | Draws on the pool's pre-paid capacity; registration pays only the write fee. |
+| **Lifetime** | Individual expiry; can be extended per blob. | Shares the pool's expiry; extending the pool extends every blob in it. |
+| **Deletion** | Deleting a deletable blob returns its storage resource to you. | Deleting a deletable blob frees its encoded size for the next blob in the pool. |
+| **Ownership** | The `Blob` object can be owned, transferred, or shared. | The `PooledBlob` object lives inside the pool and cannot be transferred on its own. |
+| **Reading** | By blob ID through any client or aggregator. | Identical; pooled blobs have regular blob IDs. |
+
+## How storage pools work
+
+A storage pool is a Sui object that wraps a storage resource with a fixed encoded capacity and a lifetime spanning a start epoch up to, but not including, an end epoch. The pool tracks three things: its reserved encoded capacity, the encoded bytes currently in use, and the number of registered blobs. The pool represents each blob as a `PooledBlob` object that lives inside the pool rather than as an independently owned `Blob` object.
+
+Pooled blobs differ from regular blobs in a few important ways:
+
+- **Shared lifetime.** A pooled blob has no storage resource of its own; it is backed entirely by the pool. All blobs in a pool expire together at the pool's end epoch, and extending the pool extends every blob in it. There is no per-blob extension.
+- **Reusable capacity.** Deleting a deletable pooled blob immediately frees its encoded size for reuse within the pool, without any onchain splitting or merging of storage resources.
+- **Not independently owned.** A `PooledBlob` is only reachable through its pool, so it cannot be transferred or shared on its own. Whoever controls the pool object controls all blobs in it.
+- **Identical reads.** A pooled blob has a normal blob ID, so [reading it](/docs/walrus-client/reading-blobs) works exactly like reading any other blob, through the CLI, an aggregator, or any SDK.
+
+### Capacity is measured in encoded bytes
+
+Pool capacity, like all Walrus storage, is measured in *encoded* bytes: the size of a blob after erasure coding, which is about 4.5x the original size plus a fixed metadata overhead of roughly 64 MB per blob. See [storage costs](/docs/system-overview/storage-costs) for how encoded size is calculated and how to check it with a dry run.
+
+The fixed per-blob metadata overhead applies to pooled blobs too, so a pool does not make many small blobs cheaper; each one still consumes at least the metadata overhead of capacity. If your goal is to reduce the cost of many small blobs, use [Quilt](/docs/system-overview/quilt), which batches small blobs into a single blob. The two features compose: you can store quilts in a pool.
+
+### Pool states
+
+A pool is either active or expired, and the state determines which operations are allowed.
+
+| State | Condition | Allowed operations |
+|---|---|---|
+| Active | The current epoch is before the pool's end epoch. | Register, certify, and delete blobs; extend the lifetime; increase or decrease capacity; manage blob metadata. |
+| Expired | The current epoch has reached the pool's end epoch. | Burn the remaining blob objects, then destroy the empty pool to recover its storage resource object. |
+
+Expiry is silent: when the end epoch arrives, storage nodes stop serving the pool's blobs and no onchain event is emitted. The `PooledBlob` objects remain inside the pool until they are burned, but the data is no longer available. Track your pool's end epoch and extend it before it arrives.
+
+## Costs
+
+Storage pools use the same two prices as regular blobs, the per-epoch storage price and the one-off write price, both billed per encoded storage unit. The difference is which operation pays which fee:
+
+| Operation | Storage fee | Write fee |
+|---|---|---|
+| Create a pool | Reserved capacity × pool lifetime | None |
+| Register a blob | None | Blob's encoded size, once |
+| Extend the pool's lifetime | Full reserved capacity × added epochs | None |
+| Increase the pool's capacity | Added capacity × remaining epochs | None |
+| Delete a blob | None (frees capacity, but pays no refund) | None |
+
+Two properties follow from this:
+
+- **The marginal cost of a write is just the write fee.** Once a pool has room, adding a blob costs only the one-off write fee for its encoded size. In the standard flow, a store that cannot reuse an existing storage resource pays both the storage fee and the write fee.
+- **You pay for what you reserve, not what you use.** The storage fee covers the pool's full reserved capacity for its full lifetime, whether or not blobs fill it. Idle headroom is a real cost, so size pools to your working set rather than generously over-provisioning; you can always increase capacity later.
+
+There are no refunds. Deleting a blob frees capacity for reuse inside the pool but does not return WAL, and shrinking a pool's unused capacity returns a storage resource object that you can use elsewhere, not WAL.
+
+## When to use a storage pool
+
+Use a storage pool when:
+
+- You continuously write and delete blobs, and your total footprint stays within a predictable bound. The pool absorbs the churn while capacity is reused in place, with no per-blob storage purchases and no storage resource objects to manage.
+- You want to pre-purchase storage once and make each subsequent write as cheap and predictable as possible, paying only the write fee per blob.
+- Your blobs share a lifetime, so expiring and extending them as one unit is acceptable.
+
+Prefer regular blobs when blobs need independent lifetimes, when you need to transfer or share individual blob objects, or when your capacity needs are unpredictable, because reserved but unused pool capacity still costs the full storage fee.
+
+### Decision guide
+
+Use the following matrix to decide whether a storage pool fits your workload. A pool is the right choice only when every row points to it.
+
+| **Dimension** | **Use a storage pool when** | **Use regular blobs when** |
+|---|---|---|
+| **Write pattern** | You write and retire blobs continuously against a stable total footprint. | You store blobs occasionally, or store once and keep them. |
+| **Lifecycle** | All blobs can share one expiry and be extended together. | Blobs need independent expiry, extension, or deletion schedules. |
+| **Ownership** | Blobs never need to be transferred or shared individually. | You need to transfer, sell, or share individual blob objects. |
+| **Capacity planning** | You can predict your working set and keep the pool close to full. | Your storage needs are spiky or unpredictable; unused reservation is wasted cost. |
+| **Blob size** | Blobs are large enough that the fixed per-blob metadata overhead is acceptable. | You mostly store small files; use [Quilt](/docs/system-overview/quilt) instead, optionally inside a pool. |
+
+## Pool operations
+
+The `walrus::system` Move module exposes the full set of pool operations, and `SuiContractClient` in the `walrus-sui` crate provides Rust bindings for the most common ones.
+
+| Operation | What it does | Pays |
+|---|---|---|
+| `create_storage_pool` | Buys a new pool with the given encoded capacity and lifetime. | Storage fee |
+| `register_pooled_blob` | Adds a blob to the pool; fails if the pool lacks capacity. | Write fee |
+| `certify_pooled_blob` | Certifies a registered pooled blob with a storage confirmation certificate. | None |
+| `delete_pooled_blob` | Removes a deletable blob and frees its capacity for reuse. | None |
+| `extend_storage_pool` | Extends the pool's end epoch for every blob in the pool. | Storage fee |
+| `increase_storage_pool_capacity` | Adds encoded capacity for the pool's remaining epochs. | Storage fee |
+| `decrease_storage_pool_capacity_by_size` | Splits unused capacity out of the pool and returns it as a storage resource (Move only). | None |
+| `burn_expired_pooled_blob` | Cleans up blob objects after the pool expires, regardless of deletability (Move only). | None |
+| `destroy` | Destroys an empty pool and returns its underlying storage resource (Move only). | None |
+
+## Use storage pools with the Rust SDK
+
+The examples in this section use a `WalrusNodeClient<SuiContractClient>` from the `walrus-sdk` crate, backed by a Sui wallet that holds SUI for gas and WAL for storage and write fees. The pool-specific APIs are the `StoreBlobsInStoragePoolApi` trait in `walrus_sdk::node_client` and the pool methods on `SuiContractClient` in the `walrus-sui` crate.
+
+### Create a pool
+
+Create a pool by choosing a reserved encoded capacity and a lifetime in epochs. This pays the storage fee from your wallet and returns the pool's Sui object ID, which every later operation takes as a parameter.
+
+```rust
+// Reserve 100 MiB of encoded capacity for 10 epochs.
+let pool_id = client
+    .sui_client()
+    .create_storage_pool(100 * 1024 * 1024, 10)
+    .await?;
+```
+
+When sizing the capacity, remember that blobs consume it at their *encoded* size. You can compute a blob's exact encoded size with `walrus_core::encoding::encoded_blob_length_for_n_shards`, or check it for a sample file with `walrus store --dry-run`. The pool's lifetime is bounded by the system's maximum blob lifetime, currently 53 epochs, the same limit that applies to [regular blob lifetimes](/docs/walrus-client/managing-blobs).
+
+### Store blobs in the pool
+
+The `reserve_and_store_blobs_in_storage_pool` method handles encoding, registration, sliver upload to storage nodes, and certification in one call, and returns one result per blob:
+
+```rust
+use walrus_sdk::node_client::{
+    StoreArgs,
+    StoreBlobsInStoragePoolApi,
+    responses::PooledBlobStoreResult,
+};
+
+let results = client
+    .reserve_and_store_blobs_in_storage_pool(
+        vec![blob_data],
+        pool_id,
+        &StoreArgs::default_with_epochs(5),
+    )
+    .await?;
+
+for result in &results {
+    match result {
+        PooledBlobStoreResult::NewlyCreated { pooled_blob_object } => {
+            println!("stored blob {}", pooled_blob_object.blob_id);
+        }
+        PooledBlobStoreResult::Error { blob_id, error_msg, .. } => {
+            eprintln!("failed to store blob {blob_id:?}: {error_msg}");
+        }
+    }
+}
+```
+
+The store call enforces a few rules that differ from the regular store path:
+
+- The pool's end epoch must already cover the requested `epochs_ahead`; otherwise the call fails with `StoragePoolInsufficientLifetime`. The SDK never extends a pool's lifetime automatically, because that would change the expiry of every other blob in the pool. Call `extend_storage_pool` first if needed.
+- If the pool lacks capacity for the new blobs, the SDK automatically calls `increase_storage_pool_capacity`, which pays the storage fee for the additional capacity from your wallet.
+- The call does not automatically retry across an epoch change, because pooled registration is not idempotent and a blind retry could register duplicate entries. If the call fails with a committee-change error, inspect the pool state before retrying.
+- Only `PostStoreAction::Keep` is supported, because pooled blobs live inside the pool and cannot be transferred or shared after the store.
+- By default blobs are registered as deletable. Pass `BlobPersistence::Permanent` in the store arguments only if you never need to reclaim their capacity while the pool is active.
+
+### Inspect a pool
+
+Use `storage_pool_status` to check a pool's lifetime and capacity accounting at any time, and `list_pooled_blob_ids` to enumerate its contents:
+
+```rust
+let status = client.sui_client().storage_pool_status(pool_id).await?;
+println!(
+    "pool uses {} of {} encoded bytes across {} blobs, expires at epoch {}",
+    status.used_encoded_bytes,
+    status.reserved_encoded_capacity_bytes,
+    status.blob_count,
+    status.end_epoch,
+);
+println!(
+    "available capacity: {} bytes",
+    status.available_encoded_capacity_bytes(),
+);
+
+let blob_ids = client.sui_client().list_pooled_blob_ids(pool_id).await?;
+```
+
+`list_pooled_blob_ids` paginates through the pool's onchain blob table, so treat it as a debugging and reconciliation tool rather than a hot path; production applications should track their own blob IDs, for example from the store results or from [events](#events).
+
+### Delete blobs and reuse capacity
+
+Deleting a deletable pooled blob frees its encoded size immediately, so the next store into the pool can use it:
+
+```rust
+client.sui_client().delete_pooled_blob(pool_id, blob_id).await?;
+```
+
+If the same blob content is certified elsewhere, as another pooled blob or a regular blob, it remains readable until the last certified reference expires or is deleted.
+
+### Extend the lifetime or grow the capacity
+
+Both operations pay the storage fee from your wallet and apply to the whole pool:
+
+```rust
+// Push the end epoch out by 5 epochs; every blob in the pool is extended.
+client.sui_client().extend_storage_pool(pool_id, 5).await?;
+
+// Add 50 MiB of encoded capacity for the pool's remaining epochs.
+client
+    .sui_client()
+    .increase_storage_pool_capacity(pool_id, 50 * 1024 * 1024)
+    .await?;
+```
+
+### Read pooled blobs
+
+Reading requires nothing pool-specific. A pooled blob's blob ID works with every existing read path, including `client.read_blob`, the `walrus read` CLI command, and [public aggregators](/docs/system-overview/public-aggregators-and-publishers):
+
+```sh
+$ walrus read <BLOB_ID>
+```
+
+## Call the Move contracts directly
+
+All pool operations are public functions on the `walrus::system` module, so you can compose them in programmable transaction blocks. The main entry points are:
+
+```move
+public fun create_storage_pool(
+    system: &mut System,
+    reserved_encoded_capacity_bytes: u64,
+    epochs_ahead: u32,
+    payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+): StoragePool;
+
+public fun register_pooled_blob(
+    system: &mut System,
+    storage_pool: &mut StoragePool,
+    blob_id: u256,
+    root_hash: u256,
+    unencoded_size: u64,
+    encoding_type: u8,
+    deletable: bool,
+    write_payment: &mut Coin<WAL>,
+    ctx: &mut TxContext,
+);
+
+public fun certify_pooled_blob(
+    system: &System,
+    storage_pool: &mut StoragePool,
+    blob_id: u256,
+    signature: vector<u8>,
+    signers_bitmap: vector<u8>,
+    message: vector<u8>,
+);
+
+public fun delete_pooled_blob(
+    system: &System,
+    storage_pool: &mut StoragePool,
+    blob_id: u256,
+);
+
+public fun extend_storage_pool(
+    system: &mut System,
+    storage_pool: &mut StoragePool,
+    extended_epochs: u32,
+    payment: &mut Coin<WAL>,
+);
+```
+
+`create_storage_pool` returns the pool by value, so your transaction decides whether to keep it address-owned, wrap it in your own object, or share it. Certification follows the same flow as regular blobs: after registering, upload the encoded slivers to the storage nodes, collect a quorum confirmation certificate, and pass it to `certify_pooled_blob`.
+
+The Move layer also offers a few capabilities the Rust SDK does not expose yet:
+
+- `create_storage_pool_with_storage` builds a pool from a storage resource you already own, and `increase_storage_pool_capacity_with_storage` grows a pool by absorbing one, both without further payment. The absorbed resource must match the pool's end epoch.
+- `decrease_storage_pool_capacity_by_size` and `decrease_storage_pool_unused_capacity_by_percent` split unused capacity out of the pool and return it as a storage resource.
+- `burn_expired_pooled_blob` removes blob objects from an expired pool regardless of their deletability, and `storage_pool::destroy` destroys an empty pool and returns its underlying storage resource.
+- The `walrus::storage_pool` module provides a metadata API, such as `insert_or_update_blob_metadata_pair`, to attach key-value metadata to individual pooled blobs.
+- The separate `blob_bucket` package wraps a pool in a shared object gated by a `BlobBucketCap`, so an application can operate a pool as shared onchain infrastructure while keeping mutations restricted to the capability holder. Certification stays permissionless, so any party holding a valid certificate can complete it.
+
+:::danger
+
+A `StoragePool` object has no built-in access control: anyone who can pass a mutable reference to it can register, delete, and mutate blobs in it. Keep pools address-owned, or wrap them in an access-controlled object such as a `BlobBucket`. Do not share a raw `StoragePool` object.
+
+:::
+
+## Events
+
+Storage pool activity emits the following Sui events, which indexers and monitoring systems can subscribe to alongside the existing blob events:
+
+| Event | Emitted when | Key fields |
+|---|---|---|
+| `StoragePoolCreated` | A pool is created. | Pool object ID, reserved capacity, start and end epoch. |
+| `PooledBlobRegistered` | A blob is registered in a pool. | Blob ID, unencoded size, deletability, blob object ID, pool object ID. |
+| `PooledBlobCertified` | A pooled blob is certified. | Blob ID, deletability, blob object ID, pool object ID. |
+| `PooledBlobDeleted` | A pooled blob is deleted from an active pool. | Blob ID, blob object ID, whether it was certified, pool object ID. |
+| `StoragePoolExtended` | A pool's lifetime is extended. | Pool object ID, new end epoch. |
+
+Capacity increases and decreases, burning expired blobs, and destroying a pool do not emit events, so reconcile capacity from `storage_pool_status` rather than from the event stream.
+
+## Constraints and considerations
+
+- A blob ID can be registered only once per pool. Registering the same content in two pools creates two independent `PooledBlob` objects with the same blob ID, and the data remains readable until the last certified reference expires or is deleted.
+- Blobs registered as permanent cannot be deleted while the pool is active; their capacity is only reclaimable after the pool expires. Register blobs as deletable if you want to reuse their capacity.
+- Certification must happen before the pool's final epoch; you cannot certify a blob into a pool that expires in the current epoch.
+- A pool's remaining lifetime plus any extension cannot exceed the system's maximum blob lifetime, currently 53 epochs.
+- Storage pools currently support only the RS2 encoding type, which is the default.
+
+## Common pitfalls
+
+- **Sizing the pool in raw bytes.** Blobs consume reserved capacity at their encoded size, about 4.5x the raw size plus roughly 64 MB of metadata per blob. A pool sized to the sum of your raw file sizes runs out of capacity almost immediately.
+- **Using a pool to save on small blobs.** The fixed per-blob metadata overhead applies inside pools too. Batch small files with [Quilt](/docs/system-overview/quilt) first, then store the quilts in a pool if you also need capacity reuse.
+- **Letting a pool expire with live data.** All blobs in a pool become unavailable at the pool's end epoch, silently and at once. Monitor the end epoch from `storage_pool_status` and extend ahead of time.
+- **Registering everything as permanent.** Permanent pooled blobs pin their capacity until the pool expires, which defeats the capacity-reuse benefit. Default to deletable unless you specifically need the non-deletability guarantee.
+- **Sharing the pool object directly.** A shared `StoragePool` is writable by everyone. Use the `blob_bucket` wrapper or your own capability-gated object for shared infrastructure.

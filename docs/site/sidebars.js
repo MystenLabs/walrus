@@ -36,6 +36,7 @@ const sidebars = {
         "system-overview/storage-costs",
         "system-overview/caching",
         "system-overview/quilt",
+        "system-overview/storage-pools",
         "system-overview/wal-tokenomics-faq",
         "data-security",
       ],
