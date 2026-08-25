@@ -8,7 +8,7 @@ The MCP server exposes **eight tools**: six **relayer tools** (memory operations
 
 ## First-run behavior
 
-When `~/.memwal/credentials.json` does not exist, the stdio package does **not** exit immediately if an MCP host launched it.
+When no credentials file is found (see [Credential locations](#credential-locations)), the stdio package does **not** exit immediately if an MCP host launched it.
 
 Instead it starts in an auth-required mode that:
 
@@ -20,7 +20,7 @@ This is why many first-run sessions show `memwal_login` before the other tools a
 
 ### Memwal_remember
 
-Save a durable fact to the user's Walrus Memory. The agent calls this **proactively** whenever it learns something worth remembering across sessions (preference, decision, constraint, correction, identity), not only when the user explicitly asks. Pass the full statement; do not summarize.
+Save a durable fact to the user's Walrus Memory. The agent calls this **proactively** when the user states a preference, decision, constraint, correction, identity detail, or recurring workflow, not only when they explicitly ask. Skip one-off tasks, the current file or bug, and small talk. Pass the full statement; do not summarize.
 
 | **Parameter** | **Type** | **Required** | **Description** |
 | --- | --- | --- | --- |
@@ -78,7 +78,7 @@ Returns a one-time URL valid for **5 minutes**. If it expires, call the tool aga
 
 ### Memwal_logout
 
-Remove the saved credentials from this machine (`~/.memwal/credentials.json`). Takes no parameters.
+Remove the saved credentials from this machine, from whichever file is currently in use (see [Credential locations](#credential-locations)). Takes no parameters.
 
 > **Warning**
 >
@@ -86,6 +86,66 @@ Remove the saved credentials from this machine (`~/.memwal/credentials.json`). T
 > **Note**
 >
 > Both session tools (`memwal_login`, `memwal_logout`) are intercepted locally by the stdio package and never reach the relayer. They read and write files on the client machine only.
+## Credential locations
+
+Credentials resolve from two places, in order:
+
+1. `.memwal/credentials.json` in the **working directory or a parent of it**
+2. `~/.memwal/credentials.json` (global, per machine)
+
+The search starts in the working directory and walks up, the way `.npmrc` and `.git/config` resolve, so a command run from a subfolder still picks up that project's credentials. The first `.memwal/credentials.json` it finds wins.
+
+The walk stops at your project root (the directory holding `.git`), at your home directory, or at the filesystem root, whichever comes first. That bound keeps one project from picking up a credentials file belonging to a parent folder that holds unrelated checkouts. If nothing is found inside it, the global file is used. Whichever file is chosen is the one read, written, and deleted for that run.
+
+### Working on several accounts
+
+Without a project-local file, every project on the machine shares one credential. Signing in from one project silently repoints the others at a different account and delegate key, and memories written in that state land on the wrong account, on immutable storage, with no delete path.
+
+To scope a project to its own account, create the file inside it:
+
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
+
+```bash
+$ cd ~/code/my-project
+$ mkdir -p .memwal
+$ memwal-mcp login          # writes to the global file the first time
+$ cp ~/.memwal/credentials.json .memwal/credentials.json
+```
+
+From then on, runs started from that directory or anywhere beneath it use the project's credentials, and runs started outside it keep using the global one.
+
+> **Warning**
+>
+> `.memwal/credentials.json` holds a delegate private key. Add `.memwal/` to your `.gitignore`.
+### Migration
+
+Nothing to do. Creating a project-local file is the opt-in, so a machine without one behaves exactly as it did before, and the global file remains the fallback indefinitely.
+
+### Replacing an account
+
+Signing in as a **different** account than the one already saved:
+
+- warns before the browser opens, naming the account currently saved and the file at risk
+- copies the outgoing file to `credentials.backup-<timestamp>.json` beside it
+- prints both account ids afterwards, and where the backup went
+
+Re-signing in as the **same** account (a label change, a rotated delegate key) overwrites in place without a backup.
+
+### Recovery
+
+To restore a replaced credential, copy the backup back over the live file:
+
+[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
+
+```bash
+$ cd ~/.memwal            # or the project's .memwal directory
+$ ls credentials.backup-*
+$ cp credentials.backup-<timestamp>.json credentials.json
+$ chmod 600 credentials.json
+```
+
+Backups accumulate; they are never pruned automatically. Each holds a delegate private key, so delete the ones you no longer need.
+
 ## CLI
 
 The stdio package accepts CLI flags and environment variables. **CLI takes precedence** when both are set.
@@ -96,8 +156,8 @@ The stdio package accepts CLI flags and environment variables. **CLI takes prece
 | `--web-url <url>` | `MEMWAL_WEB_URL` | Override the dashboard URL used during login. |
 | `--label <text>` | `MEMWAL_CLIENT_LABEL` | Friendly delegate-key label shown in the Walrus Memory dashboard. |
 | `--namespace <name>` (alias `--ns`) | `MEMWAL_NAMESPACE` | Default memory namespace injected into memory tool calls that omit one. See [Default namespace](#default-namespace). |
-| `--login` (or `login` subcommand) | Not applicable | Force a re-login even when credentials exist. |
-| `--logout` | Not applicable | Wipe `~/.memwal/credentials.json` and exit. |
+| `--login` (or `login` subcommand) | Not applicable | Force a re-login even when credentials exist. The existing file is kept until the new sign-in succeeds. |
+| `--logout` | Not applicable | Delete the credentials file currently in use and exit. |
 | `--help`, `-h` | Not applicable | Print usage and exit. |
 
 Set `MEMWAL_MCP_DEBUG=1` to enable verbose stderr logging.
@@ -135,13 +195,7 @@ Example, pin every memory call to a `work` namespace:
 
 ## Credential file
 
-The stdio package stores credentials at:
-
-[Source: mcp/reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/reference.md)
-
-```text
-~/.memwal/credentials.json
-```
+The stdio package stores credentials in whichever file [Credential locations](#credential-locations) resolves to: a project-local `.memwal/credentials.json`, or the global `~/.memwal/credentials.json`.
 
 The file includes:
 

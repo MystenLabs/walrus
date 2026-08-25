@@ -2,7 +2,7 @@
 
 > **Note**
 >
-> Unlike the TypeScript SDK there is **no separate `MemWalManual` class** in Python. The Python SDK is relayer-backed: the relayer always handles embedding, Seal encryption, and Walrus storage. The "manual" methods are lower-level entry points on the same `MemWal` / `MemWalSync` client for callers that already have a vector or a pre-uploaded blob.
+> Unlike the TypeScript SDK there is **no separate `MemWalManual` class** in Python. The Python SDK is relayer-backed for the standard `remember` / `recall` flow. The "manual" methods are lower-level entry points on the same `MemWal` / `MemWalSync` client for callers that already have a vector and Seal-encrypted bytes.
 Use these when you want to control indexing or do your own vector math. For the standard flow, prefer [`remember` / `recall`](/walrus-memory/python-sdk/usage/memwal).
 
 ## `embed`
@@ -22,7 +22,7 @@ print(len(vec.vector))
 
 ## `remember_manual`
 
-Register a pre-uploaded Walrus blob with a pre-computed vector. The relayer stores the `{blob_id, vector, owner, namespace}` mapping; it does not upload for you here.
+Send base64 Seal-encrypted bytes plus a pre-computed vector. The relayer uploads the ciphertext to Walrus and stores the `{blob_id, vector, owner, namespace}` mapping.
 
 [Source: python-sdk/usage/memwal-manual.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/usage/memwal-manual.md)
 
@@ -31,7 +31,7 @@ from memwal import RememberManualOptions
 
 result = await memwal.remember_manual(
     RememberManualOptions(
-        blob_id="<walrus-blob-id>",
+        encrypted_data="<base64-seal-ciphertext>",
         vector=vec.vector,
         namespace="chatbot-prod",   # optional; falls back to client default
     )
@@ -62,7 +62,7 @@ for hit in hits.results:
 | --- | --- |
 | Plain text, want it stored | `remember` / `remember_and_wait` |
 | Plain text, want only the vector | `embed` |
-| A vector + an already-uploaded blob | `remember_manual` |
+| A vector + Seal-encrypted bytes | `remember_manual` |
 | A query vector, want raw hits | `recall_manual` |
 | Plain query text, want decrypted matches | `recall` |
 

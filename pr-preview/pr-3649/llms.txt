@@ -121,6 +121,9 @@ Sui smart contract as the on-chain index.
     Use the Walrus client to manage blobs and their metadata. Before you extend or depend on a
     blob, check that it is still stored and see when it expires. Use the blob ID: This reports
     whether the blob is stored and its availability period.
+- [Network Health](https://docs.wal.app/docs/walrus-client/network-health.md):
+    Intermittent upload failures usually mean storage nodes are unreachable, not that your client
+    is misconfigured.
 - [Quilts](https://docs.wal.app/docs/walrus-client/quilts.md):
     For efficiently storing large numbers of small blobs, Walrus provides the quilt feature. A
     quilt batches multiple blobs into a single storage unit, significantly reducing overhead and
@@ -496,8 +499,7 @@ Sui smart contract as the on-chain index.
     on Claude Code, Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
 - [Codex](https://docs.wal.app/walrus-memory/mcp/codex.md):
     Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
-    it as MCP-only (recommended; just the tools, one config block, no repo to clone) or as a full
-    plugin (adds automatic-memory hooks, but currently requires cloning the repo).
+    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools).
 - [Cursor](https://docs.wal.app/walrus-memory/mcp/cursor.md):
     Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
     (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
@@ -733,9 +735,8 @@ Sui smart contract as the on-chain index.
     the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
     Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    August 14, 2026 | GitHub --- August 14, 2026 | GitHub --- July 31, 2026 | GitHub --- June 12,
-    2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity,
-    along with new memwalrememberbulk and memwal_health tools and proactive memory behavior.
+    August 24, 2026 | GitHub --- August 20, 2026 | GitHub Answer orphaned tool calls whose upstream
+    response never arrives with a retryable error instead of hanging indefinitely.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
     Mainnet | August 19, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
     now return 404 BLOBNOTFOUND within about a second, instead of 503 BLOBUNAVAILABLE after a 10-20
@@ -760,6 +761,12 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: API
 
+- [Memory Read API](https://docs.wal.app/walrus-memory/api/memory-read-api.md):
+    Registered routes (colon form used by the docs freshness check): GET /v1/owners/:owner/agents
+    Owner-scoped, cursor-based, read-only.
+- [Owner Token Auth](https://docs.wal.app/walrus-memory/api/owner-token-auth.md):
+    Issuance route: POST /v1/owner-tokens. Lets Console call WM's owner-scoped read API without
+    ever holding a delegate key.
 - [1. Request and sign the returned personal-message challenge in the wallet.](https://docs.wal.app/walrus-memory/api/security-delete.md):
     The Security Delete API permanently deletes legacy Walrus Blob objects that were tracked in
     Walrus Memory's old-V1 database. The server selects and verifies the objects, builds and
@@ -815,8 +822,7 @@ Sui smart contract as the on-chain index.
     | withmemwallangchain / withmemwalopenai | from memwal import ...
 - [Memwal Manual](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal-manual.md):
     > Note > > Unlike the TypeScript SDK there is no separate MemWalManual class in Python. The
-    Python SDK is relayer-backed: the relayer always handles embedding, Seal encryption, and Walrus
-    storage.
+    Python SDK is relayer-backed for the standard remember / recall flow.
 - [Memwal](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal.md):
     The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing. The SDK only signs requests and sends text.

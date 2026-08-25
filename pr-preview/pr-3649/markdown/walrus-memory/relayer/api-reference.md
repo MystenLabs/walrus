@@ -51,7 +51,7 @@ These routes require no authentication.
 
 ### `GET /health`
 
-Service health check.
+Service liveness check. `status` is `"ok"` when the relayer process is up. `write_ready` is `true` when the encryption sidecar process answered its own `/health` (cached a few seconds). A write outage can still return HTTP 200 with `write_ready: false`. `write_ready: true` is sidecar liveness, not a guarantee that remember or analyze succeed.
 
 **Response:**
 
@@ -79,7 +79,8 @@ Service health check.
   "prompt_versions": {
     "extract": "extract.v1",
     "ask": "ask.v1"
-  }
+  },
+  "write_ready": true
 }
 ```
 
@@ -383,6 +384,32 @@ Extract facts from text using an LLM, then enqueue each fact as a separate memor
   "fact_count": 2,
   "status": "pending",
   "owner": "0x..."
+}
+```
+
+### `POST /api/embed`
+
+Return an embedding vector for `text` without storing a memory. Uses the same model and width as remember, recall, and analyze. Requires signed-header auth.
+
+**Request:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
+```json
+{
+  "text": "hello world"
+}
+```
+
+`text` must be non-empty and at most 64 KiB.
+
+**Response:**
+
+[Source: relayer/api-reference.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/relayer/api-reference.md)
+
+```json
+{
+  "vector": [0.01, -0.02]
 }
 ```
 

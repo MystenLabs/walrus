@@ -2,13 +2,15 @@
 
 A Walrus Site is made up of 4 main components that work together: the site's files stored on Walrus, a [Sui object](https://docs.sui.io/guides/developer/objects/object-model) that indexes those files as resources, the [`site-builder` CLI](/docs/sites/getting-started/installing-the-site-builder) that publishes and updates the site, and a portal that serves the site to browsers.
 
+Each section below covers one component on its own. To follow all four through a single page load, read [Technical Overview](/docs/sites/introduction/technical-overview). To skip the theory and deploy something, go straight to [Publishing Your First Site](/docs/sites/getting-started/publishing-your-first-site), or browse the full guide set from [Walrus Sites](/docs/sites).
+
 ## Site files on Walrus
 
 Your site's static assets (HTML, CSS, JavaScript, images, fonts, and so on) are stored as blobs on Walrus. When you deploy a site, the `site-builder` uploads your assets to Walrus by encoding multiple files into a single storage entity called a [quilt](/docs/system-overview/quilt), a unique feature designed to reduce upload cost and improve upload speed. Each file in the quilt is assigned a `QuiltPatchID`.
 
 ## The Sui site object
 
-Each Walrus Site corresponds to a single object on Sui, defined by the Move smart contract in the [`move/walrus_site`](https://github.com/MystenLabs/walrus-sites/tree/main/move/walrus_site) directory of the repository. Unlike storing a single blob directly on Walrus, a Walrus Site bundles all its files into a quilt and represents the entire site as one Sui object. At its core, a site object is a simple structure:
+Each Walrus Site corresponds to a single object on Sui, defined by the Move smart contract in the [`move/walrus_site`](https://github.com/MystenLabs/walrus-sites/tree/main/move/walrus_site) directory of the repository. Unlike storing a single blob directly on Walrus, a Walrus Site bundles all its files into a quilt and represents the entire site as one Sui object. At its core, a site object is a basic structure:
 
 ```move
 struct Site has key, store {
@@ -104,4 +106,4 @@ You can iterate on a Walrus Site entirely on your own machine by running each co
 - **Local portal:** Run a portal on `localhost` to resolve and serve your site in the browser. See [Deploy a Local Portal](/docs/sites/portals/deploy-locally).
 - **Local Walrus and Sui networks:** Run a local Walrus network, backed by a local Sui network, so the `site-builder` publishes to storage you control. See [Run a local Walrus network](/docs/system-overview/available-networks).
 
-Point your `sites-config.yaml` and `client_config.yaml` at the local context, deploy with `site-builder`, then open the site through the local portal. Once the site works locally, switch the context back to Testnet or Mainnet to publish it.
+Point your `sites-config.yaml` and `client_config.yaml` at the local context, deploy with `site-builder`, then open the site through the local portal. Once the site works locally, switch the context back to Testnet or Mainnet to publish it. To deploy the same way on every push instead, see [Creating a GitHub Actions Workflow for Walrus Sites](/docs/sites/ci-cd/github-actions-workflow).

@@ -27,8 +27,8 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3649/assets/css/styles.bccd54ce.css">
-<script src="/walrus/pr-preview/pr-3649/assets/js/runtime~main.f9f43f55.js" defer="defer"></script>
-<script src="/walrus/pr-preview/pr-3649/assets/js/main.1d60dd26.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3649/assets/js/runtime~main.b4515d28.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3649/assets/js/main.57711b04.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -112,7 +112,7 @@ When <code>max_distance</code> is set, the client drops weak matches where <code
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="close--context-managers"><code>close()</code> / context managers<a href="#close--context-managers" class="hash-link" aria-label="Direct link to close--context-managers" title="Direct link to close--context-managers" translate="no">​</a></h3>
 <p><code>await memwal.close()</code> closes the underlying <code>httpx</code> client. <code>MemWal</code> supports <code>async with</code>; <code>MemWalSync</code> supports <code>with</code>.</p>
 <h3 class="anchor anchorTargetStickyNavbar_kP7e" id="lower-level-methods">Lower-level methods<a href="#lower-level-methods" class="hash-link" aria-label="Direct link to Lower-level methods" title="Direct link to Lower-level methods" translate="no">​</a></h3>
-<table><thead><tr><th>Method</th><th>Description</th></tr></thead><tbody><tr><td><code>remember_manual(RememberManualOptions)</code></td><td>Register a pre-uploaded blob with a pre-computed vector → <code>RememberManualResult</code></td></tr><tr><td><code>recall_manual(RecallManualOptions)</code></td><td>Search with a pre-computed query vector → <code>RecallManualResult</code> (blob_id + distance only)</td></tr><tr><td><code>embed(text)</code></td><td>Embedding vector for text, no storage → <code>EmbedResult(vector)</code></td></tr></tbody></table>
+<table><thead><tr><th>Method</th><th>Description</th></tr></thead><tbody><tr><td><code>remember_manual(RememberManualOptions)</code></td><td>Send Seal-encrypted bytes + a pre-computed vector; the relayer uploads to Walrus → <code>RememberManualResult</code></td></tr><tr><td><code>recall_manual(RecallManualOptions)</code></td><td>Search with a pre-computed query vector → <code>RecallManualResult</code> (blob_id + distance only)</td></tr><tr><td><code>embed(text)</code></td><td>Embedding vector for text, no storage → <code>EmbedResult(vector)</code></td></tr></tbody></table>
 <p>See <a class="" href="/walrus/pr-preview/pr-3649/walrus-memory/python-sdk/usage/memwal-manual">Manual methods</a>.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="middleware">Middleware<a href="#middleware" class="hash-link" aria-label="Direct link to Middleware" title="Direct link to Middleware" translate="no">​</a></h2>
 <a href="https://github.com/MystenLabs/MemWal/blob/dev/docs/python-sdk/api-reference.md" target="_blank" class="code-source-link">Source: python-sdk/api-reference.md</a>

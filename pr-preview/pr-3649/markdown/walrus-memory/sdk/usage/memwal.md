@@ -59,6 +59,6 @@ const result = await memwal.restore("chatbot-prod", 10);
 
 Use these when you already have a vector or encrypted payload:
 
-- `rememberManual({ blobId, vector, namespace? })`
+- `rememberManual({ encryptedData, vector, namespace? })`
 - `recallManual({ vector, limit?, namespace? })`
 - `embed(text)`

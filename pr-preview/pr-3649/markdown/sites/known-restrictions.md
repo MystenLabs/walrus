@@ -8,7 +8,7 @@ Walrus Sites store all site resources (HTML, CSS, JS, images, fonts) as blobs on
 
 - **No server-side rendering (SSR):** Frameworks that require a Node.js (or equivalent) server to render pages per request (such as Next.js in SSR mode, Nuxt.js, or Remix) cannot run their server component on Walrus Sites. Only the pre-built static output of those frameworks (i.e., exported HTML/CSS/JS) can be deployed.
 - **No server-side logic:** There are no endpoints, no request handlers, and no databases. Operations that would normally be handled by a backend (such as form processing, authentication sessions, or database queries) must be implemented using client-side code integrated with external APIs or Sui smart contracts.
-- **No runtime redirects:** Redirect plugins that execute at serve time (for example, the Docusaurus redirect plugin that routes `/old-path` to `/new-path` at the server level) do not function as expected. Client-side redirect workarounds must be used instead. See the [routing documentation](https://docs.wal.app/walrus-sites/routing.html) for supported approaches.
+- **No runtime redirects:** Redirect plugins that execute at serve time (for example, the Docusaurus redirect plugin that routes `/old-path` to `/new-path` at the server level) do not function as expected. Client-side redirect workarounds must be used instead. See [Redirects](/docs/sites/linking/redirects) for supported approaches.
 
 ## No secret values
 

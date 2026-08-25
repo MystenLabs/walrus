@@ -83,8 +83,7 @@
     on Claude Code, Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
 - [Codex](https://docs.wal.app/walrus-memory/mcp/codex.md):
     Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
-    it as MCP-only (recommended; just the tools, one config block, no repo to clone) or as a full
-    plugin (adds automatic-memory hooks, but currently requires cloning the repo).
+    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools).
 - [Cursor](https://docs.wal.app/walrus-memory/mcp/cursor.md):
     Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
     (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
@@ -242,6 +241,12 @@
 
 ## Walrus Memory: API
 
+- [Memory Read API](https://docs.wal.app/walrus-memory/api/memory-read-api.md):
+    Registered routes (colon form used by the docs freshness check): GET /v1/owners/:owner/agents
+    Owner-scoped, cursor-based, read-only.
+- [Owner Token Auth](https://docs.wal.app/walrus-memory/api/owner-token-auth.md):
+    Issuance route: POST /v1/owner-tokens. Lets Console call WM's owner-scoped read API without
+    ever holding a delegate key.
 - [1. Request and sign the returned personal-message challenge in the wallet.](https://docs.wal.app/walrus-memory/api/security-delete.md):
     The Security Delete API permanently deletes legacy Walrus Blob objects that were tracked in
     Walrus Memory's old-V1 database. The server selects and verifies the objects, builds and
@@ -297,8 +302,7 @@
     | withmemwallangchain / withmemwalopenai | from memwal import ...
 - [Memwal Manual](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal-manual.md):
     > Note > > Unlike the TypeScript SDK there is no separate MemWalManual class in Python. The
-    Python SDK is relayer-backed: the relayer always handles embedding, Seal encryption, and Walrus
-    storage.
+    Python SDK is relayer-backed for the standard remember / recall flow.
 - [Memwal](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal.md):
     The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing. The SDK only signs requests and sends text.
