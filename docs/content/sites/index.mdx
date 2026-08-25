@@ -23,13 +23,33 @@ goal:
     - has_answer: true
       label: Needs answer summary for AI citation
 questions:
-  - What is Walrus Sites?
+  - What is a Walrus Site?
   - How do I deploy a website on Walrus?
-  - How do I get started with walrus sites?
-answer: Deploy decentralized websites on Walrus.
+  - Can Walrus Sites host a React or Vue app?
+  - Do Walrus Sites support a backend or a database?
+  - How do I give a Walrus Site a readable domain name?
+answer: >-
+  A Walrus Site is a static website that keeps its files as blobs on Walrus and
+  indexes them with an object on Sui. You publish one with the site-builder CLI,
+  which uploads the build output to Walrus and writes the resource map to Sui,
+  and visitors reach it through a portal such as wal.app. Any static build works,
+  including single-page apps, but there is no server-side runtime, so backends,
+  databases, and server-side rendering are out of scope.
 ---
 
 Walrus Sites are decentralized websites built on [Sui](https://docs.sui.io/) and Walrus. Your site's files are stored on Walrus, a decentralized storage network, while a Sui smart contract records ownership and maps each resource path to its content. Anyone can publish a Walrus Site using the [`site-builder` CLI tool](/docs/sites/getting-started/installing-the-site-builder) and browse it through a [portal](/docs/sites/portals/deploy-locally).
+
+Because there is no server behind a Walrus Site, no single host can take it offline, and no one but the wallet that owns the Sui site object can change it. The same absence of a server sets the limits: a Walrus Site serves static files only, so backends, databases, and server-side rendering are out of scope. Any framework that produces a static build works once you point `site-builder` at its output directory, and client-side routing works through the `routes` field in `ws-resources.json`.
+
+## Where to start
+
+If you want to deploy something now, [install the site-builder](/docs/sites/getting-started/installing-the-site-builder) and follow [Publishing Your First Site](/docs/sites/getting-started/publishing-your-first-site). The two together take you from an empty machine to a live site.
+
+If you want to understand the system first, [Technical Overview](/docs/sites/introduction/technical-overview) traces a single page load from the browser to Walrus, and [Walrus Sites Components](/docs/sites/introduction/components) describes each moving part on its own.
+
+If you already have a site running, [Setting a SuiNS Name](/docs/sites/custom-domains/setting-a-suins-name) replaces the Base36 subdomain with a readable name, [Site Configuration](/docs/sites/configuration/site-configuration) covers headers, routes, and metadata, and [Creating a GitHub Actions Workflow](/docs/sites/ci-cd/github-actions-workflow) redeploys the site on every push.
+
+Before you commit to Walrus Sites for production, read [Known Restrictions](/docs/sites/known-restrictions) so the constraints are not a surprise later.
 
 import DocCardList from '@theme/DocCardList';
 
