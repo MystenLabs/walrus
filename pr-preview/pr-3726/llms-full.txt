@@ -88,6 +88,10 @@ Sui smart contract as the on-chain index.
     availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated
     storage cost of $0.023/GB/month, allowing you to budget and scale with confidence. > Storing
     many small files?
+- [Storage Pools](https://docs.wal.app/docs/system-overview/storage-pools.md):
+    A storage pool is a single storage reservation that many blobs share. In the standard flow,
+    every blob you store owns its own storage resource, bought for that blob's exact size and
+    lifetime.
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md):
     Storage limits, cost considerations, memory requirements, and other constraints to consider
     when building on Walrus. This page describes the practical limits and constraints you should
