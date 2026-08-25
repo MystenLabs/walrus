@@ -67,9 +67,9 @@ print(result.restored, result.skipped, result.total)
 
 ## Lower-level methods
 
-Use these when you already have a vector or a pre-uploaded blob, see [Manual methods](/walrus-memory/python-sdk/usage/memwal-manual):
+Use these when you already have a vector or Seal-encrypted bytes. See [Manual methods](/walrus-memory/python-sdk/usage/memwal-manual):
 
-- `remember_manual(RememberManualOptions(blob_id=..., vector=..., namespace=...))`
+- `remember_manual(RememberManualOptions(encrypted_data=..., vector=..., namespace=...))`
 - `recall_manual(RecallManualOptions(vector=..., limit=..., namespace=...))`
 - `embed(text)`, embedding vector only, no storage
 - `get_public_key_hex()`, the delegate public key

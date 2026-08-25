@@ -198,7 +198,7 @@ Hex-encoded public key for the current delegate key.
 
 | Method | Description |
 | --- | --- |
-| `remember_manual(RememberManualOptions)` | Register a pre-uploaded blob with a pre-computed vector → `RememberManualResult` |
+| `remember_manual(RememberManualOptions)` | Send Seal-encrypted bytes + a pre-computed vector; the relayer uploads to Walrus → `RememberManualResult` |
 | `recall_manual(RecallManualOptions)` | Search with a pre-computed query vector → `RecallManualResult` (blob_id + distance only) |
 | `embed(text)` | Embedding vector for text, no storage → `EmbedResult(vector)` |
 

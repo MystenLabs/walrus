@@ -171,7 +171,7 @@ These exist on the `MemWal` class for advanced use cases:
 
 | Method | Description |
 |--------|-------------|
-| `rememberManual({ blobId, vector, namespace? })` | Register a pre-uploaded blob ID with a pre-computed vector |
+| `rememberManual({ encryptedData, vector, namespace? })` | Send Seal-encrypted bytes + a pre-computed vector; the relayer uploads to Walrus |
 | `recallManual({ vector, limit?, namespace? })` | Search with a pre-computed query vector (returns blob IDs, no decryption) |
 | `embed(text)` | Generate an embedding vector for text (no storage) |
 

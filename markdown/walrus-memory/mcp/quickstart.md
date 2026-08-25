@@ -12,7 +12,7 @@ Every supported client runs the same local server, `npx -y @mysten-incubation/me
 | Claude Code | Managed by the CLI | `claude mcp add --scope user memwal -- npx -y @mysten-incubation/memwal-mcp`, or install the [plugin](/walrus-memory/mcp/claude-code) for automatic-memory hooks |
 | Claude Desktop | `claude_desktop_config.json` | Add the [JSON block](#config-blocks) below; see [Claude Desktop](/walrus-memory/mcp/claude-desktop) for the per-OS file path |
 | Cursor | `~/.cursor/mcp.json` | Add the [JSON block](#config-blocks) below; hooks are [optional](/walrus-memory/mcp/cursor) |
-| Codex | `~/.codex/config.toml` | Add the [TOML block](#config-blocks) below; hooks need a [repo install](/walrus-memory/mcp/codex) |
+| Codex | `~/.codex/config.toml` | `codex plugin marketplace add MystenLabs/MemWal` then `codex plugin add memwal@memwal-plugins` for the [plugin](/walrus-memory/mcp/codex) with automatic-memory hooks, or add the [TOML block](#config-blocks) below for MCP-only |
 | OpenCode | `~/.config/opencode/opencode.json` | Add the [OpenCode block](#config-blocks) below |
 | Antigravity | Plugin directory or MCP config | `npx degit MystenLabs/MemWal/packages/mcp/plugin ~/.gemini/config/plugins/memwal`, or the [JSON block](#config-blocks); see [Antigravity](/walrus-memory/mcp/antigravity) |
 
