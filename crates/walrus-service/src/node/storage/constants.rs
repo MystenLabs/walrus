@@ -16,6 +16,7 @@ const EVENT_CURSOR_KEY: [u8; 6] = *b"cursor";
 const GARBAGE_COLLECTOR_TABLE_COLUMN_FAMILY_NAME: &str = "garbage_collector_last_completed_epoch";
 const GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY: &str = "started";
 const GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY: &str = "completed";
+const PENDING_RECOVER_BLOBS_COLUMN_FAMILY_NAME: &str = "pending_recover_blobs";
 
 // Base name for shard-related column families
 const SHARD_BASE_COLUMN_FAMILY_NAME: &str = "shard";
@@ -87,6 +88,11 @@ pub fn garbage_collector_last_completed_epoch_key() -> String {
     GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY.to_string()
 }
 
+/// Returns the name of the pending recover blobs column family.
+pub fn pending_recover_blobs_cf_name() -> &'static str {
+    PENDING_RECOVER_BLOBS_COLUMN_FAMILY_NAME
+}
+
 /// Returns the column family name for primary slivers of a shard.
 pub fn primary_slivers_column_family_name(id: ShardIndex) -> String {
     format!(
@@ -144,6 +150,7 @@ mod tests {
         assert_eq!(per_object_blob_info_cf_name(), "per_object_blob_info");
         assert_eq!(node_status_cf_name(), "node_status");
         assert_eq!(event_index_cf_name(), "latest_handled_event_index");
+        assert_eq!(pending_recover_blobs_cf_name(), "pending_recover_blobs");
 
         let shard = ShardIndex(900);
         assert_eq!(base_column_family_name(shard), "shard-900");

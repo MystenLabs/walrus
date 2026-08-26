@@ -244,6 +244,9 @@ pub struct ServiceHealthInfo {
     /// The latest checkpoint sequence number downloaded by the node.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_checkpoint_sequence_number: Option<u64>,
+    /// The number of blobs whose recovery is pending.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_recover_blob_count: Option<u64>,
 }
 
 /// The status of the shards for which the node is responsible.
