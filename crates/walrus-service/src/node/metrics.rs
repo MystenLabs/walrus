@@ -45,6 +45,8 @@ pub(crate) const STATUS_BLOB_INFO_CLEANUP_COMPLETED: &str = "blob_info_cleanup_c
 pub(crate) const STATUS_DATA_DELETION_STARTED: &str = "data_deletion_started";
 pub(crate) const STATUS_COMPLETED: &str = "completed";
 pub(crate) const STATUS_HIGHEST_FINISHED: &str = "highest_finished";
+pub(crate) const STATUS_RETIRED: &str = "retired";
+pub(crate) const STATUS_ALREADY_STORED: &str = "already_stored";
 pub(crate) const LIVE_UPLOAD_DEFERRAL_OUTCOME_AVOIDED_RECOVERY: &str = "avoided_recovery";
 pub(crate) const LIVE_UPLOAD_DEFERRAL_OUTCOME_RECOVERY_NEEDED: &str = "recovery_needed";
 
@@ -131,6 +133,16 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number of blob recoveries currently pending"]
         recover_blob_backlog: IntGaugeVec["state"],
+
+        #[help = "The number of records in the pending-recovery table"]
+        pending_recover_blob_count: U64Gauge[],
+
+        #[help = "The event index of the oldest record in the pending-recovery table, or 0 if \
+        the table is empty"]
+        pending_recover_blob_oldest_event_index: U64Gauge[],
+
+        #[help = "The number of pending-recovery records handled by the executor, by outcome"]
+        pending_recovery_executor_total: IntCounterVec["outcome"],
 
         #[help = "Time (in seconds) spent processing events"]
         event_process_duration_seconds: HistogramVec["event_type"],

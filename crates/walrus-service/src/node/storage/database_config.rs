@@ -348,6 +348,8 @@ pub struct DatabaseConfig {
     pub(super) storage_pool_info: Option<DatabaseTableOptions>,
     /// Event cursor database options.
     pub(super) event_cursor: Option<DatabaseTableOptions>,
+    /// Pending recover blobs database options.
+    pub(super) pending_recover_blobs: Option<DatabaseTableOptions>,
     /// Shard database options.
     pub(super) shard: Option<DatabaseTableOptions>,
     /// Shard status database options.
@@ -468,6 +470,11 @@ impl DatabaseConfig {
         Self::inherit_from_or_use_template(&self.event_cursor, self.standard())
     }
 
+    /// Returns the pending recover blobs database option.
+    pub fn pending_recover_blobs(&self) -> DatabaseTableOptions {
+        Self::inherit_from_or_use_template(&self.pending_recover_blobs, self.standard())
+    }
+
     /// Returns the shard database option.
     pub fn shard(&self) -> DatabaseTableOptions {
         Self::inherit_from_or_use_template(&self.shard, self.optimized_for_blobs())
@@ -549,6 +556,7 @@ impl Default for DatabaseConfig {
             per_object_pooled_blob_info: None,
             storage_pool_info: None,
             event_cursor: None,
+            pending_recover_blobs: None,
             shard: None,
             shard_status: None,
             shard_sync_progress: None,
@@ -769,6 +777,11 @@ impl DatabaseTableOptionsFactory {
     /// Returns the event cursor database option with shared cache.
     pub fn event_cursor(&self) -> Options {
         self.to_options(&self.config.event_cursor(), false)
+    }
+
+    /// Returns the pending recover blobs database option.
+    pub fn pending_recover_blobs(&self) -> Options {
+        self.to_options(&self.config.pending_recover_blobs(), false)
     }
 
     // Below 4 options are for shard storage column families.
