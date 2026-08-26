@@ -56,6 +56,7 @@ use crate::{
             pending_cf_name,
         },
         storage::{
+            PendingRecoverBlob,
             PrimarySliverData,
             SecondarySliverData,
             blob_info::{
@@ -74,6 +75,7 @@ use crate::{
                 garbage_collector_table_cf_name,
                 metadata_cf_name,
                 node_status_cf_name,
+                pending_recover_blobs_cf_name,
                 per_object_blob_info_cf_name,
                 per_object_pooled_blob_info_cf_name,
                 primary_slivers_column_family_name,
@@ -204,6 +206,20 @@ pub enum DbToolCommands {
         #[serde_as(as = "Option<DisplayFromStr>")]
         start_object_id: Option<ObjectID>,
         /// Count of objects to read.
+        #[arg(long, default_value = "1")]
+        count: usize,
+    },
+
+    /// Read pending-recovery records from the RocksDB database.
+    ReadPendingRecoverBlobs {
+        /// Path to the RocksDB database directory.
+        #[arg(long)]
+        db_path: PathBuf,
+        /// Start blob ID in URL-safe base64 format (no padding).
+        #[arg(long)]
+        #[serde_as(as = "Option<DisplayFromStr>")]
+        start_blob_id: Option<BlobId>,
+        /// Number of entries to scan.
         #[arg(long, default_value = "1")]
         count: usize,
     },
@@ -420,6 +436,11 @@ impl DbToolCommands {
                 start_object_id,
                 count,
             } => read_object_blob_info(db_path, start_object_id, count),
+            Self::ReadPendingRecoverBlobs {
+                db_path,
+                start_blob_id,
+                count,
+            } => read_pending_recover_blobs(db_path, start_blob_id, count),
             Self::CountCertifiedBlobs { db_path, epoch } => count_certified_blobs(db_path, epoch),
             Self::DropColumnFamilies {
                 db_path,
@@ -739,6 +760,53 @@ fn read_blob_info(db_path: PathBuf, start_blob_id: Option<BlobId>, count: usize)
                 let blob_id: BlobId = bcs::from_bytes(&key)?;
                 let blob_info: BlobInfo = bcs::from_bytes(&value)?;
                 println!("Blob ID: {blob_id}, BlobInfo: {blob_info:?}");
+            }
+            Err(e) => {
+                println!("Error: {e:?}");
+                return Err(e.into());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn read_pending_recover_blobs(
+    db_path: PathBuf,
+    start_blob_id: Option<BlobId>,
+    count: usize,
+) -> Result<()> {
+    let pending_recover_blobs_options =
+        DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false).pending_recover_blobs();
+    let db = DB::open_cf_with_opts_for_read_only(
+        &RocksdbOptions::default(),
+        db_path,
+        [(
+            pending_recover_blobs_cf_name(),
+            pending_recover_blobs_options,
+        )],
+        false,
+    )?;
+
+    let cf = db
+        .cf_handle(pending_recover_blobs_cf_name())
+        .expect("pending recover blobs column family should exist");
+
+    let iter = if let Some(blob_id) = start_blob_id {
+        db.iterator_cf(
+            &cf,
+            rocksdb::IteratorMode::From(&be_fix_int_ser(&blob_id)?, rocksdb::Direction::Forward),
+        )
+    } else {
+        db.iterator_cf(&cf, rocksdb::IteratorMode::Start)
+    };
+
+    for result in iter.take(count) {
+        match result {
+            Ok((key, value)) => {
+                let blob_id: BlobId = bcs::from_bytes(&key)?;
+                let record: PendingRecoverBlob = bcs::from_bytes(&value)?;
+                println!("Blob ID: {blob_id}, PendingRecoverBlob: {record:?}");
             }
             Err(e) => {
                 println!("Error: {e:?}");
@@ -1272,6 +1340,7 @@ fn report_storage_probe(db: &DB, column_families: &[String], exact_counts: bool)
         node_status_cf_name(),
         event_cursor_cf_name(),
         event_index_cf_name(),
+        pending_recover_blobs_cf_name(),
         garbage_collector_table_cf_name(),
     ] {
         if column_families.iter().any(|name| name == cf_name) {
@@ -1517,6 +1586,7 @@ fn cf_options_for_name(
                 name if name == metadata_cf_name() => factory.metadata(),
                 name if name == node_status_cf_name() => factory.node_status(),
                 name if name == event_cursor_cf_name() => event_cursor_cf_options(factory),
+                name if name == pending_recover_blobs_cf_name() => factory.pending_recover_blobs(),
                 name if name == garbage_collector_table_cf_name() => factory.garbage_collector(),
                 _ => RocksdbOptions::default(),
             }

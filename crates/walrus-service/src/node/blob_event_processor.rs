@@ -249,10 +249,20 @@ impl BackgroundEventProcessor {
             )
             .await;
 
-        // Slivers and (possibly) metadata are not stored, so initiate blob sync.
-        self.blob_sync_handler
-            .start_sync(blob_id, epoch, Some(event_handle))
-            .await?;
+        // Slivers and (possibly) metadata are not stored, so record that this blob needs
+        // recovery and let the pending-recovery executor sync it. The record must be written
+        // before the event is marked as complete: if the node crashes between the two writes,
+        // the event is replayed and the record is written again.
+        let pending_count =
+            self.node
+                .storage
+                .insert_pending_recover_blob(&blob_id, event_handle.index(), epoch)?;
+        self.node
+            .metrics
+            .pending_recover_blob_count
+            .set(pending_count);
+        event_handle.mark_as_complete();
+        self.blob_sync_handler.notify_pending_recovery();
 
         walrus_utils::with_label!(histogram_set, metrics::STATUS_QUEUED)
             .observe(start.elapsed().as_secs_f64());
@@ -282,6 +292,15 @@ impl BackgroundEventProcessor {
         };
         if let Some(blob_info) = blob_info {
             if !blob_info.is_certified(current_committee_epoch) {
+                // Delete the pending-recovery record before cancelling the sync, so that the
+                // pending-recovery executor cannot restart the sync afterwards. Events for the
+                // same blob are processed in order, so no new record can appear while this
+                // event is being handled.
+                let pending_count = self.node.storage.delete_pending_recover_blob(&blob_id)?;
+                self.node
+                    .metrics
+                    .pending_recover_blob_count
+                    .set(pending_count);
                 self.node
                     .blob_retirement_notifier
                     .notify_blob_retirement(&blob_id);
@@ -339,6 +358,17 @@ impl BackgroundEventProcessor {
         event_handle: EventHandle,
         event: InvalidBlobId,
     ) -> anyhow::Result<()> {
+        // Delete the pending-recovery record before cancelling the sync, so that the
+        // pending-recovery executor cannot restart the sync and write the invalid blob's data
+        // back after it is deleted.
+        let pending_count = self
+            .node
+            .storage
+            .delete_pending_recover_blob(&event.blob_id)?;
+        self.node
+            .metrics
+            .pending_recover_blob_count
+            .set(pending_count);
         self.node
             .blob_retirement_notifier
             .notify_blob_retirement(&event.blob_id);
