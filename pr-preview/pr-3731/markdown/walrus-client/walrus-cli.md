@@ -1,0 +1,121 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+Use the command-line interface (CLI) to interact with the Walrus client. The CLI is available by installing the `walrus` binary. To install Walrus, use the Mysten Labs [`suiup` tool](https://github.com/MystenLabs/suiup?tab=readme-ov-file#installation):
+```sh
+$ curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
+```
+
+Then install `sui` and `walrus`:
+```sh
+$ suiup install sui
+$ suiup install walrus
+```
+
+View detailed usage information including a full list of available commands using the following command:
+```sh
+$ walrus --help
+```
+
+Each subcommand of `walrus` can also be called with `--help` to print its specific arguments and their meaning.
+
+### Switching contexts
+
+If you have multiple contexts in your configuration file, you can specify the context for each command using the `--context` option. Generate a `bash`, `zsh`, or `fish` completion script with `walrus completion` and place it in an appropriate directory like `~/.local/share/bash-completion/completions`.
+
+## Configuration
+
+The Walrus client needs to know about the Sui objects that store the Walrus system and staking information. Configure these in the `client_config.yaml` file.
+
+By default, the Walrus client looks for the `client_config.yaml` (or `client_config.yml`) configuration file in the current directory, `$XDG_CONFIG_HOME/walrus/`, `~/.config/walrus/`, or `~/.walrus/`.
+
+Obtain the latest configuration file by downloading it directly from Walrus and placing it in one of the default configuration file locations:
+```sh
+$ curl --create-dirs https://docs.wal.app/setup/client_config.yaml -o ~/.config/walrus/client_config.yaml
+```
+
+You can place the file anywhere and name it anything you like. In that case, use the `--config` option when running the `walrus` binary.
+
+### Specify a wallet
+
+Use the `--wallet <WALLET>` argument to specify a non-standard Sui wallet configuration file. The wallet configuration is taken from the path specified in the Walrus configuration, `./sui_config.yaml`, or `~/.sui/sui_config/client.yaml`.
+
+### Set a gas budget
+
+Use the `--gas-budget <GAS_BUDGET>` argument to change the maximum amount of Sui (in MIST) that the command is allowed to use. If not specified, the gas budget is estimated automatically.
+
+### Print output as JSON
+
+Use the `--json` flag to write a command's output as JSON. This is the default in [JSON mode](/docs/walrus-client/json-mode).
+
+### Example
+
+You can access Testnet and Mainnet through the following configuration. This example Walrus CLI configuration refers to the standard location for Sui configuration (`~/.sui/sui_config/client.yaml`).
+
+<!-- ImportContent: file not found in manifest: setup/client_config.yaml -->
+
+## Acquire and move WAL
+
+Storing data costs WAL, and every transaction costs SUI for gas. The `walrus` CLI exchanges SUI for WAL on Testnet. To move WAL between addresses, use `sui client`, because Sui handles the transfer rather than Walrus.
+
+### Exchange SUI for WAL on Testnet
+
+Run `walrus get-wal` to exchange Testnet SUI for Testnet WAL at a 1:1 rate:
+
+```sh
+$ walrus get-wal --context testnet
+```
+
+The command exchanges 500,000,000 MIST (0.5 SUI) by default. These options change that behavior:
+
+| **Option** | **What it does** |
+|---|---|
+| `--amount <MIST>` | Exchanges the amount you pass, in MIST. |
+| `--exchange-id <OBJECT_ID>` | Uses the exchange object you name instead of one picked from the configuration file. The option takes precedence over the configuration file. |
+
+For the full walkthrough, including how to confirm the balance afterwards, see [Exchange Testnet SUI for WAL](/docs/system-overview/available-networks#testnet-wal-faucet). The exchange object IDs are listed in the [Network Reference](/docs/network-reference#system-and-staking-object-ids).
+
+### Acquire WAL on Mainnet
+
+`walrus get-wal` runs on Testnet only. The Mainnet context in the client configuration file declares no exchange objects, so the command fails there:
+
+```
+The object ID of an exchange object must be specified either in the config file or as a command-line argument.
+Note that this command is only available on Testnet.
+```
+
+On Mainnet, acquire WAL on an exchange that lists the token, or receive a transfer from an address that already holds WAL. Avoid third-party WAL faucets: they can hand you WAL from a package the Walrus client rejects, and storage payments then fail.
+
+### Transfer WAL between addresses
+
+Walrus has no transfer command. Sui holds WAL as a coin type, so `sui client` moves it. You need this when you fund a publisher wallet, a shared team wallet, or an agent wallet that stores blobs for you.
+
+1. List the WAL coin objects an address holds. Read the fully qualified coin type, which ends in `::wal::WAL`, from the `coinType` field of `sui client balance --json`:
+
+   ```sh
+   $ sui client balance ADDRESS --coin-type WAL_COIN_TYPE --with-coins --json
+   ```
+
+2. Transfer one of those coin objects to the recipient:
+
+   ```sh
+   $ sui client transfer --object-id WAL_COIN_ID --to RECIPIENT_ADDRESS --gas-budget 10000000
+   ```
+
+Sui transfers whole coin objects. To send an exact amount instead, split a coin in a [programmable transaction block](https://docs.sui.io/concepts/transactions/prog-txn-blocks) and transfer the coin object that the split produces. Amounts are in FROST, where 1 WAL = 1,000,000,000 FROST.
+
+If an address holds many small WAL coins, merge them first so that a single coin covers the amount you want to send:
+
+```sh
+$ sui client merge-coin --primary-coin LARGEST_WAL_COIN_ID --coin-to-merge OTHER_WAL_COIN_ID
+```
+
+The recipient needs SUI for gas as well. WAL alone does not pay for transactions.
+
+## Logging and metrics
+
+The `walrus` CLI supports multiple levels of logging, which you can toggle through an environment variable:
+```sh
+$ RUST_LOG=walrus=trace walrus info
+```
+
+By default, `info` level logs are enabled. The `debug` and `trace` levels can give a more in-depth understanding of what a command does or how it fails.
