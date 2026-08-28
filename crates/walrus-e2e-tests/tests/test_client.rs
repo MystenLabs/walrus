@@ -108,7 +108,7 @@ use walrus_sui::{
         Blob,
         NodeRegistrationParams,
         move_errors::MoveExecutionError,
-        move_structs::{BlobAttribute, BlobWithAttribute, Credits, SharedBlob},
+        move_structs::{Authorized, BlobAttribute, BlobWithAttribute, Credits, SharedBlob},
     },
     utils::generate_proof_of_possession,
 };
@@ -4528,7 +4528,9 @@ async fn store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
 
 /// Tests that a `StorageNodeCap` can be transferred to a new wallet — the operator flow of
 /// moving the capability object and then switching the node's wallet — and that this neither
-/// changes the capability nor affects the operation of the cluster.
+/// changes the capability nor affects the operation of the cluster. In particular, epoch
+/// change participation (`epoch_sync_done`) and reward (commission) collection keep working
+/// through the capability from the new wallet.
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_storage_node_cap_transfer_to_new_wallet() -> TestResult {
@@ -4542,8 +4544,19 @@ async fn storage_node_cap_transfer_to_new_wallet() -> TestResult {
 
     walrus_test_utils::init_tracing();
 
+    // Use a short epoch duration so that the test can exercise epoch changes. Two nodes with
+    // three shards each leave the real nodes with a quorum of shards after the candidate node
+    // registered below takes over a single shard.
     let (sui_cluster_handle, _walrus_cluster, client, system_ctx, _) =
-        test_cluster::E2eTestSetupBuilder::new().build().await?;
+        test_cluster::E2eTestSetupBuilder::new()
+            .with_epoch_duration(Duration::from_secs(20))
+            .with_test_nodes_config(
+                TestNodesConfig::builder()
+                    .with_node_weights(&[3, 3])
+                    .build(),
+            )
+            .build()
+            .await?;
 
     // Wallet A plays the role of the node's original wallet; wallet B is the new wallet the
     // capability is transferred to. Both are funded with SUI for gas.
@@ -4587,15 +4600,37 @@ async fn storage_node_cap_transfer_to_new_wallet() -> TestResult {
     let network_key_pair = NetworkKeyPair::generate();
     let registration_params =
         NodeRegistrationParams::new_for_test(protocol_key_pair.public(), network_key_pair.public());
-    let current_epoch = contract_client_a.as_ref().current_epoch().await?;
-    let proof_of_possession = generate_proof_of_possession(
-        &protocol_key_pair,
-        contract_client_a.as_ref(),
-        current_epoch,
-    );
-    let cap = contract_client_a
+    // Retry the registration in case an epoch change lands between generating the proof of
+    // possession (which commits to the current epoch) and executing the transaction.
+    let mut cap = None;
+    for _ in 0..3 {
+        let current_epoch = contract_client_a.as_ref().current_epoch().await?;
+        let proof_of_possession = generate_proof_of_possession(
+            &protocol_key_pair,
+            contract_client_a.as_ref(),
+            current_epoch,
+        );
+        match contract_client_a
+            .as_ref()
+            .register_candidate(&registration_params, proof_of_possession)
+            .await
+        {
+            Ok(registered_cap) => {
+                cap = Some(registered_cap);
+                break;
+            }
+            Err(error) => tracing::info!(%error, "retrying candidate registration"),
+        }
+    }
+    let cap = cap.expect("candidate registration must succeed");
+
+    // Tie the commission (reward collection) authorization to the capability object itself, so
+    // that reward collection follows the capability when it is transferred. At registration,
+    // the commission receiver defaults to the registering address (wallet A), which must
+    // authorize the change.
+    contract_client_a
         .as_ref()
-        .register_candidate(&registration_params, proof_of_possession)
+        .set_commission_receiver(cap.node_id, Authorized::Object(cap.id))
         .await?;
 
     // The capability authorizes cap-gated node operations from wallet A, e.g., price votes.
@@ -4676,6 +4711,102 @@ async fn storage_node_cap_transfer_to_new_wallet() -> TestResult {
     assert_eq!(pool.voting_params.storage_price, 100);
     assert_eq!(pool.voting_params.write_price, 50);
 
-    // The cluster's storage nodes are unaffected: blobs can still be stored and read.
-    basic_store_and_read(&client, 2, 31415, None, || Ok(())).await
+    // Stake with the candidate node so that it joins the committee: with D'Hondt apportionment
+    // over stakes [3, 3, 1.2] (in units of `FROST_PER_NODE_WEIGHT`), the candidate node is
+    // guaranteed exactly one of the six shards, so the two real nodes retain a quorum of
+    // shards and the cluster keeps operating.
+    client
+        .as_ref()
+        .stake_with_node_pool(cap.node_id, 6 * FROST_PER_NODE_WEIGHT / 5)
+        .await?;
+
+    // Wait for the epoch change that adds the candidate node to the committee.
+    let mut in_committee = false;
+    for _ in 0..60 {
+        let committees = contract_client_b
+            .as_ref()
+            .get_committees_and_state()
+            .await?;
+        if committees.current.find(&cap.node_id).is_some() {
+            in_committee = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    assert!(
+        in_committee,
+        "the candidate node must join the committee after staking"
+    );
+
+    // Report "epoch sync done" for the candidate node from wallet B: the epoch change
+    // transaction a storage node sends with its capability every epoch. Retry in case an epoch
+    // change lands between reading the current epoch and executing the transaction.
+    let mut sync_done = false;
+    for _ in 0..10 {
+        let epoch = contract_client_b.as_ref().current_epoch().await?;
+        match contract_client_b
+            .as_ref()
+            .epoch_sync_done(epoch, cap.id)
+            .await
+        {
+            Ok(()) => {
+                sync_done = true;
+                break;
+            }
+            Err(error) => {
+                tracing::info!(%error, "retrying epoch_sync_done after an error");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        }
+    }
+    assert!(sync_done, "epoch_sync_done from wallet B must succeed");
+    // The sync must be recorded on the capability object on-chain.
+    let cap_after_sync = contract_client_b
+        .as_ref()
+        .read_client()
+        .get_address_capability_object(address_b)
+        .await?
+        .expect("wallet B still owns the capability");
+    assert!(cap_after_sync.last_epoch_sync_done > 0);
+
+    // The cluster is unaffected with the candidate node in the committee: blobs can still be
+    // stored and read. The storage payment also funds the rewards for the current epoch, of
+    // which the candidate node's pool receives a share at the next epoch change. The blobs
+    // must stay below the maximum blob size of the six-shard cluster (~1.3 MB), while paying
+    // for enough storage units for the candidate's commission to be non-zero.
+    basic_store_and_read(&client, 3, 1_000_000, None, || Ok(()))
+        .await
+        .expect("store and read must work with the candidate node in the committee");
+
+    // Reward collection works from wallet B through the capability. The commission becomes
+    // non-zero only once an epoch change has distributed the rewards, so poll across epoch
+    // changes; this also verifies that epoch changes keep happening after the cap transfer.
+    let mut commission = 0;
+    for _ in 0..60 {
+        if let Ok(amount) = contract_client_b
+            .as_ref()
+            .collect_commission(cap.node_id)
+            .await
+            && amount > 0
+        {
+            commission = amount;
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+    assert!(
+        commission > 0,
+        "wallet B must collect a non-zero commission through the capability"
+    );
+
+    // Wallet A can no longer collect rewards, as it does not hold the capability anymore.
+    assert!(matches!(
+        contract_client_a
+            .as_ref()
+            .collect_commission(cap.node_id)
+            .await,
+        Err(SuiClientError::NotAuthorizedForPool(_))
+    ));
+
+    Ok(())
 }
