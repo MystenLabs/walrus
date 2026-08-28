@@ -264,6 +264,18 @@ pub struct WalPriceMonitorConfig {
     /// When false, the monitor is automatically enabled only for NanoUsd pricing.
     #[serde(default)]
     pub force_enable_wal_price_monitor: bool,
+    /// Enable CoinGecko as a WAL price source. Enabled by default.
+    #[serde(default = "default_true")]
+    pub enable_coingecko: bool,
+    /// Enable Coinbase as a WAL price source. Enabled by default.
+    #[serde(default = "default_true")]
+    pub enable_coinbase: bool,
+    /// Enable Binance as a WAL price source. Enabled by default.
+    #[serde(default = "default_true")]
+    pub enable_binance: bool,
+    /// Enable Pyth Hermes as an additional WAL price source. Disabled by default.
+    #[serde(default)]
+    pub enable_pyth_hermes: bool,
     /// How often to check the WAL price
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "check_interval_secs")]
@@ -278,10 +290,19 @@ impl Default for WalPriceMonitorConfig {
     fn default() -> Self {
         Self {
             force_enable_wal_price_monitor: false,
+            enable_coingecko: true,
+            enable_coinbase: true,
+            enable_binance: true,
+            enable_pyth_hermes: false,
             check_interval: Duration::from_secs(600), // Default: check every 10 minutes
             request_timeout: Duration::from_secs(60),
         }
     }
+}
+
+/// Returns `true`; used as the serde default for config flags that are enabled by default.
+fn default_true() -> bool {
+    true
 }
 
 /// Gets the current WAL price based on the list of fetched prices
@@ -337,14 +358,30 @@ impl WalPriceMonitor {
     pub(crate) async fn start(config: WalPriceMonitorConfig, metrics: Arc<NodeMetricSet>) -> Self {
         let current_price = Arc::new(RwLock::new(None));
 
-        // Create the list of WAL price fetchers
+        // Create the list of WAL price fetchers based on the enabled sources
         let timeout = config.request_timeout;
-        let fetchers: Vec<Box<dyn WalPriceFetcher>> = vec![
-            Box::new(CoinGeckoPriceFetcher::new(metrics.clone(), timeout)),
-            Box::new(CoinbasePriceFetcher::new(metrics.clone(), timeout)),
-            Box::new(BinancePriceFetcher::new(metrics.clone(), timeout)),
-            Box::new(PythHermesPriceFetcher::new(metrics.clone(), timeout)),
-        ];
+        let mut fetchers: Vec<Box<dyn WalPriceFetcher>> = Vec::new();
+        if config.enable_coingecko {
+            fetchers.push(Box::new(CoinGeckoPriceFetcher::new(
+                metrics.clone(),
+                timeout,
+            )));
+        }
+        if config.enable_coinbase {
+            fetchers.push(Box::new(CoinbasePriceFetcher::new(
+                metrics.clone(),
+                timeout,
+            )));
+        }
+        if config.enable_binance {
+            fetchers.push(Box::new(BinancePriceFetcher::new(metrics.clone(), timeout)));
+        }
+        if config.enable_pyth_hermes {
+            fetchers.push(Box::new(PythHermesPriceFetcher::new(
+                metrics.clone(),
+                timeout,
+            )));
+        }
 
         tracing::info!(
             "WAL price monitor started with {} fetcher(s) and check interval: {:?}",
@@ -537,11 +574,13 @@ mod tests {
         "coingecko"
     );
     test_fetch_from_source!(test_fetch_from_coinbase, CoinbasePriceFetcher, "coinbase");
-    test_fetch_from_source!(
-        test_fetch_from_pyth_hermes,
-        PythHermesPriceFetcher,
-        "pyth_hermes"
-    );
+    // Skip testing for Pyth Hermes because the price feed is disabled by default.
+    // Re-enable this test if the Pyth Hermes price feed is enabled again.
+    // test_fetch_from_source!(
+    //     test_fetch_from_pyth_hermes,
+    //     PythHermesPriceFetcher,
+    //     "pyth_hermes"
+    // );
 
     #[test]
     fn test_calculate_median() {

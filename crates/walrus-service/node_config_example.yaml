@@ -258,6 +258,10 @@ garbage_collection:
 sliver_reference_cache_max_entries: 65536
 wal_price_monitor:
   force_enable_wal_price_monitor: false
+  enable_coingecko: true
+  enable_coinbase: true
+  enable_binance: true
+  enable_pyth_hermes: false
   check_interval_secs: 600
   request_timeout_secs: 60
 epoch_state_consistency:
