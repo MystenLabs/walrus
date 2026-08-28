@@ -277,6 +277,10 @@
 - [Returning User](https://docs.wal.app/walrus-memory/guides/returning-user.md):
     Your memories live on Walrus and your account lives on Sui, so they persist no matter which
     device you sign in from. Only the delegate key your browser used last time stays behind.
+- [System Prompt Templates](https://docs.wal.app/walrus-memory/guides/system-prompt-templates.md):
+    Connecting the MCP server gives an agent the memory tools. It does not make the agent use them.
+    Most agents write only when the user says "remember this", which is why an untuned setup
+    produces a handful of memories and then goes quiet. A system prompt fixes that.
 
 ## Walrus Memory: Migration
 

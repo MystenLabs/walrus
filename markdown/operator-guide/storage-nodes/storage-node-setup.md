@@ -330,6 +330,11 @@ wal_price_monitor:
   force_enable_wal_price_monitor: false   # Set to true to run the
                                           # monitor even when currency
                                           # is FROST (for observability).
+  enable_coingecko: true        # Fetch the WAL price from CoinGecko.
+  enable_coinbase: true         # Fetch the WAL price from Coinbase.
+  enable_binance: true          # Fetch the WAL price from Binance.
+  enable_pyth_hermes: false     # Set to true to also fetch the WAL
+                                # price from Pyth Hermes.
 ```
 
 > **Tip**

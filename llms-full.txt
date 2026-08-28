@@ -736,9 +736,8 @@ Sui smart contract as the on-chain index.
     August 24, 2026 | GitHub --- August 20, 2026 | GitHub Answer orphaned tool calls whose upstream
     response never arrives with a retryable error instead of hanging indefinitely.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Mainnet | August 19, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
-    now return 404 BLOBNOTFOUND within about a second, instead of 503 BLOBUNAVAILABLE after a 10-20
-    second fan-out.
+    Testnet | August 28, 2026 | GitHub Adds a metric counting sync-and-recovery info publications
+    that invalidate the node-recovery baseline and supersede in-flight node-recovery runs.
 - [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
     July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
     (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
@@ -795,6 +794,10 @@ Sui smart contract as the on-chain index.
 - [Returning User](https://docs.wal.app/walrus-memory/guides/returning-user.md):
     Your memories live on Walrus and your account lives on Sui, so they persist no matter which
     device you sign in from. Only the delegate key your browser used last time stays behind.
+- [System Prompt Templates](https://docs.wal.app/walrus-memory/guides/system-prompt-templates.md):
+    Connecting the MCP server gives an agent the memory tools. It does not make the agent use them.
+    Most agents write only when the user says "remember this", which is why an untuned setup
+    produces a handful of memories and then goes quiet. A system prompt fixes that.
 
 ## Walrus Memory: Migration
 
