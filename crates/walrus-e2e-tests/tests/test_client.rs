@@ -4532,6 +4532,8 @@ async fn store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_storage_node_cap_transfer_to_new_wallet() -> TestResult {
+    // Box the test future to move its large state machine to the heap, preventing a stack
+    // overflow of the test thread.
     Box::pin(storage_node_cap_transfer_to_new_wallet()).await
 }
 
