@@ -748,6 +748,11 @@ impl StorageNode {
             == PriceCurrency::NanoUsd
             || config.wal_price_monitor.force_enable_wal_price_monitor
         {
+            anyhow::ensure!(
+                config.wal_price_monitor.any_source_enabled(),
+                "WAL price monitoring is required for the configured price currency, but all \
+                price sources are disabled; enable at least one source in `wal_price_monitor`"
+            );
             let monitor = Arc::new(
                 WalPriceMonitor::start(config.wal_price_monitor.clone(), metrics.clone()).await,
             );

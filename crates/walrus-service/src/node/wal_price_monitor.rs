@@ -286,6 +286,16 @@ pub struct WalPriceMonitorConfig {
     pub request_timeout: Duration,
 }
 
+impl WalPriceMonitorConfig {
+    /// Returns true if at least one price source is enabled.
+    pub fn any_source_enabled(&self) -> bool {
+        self.enable_coingecko
+            || self.enable_coinbase
+            || self.enable_binance
+            || self.enable_pyth_hermes
+    }
+}
+
 impl Default for WalPriceMonitorConfig {
     fn default() -> Self {
         Self {
@@ -389,23 +399,31 @@ impl WalPriceMonitor {
             config.check_interval
         );
 
+        if fetchers.is_empty() {
+            tracing::warn!("all WAL price sources are disabled; no price will ever be fetched");
+        }
+        let has_fetchers = !fetchers.is_empty();
+
         let task_handle =
             Self::spawn_monitoring_task(config, current_price.clone(), fetchers, metrics.clone());
 
-        // Wait for the first price fetch to complete.
-        let price_ref = current_price.clone();
-        let wait_result = tokio::time::timeout(WAL_MONITOR_INITIAL_WAIT, async {
-            loop {
-                if price_ref.read().await.is_some() {
-                    return;
+        // Wait for the first price fetch to complete. With no fetchers, the price can never be
+        // set, so skip the wait entirely.
+        if has_fetchers {
+            let price_ref = current_price.clone();
+            let wait_result = tokio::time::timeout(WAL_MONITOR_INITIAL_WAIT, async {
+                loop {
+                    if price_ref.read().await.is_some() {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        })
-        .await;
+            })
+            .await;
 
-        if wait_result.is_err() {
-            tracing::warn!("timed out waiting for initial WAL price fetch");
+            if wait_result.is_err() {
+                tracing::warn!("timed out waiting for initial WAL price fetch");
+            }
         }
 
         Self {
@@ -581,6 +599,29 @@ mod tests {
     //     PythHermesPriceFetcher,
     //     "pyth_hermes"
     // );
+
+    #[test]
+    fn test_any_source_enabled() {
+        assert!(WalPriceMonitorConfig::default().any_source_enabled());
+
+        let all_disabled = WalPriceMonitorConfig {
+            enable_coingecko: false,
+            enable_coinbase: false,
+            enable_binance: false,
+            enable_pyth_hermes: false,
+            ..Default::default()
+        };
+        assert!(!all_disabled.any_source_enabled());
+
+        let only_pyth_hermes = WalPriceMonitorConfig {
+            enable_coingecko: false,
+            enable_coinbase: false,
+            enable_binance: false,
+            enable_pyth_hermes: true,
+            ..Default::default()
+        };
+        assert!(only_pyth_hermes.any_source_enabled());
+    }
 
     #[test]
     fn test_calculate_median() {
