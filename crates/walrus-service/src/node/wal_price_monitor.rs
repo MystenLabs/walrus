@@ -264,6 +264,18 @@ pub struct WalPriceMonitorConfig {
     /// When false, the monitor is automatically enabled only for NanoUsd pricing.
     #[serde(default)]
     pub force_enable_wal_price_monitor: bool,
+    /// Enable CoinGecko as a WAL price source. Enabled by default.
+    #[serde(default = "default_true")]
+    pub enable_coingecko: bool,
+    /// Enable Coinbase as a WAL price source. Enabled by default.
+    #[serde(default = "default_true")]
+    pub enable_coinbase: bool,
+    /// Enable Binance as a WAL price source. Enabled by default.
+    #[serde(default = "default_true")]
+    pub enable_binance: bool,
+    /// Enable Pyth Hermes as an additional WAL price source. Disabled by default.
+    #[serde(default)]
+    pub enable_pyth_hermes: bool,
     /// How often to check the WAL price
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "check_interval_secs")]
@@ -274,14 +286,33 @@ pub struct WalPriceMonitorConfig {
     pub request_timeout: Duration,
 }
 
+impl WalPriceMonitorConfig {
+    /// Returns true if at least one price source is enabled.
+    pub fn any_source_enabled(&self) -> bool {
+        self.enable_coingecko
+            || self.enable_coinbase
+            || self.enable_binance
+            || self.enable_pyth_hermes
+    }
+}
+
 impl Default for WalPriceMonitorConfig {
     fn default() -> Self {
         Self {
             force_enable_wal_price_monitor: false,
+            enable_coingecko: true,
+            enable_coinbase: true,
+            enable_binance: true,
+            enable_pyth_hermes: false,
             check_interval: Duration::from_secs(600), // Default: check every 10 minutes
             request_timeout: Duration::from_secs(60),
         }
     }
+}
+
+/// Returns `true`; used as the serde default for config flags that are enabled by default.
+fn default_true() -> bool {
+    true
 }
 
 /// Gets the current WAL price based on the list of fetched prices
@@ -337,14 +368,30 @@ impl WalPriceMonitor {
     pub(crate) async fn start(config: WalPriceMonitorConfig, metrics: Arc<NodeMetricSet>) -> Self {
         let current_price = Arc::new(RwLock::new(None));
 
-        // Create the list of WAL price fetchers
+        // Create the list of WAL price fetchers based on the enabled sources
         let timeout = config.request_timeout;
-        let fetchers: Vec<Box<dyn WalPriceFetcher>> = vec![
-            Box::new(CoinGeckoPriceFetcher::new(metrics.clone(), timeout)),
-            Box::new(CoinbasePriceFetcher::new(metrics.clone(), timeout)),
-            Box::new(BinancePriceFetcher::new(metrics.clone(), timeout)),
-            Box::new(PythHermesPriceFetcher::new(metrics.clone(), timeout)),
-        ];
+        let mut fetchers: Vec<Box<dyn WalPriceFetcher>> = Vec::new();
+        if config.enable_coingecko {
+            fetchers.push(Box::new(CoinGeckoPriceFetcher::new(
+                metrics.clone(),
+                timeout,
+            )));
+        }
+        if config.enable_coinbase {
+            fetchers.push(Box::new(CoinbasePriceFetcher::new(
+                metrics.clone(),
+                timeout,
+            )));
+        }
+        if config.enable_binance {
+            fetchers.push(Box::new(BinancePriceFetcher::new(metrics.clone(), timeout)));
+        }
+        if config.enable_pyth_hermes {
+            fetchers.push(Box::new(PythHermesPriceFetcher::new(
+                metrics.clone(),
+                timeout,
+            )));
+        }
 
         tracing::info!(
             "WAL price monitor started with {} fetcher(s) and check interval: {:?}",
@@ -352,23 +399,31 @@ impl WalPriceMonitor {
             config.check_interval
         );
 
+        if fetchers.is_empty() {
+            tracing::warn!("all WAL price sources are disabled; no price will ever be fetched");
+        }
+        let has_fetchers = !fetchers.is_empty();
+
         let task_handle =
             Self::spawn_monitoring_task(config, current_price.clone(), fetchers, metrics.clone());
 
-        // Wait for the first price fetch to complete.
-        let price_ref = current_price.clone();
-        let wait_result = tokio::time::timeout(WAL_MONITOR_INITIAL_WAIT, async {
-            loop {
-                if price_ref.read().await.is_some() {
-                    return;
+        // Wait for the first price fetch to complete. With no fetchers, the price can never be
+        // set, so skip the wait entirely.
+        if has_fetchers {
+            let price_ref = current_price.clone();
+            let wait_result = tokio::time::timeout(WAL_MONITOR_INITIAL_WAIT, async {
+                loop {
+                    if price_ref.read().await.is_some() {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
                 }
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        })
-        .await;
+            })
+            .await;
 
-        if wait_result.is_err() {
-            tracing::warn!("timed out waiting for initial WAL price fetch");
+            if wait_result.is_err() {
+                tracing::warn!("timed out waiting for initial WAL price fetch");
+            }
         }
 
         Self {
@@ -537,11 +592,36 @@ mod tests {
         "coingecko"
     );
     test_fetch_from_source!(test_fetch_from_coinbase, CoinbasePriceFetcher, "coinbase");
-    test_fetch_from_source!(
-        test_fetch_from_pyth_hermes,
-        PythHermesPriceFetcher,
-        "pyth_hermes"
-    );
+    // Skip testing for Pyth Hermes because the price feed is disabled by default.
+    // Re-enable this test if the Pyth Hermes price feed is enabled again.
+    // test_fetch_from_source!(
+    //     test_fetch_from_pyth_hermes,
+    //     PythHermesPriceFetcher,
+    //     "pyth_hermes"
+    // );
+
+    #[test]
+    fn test_any_source_enabled() {
+        assert!(WalPriceMonitorConfig::default().any_source_enabled());
+
+        let all_disabled = WalPriceMonitorConfig {
+            enable_coingecko: false,
+            enable_coinbase: false,
+            enable_binance: false,
+            enable_pyth_hermes: false,
+            ..Default::default()
+        };
+        assert!(!all_disabled.any_source_enabled());
+
+        let only_pyth_hermes = WalPriceMonitorConfig {
+            enable_coingecko: false,
+            enable_coinbase: false,
+            enable_binance: false,
+            enable_pyth_hermes: true,
+            ..Default::default()
+        };
+        assert!(only_pyth_hermes.any_source_enabled());
+    }
 
     #[test]
     fn test_calculate_median() {
