@@ -151,8 +151,15 @@ the [initial setup](/docs/operator-guide/storage-nodes/storage-node-setup).
 The `walrus-node register` command records the capability object ID in the node configuration
 file. Look up the `storage_node_cap` field in `/opt/walrus/config/walrus-node.yaml`.
 
-If the field is not set, look up the old wallet address on [Suiscan](https://suiscan.xyz) and
-find the object of type `storage_node::StorageNodeCap` that it owns.
+If the field is not set, list the objects owned by the old node wallet and find the object of
+type `storage_node::StorageNodeCap`:
+
+```sh
+sui client --client.config /opt/walrus/config/sui_config.yaml objects \
+    | grep -B 3 StorageNodeCap
+```
+
+The `objectId` in the output is the capability object ID.
 
 ##### Step 3: Stop the node
 
