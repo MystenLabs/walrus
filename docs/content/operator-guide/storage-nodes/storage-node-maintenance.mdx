@@ -216,7 +216,8 @@ Verify the migration:
 - The health endpoint reports `"nodeStatus": "Active"`.
 - The `walrus_sui_balance_mist` metric reports the balance of the new wallet.
 - The logs show no authorization errors for transactions such as epoch sync confirmations.
-- On [Suiscan](https://suiscan.xyz), the capability object is owned by the new wallet address.
+- The capability object is owned by the new wallet address. The `AddressOwner` field in the
+  output of `sui client object $CAP_OBJECT_ID` must show the new wallet address.
 
 ##### Step 7: Update related authorizations
 
@@ -224,9 +225,16 @@ The commission receiver and the entity authorized for governance are configured 
 of the capability. If you never changed them, the commission receiver defaults to the wallet
 address that registered the node, which is the old wallet.
 
-Check the `Commission receiver` and `Governance authorized` fields of your node's
-`StakingPool` object on [Suiscan](https://suiscan.xyz). If either points to the old wallet
-address, update it from the old wallet while you still control it, as described in
+Check the `commission_receiver` and `governance_authorized` fields of your node's
+`StakingPool` object. The object ID of the staking pool is your node ID:
+
+```sh
+NODE_ID=  # your node ID
+sui client object $NODE_ID | grep -A 3 "commission_receiver\|governance_authorized"
+```
+
+Each field shows either an `Address` or an `ObjectID` variant. If either field points to the
+old wallet address, update it from the old wallet while you still control it, as described in
 [Commission and Governance](/docs/operator-guide/storage-nodes/commission-governance).
 
 :::caution
