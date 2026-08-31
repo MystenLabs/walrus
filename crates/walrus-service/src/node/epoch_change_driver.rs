@@ -768,17 +768,7 @@ impl EpochOperation for SubsidiesOperation {
         }
 
         tracing::info!("initiating subsidy distribution");
-        // Move transaction execution to a separate task so that it cannot be cancelled when
-        // invoke() is cancelled. Otherwise, cancelling inflight transaction may cause object
-        // conflicts.
-        tokio::spawn({
-            let contract = contract.clone();
-            async move { contract.process_subsidies().await }
-        })
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!("call to initiate subsidy distribution panicked: {:?}", e)
-        })??;
+        call_process_subsidies(contract).await?;
         tracing::debug!("successfully initiated subsidy distribution");
         Ok(())
     }
@@ -830,23 +820,25 @@ impl EpochOperation for PostEpochChangeSubsidiesOperation {
         }
 
         tracing::info!(epoch_to_be_paid, "processing subsidies after epoch change");
-        // Move transaction execution to a separate task so that it cannot be cancelled when
-        // invoke() is cancelled. Otherwise, cancelling inflight transaction may cause object
-        // conflicts.
-        tokio::spawn({
-            let contract = contract.clone();
-            async move { contract.process_subsidies().await }
-        })
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!(
-                "call to process subsidies after epoch change panicked: {:?}",
-                e
-            )
-        })??;
+        call_process_subsidies(contract).await?;
         tracing::debug!("successfully processed subsidies after epoch change");
         Ok(())
     }
+}
+
+/// Calls `process_subsidies` on the contract.
+///
+/// Whether a failure is retried is decided by the contract service: it recognises the abort raised
+/// when the subsidy pool cannot fund a payout and, on networks where that is expected, reports
+/// success so that this call is only attempted again when it is scheduled anew (WAL-1328).
+async fn call_process_subsidies(
+    contract: Arc<dyn SystemContractService>,
+) -> Result<(), anyhow::Error> {
+    // Move transaction execution to a separate task so that it cannot be cancelled when invoke()
+    // is cancelled. Otherwise, cancelling inflight transaction may cause object conflicts.
+    tokio::spawn(async move { contract.process_subsidies().await })
+        .await
+        .map_err(|e| anyhow::anyhow!("call to process subsidies panicked: {:?}", e))?
 }
 
 /// Return a random duration uniformly sampled from the interval `[0..max)`.
@@ -1355,6 +1347,38 @@ mod tests {
             drop(driver);
 
             Ok(())
+        }
+
+        /// A failing call is retried until it succeeds.
+        #[tokio::test(start_paused = true)]
+        async fn retries_failing_process_subsidies() -> TestResult {
+            let mut service = failing_subsidies_service();
+            service
+                .expect_process_subsidies()
+                .times(2..)
+                .returning(|| Err(anyhow::anyhow!("transient rpc failure")));
+
+            let driver = driver_under_test(service, /*seed=*/ 14, UtcInstant::now());
+            driver.schedule_post_epoch_change_subsidies();
+
+            let _ = tokio::time::timeout(MAX_BACKOFF * 10, driver.run()).await;
+            drop(driver);
+
+            Ok(())
+        }
+
+        /// A contract service whose `process_subsidies` expectation is set by the caller.
+        fn failing_subsidies_service() -> MockSystemContractService {
+            let mut service = MockSystemContractService::new();
+            service
+                .expect_is_subsidies_object_configured()
+                .returning(|| true);
+            service
+                .expect_get_epoch_and_state()
+                .returning(|| Ok((2, EpochState::EpochChangeSync(0))));
+            service.expect_current_epoch().returning(|| 2);
+            service.expect_latest_subsidized_epoch().returning(|| Ok(0));
+            service
         }
     }
 }
