@@ -28,7 +28,7 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/walrus/pr-preview/pr-3738/assets/css/styles.d934de45.css">
-<script src="/walrus/pr-preview/pr-3738/assets/js/runtime~main.5bf387b7.js" defer="defer"></script>
+<script src="/walrus/pr-preview/pr-3738/assets/js/runtime~main.166586e1.js" defer="defer"></script>
 <script src="/walrus/pr-preview/pr-3738/assets/js/main.03426357.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -94,23 +94,23 @@ for example to rotate a hot wallet that you suspect is compromised.</p>
 pool (identified by the node ID) and with the stakers&#x27; <code>StakedWal</code> objects, not with the node
 wallet. The node ID, the capability object ID, the protocol and network keys, and the<!-- --> <!-- -->shard<!-- -->
 assignments all remain unchanged by the migration.</p>
-<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-1-prepare-the-new-wallet">Step 1: Prepare the new wallet.<a href="#step-1-prepare-the-new-wallet" class="hash-link" aria-label="Direct link to Step 1: Prepare the new wallet." title="Direct link to Step 1: Prepare the new wallet." translate="no">​</a></h5>
+<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-1-prepare-the-new-wallet">Step 1: Prepare the new wallet<a href="#step-1-prepare-the-new-wallet" class="hash-link" aria-label="Direct link to Step 1: Prepare the new wallet" title="Direct link to Step 1: Prepare the new wallet" translate="no">​</a></h5>
 <p>Create a new Sui wallet (for example, with <code>sui client new-address ed25519</code>) and fund it with
 SUI for gas. A recommended initial balance is approximately 20 SUI, matching the guidance for
 the <a class="" href="/walrus/pr-preview/pr-3738/docs/operator-guide/storage-nodes/storage-node-setup">initial setup</a>.</p>
-<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-2-find-the-capability-object-id">Step 2: Find the capability object ID.<a href="#step-2-find-the-capability-object-id" class="hash-link" aria-label="Direct link to Step 2: Find the capability object ID." title="Direct link to Step 2: Find the capability object ID." translate="no">​</a></h5>
+<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-2-find-the-capability-object-id">Step 2: Find the capability object ID<a href="#step-2-find-the-capability-object-id" class="hash-link" aria-label="Direct link to Step 2: Find the capability object ID" title="Direct link to Step 2: Find the capability object ID" translate="no">​</a></h5>
 <p>The <code>walrus-node register</code> command records the capability object ID in the node configuration
 file. Look up the <code>storage_node_cap</code> field in <code>/opt/walrus/config/walrus-node.yaml</code>.</p>
 <p>If the field is not set, look up the old wallet address on <a href="https://suiscan.xyz" target="_blank" rel="noopener noreferrer" class="">Suiscan</a> and
 find the object of type <code>storage_node::StorageNodeCap</code> that it owns.</p>
-<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-3-stop-the-node">Step 3: Stop the node.<a href="#step-3-stop-the-node" class="hash-link" aria-label="Direct link to Step 3: Stop the node." title="Direct link to Step 3: Stop the node." translate="no">​</a></h5>
+<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-3-stop-the-node">Step 3: Stop the node<a href="#step-3-stop-the-node" class="hash-link" aria-label="Direct link to Step 3: Stop the node" title="Direct link to Step 3: Stop the node" translate="no">​</a></h5>
 <div><div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_p187"><span class="token-line" style="color:#F8F8F2"><span class="token plain">sudo systemctl stop walrus-node.service</span><br></span></code></pre></div></div></div>
 <div class="theme-admonition theme-admonition-caution admonition_HW0P alert alert--warning"><div class="admonitionHeading_UjXT"><span class="admonitionIcon_o5F7"><svg viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8.893 1.5c-.183-.31-.52-.5-.887-.5s-.703.19-.886.5L.138 13.499a.98.98 0 0 0 0 1.001c.193.31.53.501.886.501h13.964c.367 0 .704-.19.877-.5a1.03 1.03 0 0 0 .01-1.002L8.893 1.5zm.133 11.497H6.987v-2.003h2.039v2.003zm0-3.004H6.987V5.987h2.039v4.006z"></path></svg></span>caution</div><div class="admonitionContent_o_Rk"><p>Stop the node before transferring the capability. If the node is running during the transfer,
 its transactions that use the capability fail, because the wallet no longer owns the object.</p></div></div>
-<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-4-transfer-the-capability-to-the-new-wallet">Step 4: Transfer the capability to the new wallet.<a href="#step-4-transfer-the-capability-to-the-new-wallet" class="hash-link" aria-label="Direct link to Step 4: Transfer the capability to the new wallet." title="Direct link to Step 4: Transfer the capability to the new wallet." translate="no">​</a></h5>
+<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-4-transfer-the-capability-to-the-new-wallet">Step 4: Transfer the capability to the new wallet<a href="#step-4-transfer-the-capability-to-the-new-wallet" class="hash-link" aria-label="Direct link to Step 4: Transfer the capability to the new wallet" title="Direct link to Step 4: Transfer the capability to the new wallet" translate="no">​</a></h5>
 <p>Using the old node wallet, transfer the capability object:</p>
 <div><div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_p187"><span class="token-line" style="color:#F8F8F2"><span class="token plain">NEW_ADDRESS=    # address of the new wallet</span><br></span><span class="token-line" style="color:#F8F8F2"><span class="token plain">CAP_OBJECT_ID=  # value of storage_node_cap in walrus-node.yaml</span><br></span><span class="token-line" style="color:#F8F8F2"><span class="token plain">sui client transfer --to $NEW_ADDRESS --object-id $CAP_OBJECT_ID</span><br></span></code></pre></div></div></div>
-<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-5-switch-the-node-to-the-new-wallet">Step 5: Switch the node to the new wallet.<a href="#step-5-switch-the-node-to-the-new-wallet" class="hash-link" aria-label="Direct link to Step 5: Switch the node to the new wallet." title="Direct link to Step 5: Switch the node to the new wallet." translate="no">​</a></h5>
+<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-5-switch-the-node-to-the-new-wallet">Step 5: Switch the node to the new wallet<a href="#step-5-switch-the-node-to-the-new-wallet" class="hash-link" aria-label="Direct link to Step 5: Switch the node to the new wallet" title="Direct link to Step 5: Switch the node to the new wallet" translate="no">​</a></h5>
 <p>Replace the wallet used by the node with the new wallet. With the standard setup, the wallet
 configuration is at <code>/opt/walrus/config/sui_config.yaml</code> with the private key in
 <code>/opt/walrus/config/sui.keystore</code>; replace both with the new wallet&#x27;s files and adjust any
@@ -119,7 +119,7 @@ absolute paths inside <code>sui_config.yaml</code>. Alternatively, point the <co
 <p>Leave the <code>storage_node_cap</code> field unchanged: the capability keeps its object ID across the
 transfer. If the field is unset, the node discovers the capability owned by its wallet at
 startup.</p>
-<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-6-start-the-node-and-verify">Step 6: Start the node and verify.<a href="#step-6-start-the-node-and-verify" class="hash-link" aria-label="Direct link to Step 6: Start the node and verify." title="Direct link to Step 6: Start the node and verify." translate="no">​</a></h5>
+<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-6-start-the-node-and-verify">Step 6: Start the node and verify<a href="#step-6-start-the-node-and-verify" class="hash-link" aria-label="Direct link to Step 6: Start the node and verify" title="Direct link to Step 6: Start the node and verify" translate="no">​</a></h5>
 <div><div class="language-sh codeBlockContainer_gyLn theme-code-block" style="--prism-color:#F8F8F2;--prism-background-color:#282A36"><div class="codeBlockContent_g1Oz"><pre tabindex="0" class="prism-code language-sh !pt-[14px] codeBlock_qGQc thin-scrollbar" style="color:#F8F8F2;background-color:#282A36"><code class="codeBlockLines_p187"><span class="token-line" style="color:#F8F8F2"><span class="token plain">sudo systemctl start walrus-node.service</span><br></span></code></pre></div></div></div>
 <p>Verify the migration:</p>
 <ul>
@@ -128,7 +128,7 @@ startup.</p>
 <li class="">The logs show no authorization errors for transactions such as epoch sync confirmations.</li>
 <li class="">On <a href="https://suiscan.xyz" target="_blank" rel="noopener noreferrer" class="">Suiscan</a>, the capability object is owned by the new wallet address.</li>
 </ul>
-<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-7-update-related-authorizations">Step 7: Update related authorizations.<a href="#step-7-update-related-authorizations" class="hash-link" aria-label="Direct link to Step 7: Update related authorizations." title="Direct link to Step 7: Update related authorizations." translate="no">​</a></h5>
+<h5 class="anchor anchorTargetStickyNavbar_kP7e" id="step-7-update-related-authorizations">Step 7: Update related authorizations<a href="#step-7-update-related-authorizations" class="hash-link" aria-label="Direct link to Step 7: Update related authorizations" title="Direct link to Step 7: Update related authorizations" translate="no">​</a></h5>
 <p>The commission receiver and the entity authorized for governance are configured independently
 of the capability. If you never changed them, the commission receiver defaults to the wallet
 address that registered the node, which is the old wallet.</p>

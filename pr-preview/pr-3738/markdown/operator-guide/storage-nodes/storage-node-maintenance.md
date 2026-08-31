@@ -94,13 +94,13 @@ pool (identified by the node ID) and with the stakers' `StakedWal` objects, not 
 wallet. The node ID, the capability object ID, the protocol and network keys, and the shard
 assignments all remain unchanged by the migration.
 
-##### Step 1: Prepare the new wallet.
+##### Step 1: Prepare the new wallet
 
 Create a new Sui wallet (for example, with `sui client new-address ed25519`) and fund it with
 SUI for gas. A recommended initial balance is approximately 20 SUI, matching the guidance for
 the [initial setup](/docs/operator-guide/storage-nodes/storage-node-setup).
 
-##### Step 2: Find the capability object ID.
+##### Step 2: Find the capability object ID
 
 The `walrus-node register` command records the capability object ID in the node configuration
 file. Look up the `storage_node_cap` field in `/opt/walrus/config/walrus-node.yaml`.
@@ -108,7 +108,7 @@ file. Look up the `storage_node_cap` field in `/opt/walrus/config/walrus-node.ya
 If the field is not set, look up the old wallet address on [Suiscan](https://suiscan.xyz) and
 find the object of type `storage_node::StorageNodeCap` that it owns.
 
-##### Step 3: Stop the node.
+##### Step 3: Stop the node
 
 ```sh
 sudo systemctl stop walrus-node.service
@@ -118,7 +118,7 @@ sudo systemctl stop walrus-node.service
 >
 > Stop the node before transferring the capability. If the node is running during the transfer,
 > its transactions that use the capability fail, because the wallet no longer owns the object.
-##### Step 4: Transfer the capability to the new wallet.
+##### Step 4: Transfer the capability to the new wallet
 
 Using the old node wallet, transfer the capability object:
 
@@ -128,7 +128,7 @@ CAP_OBJECT_ID=  # value of storage_node_cap in walrus-node.yaml
 sui client transfer --to $NEW_ADDRESS --object-id $CAP_OBJECT_ID
 ```
 
-##### Step 5: Switch the node to the new wallet.
+##### Step 5: Switch the node to the new wallet
 
 Replace the wallet used by the node with the new wallet. With the standard setup, the wallet
 configuration is at `/opt/walrus/config/sui_config.yaml` with the private key in
@@ -140,7 +140,7 @@ Leave the `storage_node_cap` field unchanged: the capability keeps its object ID
 transfer. If the field is unset, the node discovers the capability owned by its wallet at
 startup.
 
-##### Step 6: Start the node and verify.
+##### Step 6: Start the node and verify
 
 ```sh
 sudo systemctl start walrus-node.service
@@ -153,7 +153,7 @@ Verify the migration:
 - The logs show no authorization errors for transactions such as epoch sync confirmations.
 - On [Suiscan](https://suiscan.xyz), the capability object is owned by the new wallet address.
 
-##### Step 7: Update related authorizations.
+##### Step 7: Update related authorizations
 
 The commission receiver and the entity authorized for governance are configured independently
 of the capability. If you never changed them, the commission receiver defaults to the wallet
