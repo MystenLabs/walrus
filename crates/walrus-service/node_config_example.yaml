@@ -262,6 +262,7 @@ wal_price_monitor:
   enable_coinbase: true
   enable_binance: true
   enable_pyth_hermes: false
+  enable_coinmarketcap: true
   check_interval_secs: 600
   request_timeout_secs: 60
 epoch_state_consistency:

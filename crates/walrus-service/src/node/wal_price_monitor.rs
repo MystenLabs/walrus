@@ -31,6 +31,10 @@ const PYTH_HERMES_API_URL: &str = concat!(
     "eba0732395fae9dec4bae12e52760b35fc1c5671e2da8b449c9af4efe5d54341"
 );
 
+/// CoinMarketCap API URL for fetching WAL price
+const COINMARKETCAP_API_URL: &str =
+    "https://pro-api.coinmarketcap.com/public-api/v2/simple/price?id=36119&convert=USD";
+
 /// Trait for fetching WAL token prices from different data sources
 trait WalPriceFetcher: Send + Sync {
     /// Returns the name of the price source
@@ -255,6 +259,62 @@ impl WalPriceFetcher for PythHermesPriceFetcher {
     }
 }
 
+/// Helper struct for fetching prices from CoinMarketCap with metrics
+#[derive(Clone)]
+struct CoinMarketCapPriceFetcher {
+    metrics: Arc<NodeMetricSet>,
+    timeout: Duration,
+}
+
+impl CoinMarketCapPriceFetcher {
+    fn new(metrics: Arc<NodeMetricSet>, timeout: Duration) -> Self {
+        Self { metrics, timeout }
+    }
+}
+
+impl WalPriceFetcher for CoinMarketCapPriceFetcher {
+    fn source(&self) -> &str {
+        "coinmarketcap"
+    }
+
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
+        Box::pin(async move {
+            let client = reqwest::Client::builder().timeout(self.timeout).build()?;
+            let response = client
+                .get(COINMARKETCAP_API_URL)
+                .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
+                .send()
+                .await?;
+
+            let json_response: serde_json::Value = response.json().await?;
+
+            let price = json_response
+                .get("data")
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|entry| entry.get("quotes"))
+                .and_then(|v| v.as_array())
+                .and_then(|arr| arr.first())
+                .and_then(|quote| quote.get("price"))
+                .and_then(|v| v.as_f64())
+                .ok_or(anyhow::anyhow!(
+                    "Failed to parse price from CoinMarketCap response: {}",
+                    json_response
+                ))?;
+
+            tracing::debug!("Fetched WAL price from {}: ${:.6}", self.source(), price);
+
+            // Update metrics
+            self.metrics
+                .current_monitored_wal_price
+                .with_label_values(&[self.source()])
+                .set(price);
+
+            Ok(price)
+        })
+    }
+}
+
 /// Configuration for the WAL price monitor
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -276,6 +336,9 @@ pub struct WalPriceMonitorConfig {
     /// Enable Pyth Hermes as an additional WAL price source. Disabled by default.
     #[serde(default)]
     pub enable_pyth_hermes: bool,
+    /// Enable CoinMarketCap as a WAL price source. Enabled by default.
+    #[serde(default = "default_true")]
+    pub enable_coinmarketcap: bool,
     /// How often to check the WAL price
     #[serde_as(as = "DurationSeconds<u64>")]
     #[serde(rename = "check_interval_secs")]
@@ -293,6 +356,7 @@ impl WalPriceMonitorConfig {
             || self.enable_coinbase
             || self.enable_binance
             || self.enable_pyth_hermes
+            || self.enable_coinmarketcap
     }
 }
 
@@ -304,6 +368,7 @@ impl Default for WalPriceMonitorConfig {
             enable_coinbase: true,
             enable_binance: true,
             enable_pyth_hermes: false,
+            enable_coinmarketcap: true,
             check_interval: Duration::from_secs(600), // Default: check every 10 minutes
             request_timeout: Duration::from_secs(60),
         }
@@ -388,6 +453,12 @@ impl WalPriceMonitor {
         }
         if config.enable_pyth_hermes {
             fetchers.push(Box::new(PythHermesPriceFetcher::new(
+                metrics.clone(),
+                timeout,
+            )));
+        }
+        if config.enable_coinmarketcap {
+            fetchers.push(Box::new(CoinMarketCapPriceFetcher::new(
                 metrics.clone(),
                 timeout,
             )));
@@ -599,6 +670,11 @@ mod tests {
     //     PythHermesPriceFetcher,
     //     "pyth_hermes"
     // );
+    test_fetch_from_source!(
+        test_fetch_from_coinmarketcap,
+        CoinMarketCapPriceFetcher,
+        "coinmarketcap"
+    );
 
     #[test]
     fn test_any_source_enabled() {
@@ -609,6 +685,7 @@ mod tests {
             enable_coinbase: false,
             enable_binance: false,
             enable_pyth_hermes: false,
+            enable_coinmarketcap: false,
             ..Default::default()
         };
         assert!(!all_disabled.any_source_enabled());
@@ -618,9 +695,20 @@ mod tests {
             enable_coinbase: false,
             enable_binance: false,
             enable_pyth_hermes: true,
+            enable_coinmarketcap: false,
             ..Default::default()
         };
         assert!(only_pyth_hermes.any_source_enabled());
+
+        let only_coinmarketcap = WalPriceMonitorConfig {
+            enable_coingecko: false,
+            enable_coinbase: false,
+            enable_binance: false,
+            enable_pyth_hermes: false,
+            enable_coinmarketcap: true,
+            ..Default::default()
+        };
+        assert!(only_coinmarketcap.any_source_enabled());
     }
 
     #[test]
