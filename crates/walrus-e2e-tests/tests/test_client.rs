@@ -4774,9 +4774,28 @@ async fn storage_node_cap_transfer_to_new_wallet() -> TestResult {
     // which the candidate node's pool receives a share at the next epoch change. The blobs
     // must stay below the maximum blob size of the six-shard cluster (~1.3 MB), while paying
     // for enough storage units for the candidate's commission to be non-zero.
-    basic_store_and_read(&client, 3, 1_000_000, None, || Ok(()))
-        .await
-        .expect("store and read must work with the candidate node in the committee");
+    // Retry across epoch changes. Slivers accepted into a node's pending cache for a shard it
+    // still owned are rejected when that cache is flushed after the shard has moved to the
+    // candidate node, which fails the whole confirmation for that node. The six-shard
+    // committee has exactly one shard of slack, so losing one node costs the write its quorum.
+    // Remove this retry once the node confirms the shards it still owns; see issue #3742.
+    let mut stored_and_read = false;
+    for _ in 0..10 {
+        match basic_store_and_read(&client, 3, 1_000_000, None, || Ok(())).await {
+            Ok(()) => {
+                stored_and_read = true;
+                break;
+            }
+            Err(error) => {
+                tracing::info!(%error, "retrying store and read after an error");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        }
+    }
+    assert!(
+        stored_and_read,
+        "store and read must work with the candidate node in the committee"
+    );
 
     // Reward collection works from wallet B through the capability. The commission becomes
     // non-zero only once an epoch change has distributed the rewards, so poll across epoch
