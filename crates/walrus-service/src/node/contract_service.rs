@@ -32,7 +32,7 @@ use walrus_sui::{
     types::{
         StorageNodeCap,
         UpdatePublicKeyParams,
-        move_errors::{MoveExecutionError, StakingInnerError},
+        move_errors::{MoveExecutionError, StakingInnerError, WalrusSubsidiesInnerError},
         move_structs::{EpochState, EventBlob},
     },
 };
@@ -45,6 +45,7 @@ use super::{
     committee::CommitteeService,
     config::{CommissionRateData, StorageNodeConfig, SyncedNodeConfigSet, defaults},
     errors::SyncNodeConfigError,
+    network_overrides::{NetworkKind, network_kind_for_contracts},
 };
 use crate::common::config::SuiConfig;
 
@@ -288,6 +289,17 @@ impl SuiSystemContractService {
     /// `SuiSystemContractService`.
     pub fn builder() -> SuiSystemContractServiceBuilder {
         Default::default()
+    }
+
+    /// Returns true if an abort on an empty subsidy pool should be ignored rather than retried.
+    ///
+    /// The network is derived from the contract objects this node is configured against, so no
+    /// caller has to know or pass it down.
+    fn tolerates_empty_subsidy_pool(&self) -> bool {
+        network_kind_for_contracts(
+            self.read_client.system_object_id(),
+            self.read_client.staking_object_id(),
+        ) == NetworkKind::Testnet
     }
 
     /// Fetches the synced node config set from the contract.
@@ -598,12 +610,25 @@ impl SystemContractService for SuiSystemContractService {
     }
 
     async fn process_subsidies(&self) -> anyhow::Result<()> {
-        self.contract_tx_client
+        let result = self
+            .contract_tx_client
             .lock()
             .await
             .process_subsidies()
-            .await?;
-        Ok(())
+            .await;
+
+        match result {
+            Err(error)
+                if is_empty_subsidy_pool_abort(&error) && self.tolerates_empty_subsidy_pool() =>
+            {
+                tracing::warn!(
+                    %error,
+                    "the subsidy pool cannot fund the payout, not retrying process subsidies"
+                );
+                Ok(())
+            }
+            result => Ok(result?),
+        }
     }
 
     async fn certify_event_blob(
@@ -753,6 +778,23 @@ fn calculate_protocol_key_action(
     }
 }
 
+/// Returns true if `error` is the abort raised when the subsidy pool cannot fund a payout.
+///
+/// The testnet subsidy pool has been empty since 2025-12-24, so `process_subsidies` aborts with
+/// `EInsufficientFundsInPool`. The abort reverts `last_subsidized_ts`, which is what the
+/// client-side deduplication reads, so the call is retried every few minutes forever and burns gas
+/// on a transaction that cannot succeed until the pool is refilled. That drained operator wallets
+/// to the point where nodes could no longer pay for epoch change (WAL-1328). Both asserts in
+/// `walrus_subsidies_inner` raise this same error.
+fn is_empty_subsidy_pool_abort(error: &SuiClientError) -> bool {
+    matches!(
+        error,
+        SuiClientError::TransactionExecutionError(MoveExecutionError::WalrusSubsidiesInner(
+            WalrusSubsidiesInnerError::EInsufficientFundsInPool(_)
+        ))
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use walrus_core::keys::ProtocolKeyPair;
@@ -856,6 +898,39 @@ mod tests {
                 result,
                 Ok(ProtocolKeyAction::UpdateRemoteNextPublicKey(k)) if k == key3
             ));
+        }
+    }
+
+    mod empty_subsidy_pool_abort {
+        use super::*;
+
+        /// The abort that `process_fixed_rate_subsidies` raises when the pool cannot fund a
+        /// payout, as observed in production, for example in transaction
+        /// 943gE8Utp44ntEqSpuYdZ4UYLHg8xaMSJofFWKFDm7T2.
+        #[test]
+        fn recognizes_the_production_abort() {
+            let error = SuiClientError::TransactionExecutionError(MoveExecutionError::from(
+                "MoveAbort(MoveLocation { module: ModuleId { address: \
+                bf0eb79ce75d6cf6c18b6d480b85726aab06a2639569e54ddf1e25d89b549239, name: \
+                Identifier(\"walrus_subsidies_inner\") }, function: 12, instruction: 21, \
+                function_name: Some(\"process_fixed_rate_subsidies\") }, 1) in command 0",
+            ));
+
+            assert!(is_empty_subsidy_pool_abort(&error));
+        }
+
+        #[test]
+        fn ignores_other_errors() {
+            let transient = SuiClientError::Internal(anyhow::anyhow!("transient rpc failure"));
+            assert!(!is_empty_subsidy_pool_abort(&transient));
+
+            let other_abort = SuiClientError::TransactionExecutionError(MoveExecutionError::from(
+                "MoveAbort(MoveLocation { module: ModuleId { address: \
+                bf0eb79ce75d6cf6c18b6d480b85726aab06a2639569e54ddf1e25d89b549239, name: \
+                Identifier(\"walrus_subsidies_inner\") }, function: 12, instruction: 21, \
+                function_name: Some(\"set_subsidy_rate\") }, 0) in command 0",
+            ));
+            assert!(!is_empty_subsidy_pool_abort(&other_abort));
         }
     }
 }

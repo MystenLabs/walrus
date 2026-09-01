@@ -40,6 +40,18 @@ pub(crate) fn detect_network_kind(config_value: &Value) -> NetworkKind {
     let Some(config_ids) = extract_contract_ids(config_value) else {
         return default_network_kind();
     };
+    network_kind_for_contracts(config_ids.system_object, config_ids.staking_object)
+}
+
+/// Detects the network kind from the system and staking object IDs the node is configured with.
+pub(crate) fn network_kind_for_contracts(
+    system_object: ObjectID,
+    staking_object: ObjectID,
+) -> NetworkKind {
+    let config_ids = ContractIds {
+        system_object,
+        staking_object,
+    };
     let known = known_network_ids();
     if known.mainnet.as_ref() == Some(&config_ids) {
         return NetworkKind::Mainnet;
