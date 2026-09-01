@@ -244,7 +244,7 @@ jobs:
 
       - name: Setup sccache
         if: ${{ !startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
-        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # pin@v0.0.10
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # pin@v0.0.11
 
       - name: Cargo build for ${{ matrix.os }} platform
         if: ${{ !startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
