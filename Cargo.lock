@@ -10591,7 +10591,7 @@ dependencies = [
  "sui-macros",
  "sui-network",
  "sui-protocol-config",
- "sui-rpc 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-rpc",
  "sui-rpc-store",
  "sui-simulator",
  "sui-storage",
@@ -10636,7 +10636,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signature 2.2.0",
- "sui-sdk-types 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-sdk-types",
 ]
 
 [[package]]
@@ -10857,7 +10857,7 @@ dependencies = [
  "sui-http",
  "sui-indexer-alt-framework-store-traits",
  "sui-indexer-alt-metrics",
- "sui-rpc 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-rpc",
  "sui-types",
  "tempfile",
  "thiserror 1.0.69",
@@ -11275,7 +11275,7 @@ dependencies = [
  "sui-http",
  "sui-macros",
  "sui-protocol-config",
- "sui-rpc 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-rpc",
  "sui-simulator",
  "sui-storage",
  "sui-swarm-config",
@@ -11503,30 +11503,6 @@ dependencies = [
 [[package]]
 name = "sui-rpc"
 version = "0.3.2"
-source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=5781b718f2dbe43c8ce3de6f84fbd82c90f52aa8#5781b718f2dbe43c8ce3de6f84fbd82c90f52aa8"
-dependencies = [
- "base64 0.22.1",
- "bcs",
- "bytes",
- "futures",
- "http 1.5.0",
- "http-body 1.1.0",
- "hyper",
- "prost 0.14.4",
- "prost-types 0.14.1",
- "serde",
- "serde_json",
- "sui-sdk-types 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=5781b718f2dbe43c8ce3de6f84fbd82c90f52aa8)",
- "tap",
- "tokio",
- "tonic 0.14.6",
- "tonic-prost",
- "tower 0.5.3",
-]
-
-[[package]]
-name = "sui-rpc"
-version = "0.3.2"
 source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019#d71f9d6f788afc6b30baef85a342e0e7867c0019"
 dependencies = [
  "base64 0.22.1",
@@ -11541,7 +11517,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sui-crypto",
- "sui-sdk-types 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-sdk-types",
  "tap",
  "tokio",
  "tonic 0.14.6",
@@ -11584,9 +11560,9 @@ dependencies = [
  "sui-name-service",
  "sui-package-resolver",
  "sui-protocol-config",
- "sui-rpc 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-rpc",
  "sui-rpc-cursor",
- "sui-sdk-types 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-sdk-types",
  "sui-transaction-builder",
  "sui-transaction-checks",
  "sui-types",
@@ -11667,35 +11643,14 @@ dependencies = [
  "sui-json-rpc-api",
  "sui-json-rpc-types",
  "sui-keys",
- "sui-rpc 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-rpc",
  "sui-rpc-api",
- "sui-sdk-types 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-sdk-types",
  "sui-transaction-builder",
  "sui-types",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "sui-sdk-types"
-version = "0.3.2"
-source = "git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=5781b718f2dbe43c8ce3de6f84fbd82c90f52aa8#5781b718f2dbe43c8ce3de6f84fbd82c90f52aa8"
-dependencies = [
- "base64ct",
- "bcs",
- "blake2",
- "bnum",
- "bs58 0.5.1",
- "bytes",
- "bytestring",
- "itertools 0.14.0",
- "roaring",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_with",
- "winnow",
 ]
 
 [[package]]
@@ -11824,7 +11779,7 @@ dependencies = [
  "sui-config",
  "sui-json-rpc-types",
  "sui-protocol-config",
- "sui-rpc 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-rpc",
  "sui-types",
  "tap",
  "telemetry-subscribers",
@@ -12033,8 +11988,8 @@ dependencies = [
  "sui-enum-compat-util",
  "sui-macros",
  "sui-protocol-config",
- "sui-rpc 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
- "sui-sdk-types 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=d71f9d6f788afc6b30baef85a342e0e7867c0019)",
+ "sui-rpc",
+ "sui-sdk-types",
  "tap",
  "thiserror 1.0.69",
  "tonic 0.14.6",
@@ -14052,10 +14007,10 @@ dependencies = [
  "sui-move-build",
  "sui-package-alt",
  "sui-package-management",
- "sui-rpc 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=5781b718f2dbe43c8ce3de6f84fbd82c90f52aa8)",
+ "sui-rpc",
  "sui-rpc-api",
  "sui-sdk",
- "sui-sdk-types 0.3.2 (git+https://github.com/MystenLabs/sui-rust-sdk.git?rev=5781b718f2dbe43c8ce3de6f84fbd82c90f52aa8)",
+ "sui-sdk-types",
  "sui-simulator",
  "sui-storage",
  "sui-types",
