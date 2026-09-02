@@ -1,5 +1,15 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+### Walrus v1.55.2
+
+`Mainnet` | September 2, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.55.2)
+
+#### Changes
+
+- [Adds a `node_recovery_baseline_invalidations_total` metric counting sync-and-recovery info publications that invalidate the node-recovery baseline and supersede in-flight node-recovery runs.](https://github.com/MystenLabs/walrus/pull/3643)
+
+---
+
 ### Walrus v1.55.1
 
 `Testnet` | August 28, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.55.1)
