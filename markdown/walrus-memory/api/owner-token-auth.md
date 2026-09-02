@@ -244,7 +244,7 @@ other.
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `OWNER_TOKEN_SECRET` | *(required, empty disables the feature)* | HMAC signing key for minted tokens |
+| `OWNER_TOKEN_SECRET` | *(required, empty disables the feature)* | HMAC signing key for minted tokens. When set, must be at least 32 bytes or the process refuses to start |
 | `OWNER_TOKEN_SERVICE_CREDENTIAL` | *(required, empty rejects everything)* | The shared WM↔Console client-auth secret |
 | `OWNER_TOKEN_TTL_SECS` | `900` | Token lifetime in seconds |
 | `OWNER_TOKEN_RATE_LIMIT_PER_MINUTE` | `120` | Per-credential issuance budget |
