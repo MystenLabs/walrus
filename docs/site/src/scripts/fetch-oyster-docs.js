@@ -78,11 +78,9 @@ function main() {
 
     console.log("✅ oyster: docs fetched successfully");
   } catch (err) {
-    if (force) {
-      console.error(`❌ oyster: docs fetch failed in CI (${err.message})`);
-      process.exit(1);
-    }
-    console.warn(`⚠️  oyster: docs fetch failed (${err.message}). Using cached content.`);
+    // The oyster repo may be private; do not fail the build if the clone
+    // fails — the transform step will skip gracefully if no cache exists.
+    console.warn(`⚠️  oyster: docs fetch failed (${err.message}). Using cached content if available.`);
   }
 
   // Fetch the OpenAPI spec from the live Scalar page (spec is embedded inline)
@@ -223,7 +221,9 @@ function extractJsonObject(str, start) {
 }
 
 function generateScalarPage(specJson) {
-  return `<!DOCTYPE html>
+  return `<!-- Copyright (c) Walrus Foundation -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
