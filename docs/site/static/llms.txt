@@ -33,6 +33,10 @@ Sui smart contract as the on-chain index.
 
 ## System Overview
 
+- [Aggregators Publishers Relays](https://docs.wal.app/docs/system-overview/aggregators-publishers-relays.md):
+    Walrus exposes three HTTP services. Callers send requests to the wrong one more often than they
+    make any other endpoint mistake. An aggregator reads. A publisher and an upload relay both
+    write, but they differ in who holds the wallet and who pays.
 - [Available Networks](https://docs.wal.app/docs/system-overview/available-networks.md):
     Walrus Mainnet operates a production-quality storage network using corresponding resources on
     the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui Testnet and is used to
@@ -46,17 +50,18 @@ Sui smart contract as the on-chain index.
     as text, video, or source code, you can store on Walrus. All blobs uploaded to Walrus are
     publicly available. Sui is a blockchain that supports programmable transactions.
 - [System Overview](https://docs.wal.app/docs/system-overview.md):
-    Available Networks: Overview of Walrus networks including Mainnet and Testnet configurations,
-    parameters, and setup instructions. Caching Hot Reads: Guidance for caching frequently read
-    Walrus blobs, including caching aggregators, CDN fronting, immutability guarantees, and
-    pitfalls to avoid.
+    Aggregators, Publishers, and Upload Relays: What each Walrus HTTP service does, which direction
+    of traffic it handles, who pays for storage, and which endpoint to call, so you can tell an
+    aggregator from a publisher from an upload relay.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md):
     Blobs can be interacted with through familiar file system operations such as uploading,
     reading, downloading, and deleting. You buy storage on Walrus for a fixed number of epochs, so
     every blob has a lifetime.
 - [Public Aggregators And Publishers](https://docs.wal.app/docs/system-overview/public-aggregators-and-publishers.md):
-    The Walrus client offers a daemon mode that runs a simple web server that provides HTTP
-    interfaces you can use to store and read blobs in an aggregator or publisher role respectively.
+    An aggregator serves blob reads over HTTP, and a publisher accepts blob uploads over HTTP. Both
+    roles run through the Walrus client's daemon mode: walrus aggregator for reads, walrus
+    publisher for stores, or walrus daemon for both (see Operate an Aggregator and Operate a
+    Publisher).
 - [Quilt](https://docs.wal.app/docs/system-overview/quilt.md):
     Quilt is a batch storage feature designed to optimize the storage cost and efficiency of large
     numbers of small blobs. Before Quilt, storing small blobs (less than 10 MB) on Walrus involved
@@ -83,7 +88,12 @@ Sui smart contract as the on-chain index.
 - [Storage Costs](https://docs.wal.app/docs/system-overview/storage-costs.md):
     When choosing a platform to store and verify data, you should consider reliability, uptime,
     availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated
-    storage cost of $0.023/GB/month, allowing you to budget and scale with confidence.
+    storage cost of $0.023/GB/month, allowing you to budget and scale with confidence. > Storing
+    many small files?
+- [Storage Pools](https://docs.wal.app/docs/system-overview/storage-pools.md):
+    A storage pool is a single storage reservation that many blobs share. In the standard flow,
+    every blob you store owns its own storage resource, bought for that blob's exact size and
+    lifetime.
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md):
     Storage limits, cost considerations, memory requirements, and other constraints to consider
     when building on Walrus. This page describes the practical limits and constraints you should
@@ -104,20 +114,24 @@ Sui smart contract as the on-chain index.
     input and output. Managing Blobs: Use the Walrus client to check, extend, delete, burn, share,
     and set attributes on blobs across their lifecycle.
 - [JSON Mode](https://docs.wal.app/docs/walrus-client/json-mode.md):
-    All Walrus client commands are available in JSON mode, which simplifies programmatic access to
-    the CLI. You can specify all command-line flags of the original CLI command in JSON format.
+    JSON mode exposes every Walrus client command and simplifies programmatic access to the CLI.
+    You specify the command and all of its options as a single JSON string, and the CLI prints
+    JSON-formatted results to stdout. Pass a single JSON object to walrus json.
 - [Managing Blobs](https://docs.wal.app/docs/walrus-client/managing-blobs.md):
     Use the Walrus client to manage blobs and their metadata. Before you extend or depend on a
     blob, check that it is still stored and see when it expires. Use the blob ID: This reports
     whether the blob is stored and its availability period.
+- [Network Health](https://docs.wal.app/docs/walrus-client/network-health.md):
+    Intermittent upload failures usually mean storage nodes are unreachable, not that your client
+    is misconfigured.
 - [Quilts](https://docs.wal.app/docs/walrus-client/quilts.md):
     For efficiently storing large numbers of small blobs, Walrus provides the quilt feature. A
     quilt batches multiple blobs into a single storage unit, significantly reducing overhead and
     cost. Learn more about quilts. You can interact with quilts using a dedicated set of walrus
     subcommands.
 - [Reading Blobs](https://docs.wal.app/docs/walrus-client/reading-blobs.md):
-    You can query the status of a blob through one of the following commands: Each command returns
-    output that indicates whether the specified blob is stored and its availability period.
+    The Walrus client lets you check a blob's storage status and certification, download its data,
+    and control the consistency checks that protect reads.
 - [Storing Blobs](https://docs.wal.app/docs/walrus-client/storing-blobs.md):
     All blobs stored in Walrus are public and discoverable by all. Do not store sensitive data on
     Walrus without additional protection. Store blobs on Walrus with the following command: After
@@ -152,42 +166,43 @@ Sui smart contract as the on-chain index.
 ## TypeScript SDK
 
 - [SDKs](https://docs.wal.app/docs/typescript-sdk/sdks.md):
-    Mysten Labs has built and published a Walrus TypeScript SDK, which supports a wide variety of
-    operations. See also the related examples. The SDK bundles the package and object IDs for each
-    network, so selecting a network applies the correct values automatically.
+    Official SDKs from Mysten Labs, community-maintained SDKs, and community tools cover the main
+    ways to build on Walrus: the TypeScript SDK for full client-side control, HTTP-based SDKs in
+    other languages, and explorers for inspecting blobs and operators.
 
 ## Examples
 
+- [Awesome Walrus](https://docs.wal.app/docs/examples/awesome-walrus.md):
+    Walrus is a storage layer, and the products in this section show what teams build on top of it.
+    Use them directly, or read their source as reference implementations for your own project.
+    First-party products with Walrus as their storage layer.
 - [Browser And Mobile](https://docs.wal.app/docs/examples/browser-and-mobile.md):
     Client apps that run in a browser or on a mobile device cannot open the many connections a
     direct store needs. A blob is split into slivers that go to every storage node, so an
     unprivileged client would have to manage dozens of parallel uploads and collect a confirmation
     from each node.
-- [Checkpoint Data](https://docs.wal.app/docs/examples/checkpoint-data.md):
-    The Sui Archival application demonstrates how you can archive checkpoint data on Walrus in a
-    reliable, deterministic, and resilient manner. The application is accessible at
-    https://walrus-sui-archival.wal.app/ The application's code is open source and available on
-    GitHub.
+- [List all archived blobs recorded in the local database](https://docs.wal.app/docs/examples/checkpoint-data.md):
+    The example application below is not the official Sui Archival service. The example uses that
+    service as a checkpoint source and stores the archived data on Walrus, and it shows how to
+    archive blockchain data in a reliable, deterministic, and resilient manner.
 - [Examples](https://docs.wal.app/docs/examples.md):
-    Example applications that demonstrate different workflows and use cases on Walrus Browser and
-    Mobile Apps: Store blobs from a browser or mobile client through a Walrus upload relay, then
-    read them back through a CDN-backed aggregator.
+    Example applications that demonstrate different workflows and use cases on Walrus Ecosystem:
+    Projects and tools built on Walrus, including Walrus Memory for AI agents, first-party tooling,
+    and the community-maintained Awesome Walrus directory.
 - [Javascript](https://docs.wal.app/docs/examples/javascript.md):
-    The following JavaScript example shows how to upload and download a blob through a web form
-    using the HTTP API. The following JavaScript example shows how to upload and download a blob
-    through a web form using the HTTP API.
+    You can store and read Walrus blobs from JavaScript with plain HTTP calls: a publisher accepts
+    uploads through PUT requests, and an aggregator serves downloads through GET requests. The
+    built-in fetch API covers both.
 - [Move](https://docs.wal.app/docs/examples/move.md):
-    The following Move example showcases how to import and use Walrus onchain objects. The
-    following Move example showcases how to import and use Walrus onchain objects. The following
-    Move example showcases how to import and use Walrus onchain objects.
+    Every Walrus blob has a corresponding Blob object on Sui. In Move, the type of that object is
+    Blob, defined in the walrus:blob module of the Walrus package.
 - [Python](https://docs.wal.app/docs/examples/python.md):
-    You can interact with Walrus from within Python code. Use the HTTP API to store and read blobs.
-    Use the JSON API to store, read, and check the availability of a blob. Checking the
-    certification of a blob illustrates reading the blob's corresponding Sui object.
+    Walrus does not ship an official Python SDK. Python reaches Walrus through the interfaces that
+    are language-agnostic instead: the HTTP API, the CLI, and Sui JSON-RPC.
 - [Walrus Relay](https://docs.wal.app/docs/examples/walrus-relay.md):
-    Using the Walrus TypeScript SDK and the Walrus Upload Relay, the following example app creates
-    a web application that uploads and manages blobs on Walrus. View a deployed instance of this
-    example in your browser or view the entire source code.
+    The Walrus upload relay lets browser apps store blobs without opening a connection to every
+    storage node: the client sends a single request to the relay, and the relay encodes the blob,
+    distributes the slivers to the storage node committee, and returns an availability certificate.
 
 ## Operator Guide
 
@@ -286,10 +301,9 @@ Sui smart contract as the on-chain index.
     modern web applications require more advanced features, such as custom headers, client-side
     routing, and human-readable information.
 - [Specifying HTTP Headers](https://docs.wal.app/docs/sites/configuration/specifying-http-headers.md):
-    The headers section allows you to specify custom HTTP response headers for specific resources.
-    The keys in the headers object are the exact paths of the resources (no wildcards), and the
-    values are lists of key-value pairs corresponding to the headers that the portal attaches to
-    the response.
+    The headers section of ws-resources.json sets custom HTTP response headers for individual
+    resources on your Walrus Site. Each key in the headers object is the exact path of a resource,
+    always starting from the root /.
 - [Bringing Your Own Domain](https://docs.wal.app/docs/sites/custom-domains/bringing-your-own-domain.md):
     By default, Walrus Sites are served through a portal at a subdomain address like
     https://example.wal.app. If you want to serve your site at a classic DNS domain you own, for
@@ -355,10 +369,15 @@ Sui smart contract as the on-chain index.
     Walrus Site Portals are used to access and browse a Walrus Site. The portal you run must match
     the network on which your site is deployed. Each network has its own onchain package, default
     RPC endpoint, and Walrus aggregator.
+- [Production](https://docs.wal.app/docs/sites/production.md):
+    A working deploy and a production site differ in a handful of predictable ways: which portal
+    serves it, how client-side routes resolve, how caches behave across updates, and how new
+    versions ship. Work through each section below before you share a production URL.
 - [Access Control Options](https://docs.wal.app/docs/sites/security/access-control-options.md):
-    All blobs stored on Walrus are public by default. Anyone who knows a blob ID can fetch its
-    contents directly from a Walrus aggregator. Access control for Walrus Sites is not enforced at
-    the storage layer.
+    Walrus stores every blob publicly by default. Anyone who knows a blob ID can fetch its contents
+    directly from a Walrus aggregator, and Walrus does not enforce access control at the storage
+    layer. Site metadata, including every resource path and blob ID, lives in public objects on
+    Sui.
 - [Site Data Authentication](https://docs.wal.app/docs/sites/security/site-data-authentication.md):
     Walrus Sites use SHA-256 hashes stored on Sui to verify that every resource served by a portal
     matches the content the site owner originally published.
@@ -373,19 +392,22 @@ Sui smart contract as the on-chain index.
     Best practices for handling Walrus errors. This page covers how to handle Walrus errors
     programmatically in your applications. For a reference of specific error messages and their
     solutions, see Troubleshooting Common Errors. Not all errors are equal.
+- [Grpc Migration](https://docs.wal.app/docs/troubleshooting/grpc-migration.md):
+    Sui has deprecated JSON-RPC. Current Walrus clients already reach Sui over gRPC at the same
+    full node URL your configuration lists, so migrating means upgrading your tooling rather than
+    rewriting your configuration. For the Sui API surface itself, see the Sui API reference.
 - [Troubleshooting](https://docs.wal.app/docs/troubleshooting.md):
     Resolve common issues with the Walrus CLI, configuration, and network connectivity. Before
     undertaking any other steps, make sure you have the latest walrus binary. If you have multiple
     versions in different locations, find the binary that is actually used with which walrus.
 - [Network Errors](https://docs.wal.app/docs/troubleshooting/network-errors.md):
-    Common errors in the Walrus CLI and network, with causes and solutions. This page covers common
-    errors you might encounter when using Walrus. Each entry includes the error message, its cause,
-    and how to troubleshoot it.
+    Common errors in the Walrus CLI and network, with causes and solutions. Each entry below gives
+    an error message you might hit when using Walrus, what causes it, and how to troubleshoot it.
+    Errors in this section occur when the Walrus CLI cannot load or parse its configuration.
 - [Reading Blobs After Upload](https://docs.wal.app/docs/troubleshooting/reading-blobs-after-upload.md):
-    Walrus itself is strongly consistent. Once a blob is certified, any aggregator reading directly
-    from storage nodes returns it immediately. Public aggregators often sit behind a content
-    delivery network (CDN), which might cache a 404 Not Found response from before the aggregator
-    sees the blob.
+    Walrus itself maintains strong consistency. Once the network certifies a blob, any aggregator
+    reading directly from storage nodes returns it immediately. If your app reads blobs through a
+    cached aggregator immediately after upload, plan for a short propagation window.
 
 ## Data Security
 
@@ -410,9 +432,9 @@ Sui smart contract as the on-chain index.
 - [Quick Start](https://docs.wal.app/walrus-memory/getting-started/quick-start.md):
     The fastest way to get Walrus Memory running is through the TypeScript SDK.
 - [What Is Walrus Memory](https://docs.wal.app/walrus-memory/getting-started/what-is-walrus-memory.md):
-    > Note > > Walrus Memory is in beta and actively evolving. It is fully usable today, and the
-    developer experience and operational guidance keep improving. Feedback from early builders
-    helps shape the product.
+    Walrus Memory enables AI agents to operate reliably across apps and sessions, without losing
+    context. Portable, verifiable, and fully controlled by you, it's the memory layer that lets
+    agents handle complex workflows and coordinate using data they can trust.
 
 ## Walrus Memory: Fundamentals
 
@@ -431,6 +453,11 @@ Sui smart contract as the on-chain index.
 - [How Storage Works](https://docs.wal.app/walrus-memory/fundamentals/architecture/how-storage-works.md):
     When you call memwal.remember(...), the relayer accepts a background job immediately and then
     stores the memory asynchronously. Here's what happens.
+- [Tracking Agent Storage](https://docs.wal.app/walrus-memory/fundamentals/architecture/tracking-agent-storage.md):
+    Every memory an agent writes becomes a durable object on two systems: an encrypted blob on
+    Walrus, and a Blob object on Sui that records who owns that blob and how long it lives. An
+    agent that depends on its memory has to know which blobs it owns, when each one expires, and
+    when to renew or drop it.
 - [How Agent Memory Works](https://docs.wal.app/walrus-memory/fundamentals/concepts/how-agent-memory-works.md):
     AI agent memory is a durable, searchable store of what an agent has learned, kept outside the
     model so it survives across sessions, apps, and workflows.
@@ -461,16 +488,18 @@ Sui smart contract as the on-chain index.
 - [Claude Code](https://docs.wal.app/walrus-memory/mcp/claude-code.md):
     Add Walrus Memory to Claude Code so it recalls context and saves durable facts as you work.
     Install it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the
-    tools). [x] Node.js 20+ [x] A Walrus Memory account.
+    tools). [x] Install Node.js 20+ with npx on your PATH; check with node --version.
+- [Claude Connector](https://docs.wal.app/walrus-memory/mcp/claude-connector.md):
+    Claude's built-in custom connector flow adds Walrus Memory over OAuth 2.1. You approve access
+    in the browser with your Sui wallet, and Claude never asks you for a delegate private key or a
+    custom header. > Note > > The connector flow needs a relayer that has OAuth turned on.
 - [Claude Desktop](https://docs.wal.app/walrus-memory/mcp/claude-desktop.md):
     Add Walrus Memory to Claude Desktop so the agent can save and recall durable facts. Claude
     Desktop uses the MCP server (the memory tools); the automatic-memory plugin hooks are available
     on Claude Code, Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
 - [Codex](https://docs.wal.app/walrus-memory/mcp/codex.md):
     Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
-    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools). [x]
-    Node.js 20+ [x] A Walrus Memory account. The first memory tool call opens a browser sign-in
-    (memwallogin).
+    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools).
 - [Cursor](https://docs.wal.app/walrus-memory/mcp/cursor.md):
     Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
     (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
@@ -483,16 +512,21 @@ Sui smart contract as the on-chain index.
 - [Overview](https://docs.wal.app/walrus-memory/mcp/overview.md):
     The Walrus Memory MCP server exposes your portable Walrus Memory as Model Context Protocol
     tools, so an AI agent can decide when to save and recall memories on its own.
-- [Reference](https://docs.wal.app/walrus-memory/mcp/reference.md):
-    This page documents every tool, flag, environment variable, and transport route the Walrus
-    Memory MCP package exposes. For per-client setup, start with the MCP overview.
+- [Quickstart](https://docs.wal.app/walrus-memory/mcp/quickstart.md):
+    Every supported client runs the same local server, and differs only in where the configuration
+    lives. Pick your client below, add the server, restart, and sign in. [x] You need Node.js 20 or
+    later, because the server runs through npx with no install step. [x] You need a Walrus Memory
+    account.
+- [Output example: GxK9pL2mQr8vN3jF5Ys7hT6wZ1cD4eR8](https://docs.wal.app/walrus-memory/mcp/reference.md):
+    The Walrus Memory MCP package exposes the tools, flags, environment variables, and transport
+    routes below. For per-client setup, start with the MCP overview.
 
 ## Walrus Memory: Relayer
 
 - [API Reference](https://docs.wal.app/walrus-memory/relayer/api-reference.md):
-    The Rust relayer exposes these routes. Routes are defined in services/server/src/main.rs. See
-    also: Environment Variables Configuration Versioning and Compatibility All /api/ routes require
-    signed headers. The SDK handles this automatically.
+    The Rust relayer exposes these routes. The route table lives in services/server/src/main.rs.
+    See also: Environment Variables Configuration Versioning and Compatibility The routes below
+    require signed headers, except the MCP transports, which use bearer authentication.
 - [Benchmark CI Setup](https://docs.wal.app/walrus-memory/relayer/benchmark-ci-setup.md):
     This document records how to configure the relayer benchmark workflows. The live benchmark
     intentionally runs only the public relayer /api/recall path.
@@ -515,7 +549,7 @@ Sui smart contract as the on-chain index.
 - [All SUI coins for an address, largest first:](https://docs.wal.app/walrus-memory/relayer/runbook-gas-pool.md):
     When to use this: a gas-pool alert fires (the SUI gas pool maintenance alert), or relayer logs
     show wallet jobs aborting with or Enoki dryrunfailed plus 0x2:balance:split (ENotEnough, abort
-    code 2). The relayer sponsors Walrus register transactions through Enoki.
+    code 2).
 - [Opt the write path into gRPC (testnet example)](https://docs.wal.app/walrus-memory/relayer/self-hosting.md):
     Self-hosting means running your own relayer, either pointing at an existing Walrus Memory
     package ID or deploying an entirely new Walrus Memory instance with your own contract,
@@ -535,7 +569,7 @@ Sui smart contract as the on-chain index.
     The smart contract (memwal:account) defines the onchain account model for Walrus Memory. It is
     a Move module deployed on Sui.
 - [Ownership And Permissions](https://docs.wal.app/walrus-memory/contract/ownership-and-permissions.md):
-    The owner is the Sui wallet address that created the MemWalAccount.
+    The owner is the Sui wallet address recorded by the MemWalAccount.
 
 ## Walrus Memory: Indexer
 
@@ -577,6 +611,13 @@ Sui smart contract as the on-chain index.
     withMemWal(model, options) | Field | Required | Notes | | --- | --- | --- | | key | yes |
     Delegate private key in hex | | accountId | yes | MemWalAccount object ID on Sui | | serverUrl
     | no | Relayer URL.
+- [Console Identity Link](https://docs.wal.app/walrus-memory/reference/console-identity-link.md):
+    Console (Walrus Console) and Walrus Memory (WM) are separate Enoki zkLogin applications.
+- [Enoki Connect Requirements](https://docs.wal.app/walrus-memory/reference/enoki-connect-requirements.md):
+    Enoki Connect lets an external application (a "connecting app," for example, Console)
+    authenticate its users through Walrus Memory's Enoki-hosted identity flow. This requires
+    configuration on two sides: WM's own Enoki app settings, and each connecting app's origin being
+    allowlisted.
 - [Environment Variables](https://docs.wal.app/walrus-memory/reference/environment-variables.md):
     This page lists the supported, public environment variables across Walrus Memory, grouped by
     where you set it: the client SDKs, the MCP server, the self-hosted relayer, and frontend apps.
@@ -613,6 +654,77 @@ Sui smart contract as the on-chain index.
     The researcher example (apps/researcher) is a research assistant that works in sprints. It
     shows long-form memory and session rehydration: each sprint's findings persist as a structured
     report, and a fresh session pulls back the relevant history before it starts.
+
+## Oyster
+
+- [OpenAPI Specification (JSON)](https://docs.wal.app/oyster/openapi.json):
+    Machine-readable OpenAPI 3.1 specification for the Oyster Object Storage API. Use this for
+    automated client generation, testing, and agent tool integration.
+- [API Reference](https://docs.wal.app/oyster/api-reference.md)
+- [1. Create an app (server operator runs this once). app new auto-issues](https://docs.wal.app/oyster/getting-started.md):
+    This guide walks you through your first interactions with Oyster. By the end you'll have
+    created a bucket, uploaded a blob, and downloaded it back.
+- [Guides](https://docs.wal.app/oyster/guides.md):
+    Practical guides for working with Oyster beyond the API reference.
+- [Introduction](https://docs.wal.app/oyster/introduction.md):
+    Oyster is a Web2-friendly object storage service backed by Walrus (decentralized blob storage)
+    and Sui (on-chain state). It gives you familiar HTTP and S3 APIs while your data is stored on a
+    decentralized network. Every user has an account.
+- [First page](https://docs.wal.app/oyster/json-api.md):
+    The Oyster JSON API is served under /api/v1/. All requests and responses use JSON (except blob
+    content, which is raw binary). Authenticated endpoints require a Bearer token in the
+    Authorization header.
+- [S3 API](https://docs.wal.app/oyster/s3-api.md):
+    Oyster provides an S3-compatible API that works with the AWS CLI, boto3, the AWS SDK for
+    JavaScript, and any other S3-compatible client. It uses standard AWS Signature Version 4
+    (SigV4) authentication. The S3 API runs on the same HTTP port as the JSON API.
+
+## Oyster: Guides
+
+- [From a file on disk](https://docs.wal.app/oyster/guides/aws-sdk.md):
+    These examples show complete workflows using AWS SDKs with Oyster's S3-compatible API. For
+    initial SDK setup, see S3 Setup.
+- [Blob Lifecycle](https://docs.wal.app/oyster/guides/blob-lifecycle.md):
+    This guide explains what happens to blobs from upload to expiration, and how Oyster's automatic
+    extension service keeps your data alive. Walrus storage is epoch-scoped, not time-scoped.
+- [Full replace — the blob ends up with exactly these two tags](https://docs.wal.app/oyster/guides/cli.md):
+    oyster-cli is a command-line tool for interacting with Oyster. It wraps the JSON API and
+    handles authentication, content-type detection, and pagination for you.
+- [Upload the same file to two different keys](https://docs.wal.app/oyster/guides/content-addressing.md):
+    Oyster uses content addressing to identify blobs. This means a blob's identity is derived from
+    its contents, not from where it's stored. This enables deduplication, integrity verification,
+    and content-based retrieval.
+- [Web Signup](https://docs.wal.app/oyster/guides/web-signup.md):
+    Oyster can serve a self-serve signup page at /signup: a user signs in with Google, passes a
+    Cloudflare Turnstile anti-bot check, and receives an app plus its first admin key — the same
+    kind of key an operator would otherwise issue with oysterd app issue-admin-key.
+- [Register or rotate. Each call generates a fresh Ed25519 keypair;](https://docs.wal.app/oyster/guides/webhooks.md):
+    Oyster posts a single webhook event today: account.fundingrequired. It tells the owning app
+    that an account's Pearl-derived wallet cannot cover the next extendstoragepool PTB. Top up the
+    wallet and the next extension cycle will succeed.
+
+## Oyster: Openapi
+
+- [Account Endpoints](https://docs.wal.app/oyster/openapi/account.md):
+    Account and API key management Base URL: > Info > > This page is auto-generated from the
+    OpenAPI spec. > For an interactive explorer, see the Interactive API Reference. Update billing
+    information for the authenticated account. Not yet implemented.
+- [Admin Endpoints](https://docs.wal.app/oyster/openapi/admin.md):
+    Admin endpoints (admin-key authenticated) Base URL: > Info > > This page is auto-generated from
+    the OpenAPI spec. > For an interactive explorer, see the Interactive API Reference. List
+    accounts owned by the authenticated app, with active API key counts.
+- [Blobs Endpoints](https://docs.wal.app/oyster/openapi/blobs.md):
+    Blob storage and retrieval Base URL: > Info > > This page is auto-generated from the OpenAPI
+    spec. > For an interactive explorer, see the Interactive API Reference. Read a blob's content
+    by its content-addressed blob ID. No authentication required.
+- [Buckets Endpoints](https://docs.wal.app/oyster/openapi/buckets.md):
+    Bucket CRUD operations Base URL: > Info > > This page is auto-generated from the OpenAPI spec.
+    > For an interactive explorer, see the Interactive API Reference. List all buckets owned by the
+    authenticated account, with cursor-based pagination.
+- [API Models](https://docs.wal.app/oyster/openapi/models.md):
+    Request and response schemas used by the Oyster API. > Info > > This page is auto-generated
+    from the OpenAPI spec. > For an interactive explorer, see the Interactive API Reference. An S3
+    access key record (without the secret).
 
 ## 01 Announcing Walrus
 
@@ -677,9 +789,56 @@ Sui smart contract as the on-chain index.
 ## Network Reference
 
 - [Network Reference](https://docs.wal.app/docs/network-reference.md):
-    This page is the single canonical reference for the volatile values you need to integrate with
-    Walrus: aggregator and publisher endpoints, upload relay endpoints, package IDs, system and
-    staking object IDs, token units, and configuration snippets.
+    The volatile values you need to integrate with Walrus all live here: aggregator and publisher
+    endpoints, upload relay endpoints, package IDs, system and staking object IDs, token units, and
+    configuration snippets.
+
+## Oyster: JSON API
+
+- [Access Keys](https://docs.wal.app/oyster/json-api/access-keys.md):
+    S3 access keys let you authenticate with Oyster's S3-compatible API using standard AWS
+    Signature Version 4. Each access key consists of an access key ID (20 characters, prefixed with
+    OYAK) and a secret access key (40 hex characters). You can have up to 3 active access keys per
+    account.
+- [550e8400-e29b-41d4-a716-446655440000](https://docs.wal.app/oyster/json-api/admin.md):
+    The Admin API lets app operators manage accounts, API keys, and S3 access keys. All admin
+    endpoints require admin-key authentication — long-lived per-app Bearer tokens issued via
+    oysterd app issue-admin-key (see Authentication). An app can only manage accounts it created.
+- [Authentication](https://docs.wal.app/oyster/json-api/authentication.md):
+    Oyster uses Bearer tokens for authenticated routes plus public access for blob reads and
+    infrastructure probes. There are two tiers of Bearer token, distinguished by which routes they
+    unlock; both share the same wire format.
+- [Returns 304 if unchanged, 200 with body if changed](https://docs.wal.app/oyster/json-api/blobs.md):
+    Blobs are binary objects stored inside buckets. Each blob is identified by a user-chosen key
+    (like a file path) and has a content-addressed blob ID computed from its contents.
+- [Buckets](https://docs.wal.app/oyster/json-api/buckets.md):
+    Buckets are named containers that hold your blobs. Bucket names are globally unique — no two
+    accounts can have a bucket with the same name.
+- [HELP oysteractiveaccounts Number of active accounts](https://docs.wal.app/oyster/json-api/infrastructure.md):
+    These endpoints are used for health monitoring and observability. They do not require
+    authentication and are not under the /api/v1/ prefix. Always returns 200 OK. Use this as a
+    Kubernetes liveness probe or a simple "is the server running?" check.
+- [Wallet](https://docs.wal.app/oyster/json-api/wallet.md):
+    Each Oyster account has an associated Sui wallet address, derived from the account's identity
+    by the Pearl custodial wallet service. This wallet is used for on-chain operations when blobs
+    are stored on Walrus. Returns the Sui wallet address associated with your account.
+
+## Oyster: S3 API
+
+- [Buckets](https://docs.wal.app/oyster/s3-api/buckets.md):
+    All bucket operations require S3 authentication (SigV4). See S3 Setup for configuration.
+    Creates a new bucket.
+- [Limitations](https://docs.wal.app/oyster/s3-api/limitations.md):
+    Oyster implements the most commonly used S3 operations. This page documents what's different
+    from a full AWS S3 deployment.
+- [Create-only: fail if the key already exists](https://docs.wal.app/oyster/s3-api/objects.md):
+    All S3 operations require authentication (SigV4), including reads. See S3 Setup for
+    configuration. > Info > > This differs from the JSON API, where > blob reads are public and
+    unauthenticated. Uploads an object to a bucket. If an object with the same key already exists,
+    it is replaced.
+- [Create a bucket](https://docs.wal.app/oyster/s3-api/setup.md):
+    This guide walks you through configuring the AWS CLI and SDKs to work with Oyster's
+    S3-compatible API.
 
 ## Production Readiness
 
@@ -690,17 +849,19 @@ Sui smart contract as the on-chain index.
 ## Release Notes
 
 - [Release Notes](https://docs.wal.app/docs/release-notes.md):
-    Walrus Platform — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory,
-    including the MCP server, TypeScript SDK, Python SDK, and OpenClaw.
+    Walrus — Release notes from Walrus. Walrus Memory — Release notes from Walrus Memory, including
+    the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
+    Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    June 12, 2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and
-    Antigravity, along with new memwalrememberbulk and memwalhealth tools and proactive memory
-    behavior. Also fixes the plugin bundle so it ships .mcp.json correctly.
+    August 24, 2026 | GitHub --- August 20, 2026 | GitHub Answer orphaned tool calls whose upstream
+    response never arrives with a retryable error instead of hanging indefinitely.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Mainnet July 22, 2026 | GitHub --- --- Testnet July 15, 2026 | GitHub --- --- Mainnet July 9,
-    2026 | GitHub #3479: walrus info committee gains a --commission-receivers flag that prints, as
-    CSV, the commission receiver of every node in the previous, current, and next committees
-    (including the owning address for object receivers).
+    Testnet | September 1, 2026 | GitHub Adds a metric counting sync-and-recovery info publications
+    that invalidate the node-recovery baseline and supersede in-flight node-recovery runs.
+- [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
+    July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
+    (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
+    methods ahead of the JSON-RPC deprecation.
 
 ## Sponsored Uploads
 
@@ -715,8 +876,26 @@ Sui smart contract as the on-chain index.
     Walrus Testnet is a free, non-durable network for development and testing. Read values that
     change from the canonical Network Reference, which is the single maintained source.
 
+## Walrus Memory: API
+
+- [Memory Read API](https://docs.wal.app/walrus-memory/api/memory-read-api.md):
+    Registered routes (colon form used by the docs freshness check): GET /v1/owners/:owner/agents
+    Owner-scoped, cursor-based, read-only.
+- [Owner Token Auth](https://docs.wal.app/walrus-memory/api/owner-token-auth.md):
+    Issuance route: POST /v1/owner-tokens. Lets Console call WM's owner-scoped read API without
+    ever holding a delegate key.
+- [1. Request and sign the returned personal-message challenge in the wallet.](https://docs.wal.app/walrus-memory/api/security-delete.md):
+    The Security Delete API permanently deletes legacy Walrus Blob objects that were tracked in
+    Walrus Memory's old-V1 database. The server selects and verifies the objects, builds and
+    sponsors the Sui transaction, and executes it.
+
 ## Walrus Memory: Guides
 
+- [Agent Runtimes](https://docs.wal.app/walrus-memory/guides/agent-runtimes.md):
+    Agents built on EVM, Base, Virtuals, or any other stack can use Walrus Memory. The runtime your
+    agent executes in and the chain it transacts on are independent of where its memory lives.
+    Walrus Memory stores memories as encrypted blobs on Walrus and records ownership in a Sui
+    account.
 - [Delete Memories Programmatically](https://docs.wal.app/walrus-memory/guides/delete-memories-programmatically.md):
     Use the Security Delete API to find memories owned by a wallet, select memories older than a
     cutoff date, and permanently delete them. The API prepares and sponsors the Sui transaction;
@@ -727,6 +906,22 @@ Sui smart contract as the on-chain index.
     memories you no longer want stored on Walrus Memory. This guide shows you how to preview your
     memories and delete any you'd like to clear. > Warning > > Deleting a memory is permanent and
     you cannot undo it.
+- [Manage Your Memory](https://docs.wal.app/walrus-memory/guides/manage-your-memory.md):
+    Your Walrus Memory account accumulates memories over time. See what you have stored, organize
+    it with namespaces, renew memories before they expire, and delete the ones you no longer want,
+    from the dashboard or through the SDK. [x] A Sui wallet that owns the memories you want to
+    manage.
+- [Returning User](https://docs.wal.app/walrus-memory/guides/returning-user.md):
+    Your memories live on Walrus and your account lives on Sui, so they persist no matter which
+    device you sign in from. Only the delegate key your browser used last time stays behind.
+- [System Prompt Templates](https://docs.wal.app/walrus-memory/guides/system-prompt-templates.md):
+    Connecting the MCP server gives an agent the memory tools. It does not make the agent use them.
+    Most agents write only when the user says "remember this", which is why an untuned setup
+    produces a handful of memories and then goes quiet. A system prompt fixes that.
+
+## Walrus Memory: Migration
+
+- [Ceremony Environments](https://docs.wal.app/walrus-memory/migration/ceremony-environments.md)
 
 ## Walrus Memory: Python SDK
 
@@ -748,8 +943,7 @@ Sui smart contract as the on-chain index.
     | withmemwallangchain / withmemwalopenai | from memwal import ...
 - [Memwal Manual](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal-manual.md):
     > Note > > Unlike the TypeScript SDK there is no separate MemWalManual class in Python. The
-    Python SDK is relayer-backed: the relayer always handles embedding, Seal encryption, and Walrus
-    storage.
+    Python SDK is relayer-backed for the standard remember / recall flow.
 - [Memwal](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal.md):
     The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing. The SDK only signs requests and sends text.
@@ -780,8 +974,8 @@ Sui smart contract as the on-chain index.
     namespace for memory isolation | For the full config surface, see Configuration.
 - [Cloudflare Workers](https://docs.wal.app/walrus-memory/sdk/cloudflare-workers.md):
     Walrus Memory runs on the Cloudflare Workers runtime, but the edge environment differs from
-    Node.js in a few ways that affect bundling and reliability. This guide covers the configuration
-    and patterns that make it work cleanly.
+    Node.js in a few ways that affect bundling and reliability. The configuration and patterns
+    below make it work cleanly.
 - [Codebase Memory](https://docs.wal.app/walrus-memory/sdk/codebase-memory.md):
     AI coding assistants like Cursor appear to remember a codebase because they retrieve relevant
     context at query time rather than holding an entire repository in the model's context window.
@@ -842,16 +1036,14 @@ Sui smart contract as the on-chain index.
 ### Legal
 
 - [Privacy](https://docs.wal.app/docs/legal/privacy.md):
-    Last Updated: February 10, 2024 This Privacy Policy is designed to help you understand how
-    Walrus Foundation (collectively called the “Organization", "we," "us," and "our") collects,
-    uses, and shares your personal information and to help you understand and exercise your privacy
-    rights in accordance with applicable law.
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Testnet TOS](https://docs.wal.app/docs/legal/testnet_tos.md):
-    Last updated: March 26, 2025 By using Walrus Testnet software, technologies, tools, and other
-    services (collectively “Testnet”) offered by Walrus Foundation ("Walrus Foundation", "we",
-    "our"), you agree to the general Walrus Terms of Service and these additional Testnet Terms of
-    Service (together, the “Terms”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
 - [Walrus General TOS](https://docs.wal.app/docs/legal/walrus_general_tos.md):
-    Please read these Terms of Service (the “Terms”) and our Privacy Policy carefully because they
-    govern your use of the website, the user interface, and other offerings located at walrus.xyz,
-    (the “Site”) offered by Walrus Foundation (“Walrus Foundation,” “we,” “our”).
+    > Looking for the developer documentation? > > You are reading a legal document. To build on
+    Walrus, start with Get started, Walrus Sites, or the Walrus Memory docs, where you can also
+    open the Ask Walrus AI assistant for technical questions.
