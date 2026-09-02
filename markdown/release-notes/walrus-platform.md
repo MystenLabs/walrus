@@ -2,7 +2,7 @@
 
 ### Walrus v1.55.2
 
-`Testnet` | September 1, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.55.2)
+`Mainnet` | September 2, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.55.2)
 
 #### Changes
 
