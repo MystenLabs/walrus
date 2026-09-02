@@ -238,7 +238,14 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 function main() {
   if (!fs.existsSync(CACHE_DIR)) {
     console.warn(
-      "⚠️  oyster: cache not found. Was fetch-oyster-docs.js run?",
+      "⚠️  oyster: cache not found. Creating placeholder so the build can proceed.",
+    );
+    // Docusaurus requires the content directory to exist even if empty.
+    // Create it with a minimal index page so the plugin doesn't crash.
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+    fs.writeFileSync(
+      path.join(OUTPUT_DIR, "index.mdx"),
+      '---\ntitle: "Oyster"\nslug: /\n---\n\nOyster documentation is not available in this build.\n',
     );
     return;
   }

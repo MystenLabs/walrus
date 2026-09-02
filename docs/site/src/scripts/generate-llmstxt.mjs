@@ -636,7 +636,9 @@ function buildOutput(includeDescriptions, includeOptional, { includeFull = false
         ...wrapEntry(formatEntry({
           title: "OpenAPI Specification (JSON)",
           mdUrl: joinUrl(resolvedBaseUrl, "/oyster/openapi.json"),
-          description: "Machine-readable OpenAPI 3.1 specification for the Oyster Object Storage API. Use this for automated client generation, testing, and agent tool integration.",
+          description:
+            "Machine-readable OpenAPI 3.1 specification for the Oyster API. " +
+            "Use this for client generation, testing, and agent tool integration.",
         })),
       );
     }
