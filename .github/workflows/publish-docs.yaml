@@ -22,7 +22,7 @@ on:
         required: true
         default: false
   schedule:
-    # Rebuild daily to pick up upstream Walrus Memory and Oyster doc changes.
+    # Rebuild daily to pick up upstream Walrus Memory and Walrus Oyster API doc changes.
     - cron: "14 3 * * *"
 
 concurrency: ci-${{ github.ref }}

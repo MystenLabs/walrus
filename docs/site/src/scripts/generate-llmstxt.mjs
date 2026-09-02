@@ -40,13 +40,14 @@ const SUBSITE_PRESETS = {
       "only; for the full Walrus documentation see https://docs.wal.app/llms.txt.",
   },
   "oyster": {
-    name: "Oyster",
+    name: "Walrus Oyster API",
     description:
-      "Oyster is a Web2-friendly object storage service backed by " +
-      "Walrus (decentralized blob storage) and Sui (on-chain state). " +
-      "It provides familiar HTTP and S3-compatible APIs while data is stored " +
-      "on a decentralized network. This index covers the Oyster documentation " +
-      "only; for the full Walrus documentation see https://docs.wal.app/llms.txt.",
+      "Walrus Oyster API is a Web2-friendly object storage service " +
+      "backed by Walrus (decentralized blob storage) and Sui (on-chain " +
+      "state). It provides familiar HTTP and S3-compatible APIs while " +
+      "data is stored on a decentralized network. This index covers " +
+      "the Walrus Oyster API documentation only; for the full Walrus " +
+      "documentation see https://docs.wal.app/llms.txt.",
   },
 };
 const preset = onlyPrefix ? SUBSITE_PRESETS[onlyPrefix] ?? {} : {};
@@ -152,12 +153,12 @@ const SECTION_PRIORITY = [
   "Walrus Memory: Security",
   "Walrus Memory: Contributing",
   "Walrus Memory: Examples",
-  // Oyster sections
-  "Oyster",
-  "Oyster: Json Api",
-  "Oyster: S3 Api",
-  "Oyster: Guides",
-  "Oyster: Openapi",
+  // Walrus Oyster API sections
+  "Walrus Oyster API",
+  "Walrus Oyster API: Json Api",
+  "Walrus Oyster API: S3 Api",
+  "Walrus Oyster API: Guides",
+  "Walrus Oyster API: Openapi",
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -469,11 +470,11 @@ for (const file of files) {
       ? "Walrus Memory: " + toSectionTitle(segments[1])
       : "Walrus Memory";
   } else if (segments[0] === "oyster") {
-    // oyster/json-api/admin → "Oyster: Json Api"
-    // oyster/introduction → "Oyster"
+    // oyster/json-api/admin → "Walrus Oyster API: Json Api"
+    // oyster/introduction → "Walrus Oyster API"
     section = segments.length > 2 && segments[1]
-      ? "Oyster: " + toSectionTitle(segments[1])
-      : "Oyster";
+      ? "Walrus Oyster API: " + toSectionTitle(segments[1])
+      : "Walrus Oyster API";
   } else {
     section = segments.length > 2
       ? toSectionTitle(segments[1])
@@ -630,15 +631,15 @@ function buildOutput(includeDescriptions, includeOptional, { includeFull = false
   for (const section of requiredSections) {
     lines.push(`## ${section}`, "");
 
-    // Add OpenAPI spec link at the top of the Oyster section
-    if (section === "Oyster") {
+    // Add OpenAPI spec link at the top of the Walrus Oyster API section
+    if (section === "Walrus Oyster API") {
       lines.push(
         ...wrapEntry(formatEntry({
           title: "OpenAPI Specification (JSON)",
           mdUrl: joinUrl(resolvedBaseUrl, "/oyster/openapi.json"),
           description:
-            "Machine-readable OpenAPI 3.1 specification for the Oyster API. " +
-            "Use this for client generation, testing, and agent tool integration.",
+            "Machine-readable OpenAPI 3.1 spec for the Walrus Oyster API. " +
+            "Use for client generation, testing, and agent integration.",
         })),
       );
     }

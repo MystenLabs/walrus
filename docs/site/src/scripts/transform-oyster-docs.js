@@ -165,7 +165,7 @@ function generateApiReferencePage() {
   const scalarUrl = OPENAPI_SPEC_PATH.replace('openapi.json', 'scalar.html');
   return `---
 title: "Interactive API Reference"
-description: "Explore the Oyster Object Storage API interactively using the OpenAPI specification."
+description: "Explore the Walrus Oyster API interactively using the OpenAPI specification."
 hide_table_of_contents: true
 hide_title: true
 ---
@@ -228,7 +228,7 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
         display: 'block',
         borderRadius: '4px',
       }}
-      title="Oyster API Reference"
+      title="Walrus Oyster API Reference"
     />
   )}
 </BrowserOnly>
@@ -245,7 +245,7 @@ function main() {
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
     fs.writeFileSync(
       path.join(OUTPUT_DIR, "index.mdx"),
-      '---\ntitle: "Oyster"\nslug: /\n---\n\nOyster documentation is not available in this build.\n',
+      '---\ntitle: "Walrus Oyster API"\nslug: /\n---\n\nWalrus Oyster API documentation is not available in this build.\n',
     );
     return;
   }
@@ -346,7 +346,7 @@ function generateOpenApiMarkdownFiles(specPath, outputDir) {
     const lines = [
       "---",
       `title: "${tag} Endpoints"`,
-      `description: "OpenAPI reference for ${tag} endpoints in the Oyster API."`,
+      `description: "OpenAPI reference for ${tag} endpoints in the Walrus Oyster API."`,
       "---",
       "",
       `# ${tag} Endpoints`,
@@ -433,12 +433,12 @@ function generateOpenApiMarkdownFiles(specPath, outputDir) {
     const lines = [
       "---",
       'title: "API Models"',
-      'description: "Data models and schemas used by the Oyster API."',
+      'description: "Data models and schemas used by the Walrus Oyster API."',
       "---",
       "",
       "# API Models",
       "",
-      "Request and response schemas used by the Oyster API.",
+      "Request and response schemas used by the Walrus Oyster API.",
       "",
       specNote,
       "",

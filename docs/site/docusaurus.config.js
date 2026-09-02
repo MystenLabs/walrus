@@ -371,7 +371,7 @@ const config = {
           },
           {
             to: "/oyster",
-            label: "Oyster",
+            label: "Walrus Oyster API",
             position: "left",
           },
           {
