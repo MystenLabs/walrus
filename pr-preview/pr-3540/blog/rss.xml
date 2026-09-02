@@ -306,7 +306,7 @@ faucet</a>.</p>
 <h2 class="anchor anchorTargetStickyNavbar_kP7e" id="one-more-thing-">One more thing …<a href="https://docs.wal.app/walrus/pr-preview/pr-3540/blog/01_announcing_walrus#one-more-thing-" class="hash-link" aria-label="Direct link to One more thing …" title="Direct link to One more thing …" translate="no">​</a></h2>
 <p>The <a href="https://walrus.site/" target="_blank" rel="noopener noreferrer" class="">Walrus Sites website</a>, the <a class="" href="https://docs.wal.app/walrus/pr-preview/pr-3540/docs/getting-started">Walrus docs</a>, and
 <a href="https://blog.walrus.site/" target="_blank" rel="noopener noreferrer" class="">this very blog</a> are hosted on Walrus. To learn more about Walrus Sites
-and how you can deploy your own, <a class="" href="https://docs.wal.app/walrus/pr-preview/pr-3540/docs/sites/introduction/components">click here</a>.</p>]]></content:encoded>
+and how you can deploy your own, see <a class="" href="https://docs.wal.app/walrus/pr-preview/pr-3540/docs/sites">Walrus Sites</a>.</p>]]></content:encoded>
         </item>
         <item>
             <title><![CDATA[Announcing Testnet]]></title>
@@ -443,7 +443,7 @@ storage node, and plans around light nodes, will be shared in subsequent posts.<
 <li class="">Follow us on <a href="https://x.com/WalrusProtocol" target="_blank" rel="noopener noreferrer" class="">Twitter</a></li>
 <li class="">Join our <a href="https://discord.com/invite/walrusprotocol" target="_blank" rel="noopener noreferrer" class="">Discord</a></li>
 <li class=""><a class="" href="https://docs.wal.app/walrus/pr-preview/pr-3540/docs/getting-started">Build apps</a> on Walrus</li>
-<li class=""><a class="" href="https://docs.wal.app/walrus/pr-preview/pr-3540/docs/sites/introduction/components">Publish a Walrus Site</a> and share it</li>
+<li class=""><a class="" href="https://docs.wal.app/walrus/pr-preview/pr-3540/docs/sites/getting-started/publishing-your-first-site">Publish a Walrus Site</a> and share it</li>
 </ul>]]></content:encoded>
         </item>
         <item>

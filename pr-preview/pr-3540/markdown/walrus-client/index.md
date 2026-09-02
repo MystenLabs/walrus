@@ -2,6 +2,7 @@
 
 - [JSON Mode](/docs/walrus-client/json-mode): Use JSON mode for programmatic access to all Walrus CLI commands with JSON-formatted input and output.
 - [Managing Blobs](/docs/walrus-client/managing-blobs): Use the Walrus client to check, extend, delete, burn, share, and set attributes on blobs across their lifecycle.
+- [Check Network Health](/docs/walrus-client/network-health): Run walrus health --committee to see how many storage nodes are reachable, compare the result against the write and read thresholds, and decide whether to upload now.
 - [Using Quilts with the Walrus Client](/docs/walrus-client/quilts): Use the Walrus client to batch multiple blobs into quilts for efficient storage and retrieval.
 - [Reading Blobs](/docs/walrus-client/reading-blobs): Use the Walrus client to check blob status, read blob data, and verify consistency.
 - [Storing Blobs](/docs/walrus-client/storing-blobs): Use the Walrus client to store blobs and set lifetimes.

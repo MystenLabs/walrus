@@ -18,7 +18,7 @@ Authorization: Bearer hbr_…
 
 > **Info**
 >
-> The code below comes directly from the runnable [`walrus-harbor-quickstart`](https://github.com/MystenLabs/walrus-harbor-quickstart) example, so the package IDs and Seal key-server IDs stay current with the source. Clone it and run the `pnpm` scripts to try the flow end to end.
+> The code below comes directly from the runnable [`walrus-console-quickstart`](https://github.com/MystenLabs/walrus-console-quickstart) example, so the package IDs and Seal key-server IDs stay current with the source. Clone it and run the `pnpm` scripts to try the flow end to end.
 ## Sign up and create an API key
 
 1. Visit the [Walrus Console app](https://console.walrus.xyz/) and sign in with Google. zkLogin provisions your account and a Personal Space automatically.
@@ -71,17 +71,17 @@ Response (`201`):
 
 ### The example code
 
-The signing, encryption, and decryption steps below come from the runnable [`walrus-harbor-quickstart`](https://github.com/MystenLabs/walrus-harbor-quickstart) example. Two files hold everything: `config.ts` pins the Testnet package and Seal key-server IDs, and `lib/seal.ts` wraps the signing and Seal encrypt/decrypt helpers. Clone the repo, copy `app/.env.example` to `app/.env`, and set the service private key. That file still uses the example's own variable names, `HARBOR_API_KEY` and `HARBOR_SERVICE_PRIVKEY`.
+The signing, encryption, and decryption steps below come from the runnable [`walrus-console-quickstart`](https://github.com/MystenLabs/walrus-console-quickstart) example. Two files hold everything: `config.ts` pins the Testnet package and Seal key-server IDs, and `lib/seal.ts` wraps the signing and Seal encrypt/decrypt helpers. Clone the repo, copy `app/.env.example` to `app/.env`, and set the service private key. That file still uses the example's own variable names, `CONSOLE_API_KEY` and `CONSOLE_SERVICE_PRIVKEY`.
 
-<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-harbor-quickstart/blob/main/app/src/config.ts -->
+<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-console-quickstart/blob/main/app/src/config.ts -->
 
-<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-harbor-quickstart/blob/main/app/src/lib/seal.ts -->
+<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-console-quickstart/blob/main/app/src/lib/seal.ts -->
 
 ### Step 3: Sign the bytes with the service key
 
 Sign the reserved `bytes` with your service key. `sign-reserve.ts` loads the key with `loadKeypair` and calls `signReserveBytes`, returning the base64 signature you pass to finalize. Run it with `pnpm sign-reserve <base64-reserve-bytes>`:
 
-<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-harbor-quickstart/blob/main/app/src/scripts/sign-reserve.ts -->
+<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-console-quickstart/blob/main/app/src/scripts/sign-reserve.ts -->
 
 ### Step 4: Finalize
 
@@ -104,7 +104,7 @@ Console combines your signature with the gas-sponsor signature and broadcasts th
 
 Encrypt locally against the `seal_policy_id` from finalize. `encryptBytes` (in `lib/seal.ts`) derives a per-file Seal identity and encrypts against the bucket policy using `ORIGINAL_PACKAGE_ID` from `config.ts`. Seal pins identity derivation to the original package ID, so this value must stay fixed across package upgrades, otherwise an upgrade would invalidate every previously encrypted blob's key. `encrypt-file.ts` wires it up; run it with `pnpm encrypt-file <plaintextPath> <sealPolicyId>`:
 
-<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-harbor-quickstart/blob/main/app/src/scripts/encrypt-file.ts -->
+<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-console-quickstart/blob/main/app/src/scripts/encrypt-file.ts -->
 
 It writes `<plaintextPath>.enc`, the byte stream you upload next.
 
@@ -135,11 +135,11 @@ GET /api/v1/buckets/{bucketId}/files/{fileId}/download
 
 The response is the raw Seal ciphertext. `decryptBytes` (in `lib/seal.ts`) builds the `seal_approve` access-check transaction, signs it with a short-lived session key, and decrypts client-side. `decrypt-file.ts` runs the download-to-plaintext round trip and checks the result against the original; run it with `pnpm decrypt-file <ciphertextPath> <sealPolicyId>`:
 
-<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-harbor-quickstart/blob/main/app/src/scripts/decrypt-file.ts -->
+<!-- ImportContent: GitHub source — resolve at export time or visit https://github.com/MystenLabs/walrus-console-quickstart/blob/main/app/src/scripts/decrypt-file.ts -->
 
 Decryption is fully client-side and never touches Console's backend.
 
 ## Get help
 
 - Ask the team and other developers in the [Walrus Discord](https://discord.gg/walrusprotocol).
-- File an issue on the [`walrus-harbor-quickstart`](https://github.com/MystenLabs/walrus-harbor-quickstart/issues) example repo. Include the endpoint and method, the HTTP status, and the `code` field from any error response.
+- File an issue on the [`walrus-console-quickstart`](https://github.com/MystenLabs/walrus-console-quickstart/issues) example repo. Include the endpoint and method, the HTTP status, and the `code` field from any error response.

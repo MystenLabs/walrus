@@ -1,5 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
+- [Aggregators, Publishers, and Upload Relays](/docs/system-overview/aggregators-publishers-relays): What each Walrus HTTP service does, which direction of traffic it handles, who pays for storage, and which endpoint to call, so you can tell an aggregator from a publisher from an upload relay.
 - [Available Networks](/docs/system-overview/available-networks): Overview of Walrus networks including Mainnet and Testnet configurations, parameters, and setup instructions.
 - [Caching Hot Reads](/docs/system-overview/caching): Guidance for caching frequently read Walrus blobs, including caching aggregators, CDN fronting, immutability guarantees, and pitfalls to avoid.
 - [Walrus Fundamentals](/docs/system-overview/core-concepts): Technical reference for Walrus fundamentals, including architecture, data storage, and data retrieval.
@@ -12,6 +13,7 @@
 - [RedStuff Encoding Algorithm](/docs/system-overview/red-stuff): Learn how the RedStuff encoding algorithm works in Walrus, including erasure coding, RaptorQ fountain codes, sliver encoding, recovery, and blob metadata.
 - [Upload Relay](/docs/system-overview/relay): Learn how the Walrus upload relay simplifies blob uploads by batching requests, handling retries, and generating certificates on behalf of your application.
 - [Storage Costs](/docs/system-overview/storage-costs): Comprehensive guide to Walrus storage costs including fixed USD-denominated pricing, WAL tokens, SUI gas fees, and cost optimization strategies.
+- [Storage Pools](/docs/system-overview/storage-pools): Guide to Walrus storage pools, which let many blobs share a single storage reservation so you pay for capacity once and only pay the write fee for each additional blob.
 - [System Constraints & Considerations](/docs/system-overview/system-constraints): Storage limits, cost considerations, memory requirements, and other constraints to consider when building on Walrus.
 - [View System Information](/docs/system-overview/view-system-info): Use the walrus info command to view Walrus system parameters, storage node details, epoch information, and current storage costs.
 - [WAL Tokenomics FAQ](/docs/system-overview/wal-tokenomics-faq): Answers to common questions about the WAL token, covering fee flows, staking and re-delegation, rewards, slashing, and what burning a blob does.

@@ -31,6 +31,10 @@ Sui smart contract as the on-chain index.
 
 ## System Overview
 
+- [Aggregators Publishers Relays](https://docs.wal.app/docs/system-overview/aggregators-publishers-relays.md):
+    Walrus exposes three HTTP services. Callers send requests to the wrong one more often than they
+    make any other endpoint mistake. An aggregator reads. A publisher and an upload relay both
+    write, but they differ in who holds the wallet and who pays.
 - [Available Networks](https://docs.wal.app/docs/system-overview/available-networks.md):
     Walrus Mainnet operates a production-quality storage network using corresponding resources on
     the Sui Mainnet. The Walrus Testnet operates in conjunction with the Sui Testnet and is used to
@@ -44,10 +48,9 @@ Sui smart contract as the on-chain index.
     as text, video, or source code, you can store on Walrus. All blobs uploaded to Walrus are
     publicly available. Sui is a blockchain that supports programmable transactions.
 - [System Overview](https://docs.wal.app/docs/system-overview.md):
-    Available Networks: Overview of Walrus networks including Mainnet and Testnet configurations,
-    parameters, and setup instructions. Caching Hot Reads: Guidance for caching frequently read
-    Walrus blobs, including caching aggregators, CDN fronting, immutability guarantees, and
-    pitfalls to avoid.
+    Aggregators, Publishers, and Upload Relays: What each Walrus HTTP service does, which direction
+    of traffic it handles, who pays for storage, and which endpoint to call, so you can tell an
+    aggregator from a publisher from an upload relay.
 - [Operations](https://docs.wal.app/docs/system-overview/operations.md):
     Blobs can be interacted with through familiar file system operations such as uploading,
     reading, downloading, and deleting. You buy storage on Walrus for a fixed number of epochs, so
@@ -85,6 +88,10 @@ Sui smart contract as the on-chain index.
     availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated
     storage cost of $0.023/GB/month, allowing you to budget and scale with confidence. > Storing
     many small files?
+- [Storage Pools](https://docs.wal.app/docs/system-overview/storage-pools.md):
+    A storage pool is a single storage reservation that many blobs share. In the standard flow,
+    every blob you store owns its own storage resource, bought for that blob's exact size and
+    lifetime.
 - [System Constraints](https://docs.wal.app/docs/system-overview/system-constraints.md):
     Storage limits, cost considerations, memory requirements, and other constraints to consider
     when building on Walrus. This page describes the practical limits and constraints you should
@@ -112,6 +119,9 @@ Sui smart contract as the on-chain index.
     Use the Walrus client to manage blobs and their metadata. Before you extend or depend on a
     blob, check that it is still stored and see when it expires. Use the blob ID: This reports
     whether the blob is stored and its availability period.
+- [Network Health](https://docs.wal.app/docs/walrus-client/network-health.md):
+    Intermittent upload failures usually mean storage nodes are unreachable, not that your client
+    is misconfigured.
 - [Quilts](https://docs.wal.app/docs/walrus-client/quilts.md):
     For efficiently storing large numbers of small blobs, Walrus provides the quilt feature. A
     quilt batches multiple blobs into a single storage unit, significantly reducing overhead and
@@ -380,6 +390,10 @@ Sui smart contract as the on-chain index.
     Best practices for handling Walrus errors. This page covers how to handle Walrus errors
     programmatically in your applications. For a reference of specific error messages and their
     solutions, see Troubleshooting Common Errors. Not all errors are equal.
+- [Grpc Migration](https://docs.wal.app/docs/troubleshooting/grpc-migration.md):
+    Sui has deprecated JSON-RPC. Current Walrus clients already reach Sui over gRPC at the same
+    full node URL your configuration lists, so migrating means upgrading your tooling rather than
+    rewriting your configuration. For the Sui API surface itself, see the Sui API reference.
 - [Troubleshooting](https://docs.wal.app/docs/troubleshooting.md):
     Resolve common issues with the Walrus CLI, configuration, and network connectivity. Before
     undertaking any other steps, make sure you have the latest walrus binary. If you have multiple
@@ -483,8 +497,7 @@ Sui smart contract as the on-chain index.
     on Claude Code, Codex, Cursor, and Antigravity. [x] Node.js 20+ [x] A Walrus Memory account.
 - [Codex](https://docs.wal.app/walrus-memory/mcp/codex.md):
     Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
-    it as MCP-only (recommended; just the tools, one config block, no repo to clone) or as a full
-    plugin (adds automatic-memory hooks, but currently requires cloning the repo).
+    it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools).
 - [Cursor](https://docs.wal.app/walrus-memory/mcp/cursor.md):
     Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
     (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
@@ -753,13 +766,11 @@ Sui smart contract as the on-chain index.
     the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
     Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    August 14, 2026 | GitHub --- August 14, 2026 | GitHub --- July 31, 2026 | GitHub --- June 12,
-    2026 | GitHub Adds the automatic memory plugin for Claude Code, Codex, Cursor, and Antigravity,
-    along with new memwalrememberbulk and memwal_health tools and proactive memory behavior.
+    August 24, 2026 | GitHub --- August 20, 2026 | GitHub Answer orphaned tool calls whose upstream
+    response never arrives with a retryable error instead of hanging indefinitely.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    Testnet | August 12, 2026 | GitHub Requests for quilt patches of expired or nonexistent quilts
-    now return 404 BLOBNOTFOUND within about a second, instead of 503 BLOBUNAVAILABLE after a 10-20
-    second fan-out.
+    Testnet | September 1, 2026 | GitHub Adds a metric counting sync-and-recovery info publications
+    that invalidate the node-recovery baseline and supersede in-flight node-recovery runs.
 - [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
     July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
     (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
@@ -780,6 +791,12 @@ Sui smart contract as the on-chain index.
 
 ## Walrus Memory: API
 
+- [Memory Read API](https://docs.wal.app/walrus-memory/api/memory-read-api.md):
+    Registered routes (colon form used by the docs freshness check): GET /v1/owners/:owner/agents
+    Owner-scoped, cursor-based, read-only.
+- [Owner Token Auth](https://docs.wal.app/walrus-memory/api/owner-token-auth.md):
+    Issuance route: POST /v1/owner-tokens. Lets Console call WM's owner-scoped read API without
+    ever holding a delegate key.
 - [1. Request and sign the returned personal-message challenge in the wallet.](https://docs.wal.app/walrus-memory/api/security-delete.md):
     The Security Delete API permanently deletes legacy Walrus Blob objects that were tracked in
     Walrus Memory's old-V1 database. The server selects and verifies the objects, builds and
@@ -810,6 +827,10 @@ Sui smart contract as the on-chain index.
 - [Returning User](https://docs.wal.app/walrus-memory/guides/returning-user.md):
     Your memories live on Walrus and your account lives on Sui, so they persist no matter which
     device you sign in from. Only the delegate key your browser used last time stays behind.
+- [System Prompt Templates](https://docs.wal.app/walrus-memory/guides/system-prompt-templates.md):
+    Connecting the MCP server gives an agent the memory tools. It does not make the agent use them.
+    Most agents write only when the user says "remember this", which is why an untuned setup
+    produces a handful of memories and then goes quiet. A system prompt fixes that.
 
 ## Walrus Memory: Migration
 
@@ -835,8 +856,7 @@ Sui smart contract as the on-chain index.
     | withmemwallangchain / withmemwalopenai | from memwal import ...
 - [Memwal Manual](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal-manual.md):
     > Note > > Unlike the TypeScript SDK there is no separate MemWalManual class in Python. The
-    Python SDK is relayer-backed: the relayer always handles embedding, Seal encryption, and Walrus
-    storage.
+    Python SDK is relayer-backed for the standard remember / recall flow.
 - [Memwal](https://docs.wal.app/walrus-memory/python-sdk/usage/memwal.md):
     The recommended default client. The relayer handles embeddings, Seal encryption, Walrus upload,
     and vector indexing. The SDK only signs requests and sends text.
