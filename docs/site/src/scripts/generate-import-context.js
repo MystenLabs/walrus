@@ -18,8 +18,11 @@ const ALLOWED_ROOTS = new Set(["documentation", "crates", "examples", "setup", "
 const readText = (p) => fs.readFileSync(p, "utf8").replace(/\r\n?/g, "\n");
 
 function stripFencedCode(md) {
-    // remove ``` blocks to avoid matching tags shown in code samples
-    return md.replace(/```[\s\S]*?```/g, "");
+    // Remove ``` blocks to avoid matching tags shown in code samples.
+    // Only match fences that start at the beginning of a line (with optional
+    // leading whitespace) to avoid false positives from backticks inside
+    // YAML frontmatter strings like `pattern: '```'`.
+    return md.replace(/^[ \t]*```[^\n]*\n[\s\S]*?^[ \t]*```/gm, "");
 }
 
 // Finds <ImportContent ...> start tags (self-closing or not), attribute order agnostic
