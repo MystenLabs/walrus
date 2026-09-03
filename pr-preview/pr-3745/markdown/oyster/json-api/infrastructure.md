@@ -3,7 +3,7 @@
 These endpoints are used for health monitoring and observability. They do
 **not** require authentication and are **not** under the `/api/v1/` prefix.
 
-## Health Check (Liveness)
+## Health check (liveness)
 
 ```
 GET /health
@@ -26,7 +26,7 @@ curl -s "$OYSTER_URL/health" | jq
 }
 ```
 
-## Readiness Check
+## Readiness check
 
 ```
 GET /ready
@@ -69,7 +69,7 @@ curl -s "$OYSTER_URL/ready" | jq
 The `database` and `pearl` fields are only present when the corresponding
 service is unhealthy.
 
-## Prometheus Metrics
+## Prometheus metrics
 
 ```
 GET /metrics
@@ -110,7 +110,7 @@ oyster_blob_store_operations_total{operation="delete",result="success"} 100
 | `oyster_active_blobs` | gauge | Total number of stored blobs |
 | `oyster_blob_store_operations_total` | counter | Blob store operations (labels: `operation`, `result`) |
 
-## OpenAPI Documentation
+## OpenAPI documentation
 
 ```
 GET /api/docs

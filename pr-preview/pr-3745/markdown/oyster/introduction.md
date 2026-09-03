@@ -5,7 +5,7 @@ Oyster is a Web2-friendly object storage service backed by
 [Sui](https://sui.io/) (onchain state). It gives you familiar HTTP and S3
 APIs while your data is stored on a decentralized network.
 
-## Core Concepts
+## Core concepts
 
 ### Accounts
 
@@ -14,7 +14,7 @@ issues you an initial API key (Bearer token). With that token you can create
 additional API keys, manage buckets and blobs, and generate S3-compatible
 access keys.
 
-### API Keys
+### API keys
 
 An API key is a Bearer token used to authenticate JSON API requests. You
 include it in the `Authorization` header:
@@ -57,7 +57,7 @@ Key properties of blobs:
   renews each pool before it expires; see
   [Blob Lifecycle](guides/blob-lifecycle.mdx) for details.
 
-## Two API Surfaces
+## Two API surfaces
 
 Oyster exposes two ways to interact with your data:
 
@@ -68,7 +68,7 @@ the `oyster-cli` command-line tool. Responses are JSON. This API covers
 everything: account management, bucket/blob CRUD, S3 access key management,
 wallet info, and more.
 
-### S3-Compatible API
+### S3-compatible API
 
 An [AWS S3-compatible](https://docs.aws.amazon.com/s3/) interface that speaks
 the same protocol as Amazon S3. Use the AWS CLI, `boto3`, the AWS SDK for
@@ -78,7 +78,7 @@ JavaScript, or any S3-compatible client. Authenticate with S3 access keys
 Both APIs share the same underlying storage and database. Changes made
 through one are immediately visible in the other.
 
-## What's Next
+## What's next
 
 - **[Getting Started](getting-started.mdx)**: set up credentials and make
   your first API calls.

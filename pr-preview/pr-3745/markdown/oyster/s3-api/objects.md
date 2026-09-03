@@ -28,7 +28,7 @@ aws --profile oyster s3api put-object \
 
 The ETag is the MD5 digest of the uploaded content.
 
-### Setting Content-Type
+### Setting content-type
 
 ```bash
 aws --profile oyster s3api put-object \
@@ -40,7 +40,7 @@ aws --profile oyster s3api put-object \
 
 If `--content-type` is omitted, it defaults to `application/octet-stream`.
 
-### Setting Tags on Upload
+### Setting tags on upload
 
 Attach tags at upload time with `--tagging`, a URL-encoded query string of
 `key=value` pairs:
@@ -57,7 +57,7 @@ Tags set this way share the same store as the [JSON API](../json-api/blobs.mdx#b
 and the [Object Tagging](#object-tagging) operations below, and are subject to
 the same [tag rules](../json-api/blobs.mdx#tag-rules).
 
-### Key Behavior
+### Key behavior
 
 - **Overwrite:** Uploading to an existing key replaces the object
 - **Expiration:** Objects share the owning account's `StoragePool`
@@ -66,7 +66,7 @@ the same [tag rules](../json-api/blobs.mdx#tag-rules).
 - **Content-addressed:** Identical content produces the same blob ID
   internally, enabling deduplication
 
-### Conditional Headers
+### Conditional headers
 
 PutObject supports `If-Match` and `If-None-Match` headers for safe writes:
 
@@ -117,7 +117,7 @@ aws --profile oyster s3api get-object \
 The file contents are written to the output path (`downloaded.txt` in this
 example).
 
-### Conditional Headers
+### Conditional headers
 
 GetObject supports `If-Match` and `If-None-Match` for cache validation:
 
@@ -198,7 +198,7 @@ returns success, matching standard S3 behavior.
 Deletion is **reference-counted**: the underlying blob data is only removed
 from storage when no other keys reference the same content.
 
-### Conditional Headers
+### Conditional headers
 
 DeleteObject supports `If-Match` for safe deletion:
 
@@ -216,7 +216,7 @@ DeleteObject supports `If-Match` for safe deletion:
 
 Lists objects in a bucket with optional filtering and pagination.
 
-### Basic Listing
+### Basic listing
 
 ```bash
 aws --profile oyster s3api list-objects-v2 --bucket my-bucket
@@ -249,7 +249,7 @@ aws --profile oyster s3api list-objects-v2 --bucket my-bucket
 }
 ```
 
-### Filtering by Prefix
+### Filtering by prefix
 
 List only objects under a specific "folder":
 
@@ -259,7 +259,7 @@ aws --profile oyster s3api list-objects-v2 \
   --prefix "images/"
 ```
 
-### Simulating Folders with Delimiter
+### Simulating folders with delimiter
 
 Use `--delimiter "/"` to group objects into virtual folders:
 
@@ -298,7 +298,7 @@ aws --profile oyster s3api list-objects-v2 \
 Objects directly at the root level appear in `Contents`, while "folders"
 (key prefixes before the delimiter) appear in `CommonPrefixes`.
 
-### Combining Prefix and Delimiter
+### Combining prefix and delimiter
 
 List the contents of a specific "folder":
 
@@ -326,7 +326,7 @@ aws --profile oyster s3api list-objects-v2 \
   --starting-token "last-key-from-previous-page"
 ```
 
-### Supported Parameters
+### Supported parameters
 
 | Parameter | AWS CLI Flag | Description |
 |-----------|--------------|-------------|
@@ -342,7 +342,7 @@ aws --profile oyster s3api list-objects-v2 \
 |---------------|-----------|
 | `NoSuchBucket` | Bucket doesn't exist |
 
-## Object Tagging
+## Object tagging
 
 Oyster implements the three S3 object-tagging operations. Tags are stored in
 Oyster's database in the same `blob_tags` table used by the
