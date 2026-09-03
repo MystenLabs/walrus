@@ -16,7 +16,7 @@ Key properties:
   lifetime; a background extension service renews each pool before it
   expires (see [Blob Lifecycle](../guides/blob-lifecycle.mdx))
 
-## Store blob
+## Store Blob
 
 ```
 PUT /api/v1/buckets/{bucket_name}/blobs/{key}
@@ -166,7 +166,7 @@ short-circuit fires before any onchain work. Raise (or lower) the
 cap through the admin
 [Update Storage Cap](admin.mdx#update-storage-cap) endpoint.
 
-## Read blob by key
+## Read Blob by Key
 
 ```
 GET /api/v1/buckets/{bucket_name}/blobs/{key}
@@ -224,7 +224,7 @@ curl -s -o /dev/null -w "%{http_code}" \
 | `404` | Blob not found |
 | `412` | `If-Match` condition failed |
 
-## Read blob by blob ID
+## Read Blob by Blob ID
 
 ```
 GET /api/v1/blobs/by-blob-id/{blob_id}
@@ -256,7 +256,7 @@ curl -s "$OYSTER_URL/api/v1/blobs/by-blob-id/2cf24dba5fb0a30e..."
 |--------|-----------|
 | `404` | Blob ID not found |
 
-## List blobs
+## List Blobs
 
 ```
 GET /api/v1/buckets/{bucket_name}/blobs
@@ -317,7 +317,7 @@ curl -s -H "Authorization: Bearer $API_KEY" \
 | `sui_object_id` | string or null | Onchain Sui object ID |
 | `created_at` | string | ISO 8601 timestamp |
 
-## Update blob metadata
+## Update Blob Metadata
 
 ```
 PATCH /api/v1/buckets/{bucket_name}/blobs/{key}/metadata
@@ -366,7 +366,7 @@ curl -s -X PATCH \
 | `401` | Missing or invalid API key |
 | `404` | Blob not found |
 
-## Delete blob
+## Delete Blob
 
 ```
 DELETE /api/v1/buckets/{bucket_name}/blobs/{key}
@@ -437,7 +437,7 @@ Pearl-derived wallet and retry the same `DELETE`. Other onchain
 delete errors are still swallowed to preserve idempotent-delete
 semantics.
 
-## Blob tags
+## Blob Tags
 
 Each blob can carry a small set of arbitrary `key=value` tags, stored in
 Oyster's database (independent of the underlying blob content). Tags set through
@@ -463,7 +463,7 @@ Allowed characters in keys and values: ASCII alphanumerics plus space and
 are rejected. Any request whose resulting tag set violates these rules returns
 `400`.
 
-### Get tags
+### Get Tags
 
 ```
 GET /api/v1/buckets/{bucket_name}/blobs/{key}/tags
@@ -493,7 +493,7 @@ curl -s -H "Authorization: Bearer $API_KEY" \
 |-------|------|-------------|
 | `tags` | object | Map of tag keys to values (empty object if the blob has no tags) |
 
-### Replace tags
+### Replace Tags
 
 ```
 PUT /api/v1/buckets/{bucket_name}/blobs/{key}/tags
@@ -523,7 +523,7 @@ curl -s -X PUT \
 **Errors:** `400` if the tag set violates [tag rules](#tag-rules); `401` if
 unauthenticated; `404` if the blob is not found.
 
-### Merge tags
+### Merge Tags
 
 ```
 PATCH /api/v1/buckets/{bucket_name}/blobs/{key}/tags
@@ -554,7 +554,7 @@ curl -s -X PATCH \
 (for example, exceed the 10-tag cap); `401` if unauthenticated; `404` if the blob is not
 found.
 
-### Delete all tags
+### Delete All Tags
 
 ```
 DELETE /api/v1/buckets/{bucket_name}/blobs/{key}/tags
@@ -572,7 +572,7 @@ curl -s -X DELETE \
 
 **Response:** `204 No Content`
 
-### Set a single tag
+### Set a Single Tag
 
 ```
 PUT /api/v1/buckets/{bucket_name}/blobs/{key}/tags/{tag_key}
@@ -597,7 +597,7 @@ curl -s -X PUT \
 value/key violates [tag rules](#tag-rules); `401` if unauthenticated; `404` if
 the blob is not found.
 
-### Delete a single tag
+### Delete a Single Tag
 
 ```
 DELETE /api/v1/buckets/{bucket_name}/blobs/{key}/tags/{tag_key}

@@ -3,7 +3,7 @@
 Buckets are named containers that hold your blobs. Bucket names are
 **globally unique**: no two accounts can have a bucket with the same name.
 
-## Bucket naming rules
+## Bucket Naming Rules
 
 Bucket names must follow these rules:
 
@@ -19,7 +19,7 @@ Bucket names must follow these rules:
 **Invalid examples:** `My-Bucket` (uppercase), `a` (too short),
 `-bucket` (starts with hyphen), `my--bucket` (consecutive hyphens)
 
-## Create bucket
+## Create Bucket
 
 ```
 POST /api/v1/buckets
@@ -71,7 +71,7 @@ curl -s -X POST \
 | `401` | Missing or invalid API key |
 | `409` | Bucket name already exists |
 
-## List buckets
+## List Buckets
 
 ```
 GET /api/v1/buckets
@@ -116,7 +116,7 @@ curl -s -H "Authorization: Bearer $API_KEY" \
 When `next_cursor` is not `null`, pass it as the `cursor` query parameter
 to fetch the next page.
 
-## Delete bucket
+## Delete Bucket
 
 ```
 DELETE /api/v1/buckets/{bucket_name}

@@ -3,7 +3,7 @@
 Oyster implements the most commonly used S3 operations. The sections below document
 what's different from a full AWS S3 deployment.
 
-## Supported vs. not supported
+## Supported vs. Not Supported
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -35,9 +35,9 @@ what's different from a full AWS S3 deployment.
 | Object Lock / Legal Hold | Not supported | |
 | Lifecycle Rules | Not supported | See automatic expiration below |
 
-## Behavioral differences
+## Behavioral Differences
 
-### Object expiration
+### Object Expiration
 
 All objects in a bucket share the owning account's `StoragePool`
 lifetime, with no per-object expiration to set. Oyster runs a
@@ -46,7 +46,7 @@ so objects persist indefinitely as long as the service is running and
 the account's wallet stays funded. See
 [Blob Lifecycle](../guides/blob-lifecycle.mdx) for the model.
 
-### Bucket naming
+### Bucket Naming
 
 Oyster's bucket naming rules are slightly **stricter** than AWS S3:
 
@@ -57,11 +57,11 @@ Oyster's bucket naming rules are slightly **stricter** than AWS S3:
 | Consecutive hyphens (`--`) | Allowed | Not allowed |
 | Reserved names | None | `health`, `ready`, `metrics`, `api` |
 
-### ListBuckets limit
+### ListBuckets Limit
 
 `ListBuckets` returns a maximum of 1000 buckets with no pagination support.
 
-### Path-style URLs only
+### Path-Style URLs Only
 
 Oyster only supports **path-style** S3 URLs:
 
@@ -72,18 +72,18 @@ http://endpoint/bucket-name/key
 Virtual-hosted-style URLs (`bucket-name.endpoint/key`) are **not**
 supported. Always set `force_path_style: true` in your SDK configuration.
 
-### No region semantics
+### No Region Semantics
 
 Oyster ignores the region in S3 requests. All data is stored in the same
 location. You still need to specify a region for SigV4 signing to work, so
 use any valid region string, for example `us-east-1`.
 
-### ETag format
+### ETag Format
 
 ETags are always the MD5 digest of the object content, even for large
 objects. There is no multipart ETag format, because multipart upload is not supported.
 
-### Conditional request headers
+### Conditional Request Headers
 
 `If-Match` and `If-None-Match` headers are supported on PutObject,
 GetObject, HeadObject, and DeleteObject (If-Match only). These enable

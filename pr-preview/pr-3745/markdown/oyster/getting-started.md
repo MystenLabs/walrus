@@ -9,14 +9,14 @@ you have created a bucket, uploaded a blob, and downloaded it back.
 - **AWS CLI** (optional): for using the S3-compatible API
   ([install guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html))
 
-## Obtaining credentials
+## Obtaining Credentials
 
 Oyster uses a two-tier auth model: **operators** manage accounts with
 long-lived per-app **admin keys**, and **end users** authenticate data
 operations with API keys. Both tiers use `Authorization: Bearer <hex>`;
 the route prefix selects which credential table is consulted.
 
-### For operators
+### For Operators
 
 The server operator creates an app, gets back a first admin key, and
 provisions accounts. See the [Admin API docs](json-api/admin.mdx) for full
@@ -61,7 +61,7 @@ export ACCOUNT_ID="550e8400-e29b-41d4-a716-446655440000"
 export API_KEY="a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
 ```
 
-### For end users
+### For End Users
 
 Your operator provides you with an API key. Store it in an
 environment variable for the rest of this guide:
@@ -71,7 +71,7 @@ export OYSTER_URL="http://localhost:3000"
 export API_KEY="your-api-key-here"
 ```
 
-## Create your first bucket
+## Create Your First Bucket
 
 Buckets are named containers for your blobs. Create one called `my-bucket`:
 
@@ -93,7 +93,7 @@ Response:
 }
 ```
 
-## Upload a blob
+## Upload a Blob
 
 Upload a text file to your bucket with the key `hello.txt`:
 
@@ -127,7 +127,7 @@ curl -s -X PUT \
   "$OYSTER_URL/api/v1/buckets/my-bucket/blobs/images/photo.png" | jq
 ```
 
-## Download a blob
+## Download a Blob
 
 Blob reads are **public** (no authentication needed):
 
@@ -141,7 +141,7 @@ Output:
 Hello, Oyster!
 ```
 
-## List blobs in a bucket
+## List Blobs in a Bucket
 
 ```bash
 curl -s -H "Authorization: Bearer $API_KEY" \
@@ -167,7 +167,7 @@ Response:
 }
 ```
 
-## Delete a blob
+## Delete a Blob
 
 ```bash
 curl -s -X DELETE \
@@ -177,7 +177,7 @@ curl -s -X DELETE \
 
 Returns HTTP 204 (no content) on success.
 
-## Create additional API keys (operator)
+## Create Additional API Keys (Operator)
 
 Additional API keys are created by the operator through the Admin API using
 admin-key authentication. This requires the `$ADMIN_KEY` and `$ACCOUNT_ID`
@@ -206,7 +206,7 @@ Response:
 See the [Admin API docs](json-api/admin.mdx#create-api-key) for full
 details including error handling and key revocation.
 
-## Set up S3 access keys (operator)
+## Set Up S3 Access Keys (Operator)
 
 To use the AWS CLI or any S3-compatible SDK, the operator creates S3 access
 keys through the [Admin API](json-api/admin.mdx#create-access-key). This
@@ -259,7 +259,7 @@ aws --profile oyster s3api get-object \
 
 For the full S3 API reference, see **[S3 API Reference](s3-api/index.mdx)**.
 
-## What's next
+## What's Next
 
 - **[JSON API Reference](json-api/index.mdx)**: detailed documentation of
   every endpoint.

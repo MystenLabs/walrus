@@ -10,7 +10,7 @@ app's accounts returns **403 Forbidden**.
 
 ## Accounts
 
-### Create account
+### Create Account
 
 ```
 POST /api/v1/accounts
@@ -77,7 +77,7 @@ curl -s -X POST \
 | `400` | `max_unencoded_bytes` must be a positive integer, or `avg_blob_size` is negative |
 | `401` | Missing or invalid admin key |
 
-### Update storage cap
+### Update Storage Cap
 
 ```
 PUT /api/v1/accounts/{account_id}/max-storage
@@ -232,9 +232,9 @@ the underlying state has settled (for example, delete some blobs to lower
 A successful cap change writes an `account.max_storage_updated`
 audit event.
 
-## API keys
+## API Keys
 
-### Create API key
+### Create API Key
 
 ```
 POST /api/v1/accounts/{account_id}/api-keys
@@ -282,7 +282,7 @@ curl -s -X POST \
 | `403` | Account does not belong to the authenticated app |
 | `404` | Account not found |
 
-### Revoke API key
+### Revoke API Key
 
 ```
 DELETE /api/v1/accounts/{account_id}/api-keys/{key_id}
@@ -315,12 +315,12 @@ curl -s -X DELETE \
 | `403` | Account does not belong to the authenticated app |
 | `404` | API key not found or already revoked |
 
-## S3 access keys
+## S3 Access Keys
 
 These endpoints manage S3-compatible access keys for accounts. See
 [S3 Access Keys](access-keys.mdx) for key format details and limits.
 
-### Create access key
+### Create Access Key
 
 ```
 POST /api/v1/accounts/{account_id}/access-keys
@@ -368,7 +368,7 @@ curl -s -X POST \
 | `404` | Account not found |
 | `409` | Access key limit reached (max 3 active keys) |
 
-### List access keys
+### List Access Keys
 
 ```
 GET /api/v1/accounts/{account_id}/access-keys
@@ -422,7 +422,7 @@ curl -s \
 | `403` | Account does not belong to the authenticated app |
 | `404` | Account not found |
 
-### Revoke access key
+### Revoke Access Key
 
 ```
 DELETE /api/v1/accounts/{account_id}/access-keys/{access_key_id}
@@ -459,7 +459,7 @@ curl -s -X DELETE \
 
 ## App
 
-### Get app
+### Get App
 
 ```
 GET /api/v1/admin/app
@@ -493,7 +493,7 @@ when you need to retrieve the response from `PUT /admin/app/webhook`.
 |--------|-----------|
 | `401` | Missing or invalid admin key |
 
-### Set webhook URL
+### Set Webhook URL
 
 ```
 PUT /api/v1/admin/app/webhook
@@ -524,7 +524,7 @@ deliveries are signed with the corresponding private key. See
 | `400` | Webhook URL invalid (bad scheme, embedded credentials, oversize, host-less, malformed) |
 | `401` | Missing or invalid admin key |
 
-### Clear webhook URL
+### Clear Webhook URL
 
 ```
 DELETE /api/v1/admin/app/webhook
@@ -542,12 +542,12 @@ fields nulled.
 |--------|-----------|
 | `401` | Missing or invalid admin key |
 
-## Server commands
+## Server Commands
 
 `oysterd` is the server binary. Besides the `oysterd app` subcommands below
 (for managing apps and admin keys), it runs the service itself.
 
-### Running the server
+### Running the Server
 
 ```bash
 oysterd serve     # run the HTTP + S3 server (default when no subcommand given)
@@ -568,7 +568,7 @@ Both services are otherwise configured through environment variables; see the
 [README](https://github.com/MystenLabs/oyster#configuration) for the full
 env-var reference.
 
-### Create app
+### Create App
 
 ```bash
 oysterd app new --name <NAME> --contact_email <EMAIL> [--no-key]
@@ -593,7 +593,7 @@ oysterd app new --name "my-app" --contact_email "admin@example.com"
 # 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
-### Issue admin key
+### Issue Admin Key
 
 ```bash
 oysterd app issue-admin-key <app_id>
@@ -626,7 +626,7 @@ The printed key can be used directly in the `Authorization` header:
 curl -H "Authorization: Bearer $(oysterd app issue-admin-key $APP_ID)" ...
 ```
 
-### List admin keys
+### List Admin Keys
 
 ```bash
 oysterd app list-admin-keys <app_id>
@@ -645,7 +645,7 @@ b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e→01234567→2026-04-15T10:30:00Z→
 a1b2c3d4-e5f6-7890-abcd-ef0123456789→89abcdef→2026-03-01T08:00:00Z→2026-04-15T10:31:00Z
 ```
 
-### Revoke admin key
+### Revoke Admin Key
 
 ```bash
 oysterd app revoke-admin-key <key_id>
@@ -661,7 +661,7 @@ the raw key value.
 oysterd app revoke-admin-key b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e
 ```
 
-### List apps
+### List Apps
 
 ```bash
 oysterd app list

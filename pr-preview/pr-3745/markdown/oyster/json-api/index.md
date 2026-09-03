@@ -28,7 +28,7 @@ Endpoints that **do not** require authentication:
 - Health, readiness, and metrics probes
 - OpenAPI documentation
 
-## Error responses
+## Error Responses
 
 All errors return a JSON body with a single `error` field:
 
@@ -38,7 +38,7 @@ All errors return a JSON body with a single `error` field:
 }
 ```
 
-### Status codes
+### Status Codes
 
 | Code | Meaning |
 |------|---------|
@@ -61,7 +61,7 @@ not yet implemented: `PUT /account/billing`, `GET /account/report`, and
 `POST /account/transfer`. These are intentionally omitted from the per-endpoint
 reference until they are functional.
 
-### Cross-cutting error contracts
+### Cross-Cutting Error Contracts
 
 A few error bodies are shared across multiple routes and carry a
 structured block alongside the standard `error` string. Document
@@ -124,7 +124,7 @@ curl -s -H "Authorization: Bearer $API_KEY" \
   "$OYSTER_URL/api/v1/buckets?limit=10&cursor=eyJjcmVhdGVk..." | jq
 ```
 
-## Interactive documentation
+## Interactive Documentation
 
 Oyster serves an interactive OpenAPI UI at:
 

@@ -8,7 +8,7 @@ Configure the AWS CLI and SDKs to work with Oyster's S3-compatible API using the
 - [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
   (for CLI usage)
 
-## Step 1: Create S3 access keys
+## Step 1: Create S3 Access Keys
 
 Access keys are created through the [Admin API](../json-api/admin.mdx#create-access-key)
 using admin-key authentication:
@@ -39,7 +39,7 @@ aws configure set endpoint_url "$OYSTER_URL" --profile oyster
 > **Region:** Oyster ignores the region value, but AWS SigV4
 > requires one. Use any valid region string, for example `us-east-1`.
 
-## Step 3: Verify connectivity
+## Step 3: Verify Connectivity
 
 ```bash
 aws --profile oyster s3api list-buckets
@@ -54,7 +54,7 @@ haven't created any yet):
 }
 ```
 
-## Quick test
+## Quick Test
 
 Try a full round-trip:
 
@@ -73,7 +73,7 @@ aws --profile oyster s3api get-object \
 cat /tmp/downloaded.txt
 ```
 
-## SDK configuration
+## SDK Configuration
 
 When using AWS SDKs programmatically, you need to set **path-style
 addressing** and a custom endpoint. Here are examples for common SDKs:
