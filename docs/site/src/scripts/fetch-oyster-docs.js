@@ -1,20 +1,16 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 //
-// Fetches Oyster documentation from MystenLabs/oyster at build time
-// and the OpenAPI spec from the live testnet endpoint.
+// Fetches Oyster documentation and static files from MystenLabs/oyster.
 //
 // Usage:
 //   node src/scripts/fetch-oyster-docs.js [--force]
 //
-// Sparse-clones the docs/src/ directory from the public oyster repo
-// into a local cache, then fetches and extracts the OpenAPI spec from
-// the live Scalar HTML page.
+// Sparse-clones docs/src/ (markdown content) and docs/static/ (llms.txt,
+// openapi.json, scalar.html) from the public oyster repo. The static
+// files are copied into the Docusaurus static/oyster/ directory.
 //
 // Pass --force to skip the freshness check (used in CI builds).
-//
-// On network failure the script logs a warning and exits 0 so local
-// dev is not blocked.
 
 const fs = require("fs");
 const path = require("path");
@@ -24,10 +20,10 @@ const SITE_ROOT = path.resolve(__dirname, "../../");
 const CACHE_DIR = path.join(SITE_ROOT, ".cache-oyster");
 const STATIC_DIR = path.join(SITE_ROOT, "static/oyster");
 const SOURCE_PATH = "docs/src";
+const STATIC_PATH = "docs/static";
 const REPO = "MystenLabs/oyster";
 const BRANCH = "main";
 const FRESHNESS_MINUTES = 10;
-const OPENAPI_DOCS_URL = "https://oyster.testnet.mystenlabs.com/api/docs";
 
 const force =
   process.argv.includes("--force") || process.env.FORCE_FETCH === "1";
@@ -47,13 +43,12 @@ function main() {
 
   if (isFresh(sourceDir)) {
     console.log(
-      `⏩ oyster: cache is fresh (< ${FRESHNESS_MINUTES}m), skipping fetch`,
+      `⏩ oyster: cache is fresh (< ${FRESHNESS_MINUTES}m), skipping`,
     );
-    fetchOpenApiSpec();
     return;
   }
 
-  console.log(`📥 oyster: fetching ${REPO}@${BRANCH}/${SOURCE_PATH}`);
+  console.log(`📥 oyster: fetching ${REPO}@${BRANCH}`);
 
   if (fs.existsSync(CACHE_DIR)) {
     fs.rmSync(CACHE_DIR, { recursive: true });
@@ -72,19 +67,32 @@ function main() {
     );
 
     execSync(
-      `git -C "${CACHE_DIR}" sparse-checkout set "${SOURCE_PATH}"`,
+      `git -C "${CACHE_DIR}" sparse-checkout set` +
+        ` "${SOURCE_PATH}" "${STATIC_PATH}"`,
       { stdio: "pipe" },
     );
 
     const now = new Date();
     fs.utimesSync(sourceDir, now, now);
 
-    console.log("✅ oyster: docs fetched successfully");
+    // Copy static files (llms.txt, openapi.json, scalar.html) into
+    // the Docusaurus static/oyster/ directory.
+    const upstreamStatic = path.join(CACHE_DIR, STATIC_PATH);
+    if (fs.existsSync(upstreamStatic)) {
+      fs.mkdirSync(STATIC_DIR, { recursive: true });
+      for (const f of fs.readdirSync(upstreamStatic)) {
+        fs.copyFileSync(
+          path.join(upstreamStatic, f),
+          path.join(STATIC_DIR, f),
+        );
+      }
+      console.log("✅ oyster: static files copied");
+    }
+
+    console.log("✅ oyster: fetch complete");
   } catch (err) {
     if (force) {
-      console.error(
-        `❌ oyster: fetch failed in CI (${err.message})`,
-      );
+      console.error(`❌ oyster: fetch failed (${err.message})`);
       process.exit(1);
     }
     console.warn(
@@ -92,155 +100,6 @@ function main() {
         "Using cached content if available.",
     );
   }
-
-  fetchOpenApiSpec();
-}
-
-async function fetchOpenApiSpec() {
-  const specPath = path.join(STATIC_DIR, "openapi.json");
-
-  if (!force) {
-    try {
-      const stat = fs.statSync(specPath);
-      if (Date.now() - stat.mtimeMs < FRESHNESS_MINUTES * 60 * 1000) {
-        console.log("⏩ oyster: OpenAPI spec is fresh, skipping fetch");
-        return;
-      }
-    } catch {
-      // File doesn't exist, proceed with fetch
-    }
-  }
-
-  console.log(`📥 oyster: fetching OpenAPI spec from ${OPENAPI_DOCS_URL}`);
-
-  try {
-    const resp = await fetch(OPENAPI_DOCS_URL);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const html = await resp.text();
-
-    let spec = null;
-
-    // Strategy 1: Find the inline JSON spec blob
-    const specMatch = html.match(
-      /(\{"openapi"\s*:\s*"3[\s\S]*?\})\s*(?:<\/script>|,\s*")/,
-    );
-    if (specMatch) {
-      const startIdx = html.indexOf('{"openapi"');
-      if (startIdx !== -1) {
-        spec = extractJsonObject(html, startIdx);
-      }
-    }
-
-    // Strategy 2: data attribute
-    if (!spec) {
-      const dataMatch = html.match(/data-spec='([^']+)'/);
-      if (dataMatch) spec = dataMatch[1];
-    }
-
-    if (!spec) {
-      throw new Error(
-        "Could not extract OpenAPI spec from Scalar HTML page",
-      );
-    }
-
-    const parsed = JSON.parse(spec);
-    if (!parsed.openapi || !parsed.info) {
-      throw new Error("Extracted JSON is not a valid OpenAPI spec");
-    }
-
-    // Rewrite relative server URL to absolute testnet URL
-    if (parsed.servers) {
-      parsed.servers = parsed.servers.map((s) => {
-        if (s.url && s.url.startsWith("/")) {
-          return {
-            ...s,
-            url: `https://oyster.testnet.mystenlabs.com${s.url}`,
-          };
-        }
-        return s;
-      });
-    }
-
-    fs.mkdirSync(STATIC_DIR, { recursive: true });
-    fs.writeFileSync(specPath, JSON.stringify(parsed, null, 2));
-    console.log(
-      `✅ oyster: OpenAPI spec saved ` +
-        `(${parsed.paths ? Object.keys(parsed.paths).length : "?"} paths)`,
-    );
-
-    const scalarHtml = generateScalarPage(JSON.stringify(parsed));
-    fs.writeFileSync(path.join(STATIC_DIR, "scalar.html"), scalarHtml);
-    console.log("✅ oyster: Scalar standalone page generated");
-  } catch (err) {
-    console.warn(
-      `⚠️  oyster: OpenAPI spec fetch failed (${err.message}). ` +
-        "Using existing spec if available.",
-    );
-  }
-}
-
-function extractJsonObject(str, start) {
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-
-  for (let i = start; i < str.length; i++) {
-    const ch = str[i];
-    if (escape) { escape = false; continue; }
-    if (ch === "\\") { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
-    if (inString) continue;
-    if (ch === "{") depth++;
-    if (ch === "}") {
-      depth--;
-      if (depth === 0) return str.slice(start, i + 1);
-    }
-  }
-  return null;
-}
-
-function generateScalarPage(specJson) {
-  return `<!-- Copyright (c) Walrus Foundation -->
-<!-- SPDX-License-Identifier: Apache-2.0 -->
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Walrus Oyster API Reference</title>
-  <style>
-    body { margin: 0; }
-    hr { display: none !important; }
-    .darklight-reference-promo { display: none !important; }
-    [class*="separator"] { display: none !important; }
-  </style>
-</head>
-<body>
-  <script id="api-reference" type="application/json">${specJson}</script>
-  <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const parentDark = window.parent !== window
-        ? window.parent.document.documentElement.getAttribute('data-theme') === 'dark'
-        : prefersDark;
-
-      const config = {
-        theme: 'kepler',
-        darkMode: parentDark,
-        showSidebar: true,
-        hideDownloadButton: false,
-        hideModels: false,
-        defaultOpenAllTags: true,
-        hideSearch: true,
-      };
-
-      const scriptEl = document.getElementById('api-reference');
-      scriptEl.dataset.configuration = JSON.stringify(config);
-    });
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
-</body>
-</html>`;
 }
 
 main();
