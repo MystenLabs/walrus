@@ -370,11 +370,6 @@ const config = {
             label: "Walrus",
           },
           {
-            to: "/oyster",
-            label: "Walrus Oyster API",
-            position: "left",
-          },
-          {
             to: "/walrus-memory",
             label: "Walrus Memory",
             position: "left",
@@ -384,6 +379,11 @@ const config = {
             type: "docSidebar",
             sidebarId: "sitesSidebar",
             label: "Walrus Sites",
+            position: "left",
+          },
+          {
+            to: "/oyster",
+            label: "Walrus Oyster API",
             position: "left",
           },
           {
