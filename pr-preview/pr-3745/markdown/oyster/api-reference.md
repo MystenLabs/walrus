@@ -43,6 +43,40 @@
     return null;
   }}
 
-  {() => (
-    
-  )}
+  {() => {
+    const [failed, setFailed] = React.useState(false);
+    const iframeUrl = '/oyster/scalar.html';
+
+    if (failed) {
+      return (
+        
+          The interactive API reference cannot load in this environment.
+          Open the API reference in a new tab
+        
+      );
+    }
+
+    return (
+      <iframe
+        src={iframeUrl}
+        style={{
+          width: '100%',
+          height: 'calc(100vh - 120px)',
+          border: 'none',
+          display: 'block',
+          borderRadius: '4px',
+        }}
+        title="Walrus Oyster API Reference"
+        onError={() => setFailed(true)}
+        onLoad={(e) => {
+          try {
+            // Detect blocked iframe (github.io X-Frame-Options)
+            const doc = e.target.contentDocument;
+            if (!doc || !doc.body || doc.body.innerHTML === '') setFailed(true);
+          } catch (_) {
+            setFailed(true);
+          }
+        }}
+      />
+    );
+  }}
