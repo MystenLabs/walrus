@@ -1,0 +1,17 @@
+# Walrus Oyster API
+
+> Walrus Oyster API is a Web2-friendly object storage service backed by Walrus (decentralized blob
+> storage) and Sui (on-chain state). It provides familiar HTTP and S3-compatible APIs while data is
+> stored on a decentralized network. This index covers the Walrus Oyster API documentation only;
+> for the full Walrus documentation see https://docs.wal.app/llms.txt.
+
+> For the complete, unabridged page index see
+[llms-full.txt](https://docs.wal.app/oyster/llms-full.txt).
+
+## Walrus Oyster API
+
+- [OpenAPI Specification (JSON)](https://docs.wal.app/oyster/openapi.json):
+    Machine-readable OpenAPI 3.1 spec for the Walrus Oyster API. Use for client generation,
+    testing, and agent integration.
+- [Oyster](https://docs.wal.app/oyster.md):
+    Walrus Oyster API documentation is not available in this build.

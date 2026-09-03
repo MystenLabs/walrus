@@ -1,0 +1,2956 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Oyster Object Storage API",
+    "description": "A content-addressed object storage API with buckets, blobs, and API key authentication.",
+    "license": {
+      "name": ""
+    },
+    "version": "0.1.0"
+  },
+  "servers": [
+    {
+      "url": "https://oyster.testnet.mystenlabs.com/api/v1"
+    }
+  ],
+  "paths": {
+    "/account/billing": {
+      "put": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Update billing information for the authenticated account. Not yet implemented.",
+        "operationId": "update_billing",
+        "responses": {
+          "501": {
+            "description": "Not implemented",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/account/extend": {
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Request an immediate storage-pool extension retry.",
+        "description": "Call this after funding the account's wallet (see `/account/wallet` or\nthe `account.funding_required` webhook): it clears the extension\nworker's retry backoff so the pool is re-attempted on the next worker\ncycle instead of waiting out the exponential backoff. Issues no chain\ntransactions itself — the background worker performs the extension.",
+        "operationId": "request_extend",
+        "responses": {
+          "202": {
+            "description": "Extension retry scheduled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExtendRequestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account has no storage pool",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/account/report": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Retrieve a usage report for the authenticated account. Not yet implemented.",
+        "operationId": "get_report",
+        "responses": {
+          "501": {
+            "description": "Not implemented",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/account/transfer": {
+      "post": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Transfer ownership of resources to another account. Not yet implemented.",
+        "operationId": "transfer",
+        "responses": {
+          "501": {
+            "description": "Not implemented",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/account/wallet": {
+      "get": {
+        "tags": [
+          "Account"
+        ],
+        "summary": "Get wallet information for the authenticated account.",
+        "operationId": "get_wallet",
+        "responses": {
+          "200": {
+            "description": "Wallet information",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Wallet service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/accounts": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List accounts owned by the authenticated app, with active API key counts.",
+        "operationId": "list_accounts",
+        "responses": {
+          "200": {
+            "description": "Accounts owned by the authenticated app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccountSummary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Create a new account owned by the authenticated app.",
+        "operationId": "create_account",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Account created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateAccountResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (e.g. non-positive max_unencoded_bytes)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/accounts/{account_id}/access-keys": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List S3 access keys for an account owned by the authenticated app.",
+        "operationId": "admin_list_access_keys",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "description": "Account ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AccountId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of access keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccessKey"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Create a new S3 access key for an account owned by the authenticated app.",
+        "operationId": "admin_create_access_key",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "description": "Account ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AccountId"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Access key created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessKeyWithSecret"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Access key limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/accounts/{account_id}/access-keys/{access_key_id}": {
+      "delete": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Revoke an S3 access key for an account owned by the authenticated app.",
+        "operationId": "admin_delete_access_key",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "description": "Account ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AccountId"
+            }
+          },
+          {
+            "name": "access_key_id",
+            "in": "path",
+            "description": "Access key ID to revoke",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Access key revoked"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Access key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/accounts/{account_id}/api-keys": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List API key metadata for an account owned by the authenticated app.\nNever returns the bearer secret.",
+        "operationId": "list_api_keys_for_account",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "description": "Account ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AccountId"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "API keys for the account",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyMetadata"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Create a new API key for an account owned by the authenticated app.",
+        "operationId": "admin_create_api_key",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "description": "Account ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AccountId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "API key created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyWithBearerToken"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "API key limit reached",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/accounts/{account_id}/api-keys/{key_id}": {
+      "delete": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Revoke an API key for an account owned by the authenticated app.",
+        "operationId": "admin_revoke_api_key",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "description": "Account ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AccountId"
+            }
+          },
+          {
+            "name": "key_id",
+            "in": "path",
+            "description": "API key ID to revoke",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "API key revoked"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "API key not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/accounts/{account_id}/max-storage": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Update an account's per-account `max_unencoded_bytes` cap.",
+        "description": "Logic:\n1. If the account has no on-chain `StoragePool` yet, just update the DB\n   cap — no on-chain action is needed because future uploads enforce the\n   new cap before any lazy-create.\n2. Otherwise read the on-chain pool's\n   `reserved_encoded_capacity_bytes` / `used_encoded_bytes` and compute\n   `threshold = f(new_cap)` (same `f` as the upload-side cap check).\n3. If `used_encoded > threshold`, reject 400 — lowering the cap would\n   orphan currently-stored data.\n4. If `reserved_encoded > threshold`, submit a Pearl-signed\n   `decrease_storage_pool_capacity_by_size` PTB. The contract's own\n   assertion guarantees the chain refuses to cut into `used_encoded`,\n   so a concurrent race surfaces as a structured 400 with the chain's\n   MoveAbort context.\n5. Persist the new cap and reconcile DB pool counters to the\n   post-shrink on-chain truth only when the shrink succeeded (or none\n   was needed).",
+        "operationId": "update_max_storage",
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "description": "Account ID",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/AccountId"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMaxStorageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Cap updated; response carries the post-update on-chain pool snapshot and the shrink tx digest when a shrink was submitted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateMaxStorageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request, would orphan data, or shrink aborted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Account not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "On-chain shrink unavailable in this configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/app": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Return the authenticated app, including its current webhook URL and\npublic key. Useful when an admin lost the response from `set_webhook_url`.",
+        "operationId": "get_app",
+        "responses": {
+          "200": {
+            "description": "The authenticated app, including the webhook public key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppWithPublicKey"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/admin/app/webhook": {
+      "put": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Register or rotate the webhook URL for the authenticated app. Each call\ngenerates a fresh Ed25519 keypair; the returned public key is the only\nway to verify subsequent webhook deliveries.",
+        "operationId": "set_webhook_url",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetWebhookUrlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Webhook URL set; response includes the freshly-generated public key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppWithPublicKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid webhook URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Clear the webhook URL and discard the keypair for the authenticated app.\nSubsequent extension failures will not deliver a webhook.",
+        "operationId": "clear_webhook_url",
+        "responses": {
+          "200": {
+            "description": "Webhook URL cleared",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/App"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/blobs/by-blob-id/{blob_id}": {
+      "get": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Read a blob's content by its content-addressed blob ID. No authentication required.",
+        "operationId": "read_blob_by_blob_id",
+        "parameters": [
+          {
+            "name": "blob_id",
+            "in": "path",
+            "description": "Blob content-hash ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Blob data",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/buckets": {
+      "get": {
+        "tags": [
+          "Buckets"
+        ],
+        "summary": "List all buckets owned by the authenticated account, with cursor-based pagination.",
+        "operationId": "list_buckets",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from a previous response.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of items to return.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of buckets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_Bucket"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Buckets"
+        ],
+        "summary": "Create a new bucket. Bucket names must be globally unique.",
+        "operationId": "create_bucket",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBucketRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Bucket created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bucket"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Bucket name already exists",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/buckets/{bucket_name}": {
+      "delete": {
+        "tags": [
+          "Buckets"
+        ],
+        "summary": "Delete an empty bucket. Returns 409 Conflict if the bucket still contains blobs.",
+        "operationId": "delete_bucket",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Bucket deleted"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bucket not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Bucket is not empty",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/buckets/{bucket_name}/blobs": {
+      "get": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "List all blobs in a bucket, with cursor-based pagination.",
+        "operationId": "list_blobs",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "description": "Opaque cursor from a previous response.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum number of items to return.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of blobs",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_BlobMetadata"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bucket not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/buckets/{bucket_name}/blobs/{key}": {
+      "get": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Read a blob's content by bucket name and key. No authentication required.",
+        "operationId": "read_blob",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Blob data",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Upload a blob into a bucket at the given key. The request body is the raw binary content. Uploading to the same key overwrites.",
+        "operationId": "store_blob",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int32",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Blob stored",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoreBlobResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Upload would push the account past its per-account `max_unencoded_bytes` cap. Body carries a `cap_exceeded` block; the admin can raise the cap via `PUT /api/v1/accounts/{account_id}/max-storage`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapExceededErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Insufficient on-chain balance to fund the upload. Body carries a `funding_required` block hinting at how much WAL (FROST) and SUI (MIST) the Pearl-derived wallet needs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsufficientBalanceErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bucket not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Bucket was deleted concurrently while the upload was in flight. The on-chain `PooledBlob` is best-effort compensated before this response is returned; see `oyster_post_store_compensation_total` for the success/failure outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload too large. Either the body exceeded the static MAX_BLOB_SIZE cap (no structured body) or the upload exceeded the Walrus encoder's per-blob ceiling for this network's n_shards (body carries a `payload_too_large` block).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PayloadTooLargeErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Delete a blob by its bucket name and key. The underlying data is only removed when no other objects reference it.",
+        "operationId": "delete_blob",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Blob deleted"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "402": {
+            "description": "Insufficient on-chain balance to clear the PooledBlob. Body carries a `funding_required` block.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InsufficientBalanceErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/buckets/{bucket_name}/blobs/{key}/metadata": {
+      "patch": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Update a blob's content type.",
+        "operationId": "update_blob_metadata",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBlobMetadataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Metadata updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlobMetadata"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/buckets/{bucket_name}/blobs/{key}/tags": {
+      "get": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "List all tags on a blob.",
+        "operationId": "list_blob_tags",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Tags for the blob",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BlobTagsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Replace the entire tag set on a blob (S3 `PutObjectTagging`-equivalent).",
+        "operationId": "replace_blob_tags",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Tag set replaced"
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Remove every tag from a blob (S3 `DeleteObjectTagging`-equivalent).",
+        "operationId": "clear_blob_tags",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "All tags removed"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Merge a partial tag set into a blob's existing tags (upsert per key).",
+        "operationId": "patch_blob_tags",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchTagsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Tags merged"
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    },
+    "/buckets/{bucket_name}/blobs/{key}/tags/{tag_key}": {
+      "put": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Upsert a single tag on a blob (body is the raw value).",
+        "operationId": "put_blob_tag",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tag_key",
+            "in": "path",
+            "description": "Tag key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "text/plain": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Tag upserted"
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Blobs"
+        ],
+        "summary": "Delete a single tag from a blob. Idempotent.",
+        "operationId": "delete_blob_tag",
+        "parameters": [
+          {
+            "name": "bucket_name",
+            "in": "path",
+            "description": "Bucket name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "description": "Object key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tag_key",
+            "in": "path",
+            "description": "Tag key",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Tag removed (or did not exist)"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Blob not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccessKey": {
+        "type": "object",
+        "description": "An S3 access key record (without the secret).",
+        "required": [
+          "access_key_id",
+          "created_at"
+        ],
+        "properties": {
+          "access_key_id": {
+            "type": "string",
+            "description": "The 20-character access key ID (e.g. \"OYAK...\")."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO 8601 revocation timestamp, if revoked."
+          }
+        }
+      },
+      "AccessKeyWithSecret": {
+        "type": "object",
+        "description": "A newly created S3 access key, including the secret (shown only once).",
+        "required": [
+          "access_key_id",
+          "secret_access_key",
+          "created_at"
+        ],
+        "properties": {
+          "access_key_id": {
+            "type": "string",
+            "description": "The 20-character access key ID."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "secret_access_key": {
+            "type": "string",
+            "description": "The 40-character hex secret access key."
+          }
+        }
+      },
+      "AccountId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A strongly-typed Oyster account identifier (UUID v4)."
+      },
+      "AccountSummary": {
+        "type": "object",
+        "description": "One-row summary of an account, returned by `GET /accounts`.",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "active_api_key_count"
+        ],
+        "properties": {
+          "active_api_key_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of active (non-revoked) API keys on this account."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "id": {
+            "$ref": "#/components/schemas/AccountId",
+            "description": "Unique identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable account name."
+          }
+        }
+      },
+      "ApiKeyMetadata": {
+        "type": "object",
+        "description": "Public API key metadata. Never includes the bearer secret.",
+        "required": [
+          "id",
+          "prefix",
+          "note",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique identifier."
+          },
+          "note": {
+            "type": "string",
+            "description": "Human-readable note (defaults to \"api\")."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "First 8 characters of the raw key."
+          },
+          "revoked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "ISO 8601 revocation timestamp, if revoked."
+          }
+        }
+      },
+      "ApiKeyWithBearerToken": {
+        "type": "object",
+        "description": "A newly created API key, including the Bearer token (shown only once).",
+        "required": [
+          "id",
+          "prefix",
+          "bearer_token",
+          "created_at"
+        ],
+        "properties": {
+          "bearer_token": {
+            "type": "string",
+            "description": "The Bearer token (shown only once)."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "id": {
+            "type": "string",
+            "description": "Unique identifier."
+          },
+          "prefix": {
+            "type": "string",
+            "description": "First 8 characters of the raw key."
+          }
+        }
+      },
+      "App": {
+        "type": "object",
+        "description": "An Oyster app — organizational trust boundary for account creation.",
+        "required": [
+          "id",
+          "name",
+          "contact_email",
+          "created_at"
+        ],
+        "properties": {
+          "contact_email": {
+            "type": "string",
+            "description": "Contact email for the app owner."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "id": {
+            "$ref": "#/components/schemas/AppId",
+            "description": "Unique identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable app name."
+          },
+          "webhook_public_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base64-encoded Ed25519 public key paired with the active webhook URL,\nor `None` when no webhook is configured."
+          },
+          "webhook_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional webhook URL for extension failure notifications."
+          }
+        }
+      },
+      "AppId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "A strongly-typed Oyster app identifier (UUID)."
+      },
+      "AppWithPublicKey": {
+        "type": "object",
+        "description": "Response shape for app endpoints that return the public key alongside\nthe standard `App` fields.",
+        "required": [
+          "id",
+          "name",
+          "contact_email",
+          "created_at"
+        ],
+        "properties": {
+          "contact_email": {
+            "type": "string",
+            "description": "Contact email for the app owner."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "id": {
+            "$ref": "#/components/schemas/AppId",
+            "description": "Unique identifier."
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable app name."
+          },
+          "webhook_public_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Base64-encoded Ed25519 public key for verifying webhook deliveries,\nor `None` when no webhook is configured."
+          },
+          "webhook_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Webhook URL, or `None` when no webhook is configured."
+          }
+        }
+      },
+      "BlobMetadata": {
+        "type": "object",
+        "description": "Metadata for a stored blob.",
+        "required": [
+          "key",
+          "blob_id",
+          "bucket_name",
+          "account_id",
+          "content_type",
+          "size",
+          "md5",
+          "created_at"
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId",
+            "description": "Owning account ID."
+          },
+          "blob_id": {
+            "type": "string",
+            "description": "Content-addressed blob identifier."
+          },
+          "bucket_name": {
+            "type": "string",
+            "description": "Containing bucket name."
+          },
+          "content_type": {
+            "type": "string",
+            "description": "MIME content type."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "encoded_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Walrus-encoded size in bytes, if registered on-chain. `None` for\nlocal-store blobs and for dedup-skipped duplicate rows (the original\nregistering row still carries the encoded size)."
+          },
+          "key": {
+            "type": "string",
+            "description": "User-chosen object key (like a file path)."
+          },
+          "md5": {
+            "type": "string",
+            "description": "Hex-encoded MD5 digest (S3 ETag)."
+          },
+          "pooled_blob_object_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "On-chain Sui object ID of the `PooledBlob`, if stored on Walrus."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size in bytes."
+          }
+        }
+      },
+      "BlobTagsResponse": {
+        "type": "object",
+        "description": "Response body for listing a blob's tags.",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "object",
+            "description": "Tags for the blob. Deterministically ordered for stable responses.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Bucket": {
+        "type": "object",
+        "description": "A named container for blobs within an account.",
+        "required": [
+          "name",
+          "account_id",
+          "created_at"
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId",
+            "description": "Owning account ID."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "name": {
+            "type": "string",
+            "description": "Globally unique bucket name (primary key)."
+          }
+        }
+      },
+      "CapExceededDetails": {
+        "type": "object",
+        "description": "Details accompanying a 400 from the storage-cap path.",
+        "required": [
+          "max_unencoded_bytes",
+          "used_encoded_bytes",
+          "new_unencoded_bytes",
+          "admin_endpoint"
+        ],
+        "properties": {
+          "admin_endpoint": {
+            "type": "string",
+            "description": "Admin route that can raise the cap."
+          },
+          "max_unencoded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Configured per-account cap, in *unencoded* bytes."
+          },
+          "new_unencoded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Unencoded size of the rejected upload."
+          },
+          "used_encoded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "On-chain encoded usage observed at check time."
+          }
+        }
+      },
+      "CapExceededErrorResponse": {
+        "type": "object",
+        "description": "Body returned with a 400 Bad Request when an upload would push the\naccount past its `max_unencoded_bytes` cap. Emitted by `store_blob`\n(JSON) and `put_object` (S3 surface mirrors the message text). The\n`cap_exceeded` block points the caller at the admin endpoint that\ncan raise the cap.",
+        "required": [
+          "error",
+          "cap_exceeded"
+        ],
+        "properties": {
+          "cap_exceeded": {
+            "$ref": "#/components/schemas/CapExceededDetails",
+            "description": "Structured details for the cap-exceeded case."
+          },
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message."
+          }
+        }
+      },
+      "CreateAccountRequest": {
+        "type": "object",
+        "description": "Request body for creating a new account.",
+        "properties": {
+          "avg_blob_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Optional assumed average blob size, in *unencoded* bytes, used to\nturn `max_unencoded_bytes` into a *lower* bound on storable\ncapacity (see [`Account::avg_blob_size`]). Defaults to\n`OYSTER_DEFAULT_AVG_BLOB_SIZE` (10 MB) when omitted. `0` disables\ninflation; negative values are rejected with 400; an oversized\nvalue is accepted as a silent no-op."
+          },
+          "max_unencoded_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Optional per-account storage cap, in *unencoded* bytes.\nDefaults to `5_000_000_000` (5 × 10⁹ bytes) when omitted. Must\nbe strictly positive; `0` and negative values are rejected with\n400."
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Human-readable account name. Defaults to the account ID if omitted."
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional note attached to the auto-issued initial API key.\nDefaults to \"api\" when omitted."
+          }
+        }
+      },
+      "CreateAccountResponse": {
+        "type": "object",
+        "description": "Response after creating a new account.",
+        "required": [
+          "account_id",
+          "api_key"
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId",
+            "description": "The new account ID."
+          },
+          "api_key": {
+            "$ref": "#/components/schemas/ApiKeyWithBearerToken",
+            "description": "The initial API key (with bearer token)."
+          }
+        }
+      },
+      "CreateApiKeyRequest": {
+        "type": "object",
+        "description": "Request body for `POST /accounts/{id}/api-keys`.",
+        "properties": {
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional note attached to the new API key. Defaults to \"api\"\nwhen omitted."
+          }
+        }
+      },
+      "CreateBucketRequest": {
+        "type": "object",
+        "description": "Request body for creating a new bucket.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Desired bucket name."
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Generic error response body.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message."
+          }
+        }
+      },
+      "ExtendRequestResponse": {
+        "type": "object",
+        "description": "Response for a user-requested storage-pool extension retry.",
+        "required": [
+          "status",
+          "pool_end_epoch"
+        ],
+        "properties": {
+          "pool_end_epoch": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The pool's current end epoch as tracked by Oyster; advances once\nthe retried extension lands."
+          },
+          "status": {
+            "type": "string",
+            "description": "Always `\"scheduled\"`: the background extension worker will retry\non its next cycle (typically within a minute)."
+          }
+        }
+      },
+      "FundingAmount": {
+        "type": "object",
+        "description": "WAL/SUI top-up estimate attached to both the synchronous 402 response\nbody and the `account.funding_required` webhook payload.",
+        "required": [
+          "wal_frost",
+          "sui_mist"
+        ],
+        "properties": {
+          "sui_mist": {
+            "type": "string",
+            "description": "Required SUI, in MIST units (1 SUI = 1e9 MIST).",
+            "example": "10000000"
+          },
+          "wal_frost": {
+            "type": "string",
+            "description": "Required WAL, in FROST units (1 WAL = 1e9 FROST).",
+            "example": "12345"
+          }
+        }
+      },
+      "InsufficientBalanceErrorResponse": {
+        "type": "object",
+        "description": "Body returned with a 402 Payment Required when the account's Pearl\nwallet can't cover the requested operation. `funding_required` is\n`None` when the price-lookup itself failed.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message."
+          },
+          "funding_required": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FundingAmount",
+                "description": "Best-effort WAL/SUI top-up estimate, or `None` on lookup failure."
+              }
+            ]
+          }
+        }
+      },
+      "PaginatedResponse_BlobMetadata": {
+        "type": "object",
+        "description": "A paginated list response.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "Metadata for a stored blob.",
+              "required": [
+                "key",
+                "blob_id",
+                "bucket_name",
+                "account_id",
+                "content_type",
+                "size",
+                "md5",
+                "created_at"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/components/schemas/AccountId",
+                  "description": "Owning account ID."
+                },
+                "blob_id": {
+                  "type": "string",
+                  "description": "Content-addressed blob identifier."
+                },
+                "bucket_name": {
+                  "type": "string",
+                  "description": "Containing bucket name."
+                },
+                "content_type": {
+                  "type": "string",
+                  "description": "MIME content type."
+                },
+                "created_at": {
+                  "type": "string",
+                  "description": "ISO 8601 creation timestamp."
+                },
+                "encoded_size": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int64",
+                  "description": "Walrus-encoded size in bytes, if registered on-chain. `None` for\nlocal-store blobs and for dedup-skipped duplicate rows (the original\nregistering row still carries the encoded size)."
+                },
+                "key": {
+                  "type": "string",
+                  "description": "User-chosen object key (like a file path)."
+                },
+                "md5": {
+                  "type": "string",
+                  "description": "Hex-encoded MD5 digest (S3 ETag)."
+                },
+                "pooled_blob_object_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "On-chain Sui object ID of the `PooledBlob`, if stored on Walrus."
+                },
+                "size": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "Size in bytes."
+                }
+              }
+            },
+            "description": "The items in this page."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque cursor for fetching the next page, if more results exist."
+          }
+        }
+      },
+      "PaginatedResponse_Bucket": {
+        "type": "object",
+        "description": "A paginated list response.",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A named container for blobs within an account.",
+              "required": [
+                "name",
+                "account_id",
+                "created_at"
+              ],
+              "properties": {
+                "account_id": {
+                  "$ref": "#/components/schemas/AccountId",
+                  "description": "Owning account ID."
+                },
+                "created_at": {
+                  "type": "string",
+                  "description": "ISO 8601 creation timestamp."
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Globally unique bucket name (primary key)."
+                }
+              }
+            },
+            "description": "The items in this page."
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Opaque cursor for fetching the next page, if more results exist."
+          }
+        }
+      },
+      "PatchTagsRequest": {
+        "type": "object",
+        "description": "Request body for a partial tag-set merge.",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "object",
+            "description": "Tags to upsert onto the existing set.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PayloadTooLargeDetails": {
+        "type": "object",
+        "description": "Details accompanying a 413 from the encoder-ceiling path.",
+        "required": [
+          "unencoded_size_bytes",
+          "n_shards",
+          "max_unencoded_bytes_for_network"
+        ],
+        "properties": {
+          "max_unencoded_bytes_for_network": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Per-network maximum unencoded blob size at this `n_shards`.",
+            "minimum": 0
+          },
+          "n_shards": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of shards in the network's encoding config.",
+            "minimum": 0
+          },
+          "unencoded_size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size of the rejected upload, in unencoded bytes.",
+            "minimum": 0
+          }
+        }
+      },
+      "PayloadTooLargeErrorResponse": {
+        "type": "object",
+        "description": "Body returned with a 413 Payload Too Large when an upload\nexceeds the network's per-blob encoder ceiling. Distinct from\nthe static `MAX_BLOB_SIZE` body-limit 413 (which has no structured\n`payload_too_large` block).",
+        "required": [
+          "error",
+          "payload_too_large"
+        ],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message."
+          },
+          "payload_too_large": {
+            "$ref": "#/components/schemas/PayloadTooLargeDetails",
+            "description": "Structured details for the encoder-ceiling case."
+          }
+        }
+      },
+      "PoolOnChainState": {
+        "type": "object",
+        "description": "On-chain `StoragePool` counters surfaced in the\n[`UpdateMaxStorageResponse`].",
+        "required": [
+          "reserved_encoded_bytes",
+          "used_encoded_bytes"
+        ],
+        "properties": {
+          "reserved_encoded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "`storage.storage_size` — encoded bytes reserved by the pool."
+          },
+          "used_encoded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "`used_encoded_bytes` — encoded bytes currently consumed by\nregistered blobs."
+          }
+        }
+      },
+      "PutTagsRequest": {
+        "type": "object",
+        "description": "Request body for a full tag-set replace.",
+        "required": [
+          "tags"
+        ],
+        "properties": {
+          "tags": {
+            "type": "object",
+            "description": "Complete replacement set of tags.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "SetWebhookUrlRequest": {
+        "type": "object",
+        "description": "Request body for `PUT /admin/app/webhook`.",
+        "required": [
+          "webhook_url"
+        ],
+        "properties": {
+          "webhook_url": {
+            "type": "string",
+            "description": "The webhook URL to register. Must be `https://`, must not embed\ncredentials, must have a host. Each call generates a fresh keypair."
+          }
+        }
+      },
+      "StoreBlobResponse": {
+        "type": "object",
+        "description": "Response after successfully storing a blob.",
+        "required": [
+          "key",
+          "blob_id",
+          "size",
+          "md5",
+          "created_at"
+        ],
+        "properties": {
+          "blob_id": {
+            "type": "string",
+            "description": "Content-addressed blob ID."
+          },
+          "created_at": {
+            "type": "string",
+            "description": "ISO 8601 creation timestamp."
+          },
+          "key": {
+            "type": "string",
+            "description": "User-chosen object key."
+          },
+          "md5": {
+            "type": "string",
+            "description": "Hex-encoded MD5 digest (S3 ETag)."
+          },
+          "pooled_blob_object_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "On-chain Sui object ID of the `PooledBlob`, if applicable."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Size in bytes."
+          }
+        }
+      },
+      "UpdateBlobMetadataRequest": {
+        "type": "object",
+        "description": "Request body for updating blob metadata.",
+        "properties": {
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "New MIME content type."
+          }
+        }
+      },
+      "UpdateMaxStorageRequest": {
+        "type": "object",
+        "description": "Request body for `PUT /admin/accounts/{account_id}/max-storage`.",
+        "required": [
+          "max_unencoded_bytes"
+        ],
+        "properties": {
+          "avg_blob_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Optional new assumed average blob size, in *unencoded* bytes (see\n[`Account::avg_blob_size`]). When omitted, the account's existing\n`avg_blob_size` is retained and the orphan/shrink threshold is\nrecomputed against it. `0` disables inflation; negative values\nare rejected with 400; an oversized value is a silent no-op."
+          },
+          "max_unencoded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "New per-account cap, in *unencoded* bytes. Must be strictly\npositive; `0` and negative values are rejected with 400."
+          }
+        }
+      },
+      "UpdateMaxStorageResponse": {
+        "type": "object",
+        "description": "Response body for `PUT /admin/accounts/{account_id}/max-storage`.",
+        "required": [
+          "account_id",
+          "max_unencoded_bytes",
+          "avg_blob_size"
+        ],
+        "properties": {
+          "account_id": {
+            "$ref": "#/components/schemas/AccountId",
+            "description": "The account whose cap was updated."
+          },
+          "avg_blob_size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The effective assumed average blob size after the update (see\n[`Account::avg_blob_size`]). Echoes the request value when\nsupplied, otherwise the account's retained value."
+          },
+          "max_unencoded_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The new cap, in *unencoded* bytes."
+          },
+          "pool": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PoolOnChainState",
+                "description": "On-chain `StoragePool` snapshot after the (optional) shrink.\n`None` when the account has never lazy-created a pool (so no\non-chain read was performed)."
+              }
+            ]
+          },
+          "shrink_tx_digest": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Digest of the submitted shrink PTB, or `None` when no shrink\nwas needed."
+          }
+        }
+      },
+      "WalletResponse": {
+        "type": "object",
+        "description": "Wallet information for an account.",
+        "required": [
+          "address"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Sui address of the wallet."
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API Key"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Account",
+      "description": "Account and API key management"
+    },
+    {
+      "name": "Buckets",
+      "description": "Bucket CRUD operations"
+    },
+    {
+      "name": "Blobs",
+      "description": "Blob storage and retrieval"
+    },
+    {
+      "name": "Health",
+      "description": "Health and readiness probes"
+    },
+    {
+      "name": "Admin",
+      "description": "Admin endpoints (admin-key authenticated)"
+    }
+  ]
+}
