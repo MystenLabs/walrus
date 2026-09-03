@@ -171,6 +171,7 @@ hide_title: true
 ---
 
 import BrowserOnly from '@docusaurus/BrowserOnly';
+import React from 'react';
 
 <BrowserOnly>
   {() => {
@@ -218,19 +219,43 @@ import BrowserOnly from '@docusaurus/BrowserOnly';
 </BrowserOnly>
 
 <BrowserOnly>
-  {() => (
-    <iframe
-      src="${scalarUrl}"
-      style={{
-        width: '100%',
-        height: 'calc(100vh - 120px)',
-        border: 'none',
-        display: 'block',
-        borderRadius: '4px',
-      }}
-      title="Walrus Oyster API Reference"
-    />
-  )}
+  {() => {
+    const [failed, setFailed] = React.useState(false);
+    const iframeUrl = '${scalarUrl}';
+
+    if (failed) {
+      return (
+        <div style={{ padding: '2rem', textAlign: 'center' }}>
+          <p>The interactive API reference cannot load in this environment.</p>
+          <p><a href={iframeUrl} target="_blank" rel="noopener noreferrer">Open the API reference in a new tab</a></p>
+        </div>
+      );
+    }
+
+    return (
+      <iframe
+        src={iframeUrl}
+        style={{
+          width: '100%',
+          height: 'calc(100vh - 120px)',
+          border: 'none',
+          display: 'block',
+          borderRadius: '4px',
+        }}
+        title="Walrus Oyster API Reference"
+        onError={() => setFailed(true)}
+        onLoad={(e) => {
+          try {
+            // Detect blocked iframe (github.io X-Frame-Options)
+            const doc = e.target.contentDocument;
+            if (!doc || !doc.body || doc.body.innerHTML === '') setFailed(true);
+          } catch (_) {
+            setFailed(true);
+          }
+        }}
+      />
+    );
+  }}
 </BrowserOnly>
 `;
 }

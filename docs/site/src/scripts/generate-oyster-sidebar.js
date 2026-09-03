@@ -19,11 +19,8 @@ const SIDEBAR_OUT = path.join(SITE_ROOT, "sidebarsOyster.js");
 // README → index renames and .md stripped.
 
 const STRUCTURE = [
-  {
-    label: "Get Started",
-    collapsed: false,
-    items: ["introduction", "getting-started"],
-  },
+  "introduction",
+  "getting-started",
   {
     label: "JSON API Reference",
     collapsed: true,
