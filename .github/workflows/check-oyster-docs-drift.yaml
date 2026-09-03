@@ -1,0 +1,115 @@
+# Copyright (c) Walrus Foundation
+# SPDX-License-Identifier: Apache-2.0
+#
+# Checks whether the Oyster docs committed in docs/oyster-upstream/ are
+# still in sync with the upstream MystenLabs/oyster repo. Runs daily and
+# on PRs that touch the upstream copy. When drift is detected, it opens
+# (or updates) an issue prompting the team to pull the latest changes.
+
+name: Check Oyster docs drift
+
+on:
+  schedule:
+    # Run daily at 04:00 UTC (shortly after the docs rebuild cron)
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-drift:
+    name: Check for upstream Oyster doc changes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned SHA
+        id: pinned
+        run: |
+          SHA=$(cat docs/oyster-upstream/.oyster-upstream-sha | tr -d '[:space:]')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Pinned SHA: $SHA"
+
+      - name: Fetch latest upstream SHA
+        id: upstream
+        run: |
+          SHA=$(git ls-remote https://github.com/MystenLabs/oyster.git HEAD | cut -f1)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Upstream SHA: $SHA"
+
+      - name: Compare
+        id: compare
+        run: |
+          if [ "${{ steps.pinned.outputs.sha }}" = "${{ steps.upstream.outputs.sha }}" ]; then
+            echo "drift=false" >> "$GITHUB_OUTPUT"
+            echo "✅ Oyster docs are up to date"
+          else
+            echo "drift=true" >> "$GITHUB_OUTPUT"
+            echo "⚠️  Oyster docs are behind upstream"
+            echo "  Pinned:   ${{ steps.pinned.outputs.sha }}"
+            echo "  Upstream: ${{ steps.upstream.outputs.sha }}"
+          fi
+
+      - name: Open or update drift issue
+        if: steps.compare.outputs.drift == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '⚠️ Oyster docs are out of sync with upstream';
+            const pinned = '${{ steps.pinned.outputs.sha }}';
+            const upstream = '${{ steps.upstream.outputs.sha }}';
+            const body = [
+              '## Oyster docs drift detected',
+              '',
+              'The Oyster documentation in `docs/oyster-upstream/` is behind',
+              'the upstream [MystenLabs/oyster](https://github.com/MystenLabs/oyster) repo.',
+              '',
+              `| | SHA |`,
+              `|---|---|`,
+              `| **Pinned** | \`${pinned}\` |`,
+              `| **Upstream** | \`${upstream}\` |`,
+              `| **Compare** | [View diff](https://github.com/MystenLabs/oyster/compare/${pinned}...${upstream}) |`,
+              '',
+              '### To update',
+              '',
+              '```bash',
+              'cd /path/to/walrus',
+              'git clone --depth 50 https://github.com/MystenLabs/oyster.git /tmp/oyster',
+              'rm -rf docs/oyster-upstream/*',
+              'cp -r /tmp/oyster/docs/src/* docs/oyster-upstream/',
+              `echo "$(cd /tmp/oyster && git rev-parse HEAD)" > docs/oyster-upstream/.oyster-upstream-sha`,
+              'rm -rf /tmp/oyster',
+              '```',
+              '',
+              'Then commit and open a PR.',
+            ].join('\n');
+
+            // Find existing open issue
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'oyster-docs-drift',
+              per_page: 1,
+            });
+
+            if (issues.length > 0) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues[0].number,
+                body,
+              });
+              console.log(`Updated issue #${issues[0].number}`);
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['oyster-docs-drift'],
+              });
+              console.log('Created new drift issue');
+            }
