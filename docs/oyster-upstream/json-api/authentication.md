@@ -5,7 +5,7 @@ for blob reads and infrastructure probes. There are two tiers of Bearer
 token, distinguished by which routes they unlock; both share the same
 `Authorization: Bearer <hex>` wire format.
 
-## Authentication Modes at a Glance
+## Authentication modes at a glance
 
 | Route pattern | Auth mode | Purpose |
 |---|---|---|
@@ -20,7 +20,7 @@ token, distinguished by which routes they unlock; both share the same
 > (one account per key). Both tokens are 64-char hex; the hash check
 > happens on whichever table the route is statically wired to.
 
-## Bearer Token (API Key) Authentication
+## Bearer token (API key) authentication
 
 Include your API key in the `Authorization` header:
 
@@ -54,7 +54,7 @@ creation time. A lost key cannot be recovered.
 |---|---|
 | `401 Unauthorized` | Missing, malformed, or invalid API key |
 
-## Admin-Key Authentication (for Apps)
+## Admin-key authentication (for apps)
 
 Admin endpoints require a per-app **admin key** issued by the server
 operator:
@@ -108,7 +108,7 @@ revoked) so an operator can audit before revoking.
 | `401 Unauthorized` | Missing, malformed, revoked, or unknown admin key |
 | `403 Forbidden` | Valid admin key but accessing another app's resources |
 
-## Public Endpoints (No Authentication)
+## Public endpoints (no authentication)
 
 The following routes require no authentication:
 
@@ -122,7 +122,7 @@ The following routes require no authentication:
 curl -s "$OYSTER_URL/api/v1/buckets/my-bucket/blobs/hello.txt"
 ```
 
-## Security Notes
+## Security notes
 
 - **API keys and admin keys**: Only the BLAKE2s-256 hash is stored.
   A lost key cannot be recovered; issue a new one instead.
