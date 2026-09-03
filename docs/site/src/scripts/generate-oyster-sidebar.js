@@ -138,6 +138,15 @@ function main() {
     return;
   }
 
+  // If only the placeholder index exists (fetch failed), generate a
+  // minimal sidebar so Docusaurus does not crash on empty categories.
+  const hasRealContent = pageExists("introduction") || pageExists("getting-started");
+  if (!hasRealContent) {
+    console.warn("⚠️  oyster: only placeholder content found. Generating minimal sidebar.");
+    fs.writeFileSync(SIDEBAR_OUT, formatSidebar(["index"]));
+    return;
+  }
+
   const sidebar = [];
   for (const item of STRUCTURE) {
     const built = buildItem(item);
