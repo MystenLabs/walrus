@@ -1,70 +1,104 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 //
-// Prepares the Oyster docs cache from the committed upstream copy and
-// fetches the OpenAPI spec from the live testnet endpoint.
+// Fetches Oyster documentation from MystenLabs/oyster at build time
+// and the OpenAPI spec from the live testnet endpoint.
 //
 // Usage:
 //   node src/scripts/fetch-oyster-docs.js [--force]
 //
-// The Oyster docs source is checked into docs/oyster-upstream/ (copied
-// from MystenLabs/oyster). This script symlinks/copies it into the
-// .cache-oyster/ directory that the transform script expects, then
-// fetches the OpenAPI spec from the live Scalar page.
+// Sparse-clones the docs/src/ directory from the public oyster repo
+// into a local cache, then fetches and extracts the OpenAPI spec from
+// the live Scalar HTML page.
 //
-// Pass --force to re-fetch the OpenAPI spec even if it is fresh.
+// Pass --force to skip the freshness check (used in CI builds).
+//
+// On network failure the script logs a warning and exits 0 so local
+// dev is not blocked.
 
 const fs = require("fs");
 const path = require("path");
+const { execSync } = require("child_process");
 
 const SITE_ROOT = path.resolve(__dirname, "../../");
-const CACHE_DIR = path.join(SITE_ROOT, ".cache-oyster/docs/src");
-const UPSTREAM_DIR = path.resolve(SITE_ROOT, "../oyster-upstream");
+const CACHE_DIR = path.join(SITE_ROOT, ".cache-oyster");
 const STATIC_DIR = path.join(SITE_ROOT, "static/oyster");
+const SOURCE_PATH = "docs/src";
+const REPO = "MystenLabs/oyster";
+const BRANCH = "main";
 const FRESHNESS_MINUTES = 10;
 const OPENAPI_DOCS_URL = "https://oyster.testnet.mystenlabs.com/api/docs";
 
 const force =
   process.argv.includes("--force") || process.env.FORCE_FETCH === "1";
 
-function main() {
-  // Copy the committed upstream docs into the cache location the
-  // transform script reads from.
-  if (!fs.existsSync(UPSTREAM_DIR)) {
-    console.error(
-      "❌ oyster: docs/oyster-upstream/ not found. Cannot proceed.",
-    );
-    process.exit(1);
+function isFresh(dir) {
+  if (force) return false;
+  try {
+    const stat = fs.statSync(dir);
+    return Date.now() - stat.mtimeMs < FRESHNESS_MINUTES * 60 * 1000;
+  } catch {
+    return false;
   }
+}
+
+function main() {
+  const sourceDir = path.join(CACHE_DIR, SOURCE_PATH);
+
+  if (isFresh(sourceDir)) {
+    console.log(
+      `⏩ oyster: cache is fresh (< ${FRESHNESS_MINUTES}m), skipping fetch`,
+    );
+    fetchOpenApiSpec();
+    return;
+  }
+
+  console.log(`📥 oyster: fetching ${REPO}@${BRANCH}/${SOURCE_PATH}`);
 
   if (fs.existsSync(CACHE_DIR)) {
     fs.rmSync(CACHE_DIR, { recursive: true });
   }
   fs.mkdirSync(CACHE_DIR, { recursive: true });
-  copyDir(UPSTREAM_DIR, CACHE_DIR);
-  console.log("✅ oyster: copied committed upstream docs into cache");
 
-  // Fetch the OpenAPI spec from the live Scalar page
-  fetchOpenApiSpec();
-}
+  try {
+    execSync(
+      [
+        `git clone --depth 1 --filter=blob:none --sparse`,
+        `--branch ${BRANCH}`,
+        `https://github.com/${REPO}.git`,
+        `"${CACHE_DIR}"`,
+      ].join(" "),
+      { stdio: "pipe" },
+    );
 
-function copyDir(src, dest) {
-  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      fs.mkdirSync(destPath, { recursive: true });
-      copyDir(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
+    execSync(
+      `git -C "${CACHE_DIR}" sparse-checkout set "${SOURCE_PATH}"`,
+      { stdio: "pipe" },
+    );
+
+    const now = new Date();
+    fs.utimesSync(sourceDir, now, now);
+
+    console.log("✅ oyster: docs fetched successfully");
+  } catch (err) {
+    if (force) {
+      console.error(
+        `❌ oyster: fetch failed in CI (${err.message})`,
+      );
+      process.exit(1);
     }
+    console.warn(
+      `⚠️  oyster: fetch failed (${err.message}). ` +
+        "Using cached content if available.",
+    );
   }
+
+  fetchOpenApiSpec();
 }
 
 async function fetchOpenApiSpec() {
   const specPath = path.join(STATIC_DIR, "openapi.json");
 
-  // Check freshness of existing spec
   if (!force) {
     try {
       const stat = fs.statSync(specPath);
@@ -84,10 +118,9 @@ async function fetchOpenApiSpec() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const html = await resp.text();
 
-    // The spec is embedded as a JSON object in the Scalar HTML page.
     let spec = null;
 
-    // Strategy 1: Look for {"openapi": in the HTML (the raw spec blob)
+    // Strategy 1: Find the inline JSON spec blob
     const specMatch = html.match(
       /(\{"openapi"\s*:\s*"3[\s\S]*?\})\s*(?:<\/script>|,\s*")/,
     );
@@ -101,19 +134,7 @@ async function fetchOpenApiSpec() {
     // Strategy 2: data attribute
     if (!spec) {
       const dataMatch = html.match(/data-spec='([^']+)'/);
-      if (dataMatch) {
-        spec = dataMatch[1];
-      }
-    }
-
-    // Strategy 3: spec content between markers
-    if (!spec) {
-      const contentMatch = html.match(
-        /"spec"\s*:\s*(\{[\s\S]*?"paths"\s*:\s*\{[\s\S]*?\})\s*\}/,
-      );
-      if (contentMatch) {
-        spec = contentMatch[1] + "}";
-      }
+      if (dataMatch) spec = dataMatch[1];
     }
 
     if (!spec) {
@@ -143,16 +164,17 @@ async function fetchOpenApiSpec() {
     fs.mkdirSync(STATIC_DIR, { recursive: true });
     fs.writeFileSync(specPath, JSON.stringify(parsed, null, 2));
     console.log(
-      `✅ oyster: OpenAPI spec saved (${parsed.paths ? Object.keys(parsed.paths).length : "?"} paths)`,
+      `✅ oyster: OpenAPI spec saved ` +
+        `(${parsed.paths ? Object.keys(parsed.paths).length : "?"} paths)`,
     );
 
-    // Generate a standalone Scalar HTML page for iframe embedding
     const scalarHtml = generateScalarPage(JSON.stringify(parsed));
     fs.writeFileSync(path.join(STATIC_DIR, "scalar.html"), scalarHtml);
     console.log("✅ oyster: Scalar standalone page generated");
   } catch (err) {
     console.warn(
-      `⚠️  oyster: OpenAPI spec fetch failed (${err.message}). Using existing spec if available.`,
+      `⚠️  oyster: OpenAPI spec fetch failed (${err.message}). ` +
+        "Using existing spec if available.",
     );
   }
 }
