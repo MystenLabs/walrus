@@ -239,6 +239,20 @@ walrus_utils::metrics::define_metric_set! {
         is epoch % SNAPSHOT_EPOCH_BUCKET_COUNT (see blob_info_snapshot_writer.rs)."]
         blob_info_snapshot_blob_id: IntGaugeVec["epoch"],
 
+        #[help = "The duration of the certify_snapshot_blob contract call, in seconds."]
+        blob_info_snapshot_certify_duration_seconds: Gauge[],
+
+        #[help = "The number of errors while certifying blob info snapshots."]
+        blob_info_snapshot_certify_error_total: IntCounter[],
+
+        #[help = "The number of blob info snapshot publications found uncertified at the next \
+        epoch boundary and cleaned up (no quorum, divergence, or a failed publication)."]
+        blob_info_snapshot_uncertified_cleanup_total: IntCounter[],
+
+        #[help = "The epoch of the latest blob info snapshot certified on chain, as read by this \
+        node at its last epoch boundary; 0 until a certification has been observed."]
+        blob_info_snapshot_last_certified_epoch: IntGauge[],
+
         #[help = "The number of certified per-object blobs scanned during the per-object blob info \
         consistency check."]
         per_object_blob_info_consistency_check_certified_scanned: IntCounterVec["epoch"],
