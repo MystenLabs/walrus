@@ -657,11 +657,7 @@ Sui smart contract as the on-chain index.
 - [OpenAPI Specification (JSON)](https://docs.wal.app/oyster/openapi.json):
     Machine-readable OpenAPI 3.1 spec for the Walrus Oyster API. Use for client generation,
     testing, and agent integration.
-- [API Reference](https://docs.wal.app/oyster/api-reference.md):
-    { => { const style = document.createElement('style'); style.textContent = ;
-    document.head.appendChild(style); return null; }} { => { const [failed, setFailed] =
-    React.useState(false); if (failed) { return ( The interactive API reference cannot load in this
-    environment.
+- [API Reference](https://docs.wal.app/oyster/api-reference.md)
 - [1. Create an app (server operator runs this once). app new auto-issues](https://docs.wal.app/oyster/getting-started.md):
     Follow these steps to complete your first interactions with Oyster. By the end, you have
     created a bucket, uploaded a blob, and downloaded it back.
