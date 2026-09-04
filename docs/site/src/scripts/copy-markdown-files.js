@@ -341,4 +341,35 @@ if (fs.existsSync(walrusMemoryDir)) {
   console.log('\n⏩ Walrus Memory docs not found, skipping export');
 }
 
+// Copy Oyster docs (external content, read directly from transformed source)
+const oysterDir = path.join(__dirname, '../../../oyster-content');
+const oysterOutputDir = path.join(outputDir, 'oyster');
+if (fs.existsSync(oysterDir)) {
+  console.log('\n📝 Exporting Oyster docs...');
+  fs.mkdirSync(oysterOutputDir, { recursive: true });
+  function copyOysterFiles(dir, baseDir) {
+    const files = fs.readdirSync(dir);
+    files.forEach(file => {
+      const filePath = path.join(dir, file);
+      const stat = fs.statSync(filePath);
+      if (stat.isDirectory()) {
+        copyOysterFiles(filePath, baseDir);
+      } else if (file.endsWith('.md') || file.endsWith('.mdx')) {
+        const content = fs.readFileSync(filePath, 'utf8');
+        if (shouldSkip(content)) return;
+        const cleanContent = stripFrontmatter(content, filePath, baseDir);
+        if (!cleanContent.trim()) return;
+        const relativePath = path.relative(baseDir, filePath);
+        const outPath = path.join(oysterOutputDir, relativePath.replace(/\.mdx?$/, '.md'));
+        fs.mkdirSync(path.dirname(outPath), { recursive: true });
+        fs.writeFileSync(outPath, cleanContent, 'utf8');
+        console.log(`  ✔ Oyster: ${relativePath}`);
+      }
+    });
+  }
+  copyOysterFiles(oysterDir, oysterDir);
+} else {
+  console.log('\n⏩ Oyster docs not found, skipping export');
+}
+
 console.log('\n✅ Markdown files exported successfully');

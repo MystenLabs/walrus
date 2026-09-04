@@ -31,6 +31,9 @@ working_dir/
 
 # Fetched external docs
 docs/walrus-memory-content/
+docs/oyster-content/
+docs/site/.cache-oyster/
+docs/site/static/oyster/
 *.log
 venv/
 **/tmp

@@ -240,6 +240,17 @@ const config = {
     [
       "@docusaurus/plugin-content-docs",
       {
+        id: "oyster",
+        path: "../oyster-content",
+        routeBasePath: "oyster",
+        sidebarPath: "./sidebarsOyster.js",
+        remarkPlugins: [remarkMath],
+        rehypePlugins: [rehypeKatex],
+      },
+    ],
+    [
+      "@docusaurus/plugin-content-docs",
+      {
         id: "walrus-memory",
         path: "../walrus-memory-content",
         routeBasePath: "walrus-memory",
@@ -368,6 +379,11 @@ const config = {
             type: "docSidebar",
             sidebarId: "sitesSidebar",
             label: "Walrus Sites",
+            position: "left",
+          },
+          {
+            to: "/oyster",
+            label: "Walrus Oyster API",
             position: "left",
           },
           {

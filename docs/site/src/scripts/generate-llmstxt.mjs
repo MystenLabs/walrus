@@ -39,6 +39,16 @@ const SUBSITE_PRESETS = {
       "ownership onchain. This index covers the Walrus Memory documentation " +
       "only; for the full Walrus documentation see https://docs.wal.app/llms.txt.",
   },
+  "oyster": {
+    name: "Walrus Oyster API",
+    description:
+      "Walrus Oyster API is a Web2-friendly object storage service " +
+      "backed by Walrus (decentralized blob storage) and Sui (on-chain " +
+      "state). It provides familiar HTTP and S3-compatible APIs while " +
+      "data is stored on a decentralized network. This index covers " +
+      "the Walrus Oyster API documentation only; for the full Walrus " +
+      "documentation see https://docs.wal.app/llms.txt.",
+  },
 };
 const preset = onlyPrefix ? SUBSITE_PRESETS[onlyPrefix] ?? {} : {};
 
@@ -143,6 +153,12 @@ const SECTION_PRIORITY = [
   "Walrus Memory: Security",
   "Walrus Memory: Contributing",
   "Walrus Memory: Examples",
+  // Walrus Oyster API sections
+  "Walrus Oyster API",
+  "Walrus Oyster API: Json Api",
+  "Walrus Oyster API: S3 Api",
+  "Walrus Oyster API: Guides",
+  "Walrus Oyster API: Openapi",
 ];
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -419,7 +435,8 @@ for (const file of files) {
   // everything else gets /docs/ prefix.
   const isBlogPost = urlPath === "blog" || urlPath.startsWith("blog/") || urlPath.startsWith("/blog");
   const isWalrusMemory = urlPath === "walrus-memory" || urlPath.startsWith("walrus-memory/") || urlPath.startsWith("/walrus-memory");
-  const docUrlPath = urlPath.startsWith("/docs") || isBlogPost || isWalrusMemory
+  const isOyster = urlPath === "oyster" || urlPath.startsWith("oyster/") || urlPath.startsWith("/oyster");
+  const docUrlPath = urlPath.startsWith("/docs") || isBlogPost || isWalrusMemory || isOyster
     ? (urlPath.startsWith("/") ? urlPath : "/" + urlPath)
     : "/docs" + (urlPath.startsWith("/") ? urlPath : "/" + urlPath);
 
@@ -452,6 +469,12 @@ for (const file of files) {
     section = segments.length > 2 && segments[1]
       ? "Walrus Memory: " + toSectionTitle(segments[1])
       : "Walrus Memory";
+  } else if (segments[0] === "oyster") {
+    // oyster/json-api/admin → "Walrus Oyster API: Json Api"
+    // oyster/introduction → "Walrus Oyster API"
+    section = segments.length > 2 && segments[1]
+      ? "Walrus Oyster API: " + toSectionTitle(segments[1])
+      : "Walrus Oyster API";
   } else {
     section = segments.length > 2
       ? toSectionTitle(segments[1])
@@ -607,6 +630,20 @@ function buildOutput(includeDescriptions, includeOptional, { includeFull = false
 
   for (const section of requiredSections) {
     lines.push(`## ${section}`, "");
+
+    // Add OpenAPI spec link at the top of the Walrus Oyster API section
+    if (section === "Walrus Oyster API") {
+      lines.push(
+        ...wrapEntry(formatEntry({
+          title: "OpenAPI Specification (JSON)",
+          mdUrl: joinUrl(resolvedBaseUrl, "/oyster/openapi.json"),
+          description:
+            "Machine-readable OpenAPI 3.1 spec for the Walrus Oyster API. " +
+            "Use for client generation, testing, and agent integration.",
+        })),
+      );
+    }
+
     for (const page of grouped[section]) {
       const entry = includeDescriptions ? formatEntry(page) : formatEntryCompact(page);
       lines.push(...wrapEntry(entry));

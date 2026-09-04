@@ -8,7 +8,7 @@ on:
       - "docs/**"
       - ".github/workflows/publish-docs.yaml"
   repository_dispatch:
-    types: [memwal-docs-updated]
+    types: [memwal-docs-updated, oyster-docs-updated]
   workflow_dispatch:
     inputs:
       publish-pages:
@@ -22,7 +22,7 @@ on:
         required: true
         default: false
   schedule:
-    # Rebuild daily to pick up upstream Walrus Memory doc changes.
+    # Rebuild daily to pick up upstream Walrus Memory and Walrus Oyster API doc changes.
     - cron: "14 3 * * *"
 
 concurrency: ci-${{ github.ref }}
