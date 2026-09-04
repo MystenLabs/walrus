@@ -481,7 +481,7 @@ Rebuild missing vector entries for one namespace. Queries onchain blobs by owner
 }
 ```
 
-`truncated` is `true` when this restore cannot complete: either more onchain blobs were missing locally than `limit` allowed this call to restore, or the sidecar's raw onchain candidate fetch (bounded per owner, shared across all of the owner's namespaces, hard-capped independent of `limit`) hit its own cap before this namespace's blobs were even filtered out of that set. The second case can produce `truncated: true` even when `total` is `0` for this namespace, because a cap hit elsewhere can starve this namespace's fetch entirely. Raising `limit` only helps with the first case. Past the sidecar's cap, only a cursor or pagination-based restore would help.
+`truncated=true` means this restore is **known-retryable-incomplete**: more missing blobs than `limit` allowed this call to restore, **or** the sidecar's owner-wide candidate fetch hit its cap **and** raising `limit` can still expand that fetch (`limit < 20`). Once the sidecar cap is saturated (`limit >= 20`, cap pinned at 100), truncation follows this call's missing-blob page length, not onchain `total`. A fully restored namespace does not loop. `truncated=false` is **not** proof the sidecar saw every onchain blob; blobs beyond the owner-wide sidecar candidate cap can still be missing. WALM-451 tracks a `sourceCapped` field for that case ([WALM-451](https://linear.app/mysten-labs/issue/WALM-451)). Relayers older than WALM-319 omit `truncated`; SDKs default it to `false`.
 
 ### `POST /api/forget`
 

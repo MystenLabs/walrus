@@ -144,6 +144,10 @@ Probably not. The relayer processes saves as background jobs and keeps working a
 
 Recall is one search request. A save embeds, encrypts, uploads to Walrus, and indexes the result, and `memwal_analyze` does that for every fact it extracts. Saves are expected to take longer, and they run in the background.
 
+### Score vs distance
+
+SDK `recall` returns cosine **distance** (lower = more similar), and `maxDistance` drops hits where `distance >= maxDistance`. MCP `memwal_recall` prints **score** as `1 - distance` (higher = more similar). Do not apply an SDK `maxDistance` to MCP scores. That inverts the filter.
+
 ### How do i check whether the service is reachable?
 
 Run `memwal_health`. It does not require authentication, so it separates the question of whether the relayer is reachable from whether your credentials are valid.

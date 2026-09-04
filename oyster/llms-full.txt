@@ -1,0 +1,39 @@
+# Walrus Oyster API
+
+> Walrus Oyster API is a Web2-friendly object storage service backed by Walrus (decentralized blob storage) and Sui (onchain state). It provides familiar HTTP and S3-compatible APIs while data is stored on a decentralized network.
+
+- [OpenAPI Specification (JSON)](https://docs.wal.app/oyster/openapi.json)
+
+## Walrus Oyster API
+
+- [Getting Started](https://docs.wal.app/oyster/getting-started.md)
+- [Guides](https://docs.wal.app/oyster/guides.md)
+- [Introduction](https://docs.wal.app/oyster/introduction.md)
+- [JSON API Reference](https://docs.wal.app/oyster/json-api.md)
+- [S3 API Reference](https://docs.wal.app/oyster/s3-api.md)
+
+## Walrus Oyster API: Guides
+
+- [AWS SDK Examples](https://docs.wal.app/oyster/guides/aws-sdk.md)
+- [Blob Lifecycle](https://docs.wal.app/oyster/guides/blob-lifecycle.md)
+- [oyster-cli Quick Start](https://docs.wal.app/oyster/guides/cli.md)
+- [Content Addressing](https://docs.wal.app/oyster/guides/content-addressing.md)
+- [Web Signup](https://docs.wal.app/oyster/guides/web-signup.md)
+- [Webhooks](https://docs.wal.app/oyster/guides/webhooks.md)
+
+## Walrus Oyster API: JSON API
+
+- [S3 Access Keys](https://docs.wal.app/oyster/json-api/access-keys.md)
+- [Admin API](https://docs.wal.app/oyster/json-api/admin.md)
+- [Authentication](https://docs.wal.app/oyster/json-api/authentication.md)
+- [Blobs](https://docs.wal.app/oyster/json-api/blobs.md)
+- [Buckets](https://docs.wal.app/oyster/json-api/buckets.md)
+- [Infrastructure](https://docs.wal.app/oyster/json-api/infrastructure.md)
+- [Wallet](https://docs.wal.app/oyster/json-api/wallet.md)
+
+## Walrus Oyster API: S3 API
+
+- [Bucket Operations](https://docs.wal.app/oyster/s3-api/buckets.md)
+- [Limitations](https://docs.wal.app/oyster/s3-api/limitations.md)
+- [Object Operations](https://docs.wal.app/oyster/s3-api/objects.md)
+- [S3 Setup](https://docs.wal.app/oyster/s3-api/setup.md)

@@ -85,10 +85,9 @@
     Add Walrus Memory to Codex so it recalls context and saves durable facts as you work. Install
     it as a plugin (recommended; adds automatic-memory hooks) or as MCP-only (just the tools).
 - [Cursor](https://docs.wal.app/walrus-memory/mcp/cursor.md):
-    Add Walrus Memory to Cursor so the agent can save and recall durable facts. The MCP server
-    (memory tools, below) works on every Cursor version; Cursor's plugin system can also add
-    lifecycle hooks for extra reinforcement (see Lifecycle hooks). [x] Node.js 20+ [x] A Walrus
-    Memory account.
+    Add Walrus Memory to Cursor so the agent recalls context and saves durable facts. Install it as
+    a plugin (adds automatic-memory hooks) or as MCP-only (just the tools). [x] Node.js 20+ [x] A
+    Walrus Memory account. The first memory tool call opens a browser sign-in (memwallogin).
 - [Opencode](https://docs.wal.app/walrus-memory/mcp/opencode.md):
     Add Walrus Memory to OpenCode so the agent can save and recall durable facts. OpenCode uses the
     MCP server (the memory tools); the automatic-memory plugin hooks are available on Claude Code,
@@ -281,6 +280,15 @@
     Connecting the MCP server gives an agent the memory tools. It does not make the agent use them.
     Most agents write only when the user says "remember this", which is why an untuned setup
     produces a handful of memories and then goes quiet. A system prompt fixes that.
+
+## Walrus Memory: Handover
+
+- [Security Sweep Reconcile](https://docs.wal.app/walrus-memory/handover/security-sweep-reconcile.md):
+    | Field | Value | |---|---| | Linear | COMG-726 | | Parent postmortem | WM Seal decryption
+    authorization incident (AI-13) | | Related process ticket | COMG-722 (AI-9) (not completed
+    here) | | Sweep sources | v1 → v1new migrator review (SEC #1, #42, #44, #47; dated 2026-08-11)
+    · SEC2-102 children · GH #360/#368/#398/#443/#469/#500/#501 | | Code snapshot | origin/dev @
+    (2026-08-31) | | Method | Repo grep + git ls-tree/git show on origin/dev.
 
 ## Walrus Memory: Migration
 
