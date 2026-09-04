@@ -72,7 +72,7 @@ use walrus_sui::{
         NodeRegistrationParams,
         StorageNode as SuiStorageNode,
         StorageNodeCap,
-        move_structs::{EpochState, EventBlob, NodeMetadata},
+        move_structs::{EpochState, EventBlob, NodeMetadata, SnapshotBlob},
     },
 };
 use walrus_test_utils::WithTempDir;
@@ -1855,6 +1855,19 @@ impl SystemContractService for StubContractService {
         Ok(None)
     }
 
+    async fn certify_snapshot_blob(
+        &self,
+        _blob_metadata: BlobObjectMetadata,
+        _snapshot_epoch: u32,
+        _node_capability_object_id: ObjectID,
+    ) -> Result<(), SuiClientError> {
+        Ok(())
+    }
+
+    async fn last_certified_snapshot_blob(&self) -> Result<Option<SnapshotBlob>, SuiClientError> {
+        Ok(None)
+    }
+
     fn is_subsidies_object_configured(&self) -> bool {
         false
     }
@@ -2655,6 +2668,22 @@ where
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
         self.as_ref().inner.last_certified_event_blob().await
+    }
+
+    async fn certify_snapshot_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        snapshot_epoch: u32,
+        node_capability_object_id: ObjectID,
+    ) -> Result<(), SuiClientError> {
+        self.as_ref()
+            .inner
+            .certify_snapshot_blob(blob_metadata, snapshot_epoch, node_capability_object_id)
+            .await
+    }
+
+    async fn last_certified_snapshot_blob(&self) -> Result<Option<SnapshotBlob>, SuiClientError> {
+        self.as_ref().inner.last_certified_snapshot_blob().await
     }
 
     fn is_subsidies_object_configured(&self) -> bool {
