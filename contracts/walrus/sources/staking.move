@@ -29,7 +29,7 @@ const EWrongVersion: u64 = 1;
 const EDeprecatedFunction: u64 = 2;
 
 /// Flag to indicate the version of the Walrus system.
-const VERSION: u64 = 4;
+const VERSION: u64 = 5;
 
 /// The key for the migration epoch.
 const MIGRATION_EPOCH_KEY: vector<u8> = b"migration_epoch";
@@ -437,10 +437,10 @@ entry fun set_migration_epoch(staking: &mut Staking) {
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `staking_inner` object if needed.
 public(package) fun migrate(staking: &mut Staking) {
-    // Below logic is for upgrading to version 4. When upgrading to future versions, this function
+    // Below logic is for upgrading to version 5. When upgrading to future versions, this function
     // needs to be revisited to perform correct migration steps.
     assert!(staking.version < VERSION, EInvalidMigration);
-    assert!(VERSION == 4, EInvalidMigration);
+    assert!(VERSION == 5, EInvalidMigration);
 
     // Move the old staking inner to the new version.
     let staking_inner: StakingInnerV1 = df::remove(&mut staking.id, staking.version);
@@ -452,9 +452,10 @@ public(package) fun migrate(staking: &mut Staking) {
     staking.package_id = staking.new_package_id.extract();
 
     // Apply the updated `TEMP_ACTIVE_SET_SIZE_LIMIT` to the existing `ActiveSet`, since the
-    // limit is only read when the `ActiveSet` is created.
-    // Note that this step is needed for version 4. When upgrading to future versions, this
-    // step needs to be revisited.
+    // limit is only read when the `ActiveSet` is created. This step was introduced for the
+    // version 4 migration and is safe to re-apply; it runs as part of this migration since no
+    // network has executed it yet. When upgrading to future versions, this step needs to be
+    // revisited.
     staking.inner_mut().update_active_set_max_size();
 }
 
