@@ -660,8 +660,8 @@ Sui smart contract as the on-chain index.
 - [API Reference](https://docs.wal.app/oyster/api-reference.md):
     { => { const style = document.createElement('style'); style.textContent = ;
     document.head.appendChild(style); return null; }} { => { const [failed, setFailed] =
-    React.useState(false); const iframeUrl = '/oyster/scalar.html'; if (failed) { return ( The
-    interactive API reference cannot load in this environment.
+    React.useState(false); if (failed) { return ( The interactive API reference cannot load in this
+    environment.
 - [1. Create an app (server operator runs this once). app new auto-issues](https://docs.wal.app/oyster/getting-started.md):
     Follow these steps to complete your first interactions with Oyster. By the end, you have
     created a bucket, uploaded a blob, and downloaded it back.
@@ -704,29 +704,6 @@ Sui smart contract as the on-chain index.
     Oyster posts a single webhook event: account.fundingrequired. It tells the owning app that an
     account's Pearl-derived wallet cannot cover the next extendstoragepool PTB. Top up the wallet
     and the next extension cycle succeeds.
-
-## Walrus Oyster API: Openapi
-
-- [Account Endpoints](https://docs.wal.app/oyster/openapi/account.md):
-    Account and API key management Base URL: > Info > > This page is auto-generated from the
-    OpenAPI spec. > For an interactive explorer, see the Interactive API Reference. Update billing
-    information for the authenticated account. Not yet implemented.
-- [Admin Endpoints](https://docs.wal.app/oyster/openapi/admin.md):
-    Admin endpoints (admin-key authenticated) Base URL: > Info > > This page is auto-generated from
-    the OpenAPI spec. > For an interactive explorer, see the Interactive API Reference. List
-    accounts owned by the authenticated app, with active API key counts.
-- [Blobs Endpoints](https://docs.wal.app/oyster/openapi/blobs.md):
-    Blob storage and retrieval Base URL: > Info > > This page is auto-generated from the OpenAPI
-    spec. > For an interactive explorer, see the Interactive API Reference. Read a blob's content
-    by its content-addressed blob ID. No authentication required.
-- [Buckets Endpoints](https://docs.wal.app/oyster/openapi/buckets.md):
-    Bucket CRUD operations Base URL: > Info > > This page is auto-generated from the OpenAPI spec.
-    > For an interactive explorer, see the Interactive API Reference. List all buckets owned by the
-    authenticated account, with cursor-based pagination.
-- [API Models](https://docs.wal.app/oyster/openapi/models.md):
-    Request and response schemas used by the Walrus Oyster API. > Info > > This page is
-    auto-generated from the OpenAPI spec. > For an interactive explorer, see the Interactive API
-    Reference. An S3 access key record (without the secret).
 
 ## 01 Announcing Walrus
 
