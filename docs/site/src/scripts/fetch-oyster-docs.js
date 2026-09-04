@@ -75,12 +75,15 @@ function main() {
     const now = new Date();
     fs.utimesSync(sourceDir, now, now);
 
-    // Copy static files (llms.txt, openapi.json, scalar.html) into
-    // the Docusaurus static/oyster/ directory.
+    // Copy only small static files (llms.txt) into Docusaurus
+    // static/oyster/. Large files (openapi.json, scalar.html) are
+    // excluded because they cause 503s on Walrus Sites.
     const upstreamStatic = path.join(CACHE_DIR, STATIC_PATH);
+    const SKIP = new Set(["openapi.json", "scalar.html"]);
     if (fs.existsSync(upstreamStatic)) {
       fs.mkdirSync(STATIC_DIR, { recursive: true });
       for (const f of fs.readdirSync(upstreamStatic)) {
+        if (SKIP.has(f)) continue;
         fs.copyFileSync(
           path.join(upstreamStatic, f),
           path.join(STATIC_DIR, f),
