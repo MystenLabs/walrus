@@ -650,6 +650,11 @@ async fn encode_snapshot(
 
 /// Encodes the snapshot file, reports its blob ID for cross-node comparison, and returns the
 /// sliver pairs so that certification can store and attest them.
+///
+/// TODO(WAL-1345): this encodes every sliver pair, holding the full expansion of the snapshot
+/// (roughly 4.5x its size) while the node needs only its own shards' pairs. Once
+/// `compute_metadata_with_slivers_for_shards` (PR #3758) is available, use it with the node's
+/// shard assignment when certification is on, and `compute_metadata` when it is off.
 async fn try_encode_snapshot(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
