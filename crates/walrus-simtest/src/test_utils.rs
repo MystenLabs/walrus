@@ -7,7 +7,11 @@
 pub mod simtest_utils {
     use std::{
         collections::{HashMap, HashSet},
-        sync::{Arc, Mutex, atomic::AtomicBool},
+        sync::{
+            Arc,
+            Mutex,
+            atomic::{AtomicBool, AtomicUsize},
+        },
         time::{Duration, Instant},
     };
 
@@ -17,6 +21,7 @@ pub mod simtest_utils {
     use sui_types::base_types::ObjectID;
     use tokio::{sync::RwLock, task::JoinHandle};
     use walrus_core::{
+        BlobId,
         Epoch,
         EpochCount,
         encoding::{Primary, Secondary},
@@ -35,7 +40,7 @@ pub mod simtest_utils {
     use walrus_storage_node_client::api::ServiceHealthInfo;
     use walrus_sui::{
         client::{BlobPersistence, ReadClient, SuiContractClient},
-        types::move_structs::EventBlob,
+        types::move_structs::{EventBlob, SnapshotBlob},
     };
     use walrus_test_utils::WithTempDir;
 
@@ -115,6 +120,87 @@ pub mod simtest_utils {
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
         None
+    }
+
+    /// Makes the blob info snapshot blob of the given node differ from the other nodes' from now
+    /// on, so that its publications diverge from the certified snapshot.
+    ///
+    /// The snapshot file is left untouched; the node encodes a modified copy, so the digest
+    /// consistency check still passes.
+    pub fn diverge_blob_info_snapshot_of_node(node: &SimStorageNodeHandle) {
+        let target_node_id = node.node_id.expect("simulator nodes have a node id");
+        sui_macros::register_fail_point_if("storage_node_blob_info_snapshot_diverge", move || {
+            sui_simulator::current_simnode_id() == target_node_id
+        });
+    }
+
+    /// Crashes each of the given nodes once, the next time it reconciles a previous blob info
+    /// snapshot publication at an epoch boundary, where a storage error would stop the node.
+    /// The node restarts after `down_duration` and replays the boundary.
+    ///
+    /// Returns a counter of the crashes that have happened.
+    pub fn crash_nodes_once_at_blob_info_snapshot_reconciliation<'a>(
+        nodes: impl IntoIterator<Item = &'a SimStorageNodeHandle>,
+        down_duration: Duration,
+    ) -> Arc<AtomicUsize> {
+        let remaining: Arc<Mutex<HashSet<_>>> = Arc::new(Mutex::new(
+            nodes
+                .into_iter()
+                .map(|node| node.node_id.expect("simulator nodes have a node id"))
+                .collect(),
+        ));
+        let crashes = Arc::new(AtomicUsize::new(0));
+        let crashes_clone = crashes.clone();
+        sui_macros::register_fail_point_async(
+            "storage_node_blob_info_snapshot_reconcile",
+            move || {
+                let remaining = remaining.clone();
+                let crashes = crashes_clone.clone();
+                async move {
+                    let current_node = sui_simulator::current_simnode_id();
+                    if !remaining.lock().unwrap().remove(&current_node) {
+                        return;
+                    }
+                    crashes.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    tracing::info!(
+                        ?current_node,
+                        "crashing the node at the blob info snapshot reconciliation"
+                    );
+                    sui_simulator::task::kill_current_node(Some(down_duration));
+                    // Do not put any code after this point, as it won't be executed.
+                    // kill_current_node is implemented using a panic.
+                }
+            },
+        );
+        crashes
+    }
+
+    /// Waits until the last certified blob info snapshot on chain is of `min_epoch` or later, and
+    /// returns it.
+    pub async fn wait_for_certified_snapshot_blob(
+        client: &Arc<WithTempDir<WalrusNodeClient<SuiContractClient>>>,
+        min_epoch: Epoch,
+        timeout: Duration,
+    ) -> SnapshotBlob {
+        let start = Instant::now();
+        loop {
+            let latest = client
+                .inner
+                .sui_client()
+                .read_client
+                .last_certified_snapshot_blob()
+                .await
+                .expect("reading the certified blob info snapshot should succeed");
+            match latest {
+                Some(snapshot) if snapshot.epoch >= min_epoch => return snapshot,
+                latest => assert!(
+                    start.elapsed() < timeout,
+                    "timed out waiting for a certified blob info snapshot of epoch {min_epoch} or \
+                    later; latest: {latest:?}"
+                ),
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
     }
 
     /// Helper function to write a random blob, read it back and check that it is the same.
@@ -466,6 +552,13 @@ pub mod simtest_utils {
         // Per epoch, the blob info snapshot digest of all nodes, paired with the number of
         // entries the snapshot holds in its two pool sections.
         blob_info_snapshot_digest_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, u64>>>>,
+        // Per epoch, the blob info snapshot blob ID of all nodes.
+        blob_info_snapshot_blob_id_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, BlobId>>>>,
+        // Per epoch, the blob ID of the blob info snapshot each node stored for certification.
+        blob_info_snapshot_stored_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, BlobId>>>>,
+        // Per epoch, whether each node found its blob info snapshot certified when reconciling
+        // the publication at the next epoch boundary (`false` means it was cleaned up).
+        blob_info_snapshot_reconciled_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, bool>>>>,
         checked: Arc<AtomicBool>,
     }
 
@@ -484,6 +577,12 @@ pub mod simtest_utils {
             let blob_existence_check_map_clone = blob_existence_check_map.clone();
             let blob_info_snapshot_digest_map = Arc::new(Mutex::new(HashMap::new()));
             let blob_info_snapshot_digest_map_clone = blob_info_snapshot_digest_map.clone();
+            let blob_info_snapshot_blob_id_map = Arc::new(Mutex::new(HashMap::new()));
+            let blob_info_snapshot_blob_id_map_clone = blob_info_snapshot_blob_id_map.clone();
+            let blob_info_snapshot_stored_map = Arc::new(Mutex::new(HashMap::new()));
+            let blob_info_snapshot_stored_map_clone = blob_info_snapshot_stored_map.clone();
+            let blob_info_snapshot_reconciled_map = Arc::new(Mutex::new(HashMap::new()));
+            let blob_info_snapshot_reconciled_map_clone = blob_info_snapshot_reconciled_map.clone();
 
             sui_macros::register_fail_point_arg(
                 "storage_node_event_index_source",
@@ -527,6 +626,27 @@ pub mod simtest_utils {
                 },
             );
 
+            sui_macros::register_fail_point_arg(
+                "storage_node_blob_info_snapshot_blob_id",
+                move || -> Option<Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, BlobId>>>>> {
+                    Some(blob_info_snapshot_blob_id_map_clone.clone())
+                },
+            );
+
+            sui_macros::register_fail_point_arg(
+                "storage_node_blob_info_snapshot_stored",
+                move || -> Option<Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, BlobId>>>>> {
+                    Some(blob_info_snapshot_stored_map_clone.clone())
+                },
+            );
+
+            sui_macros::register_fail_point_arg(
+                "storage_node_blob_info_snapshot_reconciled",
+                move || -> Option<Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, bool>>>>> {
+                    Some(blob_info_snapshot_reconciled_map_clone.clone())
+                },
+            );
+
             Self {
                 event_source_map,
                 certified_blob_digest_map,
@@ -534,6 +654,9 @@ pub mod simtest_utils {
                 per_object_pooled_blob_digest_map,
                 blob_existence_check_map,
                 blob_info_snapshot_digest_map,
+                blob_info_snapshot_blob_id_map,
+                blob_info_snapshot_stored_map,
+                blob_info_snapshot_reconciled_map,
                 checked: Arc::new(AtomicBool::new(false)),
             }
         }
@@ -591,6 +714,117 @@ pub mod simtest_utils {
                     continue;
                 }
                 Self::check_digests_are_equal(*epoch, node_digest_map);
+            }
+        }
+
+        /// Returns the blob info snapshot digest each node reported for `epoch`.
+        pub fn blob_info_snapshot_digests(&self, epoch: Epoch) -> HashMap<ObjectID, u64> {
+            self.blob_info_snapshot_digest_map
+                .lock()
+                .unwrap()
+                .get(&epoch)
+                .cloned()
+                .unwrap_or_default()
+        }
+
+        /// Returns the blob info snapshot blob ID each node reported for `epoch`.
+        pub fn blob_info_snapshot_blob_ids(&self, epoch: Epoch) -> HashMap<ObjectID, BlobId> {
+            Self::entries_for_epoch(&self.blob_info_snapshot_blob_id_map, epoch)
+        }
+
+        /// Waits until `n_nodes` nodes have reported their blob info snapshot blob ID for `epoch`
+        /// and returns the blob IDs.
+        pub async fn wait_for_blob_info_snapshot_blob_ids(
+            &self,
+            epoch: Epoch,
+            n_nodes: usize,
+            timeout: Duration,
+        ) -> HashMap<ObjectID, BlobId> {
+            Self::wait_for_entries(
+                &self.blob_info_snapshot_blob_id_map,
+                "blob ID",
+                epoch,
+                n_nodes,
+                timeout,
+            )
+            .await
+        }
+
+        /// Returns the blob ID of the blob info snapshot each node stored for certification in
+        /// `epoch`. Nodes that do not certify have no entry.
+        pub fn blob_info_snapshot_stored(&self, epoch: Epoch) -> HashMap<ObjectID, BlobId> {
+            Self::entries_for_epoch(&self.blob_info_snapshot_stored_map, epoch)
+        }
+
+        /// Waits until `n_nodes` nodes have stored their blob info snapshot of `epoch` for
+        /// certification and returns the stored blob IDs.
+        pub async fn wait_for_blob_info_snapshot_stored(
+            &self,
+            epoch: Epoch,
+            n_nodes: usize,
+            timeout: Duration,
+        ) -> HashMap<ObjectID, BlobId> {
+            Self::wait_for_entries(
+                &self.blob_info_snapshot_stored_map,
+                "stored blob ID",
+                epoch,
+                n_nodes,
+                timeout,
+            )
+            .await
+        }
+
+        /// Returns, per node that reconciled its blob info snapshot publication of `epoch` at the
+        /// next epoch boundary, whether the snapshot was found certified (`true`) or was cleaned
+        /// up (`false`). Nodes that did not publish have no entry.
+        pub fn blob_info_snapshot_reconciled(&self, epoch: Epoch) -> HashMap<ObjectID, bool> {
+            Self::entries_for_epoch(&self.blob_info_snapshot_reconciled_map, epoch)
+        }
+
+        /// Waits until `n_nodes` nodes have reconciled their blob info snapshot publication of
+        /// `epoch` and returns the outcomes (see [`Self::blob_info_snapshot_reconciled`]).
+        pub async fn wait_for_blob_info_snapshot_reconciled(
+            &self,
+            epoch: Epoch,
+            n_nodes: usize,
+            timeout: Duration,
+        ) -> HashMap<ObjectID, bool> {
+            Self::wait_for_entries(
+                &self.blob_info_snapshot_reconciled_map,
+                "reconciliation outcome",
+                epoch,
+                n_nodes,
+                timeout,
+            )
+            .await
+        }
+
+        fn entries_for_epoch<V: Clone>(
+            map: &Mutex<HashMap<Epoch, HashMap<ObjectID, V>>>,
+            epoch: Epoch,
+        ) -> HashMap<ObjectID, V> {
+            map.lock().unwrap().get(&epoch).cloned().unwrap_or_default()
+        }
+
+        async fn wait_for_entries<V: Clone + std::fmt::Debug>(
+            map: &Mutex<HashMap<Epoch, HashMap<ObjectID, V>>>,
+            what: &str,
+            epoch: Epoch,
+            n_nodes: usize,
+            timeout: Duration,
+        ) -> HashMap<ObjectID, V> {
+            let start = Instant::now();
+            loop {
+                let entries = Self::entries_for_epoch(map, epoch);
+                if entries.len() >= n_nodes {
+                    return entries;
+                }
+                assert!(
+                    start.elapsed() < timeout,
+                    "timed out waiting for {n_nodes} nodes to report the blob info snapshot \
+                    {what} of epoch {epoch}; reported: {entries:?}"
+                );
+                tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }
 
