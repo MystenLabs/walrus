@@ -22,6 +22,7 @@ use super::{
     utils,
 };
 use crate::{
+    ShardIndex,
     SliverIndex,
     SliverPairIndex,
     encoding::{ReedSolomonEncoder, config::EncodingFactory as _},
@@ -483,6 +484,154 @@ impl<'a> BlobEncoder<'a> {
             &symbol_hashes,
             unencoded_length,
         )
+    }
+
+    /// Computes the metadata of the blob and encodes only the sliver pairs stored on `shards`.
+    ///
+    /// The sliver pairs are returned in the order of `shards`. The assignment of sliver pairs to
+    /// shards depends on the blob ID, so the metadata is computed first, with
+    /// [`compute_metadata()`][Self::compute_metadata], and the sliver pairs are then encoded with
+    /// [`encode_sliver_pairs()`][Self::encode_sliver_pairs]. Compared to
+    /// [`encode_with_metadata()`][Self::encode_with_metadata], this expands the message matrix a
+    /// second time but never holds it in memory: a storage node encoding a blob for its own
+    /// shards needs only its fraction of the roughly 4.5x expansion.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any shard index is not smaller than the number of shards.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub fn compute_metadata_with_slivers_for_shards(
+        &self,
+        shards: &[ShardIndex],
+    ) -> (Vec<SliverPair>, VerifiedBlobMetadataWithId) {
+        let n_shards = self.inner.config.n_shards();
+        let metadata = self.compute_metadata();
+        let pair_indices: Vec<_> = shards
+            .iter()
+            .map(|shard| {
+                assert!(
+                    shard.as_usize() < self.inner.n_shards_usize(),
+                    "shard index {shard} is out of range for {n_shards} shards"
+                );
+                shard.to_pair_index(n_shards, metadata.blob_id())
+            })
+            .collect();
+        (self.encode_sliver_pairs(&pair_indices), metadata)
+    }
+
+    /// Encodes only the sliver pairs with the given indices, in the order of `pair_indices`.
+    ///
+    /// Unlike [`encode_with_metadata()`][Self::encode_with_metadata], this does not build the
+    /// expanded message matrix: the memory is bounded by the blob, the requested sliver pairs, and
+    /// one expanded row or column at a time. The columns of the message matrix are expanded once
+    /// if any requested primary sliver is non-systematic, and its rows are expanded once if any
+    /// requested secondary sliver is non-systematic, so the computation is at most that of a full
+    /// encoding.
+    ///
+    /// This does not compute the metadata; see
+    /// [`Self::compute_metadata_with_slivers_for_shards()`] for the combination.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any index is not smaller than the number of shards.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub fn encode_sliver_pairs(&self, pair_indices: &[SliverPairIndex]) -> Vec<SliverPair> {
+        let _guard = self.inner.span.enter();
+        let n_shards = self.inner.n_shards_usize();
+        let n_rows = self.inner.n_rows_usize();
+        let n_columns = self.inner.n_columns_usize();
+        let mut sliver_pairs: Vec<SliverPair> = pair_indices
+            .iter()
+            .map(|&index| {
+                assert!(
+                    index.as_usize() < n_shards,
+                    "sliver pair index {index} is out of range for {n_shards} shards"
+                );
+                SliverPair::new_empty(self.inner.config, self.inner.symbol_size, index)
+            })
+            .collect();
+
+        // The systematic primary slivers are rows of the message matrix, and the systematic
+        // secondary slivers are its columns; both are copied from the blob.
+        for pair in &mut sliver_pairs {
+            let row_index = pair.primary.index.as_usize();
+            if row_index < n_rows
+                && let Some(row) = self.rows().nth(row_index)
+            {
+                pair.primary.symbols.data_mut()[..row.len()].copy_from_slice(row);
+            }
+            let column_index = pair.secondary.index.as_usize();
+            if column_index < n_columns {
+                let column_symbols = self
+                    .column_symbols()
+                    .nth(column_index)
+                    .expect("the index is below the number of columns");
+                for (destination, source) in
+                    pair.secondary.symbols.to_symbols_mut().zip(column_symbols)
+                {
+                    destination[..source.len()].copy_from_slice(source);
+                }
+            }
+        }
+
+        // A non-systematic primary sliver holds, for each column of the message matrix, the
+        // symbol at its own index in the expansion of that column.
+        if sliver_pairs
+            .iter()
+            .any(|pair| pair.primary.index.as_usize() >= n_rows)
+        {
+            let mut primary_encoder = self.inner.get_encoder::<Primary>();
+            let mut column_buffer = Symbols::zeros(n_rows, self.inner.symbol_size);
+            for (column_index, column_symbols) in self.column_symbols().enumerate() {
+                column_buffer.data_mut().fill(0);
+                column_buffer.to_symbols_mut().zip(column_symbols).for_each(
+                    |(destination, source)| destination[..source.len()].copy_from_slice(source),
+                );
+                let expanded_column = primary_encoder
+                    .encode_all_ref(column_buffer.data())
+                    .expect("size has already been checked");
+                for pair in &mut sliver_pairs {
+                    let row_index = pair.primary.index.as_usize();
+                    if row_index >= n_rows {
+                        pair.primary
+                            .copy_symbol_to(column_index, &expanded_column[row_index]);
+                    }
+                }
+            }
+        }
+
+        // A non-systematic secondary sliver holds, for each row of the message matrix, the
+        // recovery symbol at its own index in the expansion of that row.
+        if sliver_pairs
+            .iter()
+            .any(|pair| pair.secondary.index.as_usize() >= n_columns)
+        {
+            let mut secondary_encoder = self.inner.get_encoder::<Secondary>();
+            let mut row_buffer = Symbols::zeros(n_columns, self.inner.symbol_size);
+            let row_length_bytes = n_columns * self.symbol_usize();
+            for (row_index, row) in self.rows_all().enumerate() {
+                let data = if row.len() < row_length_bytes {
+                    row_buffer.data_mut()[row.len()..].fill(0);
+                    row_buffer.data_mut()[..row.len()].copy_from_slice(row);
+                    row_buffer.data()
+                } else {
+                    row
+                };
+                let expanded_row = secondary_encoder
+                    .encode(data)
+                    .expect("size has already been checked");
+                for (recovery_index, symbol) in expanded_row.recovery_iter().enumerate() {
+                    let column_index = n_columns + recovery_index;
+                    for pair in &mut sliver_pairs {
+                        if pair.secondary.index.as_usize() == column_index {
+                            pair.secondary.copy_symbol_to(row_index, symbol);
+                        }
+                    }
+                }
+            }
+        }
+
+        sliver_pairs
     }
 
     /// Returns a reference to the blob data.
@@ -1222,6 +1371,115 @@ mod tests {
                 .expect("should be able to decode and verify blob");
             assert_eq!(blob, blob_dec, "decoded blob does not match original blob");
         }
+    }
+
+    /// Checks that encoding a selection of sliver pairs yields exactly the pairs of the full
+    /// encoding, for blobs that fill the message matrix and blobs that need padding.
+    #[test]
+    fn test_encode_sliver_pairs_matches_full_encoding() {
+        let n_shards: u16 = 102;
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
+        let n_rows = usize::from(config.source_symbols_primary.get());
+        let n_columns = usize::from(config.source_symbols_secondary.get());
+        let n_shards = usize::from(n_shards);
+
+        for blob_size in [1, 100, n_rows * n_columns * 2 - 1, 27182, 100_000] {
+            let blob = random_data(blob_size);
+            let (expected_pairs, _) = config
+                .get_blob_encoder(&blob)
+                .unwrap()
+                .encode_with_metadata();
+            let encoder = config.get_blob_encoder(&blob).unwrap();
+
+            // Every pair, requested in an arbitrary order.
+            let all_indices: Vec<_> = (0..n_shards)
+                .rev()
+                .map(|index| SliverPairIndex(index.try_into().unwrap()))
+                .collect();
+            let pairs = encoder.encode_sliver_pairs(&all_indices);
+            assert_eq!(pairs.len(), all_indices.len());
+            for (pair, index) in pairs.iter().zip(&all_indices) {
+                assert_eq!(
+                    pair,
+                    &expected_pairs[index.as_usize()],
+                    "blob size {blob_size}"
+                );
+            }
+
+            // A selection covering systematic and non-systematic slivers on both axes: pair
+            // `i` has primary index `i` and secondary index `n_shards - 1 - i`.
+            let selection: Vec<_> = [
+                0,
+                1,
+                n_rows - 1,
+                n_rows,
+                n_shards - n_columns,
+                50,
+                n_shards - 1,
+            ]
+            .into_iter()
+            .map(|index| SliverPairIndex(index.try_into().unwrap()))
+            .collect();
+            let pairs = encoder.encode_sliver_pairs(&selection);
+            for (pair, index) in pairs.iter().zip(&selection) {
+                assert_eq!(
+                    pair,
+                    &expected_pairs[index.as_usize()],
+                    "blob size {blob_size}"
+                );
+            }
+
+            assert!(encoder.encode_sliver_pairs(&[]).is_empty());
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range")]
+    fn test_encode_sliver_pairs_rejects_out_of_range_index() {
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let blob = random_data(100);
+        let encoder = config.get_blob_encoder(&blob).unwrap();
+        encoder.encode_sliver_pairs(&[SliverPairIndex(10)]);
+    }
+
+    /// Checks that the metadata equals the one of the full encoding and that the sliver pairs
+    /// are exactly the ones the full encoding assigns to the requested shards.
+    #[test]
+    fn test_compute_metadata_with_slivers_for_shards_matches_full_encoding() {
+        let n_shards = NonZeroU16::new(102).unwrap();
+        let config = ReedSolomonEncodingConfig::new(n_shards);
+        let blob = random_data(31415);
+        let (expected_pairs, expected_metadata) = config
+            .get_blob_encoder(&blob)
+            .unwrap()
+            .encode_with_metadata();
+
+        let shards: Vec<_> = [0, 7, 36, 70, 101].into_iter().map(ShardIndex).collect();
+        let (pairs, metadata) = config
+            .get_blob_encoder(&blob)
+            .unwrap()
+            .compute_metadata_with_slivers_for_shards(&shards);
+
+        assert_eq!(metadata, expected_metadata);
+        assert_eq!(pairs.len(), shards.len());
+        for (pair, shard) in pairs.iter().zip(&shards) {
+            let expected_index = shard.to_pair_index(n_shards, metadata.blob_id());
+            assert_eq!(pair.index(), expected_index);
+            assert_eq!(pair, &expected_pairs[expected_index.as_usize()]);
+            assert_eq!(
+                pair.index().to_shard_index(n_shards, metadata.blob_id()),
+                *shard
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "out of range")]
+    fn test_compute_metadata_with_slivers_for_shards_rejects_out_of_range_shard() {
+        let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
+        let blob = random_data(100);
+        let encoder = config.get_blob_encoder(&blob).unwrap();
+        encoder.compute_metadata_with_slivers_for_shards(&[ShardIndex(10)]);
     }
 
     #[test]
