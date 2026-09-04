@@ -11,6 +11,7 @@ use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
+    snapshot_blob::{Self, SnapshotBlobCertificationState},
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_pool::StoragePool,
@@ -29,6 +30,12 @@ const EZeroExtractSize: u64 = 2;
 
 /// Flag to indicate the version of the system.
 const VERSION: u64 = 4;
+
+/// Key for the dynamic field on `System` holding the blob info snapshot certification state.
+///
+/// A dedicated key type is used (rather than a `u64`) so that the key can never collide with
+/// the `u64` version keys under which the system state inner is stored.
+public struct SnapshotStateKey() has copy, drop, store;
 
 /// The one and only system object.
 public struct System has key {
@@ -49,6 +56,11 @@ public(package) fun create_empty(max_epochs_ahead: u32, package_id: ID, ctx: &mu
     };
     let system_state_inner = system_state_inner::create_empty(max_epochs_ahead, ctx);
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(
+        &mut system.id,
+        SnapshotStateKey(),
+        snapshot_blob::create_with_empty_state(),
+    );
     transfer::share_object(system);
 }
 
@@ -118,6 +130,49 @@ public fun certify_event_blob(
             epoch,
             ctx,
         )
+}
+
+/// Certifies a blob info snapshot blob for `snapshot_epoch`, which must be the current epoch:
+/// the snapshot is taken at the start of that epoch and attested during it (see
+/// `snapshot_blob::SnapshotBlob`).
+public fun certify_snapshot_blob(
+    system: &mut System,
+    cap: &StorageNodeCap,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    snapshot_epoch: u32,
+    ctx: &mut TxContext,
+) {
+    assert!(system.version == VERSION, EWrongVersion);
+    // The certification state is temporarily detached because the system state inner is
+    // another dynamic field of the same object, and both must be mutably borrowed.
+    let mut state: SnapshotBlobCertificationState = dynamic_field::remove(
+        &mut system.id,
+        SnapshotStateKey(),
+    );
+    system
+        .inner_mut()
+        .certify_snapshot_blob(
+            &mut state,
+            cap,
+            blob_id,
+            root_hash,
+            size,
+            encoding_type,
+            snapshot_epoch,
+            ctx,
+        );
+    dynamic_field::add(&mut system.id, SnapshotStateKey(), state);
+}
+
+/// Returns the blob info snapshot certification state.
+public(package) fun snapshot_blob_certification_state(
+    system: &System,
+): &SnapshotBlobCertificationState {
+    assert!(system.version == VERSION, EWrongVersion);
+    dynamic_field::borrow(&system.id, SnapshotStateKey())
 }
 
 /// Allows buying a storage reservation for a given period of epochs.
@@ -475,6 +530,15 @@ public(package) fun migrate(system: &mut System) {
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     system.version = VERSION;
 
+    // Create the blob info snapshot certification state introduced in version 4.
+    // TODO: remove this step when upgrading to version 5; the field then already exists on the
+    // migrated objects, and adding it again would abort the migration.
+    dynamic_field::add(
+        &mut system.id,
+        SnapshotStateKey(),
+        snapshot_blob::create_with_empty_state(),
+    );
+
     // Set the new package id.
     assert!(system.new_package_id.is_some(), EInvalidMigration);
     system.package_id = system.new_package_id.extract();
@@ -517,6 +581,11 @@ public fun new_for_testing(ctx: &mut TxContext): System {
     };
     let system_state_inner = system_state_inner::new_for_testing();
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(
+        &mut system.id,
+        SnapshotStateKey(),
+        snapshot_blob::create_with_empty_state(),
+    );
     system
 }
 
@@ -530,6 +599,11 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
     };
     let system_state_inner = system_state_inner::new_for_testing_with_multiple_members(ctx);
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(
+        &mut system.id,
+        SnapshotStateKey(),
+        snapshot_blob::create_with_empty_state(),
+    );
     system
 }
 
