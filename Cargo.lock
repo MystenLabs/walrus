@@ -13893,6 +13893,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "twox-hash 2.1.3",
  "typed-store 1.57.0",
  "walrus-core",
  "walrus-proc-macros",

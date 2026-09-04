@@ -3411,6 +3411,17 @@ mod tests {
         async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
             unimplemented!()
         }
+        async fn last_certified_snapshot_blob(
+            &self,
+        ) -> SuiClientResult<Option<walrus_sui::types::move_structs::SnapshotBlob>> {
+            unimplemented!()
+        }
+        async fn certified_snapshot_blob_for_epoch(
+            &self,
+            _epoch: walrus_core::Epoch,
+        ) -> SuiClientResult<Option<walrus_sui::types::move_structs::SnapshotBlob>> {
+            unimplemented!()
+        }
         async fn refresh_package_id(&self) -> SuiClientResult<()> {
             unimplemented!()
         }
