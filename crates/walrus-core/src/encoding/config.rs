@@ -22,6 +22,7 @@ use super::{
 use crate::{
     BlobId,
     EncodingType,
+    ShardIndex,
     bft,
     encoding::{
         DecodeError,
@@ -103,6 +104,20 @@ pub trait EncodingFactory {
         &self,
         blob: &[u8],
     ) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError>;
+
+    /// Computes the metadata for the blob and encodes only the sliver pairs stored on `shards`,
+    /// in the order of `shards`, without holding the expanded message matrix in memory.
+    ///
+    /// See [`BlobEncoder::compute_metadata_with_slivers_for_shards`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if any shard index is not smaller than the number of shards.
+    fn compute_metadata_with_slivers_for_shards(
+        &self,
+        blob: &[u8],
+        shards: &[ShardIndex],
+    ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError>;
 
     /// Computes the blob ID for the provided blob.
     fn compute_blob_id(&self, blob: &[u8]) -> Result<BlobId, DataTooLargeError> {
@@ -600,6 +615,16 @@ impl EncodingFactory for ReedSolomonEncodingConfig {
         blob: &[u8],
     ) -> Result<VerifiedBlobMetadataWithId, DataTooLargeError> {
         Ok(self.get_blob_encoder(blob)?.compute_metadata())
+    }
+
+    fn compute_metadata_with_slivers_for_shards(
+        &self,
+        blob: &[u8],
+        shards: &[ShardIndex],
+    ) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId), DataTooLargeError> {
+        Ok(self
+            .get_blob_encoder(blob)?
+            .compute_metadata_with_slivers_for_shards(shards))
     }
 
     fn decode<S, E>(&self, blob_size: u64, slivers: S) -> Result<Vec<u8>, DecodeError>
