@@ -15,7 +15,7 @@ Important notice regarding governing law, arbitration, and waivers: These Terms 
 
 By using our Interface, you agree to be bound by these Terms. If you don't agree to be bound by the Terms, do not use the Interface.
 
-## 2. Supplemental Terms for Walrus Console
+## 2. Supplemental Terms
 
 Certain services available through the Interface, including Walrus Console, are subject to supplemental terms ("Supplemental Terms"). If you use any such service, the applicable Supplemental Terms are made part of these Terms and apply to your use of that service in addition to these Terms. In the event of any conflict or inconsistency between these Terms and any Supplemental Terms, the Supplemental Terms will prevail, but only in respect of the service to which they apply. We will make the applicable Supplemental Terms available through the Site.
 
