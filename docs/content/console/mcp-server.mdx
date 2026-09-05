@@ -1,0 +1,139 @@
+---
+title: Connect AI clients with the MCP server
+description: Install the Walrus Console MCP server, register it with Claude Code, Codex, Cursor, or Claude Desktop, and use the file and bucket tools it exposes to your agent.
+keywords: [walrus console, mcp server, claude code, codex, cursor, api key, agent, tools]
+questions:
+  - How do I connect Walrus Console to Claude Code?
+  - How do I install the Walrus Console MCP server?
+  - What tools does the Walrus Console MCP server expose?
+  - How do I let an agent mint its own Console API key?
+answer: >-
+  Install the Walrus Console MCP server with `npx -y @mysten-incubation/walrus-console-mcp install`,
+  which asks for the two values Console shows when you mint a key, the `hbr_` API key and the
+  `suiprivkey1` service private key, and stores them outside your client configuration. Register it
+  as a stdio server with your agent, then call `ping_console` to confirm. The server exposes
+  fourteen tools covering spaces, buckets, and files, and encrypts every file locally before upload.
+---
+
+The Walrus Console MCP server gives an AI client the same file and bucket operations you get in the web app. Your agent creates buckets, uploads and downloads files, and checks storage usage, while encryption and signing stay on your machine.
+
+The package is `@mysten-incubation/walrus-console-mcp`, licensed MIT.
+
+:::info
+
+The package publishes with the Walrus Console beta. Until it does, `npx` cannot resolve it and the steps below do not run.
+
+:::
+
+## Prerequisites
+
+- Node.js 24 or later. The package sets `"node": ">=24"` in its engines field.
+- A Walrus Console account with an API key. Open [console.walrus.xyz](https://console.walrus.xyz), sign in, then click **Integrations** and **Create API Key** in the top-right corner. Name the key and give it the `read_write` role.
+- Both values Console reveals. It shows them once: the `hbr_` API key and the `suiprivkey1` service private key.
+
+The API key authorizes calls to Console. The service private key signs onchain access grants and unwraps [Seal](/docs/data-security) keys locally, which is why the server needs both.
+
+## Install
+
+Run the interactive installer:
+
+```sh
+$ npx -y @mysten-incubation/walrus-console-mcp install
+```
+
+It asks for both credentials, validates them against the Console API, and writes them to `~/.config/walrus-console-mcp/config.json`, or `%APPDATA%\walrus-console-mcp\config.json` on Windows, with user-only permissions.
+
+Your MCP client configuration never holds the keys. It only launches the server.
+
+Environment variables override the saved file, so `CONSOLE_API_KEY` and `CONSOLE_SERVICE_PRIVATE_KEY` still work for CI.
+
+## Register the server with your client
+
+| **Client** | **Command** |
+| --- | --- |
+| Claude Code | `claude mcp add --scope user walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp` |
+| Codex | `codex mcp add walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp` |
+| Claude Desktop | The installer configures it for you |
+
+`--scope user` makes the server available in every project. Use `--scope local` to limit it to the current one.
+
+For Cursor, Gemini CLI, or any hand-written configuration, add a stdio server that runs the package through `npx`:
+
+```json
+{
+  "mcpServers": {
+    "walrus-console-mcp": {
+      "command": "npx",
+      "args": ["-y", "@mysten-incubation/walrus-console-mcp"]
+    }
+  }
+}
+```
+
+The server name is a local label. The package it runs is what matters.
+
+Restart the client, run `/mcp`, and approve `walrus-console-mcp` when prompted.
+
+## Verify
+
+Ask the agent to call `ping_console`. It confirms which credentials the server loaded and reports `has_admin_key` and `has_admin_signer` as booleans, never echoing the values themselves.
+
+## Available tools
+
+| **Tool** | **What it does** | **Access** |
+| --- | --- | --- |
+| `ping_console` | Confirm the configured keys | Read |
+| `list_spaces` | List your Personal and Team spaces | Read |
+| `get_storage_usage` | Aggregate storage usage for a space | Read |
+| `list_buckets` | List the buckets in a space | Read |
+| `get_bucket` | Fetch one bucket's metadata | Read |
+| `create_bucket` | Create a private encrypted bucket | Write |
+| `rename_bucket` | Rename a bucket | Write |
+| `delete_bucket` | Delete a bucket and its files permanently | Write |
+| `upload_file` | Encrypt and upload a local file | Write |
+| `download_file` | Download and decrypt a file to disk | Read |
+| `list_files` | List the files in a bucket, with search | Read |
+| `get_file_status` | Check upload progress | Read |
+| `delete_file` | Delete one file permanently | Write |
+| `generate_api_key` | Mint a scoped child key | Write |
+
+A `read_only` API key can call the read tools. The write tools need a `read_write` key.
+
+## Where the server can read and write files
+
+`upload_file` and `download_file` resolve relative paths, and a leading `~`, against your workspace rather than the server's install directory. Path access fails closed: the server confines both tools to the roots your MCP client advertises, and rejects a path when it has none.
+
+Clients that advertise your open workspace folders need no extra configuration. Claude Desktop does not advertise roots, so set `CONSOLE_MCP_ALLOWED_DIRS` to the directories the server might touch, separated by `:`, or by `;` on Windows:
+
+```sh
+$ export CONSOLE_MCP_ALLOWED_DIRS="$HOME/Documents:$HOME/Downloads"
+```
+
+The server resolves symlinks before it checks containment, so a link inside an allowed root that points outside it gets rejected rather than followed. A path the model invents, including one arriving through prompt injection, cannot reach a file outside those roots.
+
+## Mint keys for other agents
+
+`generate_api_key` lets an orchestrator mint scoped working keys for worker agents or CI, without a person opening Console and copying values out of the shown-once dialog. Two credential types keep the roles apart:
+
+| **Credential** | **Prefix** | **What it can do** |
+| --- | --- | --- |
+| Working key | `hbr_` | List and create buckets, upload and download files. Cannot mint. |
+| Key-Admin | `hbradm_` | Mint child keys and sign their access grants. No data-plane access. |
+
+Keep the working key on every host, and the Key-Admin credential on the provisioning host only:
+
+```sh
+$ npx -y @mysten-incubation/walrus-console-mcp config --admin-key hbradm_… --admin-signer suiprivkey1…
+```
+
+Given a permission and an optional label, the tool generates a child keypair locally, mints a child `hbr_` key, runs one sponsored `grant_bucket_access` transaction signed with the admin seed, polls until the key becomes active, and returns the credential pair once.
+
+The Key-Admin credential determines the space. You pass `spaceId` so the tool can verify the key landed where you expected, and it fails with `SpaceMismatchError` when the admin credential covers a different space. Private buckets created later are granted to the child key automatically, so you do not re-mint for future buckets while the key stays active.
+
+Calling `generate_api_key` with only a working key configured returns an error and makes no network call.
+
+## What stays on your machine
+
+Console never receives your plaintext files or your decryption keys. The service private key never leaves your machine, and encryption, decryption, and signing all happen locally. The server talks to Console with your API key alone.
+
+A leaked working key cannot mint or escalate. A leaked Key-Admin credential can, and it also implies read access onchain, so keep it off worker hosts and revoke it separately if it escapes.
