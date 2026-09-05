@@ -2,7 +2,7 @@
 
 Connecting the MCP server gives an agent the memory tools. It does not make the agent use them. Most agents write only when the user says "remember this", which is why an untuned setup produces a handful of memories and then goes quiet.
 
-A system prompt fixes that. It tells the agent *when* to call `memwal_remember` and `memwal_recall` without being asked, and what is worth keeping. Paste one of the templates below into your agent's system prompt, project instructions, or rules file, and the same connection starts producing memories every session.
+A system prompt fixes that. It tells the agent **when** to call `memwal_remember` and `memwal_recall` without being asked, and what is worth keeping. Paste one of the templates below into your agent's system prompt, project instructions, or rules file, and the same connection starts producing memories every session.
 
 ## How to use these
 
@@ -18,7 +18,7 @@ Every template follows the same four-part shape: **recall first**, **write proac
 > The "expected writes" figures below are per working session, assuming an agent that follows instructions. They are a calibration target, not a quota. If you are seeing far fewer, the prompt is probably being outranked by other instructions; move it earlier in the file.
 ## Universal starter
 
-The shortest prompt that changes behaviour. Use it when you want memory on but have not decided what the agent is for yet.
+The shortest prompt that changes behavior. Use it when you want memory on but have not decided what the agent is for yet.
 
 **Namespace:** `personal` · **Expected writes:** 3 to 8 per session
 
@@ -230,7 +230,7 @@ Four rules carry most of the effect:
 
 1. **Name the trigger, not the goal.** "Call memwal_remember when the user states a preference" works. "Remember important things" does not.
 2. **Say "in the same turn, before you finish replying."** Without it, agents acknowledge the fact in prose and never call the tool.
-3. **Say what to skip.** An agent told only to write will write noise, and noisy memory makes recall worse.
+3. **Say what to skip.** An agent told only to write writes noise, and noisy memory makes recall worse.
 4. **Pin the namespace.** Unscoped writes land in the default namespace and mix contexts that should stay apart. See [Memory space](/walrus-memory/fundamentals/concepts/memory-space).
 
 ## Related

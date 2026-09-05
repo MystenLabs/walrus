@@ -1,0 +1,108 @@
+# Walrus Oyster API
+
+> Walrus Oyster API is a Web2-friendly object storage service backed by Walrus (decentralized blob storage) and Sui (onchain state). It provides familiar HTTP and S3-compatible APIs while data is stored on a decentralized network.
+
+> For the complete page index see
+[llms-full.txt](https://docs.wal.app/oyster/llms-full.txt).
+
+- [OpenAPI Specification (JSON)](https://docs.wal.app/oyster/openapi.json):
+    Machine-readable OpenAPI 3.1 spec for the Walrus Oyster API.
+
+## Walrus Oyster API
+
+- [Getting Started](https://docs.wal.app/oyster/getting-started.md):
+    Follow these steps to complete your first interactions with Oyster. By the end, you have
+    created a bucket, uploaded a blob, and downloaded it back.
+- [Guides](https://docs.wal.app/oyster/guides.md):
+    Practical guides for working with Oyster beyond the API reference.
+- [Introduction](https://docs.wal.app/oyster/introduction.md):
+    Oyster is a Web2-friendly object storage service backed by Walrus (decentralized blob
+    storage) and Sui (onchain state). It gives you familiar HTTP and S3 APIs while your data is
+    stored on a decentralized network. ## Core Concepts ### Accounts Every user has an
+    **account**.
+- [JSON API Reference](https://docs.wal.app/oyster/json-api.md):
+    The Oyster JSON API is served under `/api/v1/`. All requests and responses use JSON (except
+    blob content, which is raw binary). Authenticated endpoints require a Bearer token in the
+    `Authorization` header.
+- [S3 API Reference](https://docs.wal.app/oyster/s3-api.md):
+    Oyster provides an S3-compatible API that works with the AWS CLI, `boto3`, the AWS SDK for
+    JavaScript, and any other S3-compatible client. It uses standard AWS Signature Version 4
+    (SigV4) authentication. ## How It Works The S3 API runs on the **same HTTP port** as the
+    JSON API.
+
+## Walrus Oyster API: Guides
+
+- [AWS SDK Examples](https://docs.wal.app/oyster/guides/aws-sdk.md):
+    These examples show complete workflows using AWS SDKs with Oyster's S3-compatible API. For
+    initial SDK setup, see S3 setup.
+- [Blob Lifecycle](https://docs.wal.app/oyster/guides/blob-lifecycle.md):
+    Blobs progress through a well-defined lifecycle from upload to expiration. Oyster's
+    automatic extension service keeps your data alive. ## Upload and expiration Walrus storage
+    is epoch-scoped, not time-scoped.
+- [oyster-cli Quick Start](https://docs.wal.app/oyster/guides/cli.md):
+    `oyster-cli` is a command-line tool for interacting with Oyster. It wraps the JSON API and
+    handles authentication, content-type detection, and pagination for you. ## Configuration The
+    CLI looks for a config file in this order: 1. Path specified with `--config` 2. `./client.
+- [Content Addressing](https://docs.wal.app/oyster/guides/content-addressing.md):
+    Oyster uses **content addressing** to identify blobs. A blob's identity is derived from its
+    contents, not from where it is stored. This enables deduplication, integrity verification,
+    and content-based retrieval.
+- [Web Signup](https://docs.wal.app/oyster/guides/web-signup.md):
+    Oyster can serve a self-serve signup page at `/signup`. A user signs in with Google, passes
+    a Cloudflare Turnstile anti-bot check, and receives an **app** plus its first **admin key**,
+    the same kind of key an operator would otherwise issue with `oysterd app issue-admin-key`.
+- [Webhooks](https://docs.wal.app/oyster/guides/webhooks.md):
+    Oyster posts a single webhook event: `account.funding_required`. It tells the owning app
+    that an account's Pearl-derived wallet cannot cover the next `extend_storage_pool` PTB. Top
+    up the wallet and the next extension cycle succeeds.
+
+## Walrus Oyster API: JSON API
+
+- [S3 Access Keys](https://docs.wal.app/oyster/json-api/access-keys.md):
+    S3 access keys let you authenticate with Oyster's S3-compatible API using standard AWS
+    Signature Version 4. Each access key consists of an **access key ID** (20 characters,
+    prefixed with `OYAK`) and a **secret access key** (40 hex characters). You can have up to
+    **3 active access keys** per account.
+- [Admin API](https://docs.wal.app/oyster/json-api/admin.md):
+    The Admin API lets app operators manage accounts, API keys, and S3 access keys. All admin
+    endpoints require **admin-key** authentication (long-lived per-app Bearer tokens issued
+    through `oysterd app issue-admin-key`; see Authentication). An app can only manage accounts
+    it created.
+- [Authentication](https://docs.wal.app/oyster/json-api/authentication.md):
+    Oyster uses **Bearer tokens** for authenticated routes plus **public access** for blob reads
+    and infrastructure probes. There are two tiers of Bearer token, distinguished by which
+    routes they unlock; both share the same `Authorization: Bearer ` wire format.
+- [Blobs](https://docs.wal.app/oyster/json-api/blobs.md):
+    Blobs are binary objects stored inside buckets. Each blob is identified by a user-chosen
+    **key** (like a file path) and has a content-addressed **blob ID** computed from its
+    contents.
+- [Buckets](https://docs.wal.app/oyster/json-api/buckets.md):
+    Buckets are named containers that hold your blobs. Bucket names are **globally unique**: no
+    two accounts can have a bucket with the same name.
+- [Infrastructure](https://docs.wal.app/oyster/json-api/infrastructure.md):
+    These endpoints are used for health monitoring and observability. They do **not** require
+    authentication and are **not** under the `/api/v1/` prefix. ## Health Check (Liveness)
+    Always returns `200 OK`. Use this as a Kubernetes liveness probe or a simple "is the server
+    running?" check.
+- [Wallet](https://docs.wal.app/oyster/json-api/wallet.md):
+    Each Oyster account has an associated **Sui wallet address**, derived from the account's
+    identity by the Pearl custodial wallet service. This wallet is used for onchain operations
+    when blobs are stored on Walrus. ## Get Wallet Address Returns the Sui wallet address
+    associated with your account.
+
+## Walrus Oyster API: S3 API
+
+- [Bucket Operations](https://docs.wal.app/oyster/s3-api/buckets.md):
+    All bucket operations require S3 authentication (SigV4). See S3 Setup for configuration. ##
+    CreateBucket Creates a new bucket.
+- [Limitations](https://docs.wal.app/oyster/s3-api/limitations.md):
+    Oyster implements the most commonly used S3 operations. The sections below document what's
+    different from a full AWS S3 deployment. ## Supported vs.
+- [Object Operations](https://docs.wal.app/oyster/s3-api/objects.md):
+    All S3 operations require authentication (SigV4), including reads. See S3 Setup for
+    configuration. > **Authenticated reads:** Unlike the JSON API, where > blob reads are public
+    and unauthenticated, all S3 reads require authentication. ## PutObject Uploads an object to
+    a bucket.
+- [S3 Setup](https://docs.wal.app/oyster/s3-api/setup.md):
+    Configure the AWS CLI and SDKs to work with Oyster's S3-compatible API using the steps
+    below.

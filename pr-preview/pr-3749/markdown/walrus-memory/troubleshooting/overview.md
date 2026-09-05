@@ -146,7 +146,7 @@ Recall is one search request. A save embeds, encrypts, uploads to Walrus, and in
 
 ### Score vs distance
 
-SDK `recall` returns cosine **distance** (lower = more similar), and `maxDistance` drops hits where `distance >= maxDistance`. MCP `memwal_recall` prints **score** as `1 - distance` (higher = more similar). Do not apply an SDK `maxDistance` to MCP scores, that inverts the filter.
+SDK `recall` returns cosine **distance** (lower = more similar), and `maxDistance` drops hits where `distance >= maxDistance`. MCP `memwal_recall` prints **score** as `1 - distance` (higher = more similar). Do not apply an SDK `maxDistance` to MCP scores. That inverts the filter.
 
 ### How do i check whether the service is reachable?
 
