@@ -819,11 +819,15 @@ Sui smart contract as the on-chain index.
     the MCP server, TypeScript SDK, Python SDK, and OpenClaw. Walrus Sites — Release notes from
     Walrus Sites.
 - [Walrus Memory](https://docs.wal.app/docs/release-notes/walrus-memory.md):
-    No Walrus Memory releases found.
+    August 24, 2026 | GitHub --- August 20, 2026 | GitHub Answer orphaned tool calls whose upstream
+    response never arrives with a retryable error instead of hanging indefinitely.
 - [Walrus Platform](https://docs.wal.app/docs/release-notes/walrus-platform.md):
-    No Walrus releases found.
+    Mainnet | September 2, 2026 | GitHub Adds a metric counting sync-and-recovery info publications
+    that invalidate the node-recovery baseline and supersede in-flight node-recovery runs.
 - [Walrus Sites](https://docs.wal.app/docs/release-notes/walrus-sites.md):
-    No Walrus Sites releases found.
+    July 10, 2026 | GitHub The portal gains a glob-based route/redirect matcher behind a flag
+    (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client
+    methods ahead of the JSON-RPC deprecation.
 
 ## Sponsored Uploads
 

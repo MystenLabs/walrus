@@ -46,7 +46,7 @@ You own your data. Console does not migrate data you previously stored on Walrus
 
 ## API keys and roles
 
-You mint API keys under **Integrations** in the Console web app, choosing a `read_write` or `read_only` role for each. A plain **API key** works with the API, the MCP server, and your own code, but it cannot mint further keys. A **Management API key** mints keys programmatically instead, and cannot upload, download, or manage assets. The choice is not permanent, so you can create a Management API key at any time. Console shows the full key (prefixed `hbr_`) once, at creation, and cannot recover it afterward, so store it like a cloud secret access key. For what each role can do, see the [API reference](./api-reference).
+You mint API keys under **Integrations** in the Console web app, choosing a `read_write` or `read_only` role for each. A plain **API key** works with the MCP server and with any application you write against the API, but it cannot mint further keys. A **Management API key** mints keys programmatically instead, and cannot upload, download, or manage assets. The choice is not permanent, so you can create a Management API key at any time. Console shows the full key (prefixed `hbr_`) once, at creation, and cannot recover it afterward, so store it like a cloud secret access key. For what each role can do, see the [API reference](./api-reference).
 
 Alongside the API key, Console generates a service private key (prefixed `suiprivkey1`) in your browser and shows it once next to the API key. Console stores only the derived public address. You keep the private key locally and use it to sign the transaction that finalizes a private bucket and to authenticate decrypt sessions with Seal. It does not need a token balance.
 
