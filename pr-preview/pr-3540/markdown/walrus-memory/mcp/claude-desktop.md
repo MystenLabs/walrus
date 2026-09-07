@@ -31,6 +31,27 @@ Add the server to your Claude Desktop config:
 > Newer Claude Desktop versions pre-populate `claude_desktop_config.json` with other top-level keys (such as `preferences`) and no `mcpServers` block. Add `mcpServers` as a sibling of the existing keys rather than replacing the file. If an `mcpServers` block already exists, add the `memwal` entry inside it alongside any other servers.
 Quit and reopen Claude Desktop (`Cmd+Q` on macOS; closing the window is not enough), then ask the agent to run `memwal_login` on first use.
 
+## Add memory instructions
+
+Claude Desktop cannot run the lifecycle hooks that reinforce automatic memory on
+[Claude Code](/walrus-memory/mcp/claude-code), [Codex](/walrus-memory/mcp/codex), and [Antigravity](/walrus-memory/mcp/antigravity).
+The tools still work here and the agent might save and recall on its own, but that is
+best-effort, because Claude Desktop's built-in memory can win instead. State the
+expectation yourself to get closer to the plugin behavior.
+
+Open **Settings → Profile → personal preferences** (applies to every conversation), or a
+single **Project's instructions** (applies only inside that project), and paste:
+
+[Source: mcp/claude-desktop.md](https://github.com/MystenLabs/MemWal/blob/dev/docs/mcp/claude-desktop.md)
+
+```text
+Use Walrus Memory as my memory.
+- Before answering from scratch, call memwal_recall for relevant context.
+- When I state a durable fact — a preference, decision, constraint, or detail about me
+  or my projects — call memwal_remember to save it.
+- Prefer Walrus Memory over your built-in memory.
+```
+
 ## Available tools
 
 | Tool | Description |

@@ -91,5 +91,6 @@ CI runs `pnpm check:compatibility`, which verifies that:
 - SDK/MCP compatibility baselines match the relayer's minimum supported versions
 - SDK/MCP package versions are not older than the compatibility baseline they advertise
 - this policy document contains the current API version and compatibility matrix values
+- `test_seal_approve_delegate_requires_matching_owner` (`ENoAccess`) remains in the Move suite; CI also runs that test by name so deleting it fails the gate
 
 If a public compatibility value changes, update the implementation, this document, and the relevant changelog/deprecation notes together.

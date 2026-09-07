@@ -7,12 +7,12 @@ Walrus Console signs you in with the Google or Apple account you already have. T
 > Walrus Console is available on Mainnet through a closed, invite-only beta. It supports Google and Apple sign-in. For the product model, see the [concepts and overview](./overview).
 ## How sign-in works
 
-Console uses Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin). You authenticate with an identity provider you already have, and Console derives a [Sui address](https://docs.sui.io/concepts/cryptography/transaction-auth/keys-addresses) from that identity without exposing your provider account onchain and without asking you to manage a private key.
+Console uses Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin). You authenticate with an identity provider you already have, and Console derives a Sui address from that identity without exposing your provider account onchain and without asking you to manage a private key.
 
 ## Sign in with Google or Apple
 
 1. Visit the [Walrus Console app](https://console.walrus.xyz/).
-2. Choose **Continue with Google** or **Continue with Apple** and complete the provider sign-in.
+2. Choose **Google** or **Apple** and complete the provider sign-in.
 3. Console provisions your account and a [Personal Space](./overview#core-concepts-spaces-buckets-and-files), then takes you to the dashboard.
 
 Apple sign-in derives your Sui address from your Apple identity the same way. It accepts Apple's private email relay, so you can use the **Hide My Email** option.
@@ -26,7 +26,7 @@ On first sign-in, Console silently provisions a Pearl wallet, the embedded walle
 > **Warning**
 >
 > Each identity provider maps to a separate Console account and a separate Sui address. If you sign in with Google and later sign in with Apple, you get two independent accounts, not one merged account. Data stored under one is not visible under the other.
-Console shows an account-separation notice the first time you sign in so this is clear before you store anything. Choose one provider and use it consistently. Linking multiple providers to a single account is planned for a later release.
+Choose one provider and use it consistently. Linking multiple providers to a single account is planned for a later release.
 
 ## Wallet sign-in
 

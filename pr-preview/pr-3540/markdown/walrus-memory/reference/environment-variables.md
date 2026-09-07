@@ -114,6 +114,7 @@ These are not all enforced at boot, but most real deployments need them.
 | `MCP_MAX_SESSIONS_PER_IP` | `16` | Maximum active MCP sessions from one source IP |
 | `MCP_MAX_NEW_SESSIONS_PER_IP_PER_MIN` | `30` | Maximum new MCP sessions opened by one source IP per minute |
 | `TRUSTED_PROXY_HOPS` | `0` | Number of trusted reverse-proxy hops to walk from the right of `X-Forwarded-For`; `0` ignores XFF and uses the TCP peer |
+| `WRITES_PAUSED` | `false` | When `1` / `true` / `yes` / `on`, write routes (`POST /api/remember`, `/api/remember/manual`, `/api/remember/bulk`, `/api/analyze`) return HTTP 503 `{"error":"writes are paused"}`. `GET /health` stays HTTP 200 with `status: "ok"` and `writes: "paused"`. Reads (`recall`, `restore`, health) stay available |
 
 ### Notes
 

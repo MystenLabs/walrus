@@ -7,7 +7,7 @@ Common questions about Walrus Console. For the concepts behind the answers, read
 > Walrus Console is available on Mainnet through a closed, invite-only beta. Answers below mark the capabilities that arrive at general availability (GA) or later.
 ## Getting started
 
-What Console is, how you get in, and what the free tier covers.
+What Console is, how you get in, and what the storage limits are.
 
 ### What is Walrus Console?
 
@@ -17,13 +17,13 @@ A place to store files on Walrus and manage them from a browser or from code. Yo
 
 With a Google account or an Apple account. Console uses Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin) to derive a Sui address from your identity and provisions a wallet for you, so you never handle private keys to get started. Identities from different providers map to separate accounts. See [Authentication and Accounts](./auth).
 
-### How much can you store for free?
+### What are the storage limits?
 
-Console keeps a perpetual free tier, capped at 5 GB of total storage. See [Billing and the free tier](./overview#billing-and-the-free-tier).
+Each space holds up to 5 GB of storage and five buckets, and each upload is capped at 100 MiB. See [Storage limits](./overview#storage-limits).
 
-### What happens when you hit the limit?
+### What happens when you hit a limit?
 
-Uploads stop at the cap. Usage-based billing and a paid top-up path arrive after GA.
+Uploads stop at the storage cap, and a sixth bucket returns a `plan_limit_exceeded` error. Delete files or buckets to free space.
 
 ## Your files
 
@@ -55,7 +55,7 @@ Everything programmatic. The API, the MCP server, and uploads from your own code
 
 ### How do you use Console with Claude Code or Cursor?
 
-Through the Walrus Console MCP server, the npm package `@mysten-incubation/walrus-console-mcp`, which publishes with the Console beta. It exposes file and bucket operations as tools your agent calls. Run `npx -y @mysten-incubation/walrus-console-mcp install` and give it the two values Console showed you when you minted the key: the `hbr_` API key and the `suiprivkey1` service private key. The installer stores them outside your client configuration, so no key goes in the MCP config file. See [Connect AI clients with the MCP server](./mcp-server).
+Through the Walrus Console MCP server, the npm package `@mysten-incubation/walrus-console-mcp`, which publishes with the Console beta. It exposes file and bucket operations as tools your agent calls. Run `npx -y @mysten-incubation/walrus-console-mcp@beta install` and give it the two values Console showed you when you minted the key: the `hbr_` API key and the `suiprivkey1` service private key. The installer stores them outside your client configuration, so no key goes in the MCP config file. See [Connect AI clients with the MCP server](./mcp-server).
 
 ### Can your team share one account?
 

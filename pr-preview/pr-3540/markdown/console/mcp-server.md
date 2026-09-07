@@ -4,37 +4,39 @@ The Walrus Console MCP server gives an AI client the same file and bucket operat
 
 The package is `@mysten-incubation/walrus-console-mcp`, licensed MIT.
 
-> **Info**
->
-> The package publishes with the Walrus Console beta. Until it does, `npx` cannot resolve it and the steps below do not run.
 ## Prerequisites
 
 - Node.js 24 or later. The package sets `"node": ">=24"` in its engines field.
 - A Walrus Console account with an API key. Open [console.walrus.xyz](https://console.walrus.xyz), sign in, then click **Integrations** and **Create API Key** in the top-right corner. Name the key and give it the `read_write` role.
-- Both values Console reveals. It shows them once: the `hbr_` API key and the `suiprivkey1` service private key.
+- The values Console reveals. It shows them once: the `hbr_` API key, the `suiprivkey1` service private key, and a `CONSOLE_CREDENTIAL_BUNDLE` value that carries both keys plus two Sui addresses. Copy the bundle if you can. It is the installer's first prompt.
 
-The API key authorizes calls to Console. The service private key signs onchain access grants and unwraps [Seal](/docs/data-security) keys locally, which is why the server needs both.
+The API key authorizes calls to Console. The service private key signs onchain access grants and unwraps [Seal](/docs/data-security) keys locally, which is why the server needs both. The two addresses in the bundle are your Console account address and the address of the space's Management API key signer, if any. `create_bucket` checks the transaction it signs against them and refuses to run without the account address.
 
 ## Install
 
-Run the interactive installer:
+Run the interactive installer from a fresh directory:
 
 ```sh
-$ npx -y @mysten-incubation/walrus-console-mcp install
+$ npx -y @mysten-incubation/walrus-console-mcp@beta install
 ```
 
-It asks for both credentials, validates them against the Console API, and writes them to `~/.config/walrus-console-mcp/config.json`, or `%APPDATA%\walrus-console-mcp\config.json` on Windows, with user-only permissions.
+The installer:
 
-Your MCP client configuration never holds the keys. It only launches the server.
+1. Asks for the credential bundle, or for the API key and service private key one at a time followed by the two addresses.
+2. Validates the API key against the Console API, shows the addresses it is about to pin, and saves nothing until you confirm.
+3. Asks which folders `upload_file` and `download_file` can use when your client does not share workspace folders.
+4. Installs the server into its own directory and registers it with the agents you tick: Claude Desktop, Claude Code, Cursor, Codex, and Gemini CLI.
 
-Environment variables override the saved file, so `CONSOLE_API_KEY` and `CONSOLE_SERVICE_PRIVATE_KEY` still work for CI.
+It writes the credentials to `~/.config/walrus-console-mcp/config.json`, or `%APPDATA%\walrus-console-mcp\config.json` on Windows, with user-only permissions. Your MCP client configuration never holds the keys. It only launches the server.
+
+Environment variables override the saved file, so `CONSOLE_API_KEY` and `CONSOLE_SERVICE_PRIVATE_KEY` still work for CI. The server also reads `CONSOLE_WEB_ACCOUNT_ADDRESS` and `CONSOLE_KEY_ADMIN_ADDRESS` for the two address pins, `CONSOLE_ADMIN_KEY` and `CONSOLE_ADMIN_SERVICE_PRIVATE_KEY` for the Key-Admin credential, `CONSOLE_MCP_ALLOWED_DIRS` for file access, and `CONSOLE_API_BASE_URL` to point at a different Console deployment.
 
 ## Register the server with your client
 
 | **Client** | **Command** |
 | --- | --- |
-| Claude Code | `claude mcp add --scope user walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp` |
-| Codex | `codex mcp add walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp` |
+| Claude Code | `claude mcp add --scope user walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp@beta` |
+| Codex | `codex mcp add walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp@beta` |
 | Claude Desktop | The installer configures it for you |
 
 `--scope user` makes the server available in every project. Use `--scope local` to limit it to the current one.
@@ -46,19 +48,19 @@ For Cursor, Gemini CLI, or any hand-written configuration, add a stdio server th
   "mcpServers": {
     "walrus-console-mcp": {
       "command": "npx",
-      "args": ["-y", "@mysten-incubation/walrus-console-mcp"]
+      "args": ["-y", "@mysten-incubation/walrus-console-mcp@beta"]
     }
   }
 }
 ```
 
-The server name is a local label. The package it runs is what matters.
+The server name is a local label. The launcher it runs is what matters.
 
 Restart the client, run `/mcp`, and approve `walrus-console-mcp` when prompted.
 
 ## Verify
 
-Ask the agent to call `ping_console`. It confirms which credentials the server loaded and reports `has_admin_key` and `has_admin_signer` as booleans, never echoing the values themselves.
+Ask the agent to call `ping_console`. It confirms which credentials the server loaded and reports `has_api_key`, `has_service_key`, `has_admin_key`, and `has_admin_signer` as booleans, plus the `network` the server resolved. It never echoes the values themselves.
 
 ## Available tools
 
@@ -69,13 +71,16 @@ Ask the agent to call `ping_console`. It confirms which credentials the server l
 | `get_storage_usage` | Aggregate storage usage for a space | Read |
 | `list_buckets` | List the buckets in a space | Read |
 | `get_bucket` | Fetch one bucket's metadata | Read |
-| `create_bucket` | Create a private encrypted bucket | Write |
+| `get_bucket_metadata` | Fetch a bucket's custom metadata | Read |
+| `create_bucket` | Create a private encrypted bucket. Needs the pinned account address | Write |
 | `rename_bucket` | Rename a bucket | Write |
+| `update_bucket_metadata` | Set a bucket's custom metadata | Write |
 | `delete_bucket` | Delete a bucket and its files permanently | Write |
 | `upload_file` | Encrypt and upload a local file | Write |
 | `download_file` | Download and decrypt a file to disk | Read |
 | `list_files` | List the files in a bucket, with search | Read |
 | `get_file_status` | Check upload progress | Read |
+| `update_file` | Update a file's name, description, or tags | Write |
 | `delete_file` | Delete one file permanently | Write |
 | `generate_api_key` | Mint a scoped child key | Write |
 
@@ -83,9 +88,9 @@ A `read_only` API key can call the read tools. The write tools need a `read_writ
 
 ## Where the server can read and write files
 
-`upload_file` and `download_file` resolve relative paths, and a leading `~`, against your workspace rather than the server's install directory. Path access fails closed: the server confines both tools to the roots your MCP client advertises, and rejects a path when it has none.
+`upload_file` and `download_file` resolve relative paths, and a leading `~`, against your workspace rather than the server's install directory. Path access fails closed: the server confines both tools to the roots your MCP client advertises, or to the folders you saved at install time, and rejects a path when it has neither.
 
-Clients that advertise your open workspace folders need no extra configuration. Claude Desktop does not advertise roots, so set `CONSOLE_MCP_ALLOWED_DIRS` to the directories the server might touch, separated by `:`, or by `;` on Windows:
+Clients that advertise your open workspace folders need no extra configuration. Claude Desktop does not advertise roots, so name the folders during install, or set `CONSOLE_MCP_ALLOWED_DIRS` to the directories the server might touch, separated by `:`, or by `;` on Windows:
 
 ```sh
 $ export CONSOLE_MCP_ALLOWED_DIRS="$HOME/Documents:$HOME/Downloads"
@@ -102,15 +107,17 @@ The server resolves symlinks before it checks containment, so a link inside an a
 | Working key | `hbr_` | List and create buckets, upload and download files. Cannot mint. |
 | Key-Admin | `hbradm_` | Mint child keys and sign their access grants. No data-plane access. |
 
-Keep the working key on every host, and the Key-Admin credential on the provisioning host only:
+Keep the working key on every host, and the Key-Admin credential on the provisioning host only. Configure it with the installed launcher, either interactively with `config` and the **Management key** choice, or scripted:
 
 ```sh
-$ npx -y @mysten-incubation/walrus-console-mcp config --admin-key hbradm_… --admin-signer suiprivkey1…
+$ "${XDG_DATA_HOME:-$HOME/.local/share}/walrus-console-mcp/node_modules/.bin/walrus-console-mcp" config --admin-key hbradm_… --admin-signer suiprivkey1…
 ```
 
-Given a permission and an optional label, the tool generates a child keypair locally, mints a child `hbr_` key, runs one sponsored `grant_bucket_access` transaction signed with the admin seed, polls until the key becomes active, and returns the credential pair once.
+Given a permission and an optional label, the tool generates a child keypair locally, mints a child `hbr_` key, runs one sponsored `grant_bucket_access` transaction signed with the admin seed, and polls until the key becomes active. It then writes the child's `hbr_` key and `suiprivkey1` private key to a user-only file under `~/.config/walrus-console-mcp/minted-keys/` and returns the path as `credential.credentialFile`. The secrets appear nowhere else, including the tool's own output.
 
-The Key-Admin credential determines the space. You pass `spaceId` so the tool can verify the key landed where you expected, and it fails with `SpaceMismatchError` when the admin credential covers a different space. Private buckets created later are granted to the child key automatically, so you do not re-mint for future buckets while the key stays active.
+The Key-Admin credential determines the space. You pass `spaceId` so the tool can check, after the mint, that the key landed where you expected. When a step after the mint fails, the result is `ok: false` with a `stage` of `space-check`, `grant`, `activation`, or `persist`, and it usually still carries the credential file. The key already exists at that point, so do not call the tool again to retry. A second call mints a second key and orphans the first, and only the Console web app can revoke it.
+
+The mint-time grant covers the private buckets that already exist in the space. A bucket the server creates later includes a child key only when that key is still active and is already a member of one of the access groups the server recorded. Keys the server had to leave off appear in `roster.droppedCandidates` of the `create_bucket` result. Repair them with a Key-Admin grant, not a new mint.
 
 Calling `generate_api_key` with only a working key configured returns an error and makes no network call.
 

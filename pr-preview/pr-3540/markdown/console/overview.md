@@ -40,7 +40,7 @@ Console is built around a single navigation shell that treats your data as typed
 
 You sign in through Google or Apple using Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin) capabilities. Console derives a Sui address from your identity and silently provisions a Pearl wallet (the embedded wallet Console manages for you), so you do not manage private keys or hold tokens to get started.
 
-Identities from different providers map to separate accounts. Console shows an account-separation notice the first time you sign in so it is clear which identity owns which data.
+Identities from different providers map to separate accounts, so the Google and Apple identities of one person own separate data.
 
 You own your data. Console does not migrate data you previously stored on Walrus outside the product; you re-upload it.
 
@@ -48,7 +48,7 @@ You own your data. Console does not migrate data you previously stored on Walrus
 
 You mint API keys under **Integrations** in the Console web app, choosing a `read_write` or `read_only` role for each. A plain **API key** works with the API, the MCP server, and your own code, but it cannot mint further keys. A **Management API key** mints keys programmatically instead, and cannot upload, download, or manage assets. The choice is not permanent, so you can create a Management API key at any time. Console shows the full key (prefixed `hbr_`) once, at creation, and cannot recover it afterward, so store it like a cloud secret access key. For what each role can do, see the [API reference](./api-reference).
 
-Alongside the API key, Console returns a service private key (prefixed `suiprivkey1`). You keep this locally and use it to sign the transaction that finalizes a private bucket and to authenticate decrypt sessions with Seal. It does not need a token balance.
+Alongside the API key, Console generates a service private key (prefixed `suiprivkey1`) in your browser and shows it once next to the API key. Console stores only the derived public address. You keep the private key locally and use it to sign the transaction that finalizes a private bucket and to authenticate decrypt sessions with Seal. It does not need a token balance.
 
 ### Connect AI clients with the MCP server
 
@@ -58,11 +58,11 @@ Console publishes an open-source [MCP](https://modelcontextprotocol.io/) server 
 
 Walrus storage is time-bound. You pay to store data for a number of storage epochs, and data expires when its storage runs out. Console manages epochs and payment for you rather than asking you to track them by hand.
 
-Storage renews automatically for wallets that stayed active, meaning at least one Walrus transaction within a recent activity window. Active developers keep their data without manual renewal, and dormant accounts expire naturally.
+Console extends the storage of your files automatically before it expires, so you keep your data without a manual renewal step. See [Storage, Epochs, and Renewal](./storage-epochs).
 
-## Billing and the free tier
+## Storage limits
 
-Console keeps a perpetual free tier so new developers are not paywalled. Console caps free storage at 5 GB in total. Usage-based billing for reads and egress, along with a paid top-up path, follows after GA. Console manages WAL token handling on your behalf.
+Each space holds up to 5 GB of storage and five buckets, and each upload is capped at 100 MiB. Console manages WAL token handling on your behalf.
 
 ## What is available in beta
 

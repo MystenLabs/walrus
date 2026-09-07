@@ -40,11 +40,16 @@ Save several durable facts in one batched call. Prefer this over repeated `memwa
 
 Search the user's Walrus Memory for facts relevant to a query. The agent calls this **proactively** at the start of a task or when the user references past work, decisions, or preferences. Returns matches ranked by relevance.
 
+Each result line includes `score` and `distance`. `distance` is cosine distance (low = similar). Displayed `score` is `1 − cosine distance` (high = similar). Optional `maxDistance` is a cosine-distance cutoff: hits with `distance >= maxDistance` are dropped. Omit `maxDistance` to apply no cutoff.
+
+The cutoff is applied to the `limit` nearest matches, not before them, so a tight `maxDistance` returns fewer than `limit` results, that is the cutoff biting, not an empty namespace. Raise `limit` to widen the candidate pool the cutoff sees.
+
 | **Parameter** | **Type** | **Required** | **Description** |
 | --- | --- | --- | --- |
 | `query` | string | yes | Natural-language query to match against stored memories. |
 | `limit` | integer (1–100) | no | Max memories to return. Default `10`. |
 | `namespace` | string | no | Namespace bucket to search. |
+| `maxDistance` | number (>= 0) | no | Cosine-distance cutoff (low = similar). Hits with `distance >= maxDistance` are dropped. Omit for no cutoff. |
 
 ### Memwal_analyze
 
@@ -59,7 +64,7 @@ Extract memorable facts from a longer passage of text (preferences, habits, biog
 
 Re-index a namespace from Walrus blobs back into the relayer's search index. Returns counts (`restored` / `skipped` / `total`) plus `truncated`, and does **not** return memory texts. Call `memwal_recall` afterwards to query the rebuilt index.
 
-`truncated=true` means the bounded restore did not reach the end of the namespace, so the index is still incomplete. Raising `limit` helps when your own limit was the bound; past the sidecar's own cap it does not, and only a cursor-based restore would.
+`truncated=true` means this restore is **known-retryable-incomplete**: more missing blobs than `limit` allowed this call to restore, **or** the sidecar's owner-wide candidate fetch hit its cap **and** raising `limit` can still expand that fetch (`limit < 20`). Once the sidecar cap is saturated (`limit >= 20`, cap pinned at 100), truncation follows this call's missing-blob page length, not onchain `total`. A fully restored namespace does not loop. `truncated=false` is **not** proof the sidecar saw every onchain blob; blobs beyond the owner-wide sidecar candidate cap can still be missing. WALM-451 tracks a `sourceCapped` field for that case ([WALM-451](https://linear.app/mysten-labs/issue/WALM-451)). Relayers older than WALM-319 omit `truncated`; SDKs default it to `false`.
 
 | **Parameter** | **Type** | **Required** | **Description** |
 | --- | --- | --- | --- |

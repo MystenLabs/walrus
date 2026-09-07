@@ -335,6 +335,8 @@ wal_price_monitor:
   enable_binance: true          # Fetch the WAL price from Binance.
   enable_pyth_hermes: false     # Set to true to also fetch the WAL
                                 # price from Pyth Hermes.
+  enable_coinmarketcap: true    # Fetch the WAL price from
+                                # CoinMarketCap.
 ```
 
 > **Tip**
