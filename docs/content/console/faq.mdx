@@ -1,18 +1,18 @@
 ---
 title: Walrus Console FAQ
-description: Answers to common Walrus Console questions about signing in, the free tier, file size and expiry, API keys, the MCP server, and what ships in the beta.
-keywords: [walrus console, faq, free tier, api key, mcp server, file size limit, team spaces, storage renewal]
+description: Answers to common Walrus Console questions about signing in, storage limits, file size and expiry, API keys, the MCP server, and what ships in the beta.
+keywords: [walrus console, faq, storage limits, api key, mcp server, file size limit, team spaces, storage renewal]
 questions:
-  - How much can I store on Walrus Console for free?
+  - What are the Walrus Console storage limits?
   - What is the largest file I can upload to Walrus Console?
   - Do files uploaded through Walrus Console expire?
   - Can Walrus Console see files I uploaded with the Walrus CLI or SDK?
   - How do I use Walrus Console with Claude Code or Cursor?
 answer: >-
   Walrus Console stores files on Walrus and lets you manage them from a browser or from code.
-  You sign in with a Google or Apple account, mint an API key, and upload. Console keeps a
-  perpetual free tier capped at 5 GB of total storage, renews the storage of files you upload through
-  Console automatically while your wallet stays active, and exposes file and bucket operations
+  You sign in with a Google or Apple account, mint an API key, and upload. Console limits each
+  space to 5 GB of storage and five buckets, with 100 MiB per file, extends the storage of files you upload through
+  Console automatically, and exposes file and bucket operations
   to AI clients through an open-source MCP server that reuses the Console keys you already minted.
 ---
 
@@ -26,7 +26,7 @@ Walrus Console is available on Mainnet through a closed, invite-only beta. Answe
 
 ## Getting started
 
-What Console is, how you get in, and what the free tier covers.
+What Console is, how you get in, and what the storage limits are.
 
 ### What is Walrus Console?
 
@@ -36,13 +36,13 @@ A place to store files on Walrus and manage them from a browser or from code. Yo
 
 With a Google account or an Apple account. Console uses Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin) to derive a Sui address from your identity and provisions a wallet for you, so you never handle private keys to get started. Identities from different providers map to separate accounts. See [Authentication and Accounts](./auth).
 
-### How much can you store for free?
+### What are the storage limits?
 
-Console keeps a perpetual free tier, capped at 5 GB of total storage. See [Billing and the free tier](./overview#billing-and-the-free-tier).
+Each space holds up to 5 GB of storage and five buckets, and each upload is capped at 100 MiB. See [Storage limits](./overview#storage-limits).
 
-### What happens when you hit the limit?
+### What happens when you hit a limit?
 
-Uploads stop at the cap. Usage-based billing and a paid top-up path arrive after GA.
+Uploads stop at the storage cap, and a sixth bucket returns a `plan_limit_exceeded` error. Delete files or buckets to free space.
 
 ## Your files
 
