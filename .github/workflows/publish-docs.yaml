@@ -1,4 +1,4 @@
-name: Build docs and publish to GitHub Pages and Walrus
+name: Build and publish docs
 
 on:
   push:
@@ -10,17 +10,6 @@ on:
   repository_dispatch:
     types: [memwal-docs-updated, oyster-docs-updated]
   workflow_dispatch:
-    inputs:
-      publish-pages:
-        description: "Publish to GitHub Pages"
-        type: boolean
-        required: true
-        default: false
-      update-walrus-site:
-        description: "Update the Walrus Site"
-        type: boolean
-        required: true
-        default: false
   schedule:
     # Rebuild daily to pick up upstream Walrus Memory and Walrus Oyster API doc changes.
     - cron: "14 3 * * *"
@@ -31,12 +20,9 @@ permissions:
   contents: read
 
 jobs:
-  publish-github-pages:
-    name: Publish to GitHub Pages
+  build:
+    name: Build docs
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'push' || inputs.publish-pages == true }}
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - name: Install pnpm
@@ -53,59 +39,20 @@ jobs:
         run: cd docs/site && pnpm install --frozen-lockfile
       - name: Build site
         run: cd docs/site && pnpm run build
-      - name: Check route config
-        run: cd docs/site && ./check-routes.sh
-      - name: Update GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@d92aa235d04922e8f08b40ce78cc5442fcfbfa2f # pin@v4.8.0
-        with:
-          folder: docs/site/build
-          clean-exclude: pr-preview/
-          force: false
 
-  # We store the data for the Sui wallet and the site object in GitHub variables
-  # (https://github.com/MystenLabs/walrus/settings/variables/actions) and secrets
-  # (https://github.com/MystenLabs/walrus/settings/secrets/actions).
-  publish-walrus:
-    name: Update Walrus Site
-    runs-on: ubuntu-ghcloud
-    if: ${{ github.event_name == 'push' || github.event_name == 'schedule' || inputs.update-walrus-site == true }}
-    concurrency:
-      group: sui-wallet-operations
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
-        with:
-          persist-credentials: false
-      - name: Install pnpm
-        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # pin@v6.0.9
-        with:
-          version: 9
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # pin@v7.0.0
-        with:
-          node-version: '20'
-          cache: 'pnpm'
-          cache-dependency-path: docs/site/pnpm-lock.yaml
-      - name: Install dependencies
-        run: cd docs/site && pnpm install --frozen-lockfile
-      - name: Build site
-        run: cd docs/site && pnpm run build
-      - name: Check route config
-        run: cd docs/site && ./check-routes.sh
-      - name: Deploy to Walrus
-        uses: MystenLabs/walrus-sites-github-actions/deploy@554cf074616fdc211991c2c57d034baea2a13fb8 # v3
-        with:
-          SUI_ADDRESS: "${{ vars.SUI_ADDRESS }}"
-          SUI_KEYSTORE: "${{ secrets.SUI_KEYSTORE }}"
-          WALRUS_CONFIG: "${{ vars.WALRUS_CONFIG }}"
-          SUI_NETWORK: mainnet
-          DIST: docs/site/build
-          WS_RESOURCES: docs/site/ws-resources.json
-          EPOCHS: "10"
-          GAS_BUDGET: "2000000000"
-          SITE_BUILDER_VERSION: v2
-      - name: Wait for deployment to propagate
-        run: sleep 60
-      - name: Test markdown routes
-        run: |
-          cd docs/site && ./ping-test.sh https://docs.wal.app/docs/getting-started.md --retries 12 --delay 20
+  # Vercel handles production deployments automatically via its Git
+  # integration (push to main triggers a deploy). This workflow only
+  # needs to verify the build succeeds. The daily schedule and
+  # repository_dispatch triggers ensure Vercel rebuilds when upstream
+  # content (Walrus Memory, Oyster) changes.
+  #
+  # To trigger a Vercel redeploy from CI without Vercel's Git integration,
+  # add a deploy hook URL as a repository secret and uncomment:
+  #
+  # deploy:
+  #   name: Trigger Vercel deploy
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Trigger Vercel deploy hook
+  #       run: curl -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
