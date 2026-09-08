@@ -1,0 +1,1830 @@
+{
+  "buildCommand": "cd docs/site && pnpm install && pnpm run build",
+  "outputDirectory": "docs/site/build",
+  "framework": null,
+  "headers": [
+    {
+      "source": "/(.*)\\.html",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=300, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/llms.txt",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, must-revalidate"
+        },
+        {
+          "key": "content-type",
+          "value": "text/plain; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/llms-full.txt",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, must-revalidate"
+        },
+        {
+          "key": "content-type",
+          "value": "text/plain; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/markdown/(.*)\\.md",
+      "headers": [
+        {
+          "key": "Content-Disposition",
+          "value": "inline"
+        },
+        {
+          "key": "content-type",
+          "value": "text/markdown; charset=utf-8"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/.well-known/api-catalog",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, must-revalidate"
+        },
+        {
+          "key": "content-type",
+          "value": "application/linkset+json; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/.well-known/mcp/server-card.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, must-revalidate"
+        },
+        {
+          "key": "content-type",
+          "value": "application/json; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/robots.txt",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, must-revalidate"
+        },
+        {
+          "key": "content-type",
+          "value": "text/plain; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/sitemap.xml",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, must-revalidate"
+        },
+        {
+          "key": "content-type",
+          "value": "application/xml; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/glossary.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, must-revalidate"
+        },
+        {
+          "key": "content-type",
+          "value": "application/json; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/portals.json",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, must-revalidate"
+        },
+        {
+          "key": "content-type",
+          "value": "application/json; charset=utf-8"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/404",
+      "destination": "/404.html"
+    },
+    {
+      "source": "/docs/data-security.md",
+      "destination": "/markdown/data-security.md"
+    },
+    {
+      "source": "/docs/design/architecture.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/design/encoding.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/design/future.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/design/objectives_use_cases.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/design/operations-off-chain.md",
+      "destination": "/markdown/system-overview/operations.md"
+    },
+    {
+      "source": "/docs/design/operations-sui.md",
+      "destination": "/markdown/system-overview/operations.md"
+    },
+    {
+      "source": "/docs/design/operations.md",
+      "destination": "/markdown/system-overview/operations.md"
+    },
+    {
+      "source": "/docs/design/overview.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/design/properties.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/dev-guide/components.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/dev-guide/costs.md",
+      "destination": "/markdown/system-overview/storage-costs.md"
+    },
+    {
+      "source": "/docs/dev-guide/data-security.md",
+      "destination": "/markdown/data-security.md"
+    },
+    {
+      "source": "/docs/dev-guide/dev-operations.md",
+      "destination": "/markdown/system-overview/operations.md"
+    },
+    {
+      "source": "/docs/dev-guide/sui-struct.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/examples/checkpoint-data",
+      "destination": "/docs/examples/checkpoint-data.html"
+    },
+    {
+      "source": "/docs/examples/checkpoint-data.md",
+      "destination": "/markdown/examples/checkpoint-data.md"
+    },
+    {
+      "source": "/docs/examples/javascript",
+      "destination": "/docs/examples/javascript.html"
+    },
+    {
+      "source": "/docs/examples/javascript.md",
+      "destination": "/markdown/examples/javascript.md"
+    },
+    {
+      "source": "/docs/examples/move",
+      "destination": "/docs/examples/move.html"
+    },
+    {
+      "source": "/docs/examples/move.md",
+      "destination": "/markdown/examples/move.md"
+    },
+    {
+      "source": "/docs/examples/python",
+      "destination": "/docs/examples/python.html"
+    },
+    {
+      "source": "/docs/examples/python.md",
+      "destination": "/markdown/examples/python.md"
+    },
+    {
+      "source": "/docs/examples/walrus-relay",
+      "destination": "/docs/examples/walrus-relay.html"
+    },
+    {
+      "source": "/docs/examples/walrus-relay.md",
+      "destination": "/markdown/examples/walrus-relay.md"
+    },
+    {
+      "source": "/docs/getting-started.md",
+      "destination": "/markdown/getting-started/index.md"
+    },
+    {
+      "source": "/docs/getting-started/advanced-setup.md",
+      "destination": "/markdown/getting-started/advanced-setup.md"
+    },
+    {
+      "source": "/docs/glossary.md",
+      "destination": "/markdown/glossary.md"
+    },
+    {
+      "source": "/docs/http-api/quilt-http-apis.md",
+      "destination": "/markdown/http-api/quilt-http-apis.md"
+    },
+    {
+      "source": "/docs/http-api/reading-blobs.md",
+      "destination": "/markdown/http-api/reading-blobs.md"
+    },
+    {
+      "source": "/docs/http-api/storing-blobs.md",
+      "destination": "/markdown/http-api/storing-blobs.md"
+    },
+    {
+      "source": "/docs/legal/privacy",
+      "destination": "/docs/legal/privacy.html"
+    },
+    {
+      "source": "/docs/legal/privacy.md",
+      "destination": "/markdown/legal/privacy.md"
+    },
+    {
+      "source": "/docs/legal/testnet_tos",
+      "destination": "/docs/legal/testnet_tos.html"
+    },
+    {
+      "source": "/docs/legal/testnet_tos.md",
+      "destination": "/markdown/legal/testnet_tos.md"
+    },
+    {
+      "source": "/docs/legal/walrus_general_tos",
+      "destination": "/docs/legal/walrus_general_tos.html"
+    },
+    {
+      "source": "/docs/legal/walrus_general_tos.md",
+      "destination": "/markdown/legal/walrus_general_tos.md"
+    },
+    {
+      "source": "/docs/operator-guide",
+      "destination": "/docs/operator-guide.html"
+    },
+    {
+      "source": "/docs/operator-guide/aggregator.md",
+      "destination": "/markdown/operator-guide/aggregators/operating-aggregator.md"
+    },
+    {
+      "source": "/docs/operator-guide/auth-publisher.md",
+      "destination": "/markdown/operator-guide/publishers/auth-publisher.md"
+    },
+    {
+      "source": "/docs/operator-guide/backup-restore-guide.md",
+      "destination": "/markdown/operator-guide/storage-nodes/backup-restore-guide.md"
+    },
+    {
+      "source": "/docs/operator-guide/commission-governance.md",
+      "destination": "/markdown/operator-guide/storage-nodes/commission-governance.md"
+    },
+    {
+      "source": "/docs/operator-guide/operator-guide.md",
+      "destination": "/markdown/operator-guide/signed-binaries.md"
+    },
+    {
+      "source": "/docs/operator-guide/signed-binaries.md",
+      "destination": "/markdown/operator-guide/signed-binaries.md"
+    },
+    {
+      "source": "/docs/operator-guide/storage-node-faq.md",
+      "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
+    },
+    {
+      "source": "/docs/operator-guide/storage-node-maintenance.md",
+      "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
+    },
+    {
+      "source": "/docs/operator-guide/storage-node-migration.md",
+      "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
+    },
+    {
+      "source": "/docs/operator-guide/storage-node-setup.md",
+      "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
+    },
+    {
+      "source": "/docs/operator-guide/storage-node.md",
+      "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
+    },
+    {
+      "source": "/docs/operator-guide/upload-relay",
+      "destination": "/docs/operator-guide/upload-relay.html"
+    },
+    {
+      "source": "/docs/operator-guide/upload-relay.md",
+      "destination": "/markdown/operator-guide/upload-relay.md"
+    },
+    {
+      "source": "/docs/sites/ci-cd/github-actions-workflow.md",
+      "destination": "/markdown/sites/ci-cd/github-actions-workflow.md"
+    },
+    {
+      "source": "/docs/sites/ci-cd/preparing-deployment-credentials.md",
+      "destination": "/markdown/sites/ci-cd/preparing-deployment-credentials.md"
+    },
+    {
+      "source": "/docs/sites/configuration/adding-metadata.md",
+      "destination": "/markdown/sites/configuration/adding-metadata.md"
+    },
+    {
+      "source": "/docs/sites/configuration/setting-up-routing-rules.md",
+      "destination": "/markdown/sites/linking/redirects.md"
+    },
+    {
+      "source": "/docs/sites/configuration/specifying-http-headers.md",
+      "destination": "/markdown/sites/configuration/specifying-http-headers.md"
+    },
+    {
+      "source": "/docs/sites/custom-domains/bringing-your-own-domain.md",
+      "destination": "/markdown/sites/custom-domains/bringing-your-own-domain.md"
+    },
+    {
+      "source": "/docs/sites/custom-domains/setting-a-suins-name.md",
+      "destination": "/markdown/sites/custom-domains/setting-a-suins-name.md"
+    },
+    {
+      "source": "/docs/sites/getting-started/installing-the-site-builder.md",
+      "destination": "/markdown/sites/getting-started/installing-the-site-builder.md"
+    },
+    {
+      "source": "/docs/sites/getting-started/publishing-your-first-site.md",
+      "destination": "/markdown/sites/getting-started/publishing-your-first-site.md"
+    },
+    {
+      "source": "/docs/sites/getting-started/using-the-site-builder.md",
+      "destination": "/markdown/sites/getting-started/using-the-site-builder.md"
+    },
+    {
+      "source": "/docs/sites/index.md",
+      "destination": "/markdown/sites/index.md"
+    },
+    {
+      "source": "/docs/sites/introduction/components.md",
+      "destination": "/markdown/sites/introduction/components.md"
+    },
+    {
+      "source": "/docs/sites/introduction/technical-overview.md",
+      "destination": "/markdown/sites/introduction/technical-overview.md"
+    },
+    {
+      "source": "/docs/sites/known-restrictions.md",
+      "destination": "/markdown/sites/known-restrictions.md"
+    },
+    {
+      "source": "/docs/sites/linking/avoiding-duplicate-content-seo.md",
+      "destination": "/markdown/sites/linking/avoiding-duplicate-content-seo.md"
+    },
+    {
+      "source": "/docs/sites/linking/redirects.md",
+      "destination": "/markdown/sites/linking/redirects.md"
+    },
+    {
+      "source": "/docs/sites/portals/deploy-locally.md",
+      "destination": "/markdown/sites/portals/deploy-locally.md"
+    },
+    {
+      "source": "/docs/sites/security/site-data-authentication.md",
+      "destination": "/markdown/sites/security/site-data-authentication.md"
+    },
+    {
+      "source": "/docs/snippets/blob-object-id",
+      "destination": "/docs/snippets/blob-object-id.html"
+    },
+    {
+      "source": "/docs/snippets/blob-object-id.md",
+      "destination": "/markdown/snippets/blob-object-id.md"
+    },
+    {
+      "source": "/docs/snippets/blog-note-edit",
+      "destination": "/docs/snippets/blog-note-edit.html"
+    },
+    {
+      "source": "/docs/snippets/blog-note-edit.md",
+      "destination": "/markdown/snippets/blog-note-edit.md"
+    },
+    {
+      "source": "/docs/stake.md",
+      "destination": "/markdown/operator-guide/stake.md"
+    },
+    {
+      "source": "/docs/system-overview/available-networks.md",
+      "destination": "/markdown/system-overview/available-networks.md"
+    },
+    {
+      "source": "/docs/system-overview/components.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/system-overview/core-concepts.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/system-overview/operations.md",
+      "destination": "/markdown/system-overview/operations.md"
+    },
+    {
+      "source": "/docs/system-overview/public-aggregators-and-publishers.md",
+      "destination": "/markdown/system-overview/public-aggregators-and-publishers.md"
+    },
+    {
+      "source": "/docs/system-overview/quilt.md",
+      "destination": "/markdown/system-overview/quilt.md"
+    },
+    {
+      "source": "/docs/system-overview/red-stuff",
+      "destination": "/docs/system-overview/red-stuff.html"
+    },
+    {
+      "source": "/docs/system-overview/red-stuff.md",
+      "destination": "/markdown/system-overview/red-stuff.md"
+    },
+    {
+      "source": "/docs/system-overview/storage-costs.md",
+      "destination": "/markdown/system-overview/storage-costs.md"
+    },
+    {
+      "source": "/docs/system-overview/sui-object-and-blob-ids.md",
+      "destination": "/markdown/system-overview/core-concepts.md"
+    },
+    {
+      "source": "/docs/system-overview/view-system-info.md",
+      "destination": "/markdown/system-overview/view-system-info.md"
+    },
+    {
+      "source": "/docs/troubleshooting/index.md",
+      "destination": "/markdown/troubleshooting/index.md"
+    },
+    {
+      "source": "/docs/tusky-migration-guide",
+      "destination": "/docs/tusky-migration-guide.html"
+    },
+    {
+      "source": "/docs/tusky-migration-guide.md",
+      "destination": "/markdown/tusky-migration-guide.md"
+    },
+    {
+      "source": "/docs/typescript-sdk/sdks.md",
+      "destination": "/markdown/typescript-sdk/sdks.md"
+    },
+    {
+      "source": "/docs/usage/client-cli.md",
+      "destination": "/markdown/walrus-client/storing-blobs.md"
+    },
+    {
+      "source": "/docs/usage/interacting.md",
+      "destination": "/markdown/walrus-client/index.md"
+    },
+    {
+      "source": "/docs/usage/examples.md",
+      "destination": "/markdown/examples/javascript.md"
+    },
+    {
+      "source": "/docs/usage/glossary.md",
+      "destination": "/markdown/glossary.md"
+    },
+    {
+      "source": "/docs/usage/json-api.md",
+      "destination": "/markdown/walrus-client/json-mode.md"
+    },
+    {
+      "source": "/docs/usage/networks.md",
+      "destination": "/markdown/system-overview/available-networks.md"
+    },
+    {
+      "source": "/docs/usage/quilt.md",
+      "destination": "/markdown/system-overview/quilt.md"
+    },
+    {
+      "source": "/docs/usage/sdks.md",
+      "destination": "/markdown/typescript-sdk/sdks.md"
+    },
+    {
+      "source": "/docs/usage/setup.md",
+      "destination": "/markdown/getting-started/advanced-setup.md"
+    },
+    {
+      "source": "/docs/usage/stake.md",
+      "destination": "/markdown/operator-guide/stake.md"
+    },
+    {
+      "source": "/docs/usage/started.md",
+      "destination": "/markdown/getting-started/index.md"
+    },
+    {
+      "source": "/docs/usage/troubleshooting.md",
+      "destination": "/markdown/troubleshooting/index.md"
+    },
+    {
+      "source": "/docs/usage/web-api.md",
+      "destination": "/markdown/http-api/storing-blobs.md"
+    },
+    {
+      "source": "/docs/walrus-client/configuration.md",
+      "destination": "/markdown/walrus-client/walrus-cli.md"
+    },
+    {
+      "source": "/docs/walrus-client/json-mode.md",
+      "destination": "/markdown/walrus-client/json-mode.md"
+    },
+    {
+      "source": "/docs/walrus-client/logging-and-metrics.md",
+      "destination": "/markdown/walrus-client/walrus-cli.md"
+    },
+    {
+      "source": "/docs/walrus-client/managing-blobs.md",
+      "destination": "/markdown/walrus-client/managing-blobs.md"
+    },
+    {
+      "source": "/docs/walrus-client/reading-blobs.md",
+      "destination": "/markdown/walrus-client/reading-blobs.md"
+    },
+    {
+      "source": "/docs/walrus-client/storing-blobs.md",
+      "destination": "/markdown/walrus-client/storing-blobs.md"
+    },
+    {
+      "source": "/docs/walrus-sites/advanced.md",
+      "destination": "/markdown/sites/index.md"
+    },
+    {
+      "source": "/docs/walrus-sites/authentication.md",
+      "destination": "/markdown/sites/security/site-data-authentication.md"
+    },
+    {
+      "source": "/docs/walrus-sites/avoid-duplicate-content-seo.md",
+      "destination": "/markdown/sites/linking/avoiding-duplicate-content-seo.md"
+    },
+    {
+      "source": "/docs/walrus-sites/bring-your-own-domain.md",
+      "destination": "/markdown/sites/custom-domains/bringing-your-own-domain.md"
+    },
+    {
+      "source": "/docs/walrus-sites/builder-config.md",
+      "destination": "/markdown/sites/getting-started/using-the-site-builder.md"
+    },
+    {
+      "source": "/docs/walrus-sites/ci-cd-gh-secrets-vars.md",
+      "destination": "/markdown/sites/ci-cd/preparing-deployment-credentials.md"
+    },
+    {
+      "source": "/docs/walrus-sites/ci-cd-gh-workflow.md",
+      "destination": "/markdown/sites/ci-cd/github-actions-workflow.md"
+    },
+    {
+      "source": "/docs/walrus-sites/ci-cd.md",
+      "destination": "/markdown/sites/ci-cd/github-actions-workflow.md"
+    },
+    {
+      "source": "/docs/walrus-sites/commands.md",
+      "destination": "/markdown/sites/getting-started/using-the-site-builder.md"
+    },
+    {
+      "source": "/docs/walrus-sites/intro.md",
+      "destination": "/markdown/sites/index.md"
+    },
+    {
+      "source": "/docs/walrus-sites/overview.md",
+      "destination": "/markdown/sites/introduction/technical-overview.md"
+    },
+    {
+      "source": "/docs/walrus-sites/portal.md",
+      "destination": "/markdown/sites/portals/deploy-locally.md"
+    },
+    {
+      "source": "/docs/walrus-sites/redirects.md",
+      "destination": "/markdown/sites/linking/redirects.md"
+    },
+    {
+      "source": "/docs/walrus-sites/restrictions.md",
+      "destination": "/markdown/sites/known-restrictions.md"
+    },
+    {
+      "source": "/docs/walrus-sites/routing.md",
+      "destination": "/markdown/sites/linking/redirects.md"
+    },
+    {
+      "source": "/docs/walrus-sites/tutorial-install.md",
+      "destination": "/markdown/sites/getting-started/installing-the-site-builder.md"
+    },
+    {
+      "source": "/docs/walrus-sites/tutorial-publish.md",
+      "destination": "/markdown/sites/getting-started/publishing-your-first-site.md"
+    },
+    {
+      "source": "/docs/walrus-sites/tutorial-suins.md",
+      "destination": "/markdown/sites/custom-domains/setting-a-suins-name.md"
+    },
+    {
+      "source": "/docs/walrus-sites/tutorial.md",
+      "destination": "/markdown/sites/index.md"
+    },
+    {
+      "source": "/intro",
+      "destination": "/intro.html"
+    },
+    {
+      "source": "/search",
+      "destination": "/search.html"
+    },
+    {
+      "source": "/walrus-pdf",
+      "destination": "/walrus-pdf.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/design/architecture",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/encoding",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/future",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/objectives_use_cases",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/operations",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/design/operations-off-chain",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/design/operations-sui",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/design/overview",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/properties",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/components",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/costs",
+      "destination": "/docs/system-overview/storage-costs",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/data-security",
+      "destination": "/docs/data-security",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/dev-operations",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/sui-struct",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/design/architecture",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/design/encoding",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/design/future",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/design/objectives_use_cases",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/design/operations",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/docs/design/operations-off-chain",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/docs/design/operations-sui",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/docs/design/overview",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/design/properties",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/dev-guide/components",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/dev-guide/costs",
+      "destination": "/docs/system-overview/storage-costs",
+      "permanent": true
+    },
+    {
+      "source": "/docs/dev-guide/data-security",
+      "destination": "/docs/data-security",
+      "permanent": true
+    },
+    {
+      "source": "/docs/dev-guide/dev-operations",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/docs/dev-guide/sui-struct",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/operator-guide/aggregator",
+      "destination": "/docs/operator-guide/aggregators/operating-aggregator",
+      "permanent": true
+    },
+    {
+      "source": "/docs/operator-guide/auth-publisher",
+      "destination": "/docs/operator-guide/publishers/auth-publisher",
+      "permanent": true
+    },
+    {
+      "source": "/docs/operator-guide/backup-restore-guide",
+      "destination": "/docs/operator-guide/storage-nodes/backup-restore-guide",
+      "permanent": true
+    },
+    {
+      "source": "/docs/operator-guide/commission-governance",
+      "destination": "/docs/operator-guide/storage-nodes/commission-governance",
+      "permanent": true
+    },
+    {
+      "source": "/docs/operator-guide/operator-guide",
+      "destination": "/docs/operator-guide",
+      "permanent": true
+    },
+    {
+      "source": "/docs/operator-guide/storage-node-faq",
+      "destination": "/docs/operator-guide/storage-nodes/storage-node-faq",
+      "permanent": true
+    },
+    {
+      "source": "/docs/sites/configuration/setting-up-routing-rules",
+      "destination": "/docs/sites/linking/redirects",
+      "permanent": true
+    },
+    {
+      "source": "/docs/sites/linking/linking",
+      "destination": "/docs/sites/linking/linking",
+      "permanent": true
+    },
+    {
+      "source": "/docs/stake",
+      "destination": "/docs/operator-guide/stake",
+      "permanent": true
+    },
+    {
+      "source": "/docs/system-overview/components",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/system-overview/sui-object-and-blob-ids",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/client-cli",
+      "destination": "/docs/walrus-client/storing-blobs",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/examples",
+      "destination": "/docs/examples",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/interacting",
+      "destination": "/docs/walrus-client",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/glossary",
+      "destination": "/docs/glossary",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/json-api",
+      "destination": "/docs/walrus-client/json-mode",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/networks",
+      "destination": "/docs/system-overview/available-networks",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/quilt",
+      "destination": "/docs/system-overview/quilt",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/sdks",
+      "destination": "/docs/typescript-sdk/sdks",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/setup",
+      "destination": "/docs/getting-started/advanced-setup",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/stake",
+      "destination": "/docs/stake",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/started",
+      "destination": "/docs/getting-started",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/troubleshooting",
+      "destination": "/docs/troubleshooting",
+      "permanent": true
+    },
+    {
+      "source": "/docs/usage/web-api",
+      "destination": "/docs/http-api/storing-blobs",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-client/configuration",
+      "destination": "/docs/walrus-client/walrus-cli",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-client/logging-and-metrics",
+      "destination": "/docs/walrus-client/walrus-cli",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/advanced",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/authentication",
+      "destination": "/docs/sites/security/site-data-authentication",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/avoid-duplicate-content-seo",
+      "destination": "/docs/sites/linking/avoiding-duplicate-content-seo",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/bring-your-own-domain",
+      "destination": "/docs/sites/custom-domains/bringing-your-own-domain",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/builder-config",
+      "destination": "/docs/sites/getting-started/configuration-file-reference",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/ci-cd",
+      "destination": "/docs/sites/ci-cd/github-actions-workflow",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/ci-cd-gh-secrets-vars",
+      "destination": "/docs/sites/ci-cd/preparing-deployment-credentials",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/ci-cd-gh-workflow",
+      "destination": "/docs/sites/ci-cd/github-actions-workflow",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/commands",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/intro",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/linking",
+      "destination": "/docs/sites/linking",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/overview",
+      "destination": "/docs/sites/introduction/technical-overview",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/portal",
+      "destination": "/docs/sites/portals/deploy-locally",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/redirects",
+      "destination": "/docs/sites/linking/redirects",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/restrictions",
+      "destination": "/docs/sites/known-restrictions",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/routing",
+      "destination": "/docs/sites/configuration/setting-up-routing-rules",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/tutorial",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/tutorial-install",
+      "destination": "/docs/sites/getting-started/installing-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/tutorial-publish",
+      "destination": "/docs/sites/getting-started/publishing-your-first-site",
+      "permanent": true
+    },
+    {
+      "source": "/docs/walrus-sites/tutorial-suins",
+      "destination": "/docs/sites/custom-domains/setting-a-suins-name",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/aggregator",
+      "destination": "/docs/operator-guide/aggregators/operating-aggregator",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/auth-publisher",
+      "destination": "/docs/operator-guide/publishers/auth-publisher",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/backup-restore-guide",
+      "destination": "/docs/operator-guide/storage-nodes/backup-restore-guide",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/commission-governance",
+      "destination": "/docs/operator-guide/storage-nodes/commission-governance",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/operator-guide",
+      "destination": "/docs/operator-guide",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/storage-node-faq",
+      "destination": "/docs/operator-guide/storage-nodes/storage-node-faq",
+      "permanent": true
+    },
+    {
+      "source": "/sites/configuration/setting-up-routing-rules",
+      "destination": "/docs/sites/linking/redirects",
+      "permanent": true
+    },
+    {
+      "source": "/sites/linking/linking",
+      "destination": "/docs/sites/linking/linking",
+      "permanent": true
+    },
+    {
+      "source": "/stake",
+      "destination": "/docs/operator-guide/stake",
+      "permanent": true
+    },
+    {
+      "source": "/system-overview/components",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/system-overview/sui-object-and-blob-ids",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/usage/client-cli",
+      "destination": "/docs/walrus-client/storing-blobs",
+      "permanent": true
+    },
+    {
+      "source": "/usage/examples",
+      "destination": "/docs/examples",
+      "permanent": true
+    },
+    {
+      "source": "/usage/interacting",
+      "destination": "/docs/walrus-client",
+      "permanent": true
+    },
+    {
+      "source": "/usage/glossary",
+      "destination": "/docs/glossary",
+      "permanent": true
+    },
+    {
+      "source": "/usage/json-api",
+      "destination": "/docs/walrus-client/json-mode",
+      "permanent": true
+    },
+    {
+      "source": "/usage/networks",
+      "destination": "/docs/system-overview/available-networks",
+      "permanent": true
+    },
+    {
+      "source": "/usage/quilt",
+      "destination": "/docs/system-overview/quilt",
+      "permanent": true
+    },
+    {
+      "source": "/usage/sdks",
+      "destination": "/docs/typescript-sdk/sdks",
+      "permanent": true
+    },
+    {
+      "source": "/usage/setup",
+      "destination": "/docs/getting-started/advanced-setup",
+      "permanent": true
+    },
+    {
+      "source": "/usage/stake",
+      "destination": "/docs/stake",
+      "permanent": true
+    },
+    {
+      "source": "/usage/started",
+      "destination": "/docs/getting-started",
+      "permanent": true
+    },
+    {
+      "source": "/usage/troubleshooting",
+      "destination": "/docs/troubleshooting",
+      "permanent": true
+    },
+    {
+      "source": "/usage/web-api",
+      "destination": "/docs/http-api/storing-blobs",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-client/configuration",
+      "destination": "/docs/walrus-client/walrus-cli",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-client/logging-and-metrics",
+      "destination": "/docs/walrus-client/walrus-cli",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/advanced",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/authentication",
+      "destination": "/docs/sites/security/site-data-authentication",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/avoid-duplicate-content-seo",
+      "destination": "/docs/sites/linking/avoiding-duplicate-content-seo",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/bring-your-own-domain",
+      "destination": "/docs/sites/custom-domains/bringing-your-own-domain",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/builder-config",
+      "destination": "/docs/sites/getting-started/configuration-file-reference",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/ci-cd",
+      "destination": "/docs/sites/ci-cd/github-actions-workflow",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/ci-cd-gh-secrets-vars",
+      "destination": "/docs/sites/ci-cd/preparing-deployment-credentials",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/ci-cd-gh-workflow",
+      "destination": "/docs/sites/ci-cd/github-actions-workflow",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/commands",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/intro",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/linking",
+      "destination": "/docs/sites/linking",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/overview",
+      "destination": "/docs/sites/introduction/technical-overview",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/portal",
+      "destination": "/docs/sites/portals/deploy-locally",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/redirects",
+      "destination": "/docs/sites/linking/redirects",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/restrictions",
+      "destination": "/docs/sites/known-restrictions",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/routing",
+      "destination": "/docs/sites/configuration/setting-up-routing-rules",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial-install",
+      "destination": "/docs/sites/getting-started/installing-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial-publish",
+      "destination": "/docs/sites/getting-started/publishing-your-first-site",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial-suins",
+      "destination": "/docs/sites/custom-domains/setting-a-suins-name",
+      "permanent": true
+    },
+    {
+      "source": "/design/architecture.html",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/architecture/index",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/encoding.html",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/encoding/index",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/objectives_use_cases.html",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/objectives_use_cases/index",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/operations-off-chain.html",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/design/operations-off-chain/index",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/design/operations-sui.html",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/design/operations-sui/index",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/design/operations.html",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/design/operations/index",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/design/overview.html",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/overview/index",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/properties.html",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/design/properties/index",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/components.html",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/components/index",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/costs.html",
+      "destination": "/docs/system-overview/storage-costs",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/costs/index",
+      "destination": "/docs/system-overview/storage-costs",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/data-security.html",
+      "destination": "/docs/data-security",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/data-security/index",
+      "destination": "/docs/data-security",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/dev-operations.html",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/dev-operations/index",
+      "destination": "/docs/system-overview/operations",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/sui-struct.html",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/dev-guide/sui-struct/index",
+      "destination": "/docs/system-overview/core-concepts",
+      "permanent": true
+    },
+    {
+      "source": "/docs/operator-guide/storage-node",
+      "destination": "/docs/operator-guide/storage-nodes",
+      "permanent": true
+    },
+    {
+      "source": "/index",
+      "destination": "/",
+      "permanent": true
+    },
+    {
+      "source": "/legal/privacy.html",
+      "destination": "/legal/privacy",
+      "permanent": true
+    },
+    {
+      "source": "/legal/privacy/index",
+      "destination": "/legal/privacy",
+      "permanent": true
+    },
+    {
+      "source": "/legal/testnet_tos.html",
+      "destination": "/legal/testnet_tos",
+      "permanent": true
+    },
+    {
+      "source": "/legal/testnet_tos/index",
+      "destination": "/legal/testnet_tos",
+      "permanent": true
+    },
+    {
+      "source": "/legal/walrus_general_tos.html",
+      "destination": "/legal/walrus_general_tos",
+      "permanent": true
+    },
+    {
+      "source": "/legal/walrus_general_tos/index",
+      "destination": "/legal/walrus_general_tos",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide.html",
+      "destination": "/operator-guide",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/aggregator.html",
+      "destination": "/docs/operator-guide/aggregators/operating-aggregator",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/aggregator/index",
+      "destination": "/docs/operator-guide/aggregators/operating-aggregator",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/auth-publisher.html",
+      "destination": "/docs/operator-guide/publishers/auth-publisher",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/auth-publisher/index",
+      "destination": "/docs/operator-guide/publishers/auth-publisher",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/backup-restore-guide.html",
+      "destination": "/docs/operator-guide/storage-nodes/backup-restore-guide",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/backup-restore-guide/index",
+      "destination": "/docs/operator-guide/storage-nodes/backup-restore-guide",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/commission-governance.html",
+      "destination": "/docs/operator-guide/storage-nodes/commission-governance",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/commission-governance/index",
+      "destination": "/docs/operator-guide/storage-nodes/commission-governance",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/index",
+      "destination": "/operator-guide",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/storage-node.html",
+      "destination": "/docs/operator-guide/storage-nodes",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/storage-node/index",
+      "destination": "/docs/operator-guide/storage-nodes",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/upload-relay.html",
+      "destination": "/operator-guide/upload-relay",
+      "permanent": true
+    },
+    {
+      "source": "/operator-guide/upload-relay/index",
+      "destination": "/operator-guide/upload-relay",
+      "permanent": true
+    },
+    {
+      "source": "/usage/client-cli.html",
+      "destination": "/docs/walrus-client/storing-blobs",
+      "permanent": true
+    },
+    {
+      "source": "/usage/client-cli/index",
+      "destination": "/docs/walrus-client/storing-blobs",
+      "permanent": true
+    },
+    {
+      "source": "/usage/examples.html",
+      "destination": "/docs/examples",
+      "permanent": true
+    },
+    {
+      "source": "/usage/examples/index",
+      "destination": "/docs/examples",
+      "permanent": true
+    },
+    {
+      "source": "/usage/interacting.html",
+      "destination": "/docs/walrus-client",
+      "permanent": true
+    },
+    {
+      "source": "/usage/interacting/index",
+      "destination": "/docs/walrus-client",
+      "permanent": true
+    },
+    {
+      "source": "/usage/glossary.html",
+      "destination": "/docs/glossary",
+      "permanent": true
+    },
+    {
+      "source": "/usage/glossary/index",
+      "destination": "/docs/glossary",
+      "permanent": true
+    },
+    {
+      "source": "/usage/json-api.html",
+      "destination": "/docs/walrus-client/json-mode",
+      "permanent": true
+    },
+    {
+      "source": "/usage/json-api/index",
+      "destination": "/docs/walrus-client/json-mode",
+      "permanent": true
+    },
+    {
+      "source": "/usage/networks.html",
+      "destination": "/docs/system-overview/available-networks",
+      "permanent": true
+    },
+    {
+      "source": "/usage/networks/index",
+      "destination": "/docs/system-overview/available-networks",
+      "permanent": true
+    },
+    {
+      "source": "/usage/quilt.html",
+      "destination": "/docs/system-overview/quilt",
+      "permanent": true
+    },
+    {
+      "source": "/usage/quilt/index",
+      "destination": "/docs/system-overview/quilt",
+      "permanent": true
+    },
+    {
+      "source": "/usage/sdks.html",
+      "destination": "/docs/typescript-sdk/sdks",
+      "permanent": true
+    },
+    {
+      "source": "/usage/sdks/index",
+      "destination": "/docs/typescript-sdk/sdks",
+      "permanent": true
+    },
+    {
+      "source": "/usage/setup.html",
+      "destination": "/docs/getting-started/advanced-setup",
+      "permanent": true
+    },
+    {
+      "source": "/usage/setup/index",
+      "destination": "/docs/getting-started/advanced-setup",
+      "permanent": true
+    },
+    {
+      "source": "/usage/stake.html",
+      "destination": "/docs/operator-guide/stake",
+      "permanent": true
+    },
+    {
+      "source": "/usage/stake/index",
+      "destination": "/docs/operator-guide/stake",
+      "permanent": true
+    },
+    {
+      "source": "/usage/started.html",
+      "destination": "/docs/getting-started",
+      "permanent": true
+    },
+    {
+      "source": "/usage/started/index",
+      "destination": "/docs/getting-started",
+      "permanent": true
+    },
+    {
+      "source": "/usage/troubleshooting.html",
+      "destination": "/docs/troubleshooting",
+      "permanent": true
+    },
+    {
+      "source": "/usage/troubleshooting/index",
+      "destination": "/docs/troubleshooting",
+      "permanent": true
+    },
+    {
+      "source": "/usage/web-api.html",
+      "destination": "/docs/http-api/storing-blobs",
+      "permanent": true
+    },
+    {
+      "source": "/usage/web-api/index",
+      "destination": "/docs/http-api/storing-blobs",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/advanced.html",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/advanced/index",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/authentication.html",
+      "destination": "/docs/sites/security/site-data-authentication",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/authentication/index",
+      "destination": "/docs/sites/security/site-data-authentication",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/avoid-duplicate-content-seo.html",
+      "destination": "/docs/sites/linking/avoiding-duplicate-content-seo",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/avoid-duplicate-content-seo/index",
+      "destination": "/docs/sites/linking/avoiding-duplicate-content-seo",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/bring-your-own-domain.html",
+      "destination": "/docs/sites/custom-domains/bringing-your-own-domain",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/bring-your-own-domain/index",
+      "destination": "/docs/sites/custom-domains/bringing-your-own-domain",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/builder-config.html",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/builder-config/index",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/ci-cd-gh-secrets-vars.html",
+      "destination": "/docs/sites/ci-cd/preparing-deployment-credentials",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/ci-cd-gh-secrets-vars/index",
+      "destination": "/docs/sites/ci-cd/preparing-deployment-credentials",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/ci-cd-gh-workflow.html",
+      "destination": "/docs/sites/ci-cd/github-actions-workflow",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/ci-cd-gh-workflow/index",
+      "destination": "/docs/sites/ci-cd/github-actions-workflow",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/ci-cd.html",
+      "destination": "/docs/sites/ci-cd/github-actions-workflow",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/ci-cd/index",
+      "destination": "/docs/sites/ci-cd/github-actions-workflow",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/commands.html",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/commands/index",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/intro.html",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/intro/index",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/overview.html",
+      "destination": "/docs/sites/introduction/technical-overview",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/overview/index",
+      "destination": "/docs/sites/introduction/technical-overview",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/portal.html",
+      "destination": "/docs/sites/portals/deploy-locally",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/portal/index",
+      "destination": "/docs/sites/portals/deploy-locally",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/redirects.html",
+      "destination": "/docs/sites/linking/redirects",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/redirects/index",
+      "destination": "/docs/sites/linking/redirects",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/restrictions.html",
+      "destination": "/docs/sites/known-restrictions",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/restrictions/index",
+      "destination": "/docs/sites/known-restrictions",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/routing.html",
+      "destination": "/docs/sites/linking/redirects",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/routing/index",
+      "destination": "/docs/sites/linking/redirects",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial-install.html",
+      "destination": "/docs/sites/getting-started/installing-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial-install/index",
+      "destination": "/docs/sites/getting-started/installing-the-site-builder",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial-publish.html",
+      "destination": "/docs/sites/getting-started/publishing-your-first-site",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial-publish/index",
+      "destination": "/docs/sites/getting-started/publishing-your-first-site",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial-suins.html",
+      "destination": "/docs/sites/custom-domains/setting-a-suins-name",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial-suins/index",
+      "destination": "/docs/sites/custom-domains/setting-a-suins-name",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial.html",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-sites/tutorial/index",
+      "destination": "/docs/sites",
+      "permanent": true
+    },
+    {
+      "source": "/walrus-memory/getting-started/what-is-memwal",
+      "destination": "/walrus-memory/getting-started/what-is-walrus-memory",
+      "permanent": true
+    }
+  ]
+}
