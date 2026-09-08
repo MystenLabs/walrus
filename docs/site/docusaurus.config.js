@@ -345,13 +345,13 @@ const config = {
             label: "Walrus Memory",
             position: "left",
           },
-          { to: "/skills", label: "Walrus Skills", position: "left" },
           {
             type: "doc",
             docId: "console/overview",
             label: "Walrus Console",
             position: "left",
           },
+          { to: "/skills", label: "Walrus Skills", position: "left" },
           {
             to: "/changelog",
             label: "Changelog",
