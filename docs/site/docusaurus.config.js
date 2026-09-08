@@ -374,13 +374,13 @@ const config = {
             label: "Walrus Memory",
             position: "left",
           },
-          { to: "/skills", label: "Walrus Skills", position: "left" },
           {
             type: "docSidebar",
-            sidebarId: "sitesSidebar",
-            label: "Walrus Sites",
+            sidebarId: "consoleSidebar",
+            label: "Walrus Console",
             position: "left",
           },
+          { to: "/skills", label: "Walrus Skills", position: "left" },
           {
             to: "/oyster",
             label: "Walrus Oyster API",
