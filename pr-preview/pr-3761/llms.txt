@@ -767,7 +767,7 @@ Sui smart contract as the on-chain index.
 
 - [API Reference](https://docs.wal.app/docs/console/api-reference.md):
     The Console developer API covers the endpoints third-party developers use to manage spaces,
-    buckets, and files, plus the Seal endpoints that back private-bucket access control. > Info > >
+    folders, and files, plus the Seal endpoints that back private-folder access control. > Info > >
     The Console developer API is in beta at . Endpoint shapes might change before GA.
 - [Auth](https://docs.wal.app/docs/console/auth.md):
     Walrus Console signs you in with the Google or Apple account you already have. There is no
@@ -778,8 +778,8 @@ Sui smart contract as the on-chain index.
     Console?, and for a hands-on walkthrough, follow the Quick Start. > Info > > Walrus Console is
     available on Mainnet through a closed, invite-only beta.
 - [Mcp Server](https://docs.wal.app/docs/console/mcp-server.md):
-    The Walrus Console MCP server gives an AI client the same file and bucket operations you get in
-    the web app. Your agent creates buckets, uploads and downloads files, and checks storage usage,
+    The Walrus Console MCP server gives an AI client the same file and folder operations you get in
+    the web app. Your agent creates folders, uploads and downloads files, and checks storage usage,
     while encryption and signing stay on your machine. The package is , licensed MIT. Node.js 24 or
     later.
 - [Overview](https://docs.wal.app/docs/console/overview.md):
@@ -788,7 +788,7 @@ Sui smart contract as the on-chain index.
     client or handling wallets and tokens directly.
 - [Quickstart](https://docs.wal.app/docs/console/quickstart.md):
     Go from sign-up to a working encrypted upload: create an account, mint an API key, then create
-    a Seal-encrypted bucket and upload, download, and decrypt a file. > Info > > The Console
+    a Seal-encrypted folder and upload, download, and decrypt a file. > Info > > The Console
     developer API is in beta at api.console.walrus.xyz. Endpoint shapes might change before GA.
 - [Storage Epochs](https://docs.wal.app/docs/console/storage-epochs.md):
     Walrus storage is time-bound. Your data stays available for a set amount of storage, measured

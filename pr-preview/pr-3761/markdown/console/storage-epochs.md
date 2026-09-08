@@ -17,8 +17,8 @@ To keep developers from losing data because they forgot to renew, Console extend
 
 ## Checking storage status
 
-Your dashboard shows how much storage each space is using. Storage used and your storage cap also appear per space when you list spaces through the API, and each bucket reports an `expires_at` timestamp.
+Your dashboard shows how much storage each space is using. Storage used and your storage cap also appear per space when you list spaces through the API, and each folder reports an `expires_at` timestamp.
 
 ## Storage limits
 
-Each space holds up to 5 GB of storage and five buckets, and each upload is capped at 100 MiB.
+Each space holds up to 5 GB of storage and five folders, and each upload is capped at 100 MiB.

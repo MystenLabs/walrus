@@ -1,6 +1,6 @@
 > For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
 
-The Walrus Console MCP server gives an AI client the same file and bucket operations you get in the web app. Your agent creates buckets, uploads and downloads files, and checks storage usage, while encryption and signing stay on your machine.
+The Walrus Console MCP server gives an AI client the same file and folder operations you get in the web app. Your agent creates folders, uploads and downloads files, and checks storage usage, while encryption and signing stay on your machine.
 
 The package is `@mysten-incubation/walrus-console-mcp`, licensed MIT.
 
@@ -69,16 +69,16 @@ Ask the agent to call `ping_console`. It confirms which credentials the server l
 | `ping_console` | Confirm the configured keys | Read |
 | `list_spaces` | List your Personal and Team spaces | Read |
 | `get_storage_usage` | Aggregate storage usage for a space | Read |
-| `list_buckets` | List the buckets in a space | Read |
-| `get_bucket` | Fetch one bucket's metadata | Read |
-| `get_bucket_metadata` | Fetch a bucket's custom metadata | Read |
-| `create_bucket` | Create a private encrypted bucket. Needs the pinned account address | Write |
-| `rename_bucket` | Rename a bucket | Write |
-| `update_bucket_metadata` | Set a bucket's custom metadata | Write |
-| `delete_bucket` | Delete a bucket and its files permanently | Write |
+| `list_buckets` | List the folders in a space | Read |
+| `get_bucket` | Fetch one folder's metadata | Read |
+| `get_bucket_metadata` | Fetch a folder's custom metadata | Read |
+| `create_bucket` | Create a private encrypted folder. Needs the pinned account address | Write |
+| `rename_bucket` | Rename a folder | Write |
+| `update_bucket_metadata` | Set a folder's custom metadata | Write |
+| `delete_bucket` | Delete a folder and its files permanently | Write |
 | `upload_file` | Encrypt and upload a local file | Write |
 | `download_file` | Download and decrypt a file to disk | Read |
-| `list_files` | List the files in a bucket, with search | Read |
+| `list_files` | List the files in a folder, with search | Read |
 | `get_file_status` | Check upload progress | Read |
 | `update_file` | Update a file's name, description, or tags | Write |
 | `delete_file` | Delete one file permanently | Write |
@@ -104,7 +104,7 @@ The server resolves symlinks before it checks containment, so a link inside an a
 
 | **Credential** | **Prefix** | **What it can do** |
 | --- | --- | --- |
-| Working key | `hbr_` | List and create buckets, upload and download files. Cannot mint. |
+| Working key | `hbr_` | List and create folders, upload and download files. Cannot mint. |
 | Key-Admin | `hbradm_` | Mint child keys and sign their access grants. No data-plane access. |
 
 Keep the working key on every host, and the Key-Admin credential on the provisioning host only. Configure it with the installed launcher, either interactively with `config` and the **Management key** choice, or scripted:
@@ -117,7 +117,7 @@ Given a permission and an optional label, the tool generates a child keypair loc
 
 The Key-Admin credential determines the space. You pass `spaceId` so the tool can check, after the mint, that the key landed where you expected. When a step after the mint fails, the result is `ok: false` with a `stage` of `space-check`, `grant`, `activation`, or `persist`, and it usually still carries the credential file. The key already exists at that point, so do not call the tool again to retry. A second call mints a second key and orphans the first, and only the Console web app can revoke it.
 
-The mint-time grant covers the private buckets that already exist in the space. A bucket the server creates later includes a child key only when that key is still active and is already a member of one of the access groups the server recorded. Keys the server had to leave off appear in `roster.droppedCandidates` of the `create_bucket` result. Repair them with a Key-Admin grant, not a new mint.
+The mint-time grant covers the private folders that already exist in the space. A folder the server creates later includes a child key only when that key is still active and is already a member of one of the access groups the server recorded. Keys the server had to leave off appear in `roster.droppedCandidates` of the `create_bucket` result. Repair them with a Key-Admin grant, not a new mint.
 
 Calling `generate_api_key` with only a working key configured returns an error and makes no network call.
 

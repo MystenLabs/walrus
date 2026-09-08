@@ -19,11 +19,11 @@ With a Google account or an Apple account. Console uses Sui [zkLogin](https://do
 
 ### What are the storage limits?
 
-Each space holds up to 5 GB of storage and five buckets, and each upload is capped at 100 MiB. See [Storage limits](./overview#storage-limits).
+Each space holds up to 5 GB of storage and five folders, and each upload is capped at 100 MiB. See [Storage limits](./overview#storage-limits).
 
 ### What happens when you hit a limit?
 
-Uploads stop at the storage cap, and a sixth bucket returns a `plan_limit_exceeded` error. Delete files or buckets to free space.
+Uploads stop at the storage cap, and a sixth folder returns a `plan_limit_exceeded` error. Delete files or folders to free space.
 
 ## Your files
 
@@ -55,7 +55,7 @@ Everything programmatic. Both the MCP server and any application you write again
 
 ### How do you use Console with Claude Code or Cursor?
 
-Through the Walrus Console MCP server, the npm package `@mysten-incubation/walrus-console-mcp`, which publishes with the Console beta. It exposes file and bucket operations as tools your agent calls. Run `npx -y @mysten-incubation/walrus-console-mcp@beta install` and give it the two values Console showed you when you minted the key: the `hbr_` API key and the `suiprivkey1` service private key. The installer stores them outside your client configuration, so no key goes in the MCP config file. See [Connect AI clients with the MCP server](./mcp-server).
+Through the Walrus Console MCP server, the npm package `@mysten-incubation/walrus-console-mcp`, which publishes with the Console beta. It exposes file and folder operations as tools your agent calls. Run `npx -y @mysten-incubation/walrus-console-mcp@beta install` and give it the two values Console showed you when you minted the key: the `hbr_` API key and the `suiprivkey1` service private key. The installer stores them outside your client configuration, so no key goes in the MCP config file. See [Connect AI clients with the MCP server](./mcp-server).
 
 ### Can your team share one account?
 
