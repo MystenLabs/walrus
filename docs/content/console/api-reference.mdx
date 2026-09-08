@@ -1,10 +1,10 @@
 ---
 title: API Reference
-description: The Console developer API surface for spaces, buckets, files, search, signed downloads, and Seal sponsorship, including authentication, conventions, rate limits, and error codes.
-keywords: [walrus console, api reference, spaces, buckets, files, search, seal, api keys]
+description: The Console developer API surface for spaces, folders, files, search, signed downloads, and Seal sponsorship, including authentication, conventions, rate limits, and error codes.
+keywords: [walrus console, api reference, spaces, folders, files, search, seal, api keys]
 ---
 
-The Console developer API covers the endpoints third-party developers use to manage spaces, buckets, and files, plus the [Seal](/docs/data-security) endpoints that back private-bucket access control.
+The Console developer API covers the endpoints third-party developers use to manage spaces, folders, and files, plus the [Seal](/docs/data-security) endpoints that back private-folder access control.
 
 :::info
 
@@ -22,7 +22,7 @@ Authorization: Bearer hbr_…
 
 Mint keys through the Console web interface. Each key carries one of three scopes:
 
-1. `read_write` keys can change state: create and delete buckets, upload and delete files, and finalize private buckets.
+1. `read_write` keys can change state: create and delete folders, upload and delete files, and finalize private folders.
 2. `read_only` keys can list, check status, mint download URLs, and download. Any other write with a read-only key returns `403` with code `read_only_api_key`.
 3. `key_admin` keys belong to Management API keys. They reach only the API-key endpoints and the Seal sponsor endpoints, and every data-plane endpoint returns `403`. This page covers the data-plane keys. For programmatic key minting, see the [MCP server](./mcp-server#mint-keys-for-other-agents).
 
@@ -40,11 +40,11 @@ Request and response bodies are JSON unless noted. File upload uses `multipart/f
 
 ### Pagination
 
-List endpoints return an opaque cursor. Pass `limit` to set page size and `cursor` to fetch the next page. When there are no further results, the cursor field returns `null`. Bucket lists return the cursor as `next_cursor`. File lists and search return a `pagination` object with `limit`, `has_more`, and `next_cursor`.
+List endpoints return an opaque cursor. Pass `limit` to set page size and `cursor` to fetch the next page. When there are no further results, the cursor field returns `null`. Folder lists return the cursor as `next_cursor`. File lists and search return a `pagination` object with `limit`, `has_more`, and `next_cursor`.
 
 ### Asynchronous operations
 
-Console processes upload and delete operations asynchronously. Upload returns `202` with a file ID, then you poll the file status endpoint until the job state is `completed`. Delete returns `204` immediately and releases storage after a background worker confirms the removal. Deleting a bucket also deletes every file in it.
+Console processes upload and delete operations asynchronously. Upload returns `202` with a file ID, then you poll the file status endpoint until the job state is `completed`. Delete returns `204` immediately and releases storage after a background worker confirms the removal. Deleting a folder also deletes every file in it.
 
 ## Errors
 
@@ -54,7 +54,7 @@ Most error responses use the shape:
 { "error": "Human-readable message", "code": "machine_readable_code" }
 ```
 
-The `code` field is present when a machine-readable value applies. Some bucket errors, such as a `409` name conflict, carry `error` only. Validation failures on the file and search routes return `400` with code `bad_request`. Validation failures on the other routes return `400` with the raw validator output instead:
+The `code` field is present when a machine-readable value applies. Some folder errors, such as a `409` name conflict, carry `error` only. Validation failures on the file and search routes return `400` with code `bad_request`. Validation failures on the other routes return `400` with the raw validator output instead:
 
 ```json
 { "success": false, "error": { "name": "ZodError", "issues": [ … ] } }
@@ -68,15 +68,15 @@ Common error codes include:
 | `401` | `api_key_registering` / `api_key_revoking` / `api_key_revoked` | The key is not currently usable. |
 | `403` | `read_only_api_key` | A write was attempted with a read-only key. |
 | `403` | `insufficient_scope` | The key's scope does not cover the endpoint. |
-| `403` | `bucket_not_in_scope` | The key cannot access the target bucket, or the space in the path is not the key's space. |
+| `403` | `bucket_not_in_scope` | The key cannot access the target folder, or the space in the path is not the key's space. |
 | `403` | `mirror_missing_grant` | The onchain access grant has not yet mirrored into the access index. Retry. |
-| `409` | `bucket_not_finalized` | The bucket has not completed the finalize step. |
-| `409` | `bucket_deleting` / `bucket_gone` | The bucket is being deleted, or its storage is already gone. |
+| `409` | `bucket_not_finalized` | The folder has not completed the finalize step. |
+| `409` | `bucket_deleting` / `bucket_gone` | The folder is being deleted, or its storage is already gone. |
 | `410` | `sponsor_digest_expired` | The sponsor digest is unknown, expired, or bound to a different key. |
 | `413` | `payload_too_large` | The upload exceeds the 100 MiB per-upload cap. |
 | `415` | `unsupported_file_type` | The request content type is not accepted. |
 | `422` | `quota_exceeded` | The operation exceeds the storage quota. |
-| `422` | `plan_limit_exceeded` | The operation exceeds the bucket or storage limit. See the shape below. |
+| `422` | `plan_limit_exceeded` | The operation exceeds the folder or storage limit. See the shape below. |
 | `423` | `file_deleting` | The file is being deleted. |
 | `429` | `TooManyRequestsError` | The rate limit was exceeded. Read `Retry-After`. |
 | `400` | `bad_request` | The request failed validation on a file or search route. |
@@ -93,7 +93,7 @@ Requests that exceed a limit return `422` with a distinct shape:
 }
 ```
 
-The `limit` value is one of `storage`, `users`, or `buckets`. `limit_value` is present for `buckets` and `users`. Each space allows 5 GB of storage and five buckets, and each upload is capped at 100 MiB.
+The `limit` value is one of `storage`, `users`, or `buckets`. `limit_value` is present for `buckets` and `users`. Each space allows 5 GB of storage and five folders, and each upload is capped at 100 MiB.
 
 ## Spaces
 
@@ -117,7 +117,7 @@ Returns `200` with a `data` array of spaces. Each space includes `id`, `type`, `
 
 Returns the storage usage of the key's space. Returns `200` with `data.storage_used`, `data.storage_cap`, and `data.available` in bytes, `data.percent_used` as a fraction from 0 to 1, and `data.breakdown` with the usage grouped by file category and by file format.
 
-### List buckets in a space
+### List folders in a space
 
 `GET /api/v1/spaces/{id}/buckets`
 
@@ -126,18 +126,18 @@ Returns the storage usage of the key's space. Returns `200` with `data.storage_u
 | `id` | path | Yes | Space UUID. |
 | `limit` | query | No | Page size, 1 to 1000. Default 100. |
 | `cursor` | query | No | Cursor from a previous page. |
-| `q` | query | No | Case-insensitive substring match on bucket name. |
+| `q` | query | No | Case-insensitive substring match on folder name. |
 | `visibility` | query | No | Filter by `public` or `private`. |
 | `sortField` | query | No | `name`, `date`, or `storage`. Default `date`. |
 | `sortOrder` | query | No | `asc` or `desc`. Default `desc`. |
 
-Returns `200` with `buckets` and `next_cursor`. Each bucket has the fields listed under [Get a bucket](#get-a-bucket).
+Returns `200` with `buckets` and `next_cursor`. Each folder has the fields listed under [Get a folder](#get-a-folder).
 
-### Create a bucket
+### Create a folder
 
 `POST /api/v1/spaces/{id}/buckets`
 
-Reserves a private bucket. This is the first step of the reserve, sign, and finalize handshake. In beta, `scope` accepts `private` only.
+Reserves a private folder. This is the first step of the reserve, sign, and finalize handshake. In beta, `scope` accepts `private` only.
 
 Body:
 
@@ -158,13 +158,13 @@ Returns `201` with the reservation:
 }
 ```
 
-Sign `bytes` locally with your service key, then call the finalize endpoint. `owner_address` is the Sui address of the Console account that owns the bucket. `admin_signer_address` is the address of the space's Management API key signer, or `null` when the space has none. A bucket in `pending_policy` is not visible to the file endpoints, which return `404` for it until finalize succeeds. A name conflict returns `409`. Exceeding the bucket limit returns `422`. See the [Quick Start](./quickstart) for the full signing flow.
+Sign `bytes` locally with your service key, then call the finalize endpoint. `owner_address` is the Sui address of the Console account that owns the folder. `admin_signer_address` is the address of the space's Management API key signer, or `null` when the space has none. A folder in `pending_policy` is not visible to the file endpoints, which return `404` for it until finalize succeeds. A name conflict returns `409`. Exceeding the folder limit returns `422`. See the [Quick Start](./quickstart) for the full signing flow.
 
 ### List files in a space
 
 `GET /api/v1/spaces/{id}/files`
 
-Lists files across every bucket in the space.
+Lists files across every folder in the space.
 
 | **Parameter** | **Location** | **Required** | **Description** |
 | --- | --- | --- | --- |
@@ -177,35 +177,35 @@ Lists files across every bucket in the space.
 
 Returns `200` with `data` and a `pagination` object (`limit`, `has_more`, `next_cursor`).
 
-## Buckets
+## Folders
 
-A bucket holds files inside a space. Private buckets store [Seal](/docs/data-security) ciphertext only.
+A folder holds files inside a space. Private folders store [Seal](/docs/data-security) ciphertext only.
 
-### Get a bucket
+### Get a folder
 
 `GET /api/v1/buckets/{id}`
 
-Returns `200` with the bucket under `data`: `id`, `space_id`, `name`, `oyster_bucket_name`, `walrus_bucket_id`, `visibility`, `status`, `provisioning_state`, `seal_policy_id`, `storage_used`, `file_count`, `metadata`, `last_opened_at`, `expires_at`, `created_at`, and `updated_at`. `status` is one of `active`, `deleting`, or `deleted`. Just after finalize, this endpoint can also return `403` with code `mirror_missing_grant` until the access grant propagates.
+Returns `200` with the folder under `data`: `id`, `space_id`, `name`, `oyster_bucket_name`, `walrus_bucket_id`, `visibility`, `status`, `provisioning_state`, `seal_policy_id`, `storage_used`, `file_count`, `metadata`, `last_opened_at`, `expires_at`, `created_at`, and `updated_at`. `status` is one of `active`, `deleting`, or `deleted`. Just after finalize, this endpoint can also return `403` with code `mirror_missing_grant` until the access grant propagates.
 
-### Update a bucket
+### Update a folder
 
 `PUT /api/v1/buckets/{id}`
 
 | **Field** | **Required** | **Description** |
 | --- | --- | --- |
-| `name` | Yes | New bucket name, 1 to 100 characters in length. |
-| `sealPolicyId` | No | Seal policy ID. A private bucket cannot clear it. |
+| `name` | Yes | New folder name, 1 to 100 characters in length. |
+| `sealPolicyId` | No | Seal policy ID. A private folder cannot clear it. |
 | `visibility` | No | Immutable in v1. Changing it returns `403`. |
 
-Returns `200` with the updated bucket under `data` (`id`, `name`, `visibility`, `updated_at`). A name conflict returns `409`. Unknown fields return `400`.
+Returns `200` with the updated folder under `data` (`id`, `name`, `visibility`, `updated_at`). A name conflict returns `409`. Unknown fields return `400`.
 
-### Get bucket metadata
+### Get folder metadata
 
 `GET /api/v1/buckets/{id}/metadata`
 
-Returns `200` with the bucket's description, tags, and statistics under `data`: `description`, `tags`, `size`, `asset_count`, `created_at`, `updated_at`, and `last_opened_at`.
+Returns `200` with the folder's description, tags, and statistics under `data`: `description`, `tags`, `size`, `asset_count`, `created_at`, `updated_at`, and `last_opened_at`.
 
-### Update bucket metadata
+### Update folder metadata
 
 `PATCH /api/v1/buckets/{id}/metadata`
 
@@ -216,17 +216,17 @@ Returns `200` with the bucket's description, tags, and statistics under `data`: 
 
 Send at least one field. Returns `200` with the same shape as the metadata endpoint under `data`.
 
-### Delete a bucket
+### Delete a folder
 
 `DELETE /api/v1/buckets/{id}?confirm=true`
 
-Requires the `confirm=true` query parameter. The delete cascades to every file in the bucket: each file moves to `deleting`, and a background worker releases the storage afterward. Returns `204` with an `X-Deleted-Id` header. A missing confirmation or a validation error returns `400`.
+Requires the `confirm=true` query parameter. The delete cascades to every file in the folder: each file moves to `deleting`, and a background worker releases the storage afterward. Returns `204` with an `X-Deleted-Id` header. A missing confirmation or a validation error returns `400`.
 
-### Finalize a private bucket
+### Finalize a private folder
 
 `POST /api/v1/buckets/{id}/finalize`
 
-Submits the signature over the reserved transaction bytes to activate a pending private bucket.
+Submits the signature over the reserved transaction bytes to activate a pending private folder.
 
 Body:
 
@@ -240,9 +240,9 @@ Returns `200`:
 { "bucket_id": "…", "seal_policy_id": "…", "provisioning_state": "active" }
 ```
 
-`seal_policy_id` is the onchain bucket-policy object ID used by Seal for access checks. You can now upload to the bucket.
+`seal_policy_id` is the onchain bucket-policy object ID used by Seal for access checks. You can now upload to the folder.
 
-### List files in a bucket
+### List files in a folder
 
 `GET /api/v1/buckets/{id}/files`
 
@@ -256,12 +256,12 @@ Uploads a file asynchronously using `multipart/form-data`.
 
 | **Field** | **Required** | **Description** |
 | --- | --- | --- |
-| `file` | Yes | The file bytes. For private buckets, upload the Seal-encrypted object. |
+| `file` | Yes | The file bytes. For private folders, upload the Seal-encrypted object. |
 | `name` | No | File name, up to 255 characters in length. |
 | `contentSize` | No | Plaintext byte count for a ciphertext upload, so Console can show the original size. |
 | `metadata` | No | JSON object string persisted with the file. Maximum 8 KiB. |
 
-Returns `202` with the file summary under `data`. Poll the status endpoint until the job state is `completed`, at which point the file status is `active`. When the name already exists in the bucket, Console renames the new file to `<name> (1).<ext>` and still returns `202`.
+Returns `202` with the file summary under `data`. Poll the status endpoint until the job state is `completed`, at which point the file status is `active`. When the name already exists in the folder, Console renames the new file to `<name> (1).<ext>` and still returns `202`.
 
 :::info
 
@@ -269,7 +269,7 @@ After finalize, the onchain access grant takes a few seconds to propagate to the
 
 :::
 
-Other responses include `404` (the bucket is still in `pending_policy`), `413` (payload too large), `415` (unsupported content type), `422` (quota exceeded), and `429` (rate limited).
+Other responses include `404` (the folder is still in `pending_policy`), `413` (payload too large), `415` (unsupported content type), `422` (quota exceeded), and `429` (rate limited).
 
 ## Files
 
@@ -279,13 +279,13 @@ File endpoints address a single file by ID: metadata, upload status, download, s
 
 `GET /api/v1/buckets/{id}/files/{fileId}`
 
-Returns `200` with the file summary under `data`: `id`, `bucket_id`, `name`, `blob_id`, `oyster_object_id`, `size`, `content_size`, `mime_type`, `status`, `metadata`, `last_opened_at`, `created_at`, `updated_at`, and `deleted_at`. `status` is one of `pending`, `uploading`, `active`, `deleting`, `failed`, or `deleted`. `mime_type` is the type recorded at upload, which for a private bucket is the type of the ciphertext.
+Returns `200` with the file summary under `data`: `id`, `bucket_id`, `name`, `blob_id`, `oyster_object_id`, `size`, `content_size`, `mime_type`, `status`, `metadata`, `last_opened_at`, `created_at`, `updated_at`, and `deleted_at`. `status` is one of `pending`, `uploading`, `active`, `deleting`, `failed`, or `deleted`. `mime_type` is the type recorded at upload, which for a private folder is the type of the ciphertext.
 
 ### Update a file
 
 `PATCH /api/v1/files/{id}`
 
-Renames a file or edits its description and tags. This endpoint takes the file ID directly, not nested under a bucket.
+Renames a file or edits its description and tags. This endpoint takes the file ID directly, not nested under a folder.
 
 | **Field** | **Required** | **Description** |
 | --- | --- | --- |
@@ -317,7 +317,7 @@ Returns `307` with a `Location` header that points at a short-lived signed URL o
 
 Clients drop the `Authorization` header on the redirect hop, which is correct. The token in the signed URL is the credential, and the API key must never reach the user-content host. Do not configure your client to forward the header.
 
-For a private bucket, the bytes are the Seal ciphertext, which you decrypt client-side. See the [Quick Start](./quickstart) for the decrypt flow.
+For a private folder, the bytes are the Seal ciphertext, which you decrypt client-side. See the [Quick Start](./quickstart) for the decrypt flow.
 
 A file in `deleting` or `deleted` status returns `423`.
 
@@ -362,7 +362,7 @@ Builds a sponsored bucket-policy transaction and returns the bytes to sign plus 
 
 | **`kind`** | **Purpose** | **Additional fields** | **Who can call it** |
 | --- | --- | --- | --- |
-| `bucket_group_create` | Create the access group for a reserved bucket. | `bucketId` | Any key, but only for a bucket that same key just reserved. The create-bucket response already returns these bytes, so most callers never call this kind directly. |
+| `bucket_group_create` | Create the access group for a reserved folder. | `bucketId` | Any key, but only for a folder that same key just reserved. The create-folder response already returns these bytes, so most callers never call this kind directly. |
 | `grant_bucket_access` | Grant access to a recipient. | `groupIds` (1 to 1000), `recipientAddress`, `scope` (`read` or `readwrite`) | `key_admin` keys only. |
 
 Other kinds exist for the Console web app and return `403` to every API key.

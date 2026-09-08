@@ -1,14 +1,14 @@
 ---
 title: Quick Start
-description: Sign up for Walrus Console, mint an API key, then create a Seal-encrypted bucket and upload and download your first file.
-keywords: [walrus console, quickstart, api key, seal, encrypted bucket, upload]
+description: Sign up for Walrus Console, mint an API key, then create a Seal-encrypted folder and upload and download your first file.
+keywords: [walrus console, quickstart, api key, seal, encrypted folder, upload]
 ---
 
-Go from sign-up to a working encrypted upload: create an account, mint an API key, then create a Seal-encrypted bucket and upload, download, and decrypt a file.
+Go from sign-up to a working encrypted upload: create an account, mint an API key, then create a Seal-encrypted folder and upload, download, and decrypt a file.
 
 :::info
 
-The Console developer API is in beta at `api.console.walrus.xyz`. Endpoint shapes might change before GA. In beta, all bucket creation goes through the private, Seal-encrypted flow; Console disables public bucket creation at the API boundary. For the full endpoint surface, see the [API reference](./api-reference); for the product model, see the [concepts and overview](./overview).
+The Console developer API is in beta at `api.console.walrus.xyz`. Endpoint shapes might change before GA. In beta, all folder creation goes through the private, Seal-encrypted flow; Console disables public folder creation at the API boundary. For the full endpoint surface, see the [API reference](./api-reference); for the product model, see the [concepts and overview](./overview).
 
 :::
 
@@ -43,9 +43,9 @@ Authorization: Bearer hbr_…
 
 A `read_only` key (listing, status, and download only) is also available for downstream consumers that should not change your data; every write endpoint returns `403` with code `read_only_api_key` for those keys. The encrypted flow below needs a write-capable key and both secrets above.
 
-## Create an encrypted bucket and upload a file
+## Create an encrypted folder and upload a file
 
-Private buckets are encrypted client-side, so Console stores ciphertext only and never sees your plaintext or decryption material. With your key in hand, creation goes through a reserve, sign, and finalize handshake, then a local encrypt on upload and decrypt on download:
+Private folders are encrypted client-side, so Console stores ciphertext only and never sees your plaintext or decryption material. With your key in hand, creation goes through a reserve, sign, and finalize handshake, then a local encrypt on upload and decrypt on download:
 
 ```
 get space → reserve → sign → finalize → encrypt → upload → poll → download → decrypt
@@ -59,7 +59,7 @@ GET /api/v1/spaces
 
 The response's `data[]` array holds your spaces. Copy the `id` of the Personal Space created at sign-up.
 
-### Step 2: Reserve the bucket
+### Step 2: Reserve the folder
 
 ```http
 POST /api/v1/spaces/{spaceId}/buckets
@@ -81,7 +81,7 @@ Response (`201`):
 }
 ```
 
-`bytes` is the sponsored Sui transaction that creates the bucket's [Seal](/docs/data-security) access policy, with your service key's address as the sender. Console has already attached the gas sponsor's signature, so your service key only needs to add its own. `digest` is the sponsor digest, which Console uses at finalize to look up the sponsored transaction. The bucket stays in `pending_policy` until finalize succeeds. Until then, the file endpoints return `404` for it.
+`bytes` is the sponsored Sui transaction that creates the folder's [Seal](/docs/data-security) access policy, with your service key's address as the sender. Console has already attached the gas sponsor's signature, so your service key only needs to add its own. `digest` is the sponsor digest, which Console uses at finalize to look up the sponsored transaction. The folder stays in `pending_policy` until finalize succeeds. Until then, the file endpoints return `404` for it.
 
 ### The helper code
 
@@ -302,11 +302,11 @@ Console combines your signature with the gas-sponsor signature and broadcasts th
 { "bucket_id": "…", "seal_policy_id": "…", "provisioning_state": "active" }
 ```
 
-`seal_policy_id` is the onchain bucket-policy object ID that Seal uses for access checks. You can now use the bucket.
+`seal_policy_id` is the onchain bucket-policy object ID that Seal uses for access checks. You can now use the folder.
 
 ### Step 5: Encrypt the file with Seal
 
-Encrypt locally against the `seal_policy_id` from finalize. `encryptBytes` (in `seal.ts`) derives a per-file Seal identity and encrypts against the bucket policy using `ORIGINAL_PACKAGE_ID` from `config.ts`. Seal pins identity derivation to the original package ID, so this value must stay fixed across package upgrades, otherwise an upgrade would invalidate every previously encrypted blob's key. This script wires it up:
+Encrypt locally against the `seal_policy_id` from finalize. `encryptBytes` (in `seal.ts`) derives a per-file Seal identity and encrypts against the folder policy using `ORIGINAL_PACKAGE_ID` from `config.ts`. Seal pins identity derivation to the original package ID, so this value must stay fixed across package upgrades, otherwise an upgrade would invalidate every previously encrypted blob's key. This script wires it up:
 
 ```ts title="encrypt-file.ts"
 import { readFile, writeFile } from 'node:fs/promises';
