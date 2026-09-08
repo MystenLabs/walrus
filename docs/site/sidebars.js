@@ -248,19 +248,16 @@ const sidebars = {
   // ── Walrus Console ──────────────────────────────────────────────
   consoleSidebar: [
     {
-      type: "category",
-      label: "Walrus Console",
-      collapsed: false,
-      link: { type: "doc", id: "console/overview" },
-      items: [
-        "console/auth",
-        "console/quickstart",
-        "console/storage-epochs",
-        "console/api-reference",
-        "console/mcp-server",
-        "console/faq",
-      ],
+      type: "doc",
+      id: "console/overview",
+      label: "Overview",
     },
+    "console/quickstart",
+    "console/auth",
+    "console/storage-epochs",
+    "console/mcp-server",
+    "console/api-reference",
+    "console/faq",
   ],
 
 };
