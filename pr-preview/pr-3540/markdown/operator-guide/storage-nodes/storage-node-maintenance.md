@@ -1,0 +1,174 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+Monitor, update, and maintain a Walrus storage node, including key metrics, update procedures, and community tools.
+
+This page covers the ongoing operation of your Walrus storage node after [initial setup](/docs/operator-guide/storage-nodes/storage-node-setup).
+
+## Important data to back up
+
+Back up the `/opt/walrus/config` directory. For database backups, see the [Backup and Restore Guide](/docs/operator-guide/storage-nodes/backup-restore-guide).
+
+## Key metrics and alerts
+
+The following metrics are the most important for monitoring node health. Set up alerts based on the severity levels below.
+
+#### Critical (page-worthy)
+
+- `walrus_event_processor_latest_downloaded_checkpoint`: This value should continuously increase. Alert if it shows no progress for more than 30 minutes.
+
+#### Needs attention during business hours
+
+- `walrus_event_cursor_progress{state="highest_finished"}`: This value should continuously increase. Alert if there is no progress for more than 30 minutes. Contact the Walrus team if this happens.
+
+- `uptime`: Frequent and repeated node restarts over a 30-minute period indicate an issue. Contact the Walrus team if this happens.
+
+#### Operational alerts
+
+- `walrus_sui_balance_mist`: Warn if the balance drops below 2 SUI (2,000,000,000 MIST). Escalate if it drops below 1 SUI. Ensure the node wallet is sufficiently funded.
+- `http_server_tls_certificate_not_after_seconds`: This metric monitors TLS certificate expiration. Set up an alert to warn before the certificate expires so you have time to renew it.
+
+#### General guidance
+
+Check the logs for warnings or errors if any of these metrics stall:
+
+```sh
+$ journalctl -efu walrus-node
+```
+
+Other metrics like `walrus_storage_confirmations_issued_total` should also increase regularly, but they depend on user activity.
+
+## Update your node
+
+To update your node:
+
+##### Step 1: Stop services.
+
+Stop the node service (and aggregator or publisher if running on the same host):
+
+```sh
+$ sudo systemctl stop walrus-node.service
+$ sudo systemctl stop walrus-aggregator.service  # if applicable
+$ sudo systemctl stop walrus-publisher.service   # if applicable
+```
+
+##### Step 2: Download new binaries.
+
+Download the new `walrus-node` and `walrus` binaries to `/opt/walrus/bin`.
+
+##### Step 3: Start the services again.
+
+```sh
+$ sudo systemctl start walrus-node.service
+$ sudo systemctl start walrus-aggregator.service  # if applicable
+$ sudo systemctl start walrus-publisher.service   # if applicable
+```
+
+> **Info**
+>
+> You are generally expected to upgrade within 24 hours of a new release. In emergency situations, immediate action is appreciated. Subscribe to the [Walrus release calendar](https://calendar.google.com/calendar/u/0/embed?src=c_97763fcda7894da7ddcd68595a797397b9b4294b69603a52e30d4fa0c3fee2bb@group.calendar.google.com) to stay informed about upcoming releases.
+## Database corruption
+
+If the node database becomes corrupted (for example, after an unclean shutdown), do not attempt to repair it yourself. Reach out to the Walrus Core team on Discord for guidance before taking any recovery action.
+
+> **Warning**
+>
+> Previous versions of `walrus-node` exposed a `db-tool repair-db` command. That command has been removed because it can silently leave the database in an inconsistent state. Do not run it from older binaries.
+If recovery is not possible, restore from a backup. See the [Backup and Restore Guide](/docs/operator-guide/storage-nodes/backup-restore-guide).
+
+## Update onchain parameters
+
+To modify node parameters (capacity, voting parameters, metadata, and others), edit the `/opt/walrus/config/walrus-node.yaml` file. The node automatically picks up changes and updates onchain information. See the [Storage Node FAQ on TLS](/docs/operator-guide/storage-nodes/storage-node-faq#tls) for details on how automatic configuration updates work.
+
+Avoid changing the node name, keys, and network address unless necessary because this causes some friction in the network.
+
+## Migrate the node wallet to a new wallet
+
+The storage node uses a Sui wallet (the node wallet) to sign transactions, such as epoch sync confirmations and event blob attestations. The node's `StorageNodeCap` object, which the node wallet owns, authorizes these transactions. Because the capability is a transferable Sui object, you can move it to a new wallet and switch the node to that wallet. For example, you can rotate a hot wallet that you suspect is compromised.
+
+Migrating the node wallet does not move any stake. Stake is associated with the node's staking pool (identified by the node ID) and with the stakers' `StakedWal` objects, not with the node wallet. The migration does not change the node ID, the capability object ID, the protocol and network keys, or the shard assignments.
+
+##### Step 1: Prepare the new wallet
+
+Create a new Sui wallet (for example, with the command `sui client new-address ed25519`) and fund it with SUI for gas. A recommended initial balance is approximately 20 SUI, matching the guidance for the [initial setup](/docs/operator-guide/storage-nodes/storage-node-setup).
+
+##### Step 2: Find the capability object ID
+
+The `walrus-node register` command records the capability object ID in the node configuration file. Look up the `storage_node_cap` field in `/opt/walrus/config/walrus-node.yaml`.
+
+If the field is not set, list the objects owned by the old node wallet and find the object of type `storage_node::StorageNodeCap`:
+
+```sh
+sui client --client.config /opt/walrus/config/sui_config.yaml objects \
+    | grep -B 3 StorageNodeCap
+```
+
+The `objectId` in the output is the capability object ID.
+
+##### Step 3: Stop the node
+
+```sh
+sudo systemctl stop walrus-node.service
+```
+
+> **Caution**
+>
+> Stop the node before transferring the capability. If the node is running during the transfer, its transactions that use the capability fail, because the wallet no longer owns the object.
+##### Step 4: Transfer the capability to the new wallet
+
+Using the old node wallet, transfer the capability object:
+
+```sh
+NEW_ADDRESS=    # address of the new wallet
+CAP_OBJECT_ID=  # value of storage_node_cap in walrus-node.yaml
+sui client transfer --to $NEW_ADDRESS --object-id $CAP_OBJECT_ID
+```
+
+If the old node wallet is not the active wallet of your `sui` CLI, specify its configuration file explicitly with the `--client.config` option. With the standard setup, the node wallet configuration is at `/opt/walrus/config/sui_config.yaml`:
+
+```sh
+sui client --client.config /opt/walrus/config/sui_config.yaml \
+    transfer --to $NEW_ADDRESS --object-id $CAP_OBJECT_ID
+```
+
+##### Step 5: Switch the node to the new wallet
+
+Replace the wallet used by the node with the new wallet. With the standard setup, the wallet configuration is at `/opt/walrus/config/sui_config.yaml` with the private key in `/opt/walrus/config/sui.keystore`; replace both with the new wallet's files and adjust any absolute paths inside `sui_config.yaml`. Alternatively, point the `sui.wallet_config` field in `/opt/walrus/config/walrus-node.yaml` to the new wallet configuration.
+
+Leave the `storage_node_cap` field unchanged: the capability keeps its object ID across the transfer. If the field is unset, the node discovers the capability owned by its wallet at startup.
+
+##### Step 6: Start the node and verify
+
+```sh
+sudo systemctl start walrus-node.service
+```
+
+Verify the migration:
+
+- The health endpoint reports `"nodeStatus": "Active"`.
+- The `walrus_sui_balance_mist` metric reports the balance of the new wallet.
+- The logs show no authorization errors for transactions such as epoch sync confirmations.
+- The capability object is owned by the new wallet address. The `AddressOwner` field in the output of `sui client object $CAP_OBJECT_ID` must show the new wallet address.
+
+##### Step 7: Update related authorizations
+
+The commission receiver and the entity authorized for governance are configured independently of the capability. If you never changed them, the commission receiver defaults to the wallet address that registered the node, which is the old wallet.
+
+Check the `commission_receiver` and `governance_authorized` fields of your node's `StakingPool` object. The object ID of the staking pool is your node ID:
+
+```sh
+NODE_ID=  # your node ID
+sui client object $NODE_ID | grep -A 3 "commission_receiver\|governance_authorized"
+```
+
+Each field shows either an `Address` or an `ObjectID` variant. If either field points to the old wallet address, update it from the old wallet while you still control it, as described in [Commission and Governance](/docs/operator-guide/storage-nodes/commission-governance).
+
+> **Caution**
+>
+> Do not delete the old wallet before verifying the migration and updating the commission and governance authorizations. Only the currently authorized entity can change these authorizations.
+## Community monitoring tools
+
+Several community members have created tools for monitoring Walrus services. These tools are listed on [awesome-walrus](https://github.com/MystenLabs/awesome-walrus).
+
+> **Caution**
+>
+> The Walrus team does not provide or officially support community tools.
