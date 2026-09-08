@@ -1,0 +1,60 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+Walrus blobs are content-addressed and immutable, which makes them well suited to caching. A given blob ID always maps to the same bytes, so once a response is cached it never goes stale for that blob ID. If your application serves the same blobs repeatedly, caching hot reads reduces latency and reduces the load on aggregators.
+
+## Why caching works well on Walrus
+
+A blob ID is derived from the blob's contents. Reading the same blob ID always returns the same data, so a cache entry keyed by blob ID can be treated as immutable and given a long lifetime. This is different from mutable object storage, where a key can be overwritten and caches must revalidate.
+
+Two properties still bound how long a cached copy is valid:
+
+- **Availability is time-bounded:** Walrus guarantees a blob's availability only for the epochs you store it for. After expiry, or after you delete a deletable blob, reads can return `404`. Caching the bytes is safe, but do not assume a blob is retrievable from Walrus forever.
+- **Deletion does not purge caches:** The `walrus delete` command removes a blob from the network, but it does not evict copies already held in caches, CDNs, or by other readers. Do not rely on deletion to make data unreachable.
+
+## Where to cache
+
+Caching can happen at several layers. Most applications combine a CDN or reverse proxy with a caching aggregator.
+
+### Caching aggregators
+
+Some public aggregators are deployed with a built-in cache. The [operator list in JSON format](pathname:///operators.json) records, for each aggregator, whether it is deployed with caching functionality and whether it is currently found to be functional. See [Public Aggregators and Publishers](/docs/system-overview/public-aggregators-and-publishers) for the maintained list, and the [Network Reference](/docs/network-reference#aggregators-and-publishers) for the Mysten Labs reference endpoints.
+
+When you run your own aggregator, you control its caching behavior directly. See [Operate an Aggregator](/docs/operator-guide/aggregators/operating-aggregator).
+
+### CDN or reverse proxy in front of an aggregator
+
+For production read traffic, front an aggregator with a CDN or reverse proxy (for example, Cloudflare, Fastly, or an Nginx cache). Because blob responses are immutable, you can configure a long `Cache-Control` lifetime at the CDN or proxy layer:
+
+```
+Cache-Control: public, max-age=31536000, immutable
+```
+
+Key the cache on the request path, which already includes the blob ID (`/v1/blobs/<BLOB_ID>`) or object ID (`/v1/blobs/by-object-id/<OBJECT_ID>`). The CDN then serves repeat reads of a hot blob from its edge without contacting the aggregator.
+
+### Client-side caching
+
+Clients that read the same blobs repeatedly, such as a browser or a long-running service, can keep an in-process or on-disk cache keyed by blob ID. The same immutability guarantee applies: you never need to revalidate a blob ID.
+
+### Walrus Sites
+
+If you serve content through Walrus Sites, set `Cache-Control` and related headers per resource in `ws-resources.json`. Fingerprinted assets can use a long, immutable lifetime, while an entry HTML file can use a shorter one. See [Specifying HTTP Headers](/docs/sites/configuration/specifying-http-headers).
+
+## Setting response headers on reads
+
+When you read a blob **by object ID**, the aggregator returns selected blob attributes as HTTP response headers. The recognized attribute keys are `content-disposition`, `content-encoding`, `content-language`, `content-location`, `content-type`, and `link`. Set these attributes when you store the blob so that a CDN or browser handles the response correctly. For details, see [Reading Blobs with the HTTP API](/docs/http-api/reading-blobs) and [Managing blobs](/docs/walrus-client/managing-blobs).
+
+The `Cache-Control` header itself is not derived from a blob attribute. Set it at the CDN, reverse proxy, or aggregator layer that fronts your reads.
+
+## Pitfalls
+
+- **Caching a stale `404` right after upload:** When you read through a CDN-fronted aggregator immediately after certification, the CDN might briefly cache a `404` from before the blob propagated. If your application just certified the blob, retry with backoff, and do not cache negative responses for long. See [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload).
+- **Long-lived negative caching:** Cache successful blob responses aggressively, but keep the lifetime for error responses short so a transient failure does not become a persistent one.
+- **Assuming permanence:** A cached copy can outlive the blob's storage duration. If your application must guarantee the data is still on Walrus, verify availability rather than relying on the cache. See [Verifying Availability](/docs/walrus-client/verifying-availability).
+- **Relying on deletion for privacy:** Deleting or expiring a blob does not remove cached copies. All blobs stored on Walrus are public. Encrypt sensitive data before storing it.
+
+## References
+
+- [Public Aggregators and Publishers](/docs/system-overview/public-aggregators-and-publishers)
+- [Reading Blobs with the HTTP API](/docs/http-api/reading-blobs)
+- [Reading Blobs Right After Upload](/docs/troubleshooting/reading-blobs-after-upload)
+- [Network Reference](/docs/network-reference)

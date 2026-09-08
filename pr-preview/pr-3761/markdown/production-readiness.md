@@ -1,0 +1,83 @@
+> For the complete documentation index, see [llms.txt](https://docs.wal.app/llms.txt)
+
+A prototype that stores a blob on Testnet is not yet ready for production. Moving to Mainnet adds
+real cost, real failure modes, and the need to keep an upload path available under load. This guide
+collects the decisions to make before you depend on Walrus storage in production: choosing and
+hardening an upload path, handling transient failures, controlling cost, and confirming durability.
+Each section links to the detailed reference for that area.
+
+## Choose and harden your upload path
+
+Walrus does not provide a public unauthenticated publisher on Mainnet, because the operator pays SUI
+and WAL for every blob stored. Pick the path that matches where your uploads run, then harden it.
+
+- **Backend services:** run a private authenticated publisher, or integrate the
+  [TypeScript SDK](/docs/typescript-sdk/sdks) directly and manage signing in code.
+- **Browser and mobile clients:** use an [upload relay](/docs/system-overview/relay) so the
+  client does not hold many connections open.
+
+If you run a publisher, follow the
+[Mainnet Publisher Production Guide](/docs/operator-guide/publishers/mainnet-production-guide) to
+protect the wallet, require authentication, put the publisher behind a private boundary, and plan
+failover. Do not rely on community endpoints for production, since they can change, go offline, or
+add restrictions without notice.
+
+## Handle transient failures
+
+In a distributed system, network timeouts and brief node unavailability are normal. Production code
+should treat them as expected, not exceptional.
+
+- Retry only transient errors, such as timeouts and temporary endpoint unavailability, with
+  exponential backoff. Do not retry errors like insufficient funds, invalid blob IDs, or oversized
+  blobs, which will not succeed on retry.
+- After a transaction timeout, verify onchain state before retrying. A timed-out store might have
+  succeeded, and a blind retry can register the blob twice and waste funds.
+- When reading right after certification through a CDN-fronted aggregator, retry with backoff rather
+  than treating the first `404` as missing. See
+  [Reading blobs right after upload](/docs/troubleshooting/reading-blobs-after-upload).
+
+See [Error handling](/docs/troubleshooting/error-handling) for retry patterns, onchain verification,
+and storage node error capture, and [Troubleshooting common errors](/docs/troubleshooting/network-errors)
+for specific messages.
+
+## Control cost
+
+Storing on Walrus spends two tokens: SUI for transaction gas and WAL for storage. Cost scales with
+blob size and with how long you store the data, so the levers below are where you manage spend.
+
+- **Set lifetimes deliberately.** The store cost grows with the number of epochs. Store for the time
+  you actually need rather than the maximum, and [extend](/docs/walrus-client/managing-blobs#extend-the-lifetime-of-a-blob)
+  later if needed. The upper bound is 53 epochs, which is about 2 years on Mainnet.
+- **Choose permanence by need.** Deletable blobs let the owner reclaim the storage resource when the
+  data is no longer needed. Permanent blobs cannot be removed before expiry. See
+  [blob permanence](/docs/walrus-client/storing-blobs#blob-permanence).
+- **Let the client deduplicate.** When content is already stored as a permanent blob for enough
+  epochs, the client skips re-storing it and reuses existing storage resources where possible. Avoid
+  forcing a fresh store unless you need a separate object.
+- **Budget relay tips.** If you store through a paid upload relay, the relay charges a tip on top of
+  onchain fees. Set a maximum tip in the client and read the relay's published rate from its
+  `/v1/tip-config` endpoint. See [upload relay](/docs/system-overview/relay#tip-mechanism).
+- **Monitor balances.** Track the SUI and WAL balances of any wallet that stores in production, and
+  alert before they run low so uploads do not start failing with insufficient-funds errors.
+
+## Verify durability before depending on data
+
+A successful write response is not proof that a blob is certified and will remain available. Before
+your application depends on a stored blob, confirm it against Walrus state on Sui: certified, within
+its storage period, and not deletable when you need persistence. See
+[Verify blob availability before acting](/docs/walrus-client/verifying-availability).
+
+## Protect sensitive data
+
+Every blob stored on Walrus is public and readable by anyone with its blob ID. Encrypt sensitive
+data before you store it, for example with [Seal](/docs/data-security). Decide this before launch,
+since data stored in the clear cannot be made private after the fact.
+
+## Production checklist
+
+- Upload path chosen and hardened (authenticated publisher, relay, or direct SDK).
+- Publisher wallet protected, funded, and monitored, if you run one.
+- Retry with backoff for transient errors, and onchain verification after timeouts.
+- Lifetimes and permanence chosen for cost, with balance monitoring and alerts.
+- Durability verified against Sui state before depending on a blob.
+- Sensitive data encrypted before storage.
