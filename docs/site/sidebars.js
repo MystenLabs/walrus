@@ -92,20 +92,6 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "Walrus Console",
-      collapsed: true,
-      link: { type: "doc", id: "console/overview" },
-      items: [
-        "console/auth",
-        "console/quickstart",
-        "console/storage-epochs",
-        "console/api-reference",
-        "console/mcp-server",
-        "console/faq",
-      ],
-    },
-    {
-      type: "category",
       label: "Run Infrastructure",
       collapsed: true,
       link: { type: "doc", id: "operator-guide/index" },
@@ -164,6 +150,89 @@ const sidebars = {
     },
     {
       type: "category",
+      label: "Walrus Sites",
+      collapsed: true,
+      link: { type: "doc", id: "sites/index" },
+      items: [
+        "sites/introduction/technical-overview",
+        "sites/introduction/components",
+        {
+          type: "category",
+          label: "Getting Started",
+          collapsed: true,
+          items: [
+            "sites/getting-started/installing-the-site-builder",
+            "sites/getting-started/publishing-your-first-site",
+            "sites/getting-started/using-the-site-builder",
+          ],
+        },
+        {
+          type: "category",
+          label: "Site Configuration",
+          collapsed: true,
+          items: [
+            "sites/configuration/site-configuration",
+            "sites/configuration/specifying-http-headers",
+            "sites/configuration/adding-metadata",
+          ],
+        },
+        {
+          type: "category",
+          label: "Custom Domains",
+          collapsed: true,
+          items: [
+            "sites/custom-domains/setting-a-suins-name",
+            "sites/custom-domains/bringing-your-own-domain",
+            "sites/custom-domains/dns-configuration",
+          ],
+        },
+        {
+          type: "category",
+          label: "Walrus Portals",
+          collapsed: true,
+          link: { type: "doc", id: "sites/portals/deploy-locally" },
+          items: [
+            "sites/portals/deploy-locally",
+            "sites/portals/mainnet-testnet",
+          ],
+        },
+        {
+          type: "category",
+          label: "Linking and Navigation",
+          collapsed: true,
+          items: [
+            "sites/linking/linking-from-walrus-sites",
+            "sites/linking/linking-to-walrus-sites",
+            "sites/linking/redirects",
+            "sites/linking/avoiding-duplicate-content-seo",
+          ],
+        },
+        {
+          type: "category",
+          label: "CI/CD and Automation",
+          collapsed: true,
+          items: [
+            "sites/ci-cd/preparing-deployment-credentials",
+            "sites/ci-cd/github-actions-workflow",
+            "sites/ci-cd/other-ci-cd-platforms",
+          ],
+        },
+        {
+          type: "category",
+          label: "Security and Authentication",
+          collapsed: true,
+          items: [
+            "sites/security/site-data-authentication",
+            "sites/security/access-control-options",
+          ],
+        },
+        "sites/production",
+        "sites/known-restrictions",
+        "sites/troubleshooting",
+      ],
+    },
+    {
+      type: "category",
       label: "Troubleshooting",
       collapsed: true,
       link: { type: "doc", id: "troubleshooting/index" },
@@ -176,91 +245,22 @@ const sidebars = {
     "tusky-migration-guide",
   ],
 
-  // ── Walrus Sites ───────────────────────────────────────────────
-  sitesSidebar: [
+  // ── Walrus Console ──────────────────────────────────────────────
+  consoleSidebar: [
     {
       type: "category",
-      label: "Introduction to Walrus Sites",
+      label: "Walrus Console",
       collapsed: false,
-      link: { type: "doc", id: "sites/index" },
+      link: { type: "doc", id: "console/overview" },
       items: [
-        "sites/introduction/technical-overview",
-        "sites/introduction/components",
+        "console/auth",
+        "console/quickstart",
+        "console/storage-epochs",
+        "console/api-reference",
+        "console/mcp-server",
+        "console/faq",
       ],
     },
-    {
-      type: "category",
-      label: "Getting Started",
-      collapsed: true,
-      items: [
-        "sites/getting-started/installing-the-site-builder",
-        "sites/getting-started/publishing-your-first-site",
-        "sites/getting-started/using-the-site-builder",
-      ],
-    },
-    {
-      type: "category",
-      label: "Site Configuration",
-      collapsed: true,
-      items: [
-        "sites/configuration/site-configuration",
-        "sites/configuration/specifying-http-headers",
-        "sites/configuration/adding-metadata",
-      ],
-    },
-    {
-      type: "category",
-      label: "Custom Domains",
-      collapsed: true,
-      items: [
-        "sites/custom-domains/setting-a-suins-name",
-        "sites/custom-domains/bringing-your-own-domain",
-        "sites/custom-domains/dns-configuration",
-      ],
-    },
-    {
-      type: "category",
-      label: "Walrus Portals",
-      collapsed: true,
-      link: { type: "doc", id: "sites/portals/deploy-locally" },
-      items: [
-        "sites/portals/deploy-locally",
-        "sites/portals/mainnet-testnet",
-      ],
-    },
-    {
-      type: "category",
-      label: "Linking and Navigation",
-      collapsed: true,
-      items: [
-        "sites/linking/linking-from-walrus-sites",
-        "sites/linking/linking-to-walrus-sites",
-        "sites/linking/redirects",
-        "sites/linking/avoiding-duplicate-content-seo",
-      ],
-    },
-    {
-      type: "category",
-      label: "CI/CD and Automation",
-      collapsed: true,
-      items: [
-        "sites/ci-cd/preparing-deployment-credentials",
-        "sites/ci-cd/github-actions-workflow",
-        "sites/ci-cd/other-ci-cd-platforms",
-      ],
-    },
-    {
-      type: "category",
-      label: "Security and Authentication",
-      collapsed: true,
-      items: [
-        "sites/security/site-data-authentication",
-        "sites/security/access-control-options",
-      ],
-    },
-    "sites/production",
-    "sites/known-restrictions",
-    "sites/troubleshooting",
   ],
 
 };

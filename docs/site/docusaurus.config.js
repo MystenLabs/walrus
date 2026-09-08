@@ -346,8 +346,8 @@ const config = {
             position: "left",
           },
           {
-            type: "doc",
-            docId: "console/overview",
+            type: "docSidebar",
+            sidebarId: "consoleSidebar",
             label: "Walrus Console",
             position: "left",
           },
