@@ -189,19 +189,19 @@ const HOME_CARDS = [
     href: '/walrus-memory',
   },
   {
+    image: '/img/home/walrus-sites.webp',
+    title: 'Walrus Console',
+    description:
+      'Manage, protect, and use your data across apps and AI tools.',
+    href: '/docs/console/overview',
+  },
+  {
     image: '/img/home/walrus-skills.webp',
     title: 'Walrus Skills',
     description:
       'Pre-built skills for AI coding agents that accelerate '
       + 'Walrus development.',
     href: '/skills',
-  },
-  {
-    image: '/img/home/walrus-sites.webp',
-    title: 'Walrus Console',
-    description:
-      'Manage, protect, and use your data across apps and AI tools.',
-    href: '/docs/console/overview',
   },
 ];
 
