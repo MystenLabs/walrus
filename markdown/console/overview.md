@@ -11,22 +11,22 @@ Walrus is the underlying protocol: a decentralized network that stores data as b
 
 Walrus Console sits on top of that protocol as a managed developer surface. It handles the parts that are otherwise manual: account and wallet provisioning, storage payment, metadata, and a dashboard and API for organizing your data. Use the CLI and SDKs when you want direct protocol access, and use Console when you want a hosted, managed experience.
 
-## Core concepts: spaces, buckets, and files
+## Core concepts: spaces, folders, and files
 
 Console organizes your data in three levels.
 
 1. A **space** is the top-level container tied to your account. Console creates a **Personal Space** for you automatically when you sign up. A space tracks how much storage you have used against your storage cap. Team Spaces, which let a group share storage under one managed API key, arrive after GA.
 
-2. A **bucket** is a named container inside a space that holds files. Every bucket has a visibility setting. In the current beta, all buckets are private and encrypted with [Seal](/docs/data-security); public buckets are planned for a later release.
+2. A **folder** is a named container inside a space that holds files. Every folder has a visibility setting. In the current beta, all folders are private and encrypted with [Seal](/docs/data-security); public folders are planned for a later release.
 
-3. A **file** is an individual object that lives inside a bucket. Uploads are asynchronous: you upload a file, then poll its status until Console confirms that Walrus stores it. Each file can carry metadata you define, which you can use later to search and organize your data.
+3. A **file** is an individual object that lives inside a folder. Uploads are asynchronous: you upload a file, then poll its status until Console confirms that Walrus stores it. Each file can carry metadata you define, which you can use later to search and organize your data.
 
 ## Encryption and privacy
 
 > **Warning**
 >
 > On Walrus, anyone who has a blob ID can read the bytes of a stored blob. Do not rely on obscurity for sensitive data.
-Console private buckets solve this by encrypting every file client-side with [Seal](/docs/data-security) before upload. Console stores ciphertext only and never sees your plaintext or your decryption keys. Setting up a private bucket uses a short reserve, sign, and finalize handshake that provisions the bucket's Seal access policy onchain. Encryption on upload and decryption on download both happen on your machine.
+Console private folders solve this by encrypting every file client-side with [Seal](/docs/data-security) before upload. Console stores ciphertext only and never sees your plaintext or your decryption keys. Setting up a private folder uses a short reserve, sign, and finalize handshake that provisions the folder's Seal access policy onchain. Encryption on upload and decryption on download both happen on your machine.
 
 ## Asset types
 
@@ -48,11 +48,11 @@ You own your data. Console does not migrate data you previously stored on Walrus
 
 You mint API keys under **Integrations** in the Console web app, choosing a `read_write` or `read_only` role for each. A plain **API key** works with the MCP server and with any application you write against the API, but it cannot mint further keys. A **Management API key** mints keys programmatically instead, and cannot upload, download, or manage assets. The choice is not permanent, so you can create a Management API key at any time. Console shows the full key (prefixed `hbr_`) once, at creation, and cannot recover it afterward, so store it like a cloud secret access key. For what each role can do, see the [API reference](./api-reference).
 
-Alongside the API key, Console generates a service private key (prefixed `suiprivkey1`) in your browser and shows it once next to the API key. Console stores only the derived public address. You keep the private key locally and use it to sign the transaction that finalizes a private bucket and to authenticate decrypt sessions with Seal. It does not need a token balance.
+Alongside the API key, Console generates a service private key (prefixed `suiprivkey1`) in your browser and shows it once next to the API key. Console stores only the derived public address. You keep the private key locally and use it to sign the transaction that finalizes a private folder and to authenticate decrypt sessions with Seal. It does not need a token balance.
 
 ### Connect AI clients with the MCP server
 
-Console publishes an open-source [MCP](https://modelcontextprotocol.io/) server that exposes file and bucket operations as tools for AI clients, available in beta. See [Connect AI clients with the MCP server](./mcp-server) for installation, the tools it exposes, and how it handles your credentials.
+Console publishes an open-source [MCP](https://modelcontextprotocol.io/) server that exposes file and folder operations as tools for AI clients, available in beta. See [Connect AI clients with the MCP server](./mcp-server) for installation, the tools it exposes, and how it handles your credentials.
 
 ## Storage, epochs, and renewal
 
@@ -62,7 +62,7 @@ Console extends the storage of your files automatically before it expires, so yo
 
 ## Storage limits
 
-Each space holds up to 5 GB of storage and five buckets, and each upload is capped at 100 MiB. Console manages WAL token handling on your behalf.
+Each space holds up to 5 GB of storage and five folders, and each upload is capped at 100 MiB. Console manages WAL token handling on your behalf.
 
 ## What is available in beta
 
@@ -71,7 +71,7 @@ Capabilities roll out in phases. The current beta is a subset of the full produc
 | **Capability** | **Availability** |
 | --- | --- |
 | Google and Apple sign-in, Personal Space | Beta |
-| Private, Seal-encrypted buckets and file upload or download | Beta |
+| Private, Seal-encrypted folders and file upload or download | Beta |
 | API keys and the MCP server | Beta |
 | Automatic storage renewal | Beta |
 | Memory as an asset type | GA |
