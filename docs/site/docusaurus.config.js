@@ -347,9 +347,9 @@ const config = {
           },
           { to: "/skills", label: "Walrus Skills", position: "left" },
           {
-            type: "docSidebar",
-            sidebarId: "sitesSidebar",
-            label: "Walrus Sites",
+            type: "doc",
+            docId: "console/overview",
+            label: "Walrus Console",
             position: "left",
           },
           {

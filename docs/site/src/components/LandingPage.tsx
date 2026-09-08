@@ -198,11 +198,10 @@ const HOME_CARDS = [
   },
   {
     image: '/img/home/walrus-sites.webp',
-    title: 'Walrus Sites',
+    title: 'Walrus Console',
     description:
-      'Publish highly resilient websites and frontend applications '
-      + 'on Walrus.',
-    href: '/docs/sites',
+      'Manage, protect, and use your data across apps and AI tools.',
+    href: '/docs/console/overview',
   },
 ];
 
