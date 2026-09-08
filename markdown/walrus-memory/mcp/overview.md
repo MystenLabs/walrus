@@ -74,7 +74,7 @@ system prompt yourself.
 | `memwal_login` | Connect this client to your account through browser wallet sign-in. |
 | `memwal_logout` | Remove the saved credentials from this machine. |
 
-`memwal_recall` prints `score = 1 - cosine distance` (higher = more similar); the wire and SDK field is `distance`.
+`memwal_recall` prints both `score = 1 - cosine distance` (higher = more similar) and the raw `distance` (lower = more similar), which is the wire and SDK field. Its optional `maxDistance` cutoff is expressed in `distance`, not `score`.
 
 See [Reference](/walrus-memory/mcp/reference) for full parameters, CLI flags, and transports.
 

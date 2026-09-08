@@ -29,8 +29,8 @@
 <script src="/google-tag.js"></script>
 <script src="/clarity.js"></script>
 <script src="https://widget.kapa.ai/kapa-widget.bundle.js" data-website-id="206d9923-4daf-4f2e-aeac-e7683daf5088" data-project-name="Walrus Knowledge" data-project-color="#37c3b0ff" data-button-hide="true" data-view-mode="sidebar" data-modal-overlay-hidden="true" data-modal-lock-scroll="false" data-modal-title="Ask Walrus AI" data-modal-ask-ai-input-placeholder="Ask me anything about Walrus!" data-modal-example-questions="How do I store data on Walrus?,What is a blob?,What are Walrus Sites?,How much does storage cost?" data-modal-body-bg-color="#E0E2E6" data-source-link-bg-color="#FFFFFF" data-source-link-border="#37c3b0ff" data-answer-feedback-button-bg-color="#FFFFFF" data-answer-copy-button-bg-color="#FFFFFF" data-thread-clear-button-bg-color="#FFFFFF" data-modal-image="/img/logo.svg" async></script><link rel="stylesheet" href="/assets/css/styles.b773fd81.css">
-<script src="/assets/js/runtime~main.eab3c9ca.js" defer="defer"></script>
-<script src="/assets/js/main.f000994c.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.8479c1bc.js" defer="defer"></script>
+<script src="/assets/js/main.e6551b94.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
 <svg style="display: none;"><defs>
@@ -71,7 +71,7 @@ Connectors UI exposes only a single bearer field and cannot supply the required
 <code>x-memwal-account-id</code> header.</p></div></div>
 <h2 class="anchor anchorTargetStickyNavbar_A7po" id="available-tools">Available tools<a href="#available-tools" class="hash-link" aria-label="Direct link to Available tools" title="Direct link to Available tools" translate="no">​</a></h2>
 <table><thead><tr><th>Tool</th><th>Description</th></tr></thead><tbody><tr><td><code>memwal_remember</code></td><td>Save a durable fact for the user (preference, decision, constraint, identity).</td></tr><tr><td><code>memwal_remember_bulk</code></td><td>Save several distinct facts in one call.</td></tr><tr><td><code>memwal_recall</code></td><td>Semantic search across stored memories for relevant context.</td></tr><tr><td><code>memwal_analyze</code></td><td>Extract and save multiple facts from a passage of text.</td></tr><tr><td><code>memwal_restore</code></td><td>Rebuild the search index from Walrus when recall is unexpectedly empty.</td></tr><tr><td><code>memwal_health</code></td><td>Fast connectivity check (no search or decryption).</td></tr><tr><td><code>memwal_login</code></td><td>Connect this client to your account through browser wallet sign-in.</td></tr><tr><td><code>memwal_logout</code></td><td>Remove the saved credentials from this machine.</td></tr></tbody></table>
-<p><code>memwal_recall</code> prints <code>score = 1 - cosine distance</code> (higher = more similar); the wire and SDK field is <code>distance</code>.</p>
+<p><code>memwal_recall</code> prints both <code>score = 1 - cosine distance</code> (higher = more similar) and the raw <code>distance</code> (lower = more similar), which is the wire and SDK field. Its optional <code>maxDistance</code> cutoff is expressed in <code>distance</code>, not <code>score</code>.</p>
 <p>See <a class="" href="/walrus-memory/mcp/reference">Reference</a> for full parameters, CLI flags, and transports.</p>
 <h2 class="anchor anchorTargetStickyNavbar_A7po" id="how-it-works">How it works<a href="#how-it-works" class="hash-link" aria-label="Direct link to How it works" title="Direct link to How it works" translate="no">​</a></h2>
 <p>The npm package (<code>@mysten-incubation/memwal-mcp</code>) runs locally next to your MCP client and bridges every memory tool call to the Walrus Memory relayer, which handles embeddings, Seal encryption, and Walrus storage.</p>

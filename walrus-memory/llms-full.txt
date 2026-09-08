@@ -135,6 +135,10 @@
     package ID or deploying an entirely new Walrus Memory instance with your own contract,
     database, and server wallet. The managed relayer provided by Walrus Foundation is a reference
     implementation.
+- [Synthetic Seal Cross Account](https://docs.wal.app/walrus-memory/relayer/synthetic-seal-cross-account.md):
+    COMG-715 adds a production-safe negative synthetic on top of the Move unit test . The unit test
+    covers the contract in isolation. This check would alert if a live identity from account A can
+    authorize account B's Seal key. The script is read-only.
 - [Versioning And Compatibility](https://docs.wal.app/walrus-memory/relayer/versioning-and-compatibility.md):
     The Walrus Memory relayer is the public protocol/API layer for SDKs, MCP clients, and
     self-hosted deployments. Treat every route, signed header, response field, runtime config

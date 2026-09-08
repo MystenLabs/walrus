@@ -41,6 +41,14 @@ This section covers credential and authorization errors.
 > **Info**
 >
 > A version mismatch is rarely the cause here. The relayer reports its minimum supported SDK version, which is TypeScript 0.0.4 at the time of writing, so 0.1.0 is supported. A true version mismatch surfaces as `MemWalCompatibilityError` rather than `AUTH_REJECTED`.
+### Intermittent `isn't signed in` / `memwal_login` on recall
+
+**Symptom:** The same credentials recall successfully one moment and fail the next with `Walrus Memory isn't signed in. Call the memwal_login tool, then retry.` `memwal_login` does not fix it. Other clients or a retry a few seconds later succeed.
+
+**Cause:** The relayer re-checks the delegate key on Sui on every signed request. When Sui gRPC `GetObject` returns 429 or is otherwise unavailable, older relayers treated that as a revoked key, evicted the cache, and returned an empty HTTP 401. The SDK maps empty 401s to the login hint. The key is usually still registered.
+
+**Fix:** Retry. This is not a sign-in failure. Current relayers keep the cached mapping when Sui cannot be consulted, or return HTTP 503 `upstream unavailable` on a cache miss. A 503 from the SDK means "retry"; it does not mean call `memwal_login`. If every call 401s, including after a few minutes, then follow the `AUTH_REJECTED` checks above.
+
 ## MCP Connection issues
 
 This section covers problems that appear before the memory tools work.

@@ -554,6 +554,10 @@ Sui smart contract as the on-chain index.
     package ID or deploying an entirely new Walrus Memory instance with your own contract,
     database, and server wallet. The managed relayer provided by Walrus Foundation is a reference
     implementation.
+- [Synthetic Seal Cross Account](https://docs.wal.app/walrus-memory/relayer/synthetic-seal-cross-account.md):
+    COMG-715 adds a production-safe negative synthetic on top of the Move unit test . The unit test
+    covers the contract in isolation. This check would alert if a live identity from account A can
+    authorize account B's Seal key. The script is read-only.
 - [Versioning And Compatibility](https://docs.wal.app/walrus-memory/relayer/versioning-and-compatibility.md):
     The Walrus Memory relayer is the public protocol/API layer for SDKs, MCP clients, and
     self-hosted deployments. Treat every route, signed header, response field, runtime config
@@ -694,6 +698,10 @@ Sui smart contract as the on-chain index.
     contents, not from where it is stored. This enables deduplication, integrity verification, and
     content-based retrieval. When you upload data to Oyster, the server computes a BLAKE2s-256 hash
     of the raw bytes.
+- [Key Rotation](https://docs.wal.app/oyster/guides/key-rotation.md):
+    Every Oyster account's wallet is an Ed25519 key that Pearl derives from a master seed with
+    HKDF-SHA256. Pearl can hold several seeds at once, each with a version number, and every
+    account records which version its wallet derives from (accounts.keyversion).
 - [Web Signup](https://docs.wal.app/oyster/guides/web-signup.md):
     Oyster can serve a self-serve signup page at /signup. A user signs in with Google, passes a
     Cloudflare Turnstile anti-bot check, and receives an app plus its first admin key, the same
