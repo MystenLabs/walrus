@@ -696,6 +696,10 @@ Sui smart contract as the on-chain index.
     contents, not from where it is stored. This enables deduplication, integrity verification, and
     content-based retrieval. When you upload data to Oyster, the server computes a BLAKE2s-256 hash
     of the raw bytes.
+- [Key Rotation](https://docs.wal.app/oyster/guides/key-rotation.md):
+    Every Oyster account's wallet is an Ed25519 key that Pearl derives from a master seed with
+    HKDF-SHA256. Pearl can hold several seeds at once, each with a version number, and every
+    account records which version its wallet derives from (accounts.keyversion).
 - [Web Signup](https://docs.wal.app/oyster/guides/web-signup.md):
     Oyster can serve a self-serve signup page at /signup. A user signs in with Google, passes a
     Cloudflare Turnstile anti-bot check, and receives an app plus its first admin key, the same
