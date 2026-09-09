@@ -1,0 +1,68 @@
+Common questions about Walrus Console. For the concepts behind the answers, read [What is Walrus Console?](./overview), and for a hands-on walkthrough, follow the [Quick Start](./quickstart).
+
+> **Info**
+>
+> Walrus Console is available on Mainnet through a closed, invite-only beta. Answers below mark the capabilities that arrive at general availability (GA) or later.
+## Getting started
+
+What Console is, how you get in, and what the storage limits are.
+
+### What is Walrus Console?
+
+A place to store files on Walrus and manage them from a browser or from code. You sign in with a Google or Apple account, mint an API key, and upload. Console handles the parts you would otherwise do by hand: account and wallet provisioning, storage payment, and metadata.
+
+### How do you sign in?
+
+With a Google account or an Apple account. Console uses Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin) to derive a Sui address from your identity and provisions a wallet for you, so you never handle private keys to get started. Identities from different providers map to separate accounts. See [Authentication and Accounts](./auth).
+
+### What are the storage limits?
+
+Each space holds up to 5 GB of storage and five folders, and each upload is capped at 100 MiB. See [Storage limits](./overview#storage-limits).
+
+### What happens when you hit a limit?
+
+Uploads stop at the storage cap, and a sixth folder returns a `plan_limit_exceeded` error. Delete files or folders to free space.
+
+## Your files
+
+How long files last, how large they get, and which ones Console shows you.
+
+### Do your files expire?
+
+Files you upload through Console renew automatically, as long as your wallet stays active. Active means the wallet made at least one Walrus transaction within a recent activity window. Files you put on Walrus outside Console, through the CLI or an SDK, need manual renewal instead. See [Storage epochs](./storage-epochs).
+
+### What is the largest file you can upload?
+
+The per-upload cap is 100 MiB. An upload above the cap fails with a `payload_too_large` error. See [Errors](./api-reference#errors).
+
+### Can Console see files you already uploaded with the Walrus CLI or SDK?
+
+Not yet. Console shows what you uploaded through Console, and adds discovery of your existing blobs after GA.
+
+### Can you delete a file?
+
+You can delete any file you uploaded through Console, from the web app or through the [API](./api-reference#delete-a-file). Files you stored outside Console do not appear in Console yet, so delete those with the Walrus CLI or SDK.
+
+## Building on Console
+
+Programmatic access, agent clients, and what a team shares today.
+
+### What is the API key for?
+
+Everything programmatic. Both the MCP server and any application you write against the API authenticate with it. You mint keys under **Integrations** in Console, choose a `read_write` or `read_only` role for each, and revoke a key whenever you want. Pick a plain **API key** for the MCP server and for your own applications; a **Management API key** mints further keys programmatically but cannot upload, download, or manage assets. Console shows the full key once, at creation, so store it like a cloud secret access key. See [API keys and roles](./overview#api-keys-and-roles).
+
+### How do you use Console with Claude Code or Cursor?
+
+Through the Walrus Console MCP server, the npm package `@mysten-incubation/walrus-console-mcp`, which publishes with the Console beta. It exposes file and folder operations as tools your agent calls. Run `npx -y @mysten-incubation/walrus-console-mcp@beta install` and give it the two values Console showed you when you minted the key: the `hbr_` API key and the `suiprivkey1` service private key. The installer stores them outside your client configuration, so no key goes in the MCP config file. See [Connect AI clients with the MCP server](./mcp-server).
+
+### Can your team share one account?
+
+Not yet. Through beta and at GA, an account belongs to one person. Team Spaces, which give a group a shared API key and roles that an admin manages, arrive after GA.
+
+### What is Walrus Memory, and is it in Console?
+
+Walrus Memory is a separate Walrus product: a portable memory layer for AI agents. Console adds Memory as an asset type at GA, where you browse, search, and manage your agent memory without touching the SDK. Console plans memory storage renewal in a later release. See [Asset types](./overview#asset-types).
+
+### Does Console work on mobile?
+
+Not yet. Console supports desktop browsers.
