@@ -1,6 +1,6 @@
 {
-  "buildCommand": "cd docs/site && pnpm install && pnpm run build",
-  "outputDirectory": "docs/site/build",
+  "buildCommand": "pnpm run build",
+  "outputDirectory": "build",
   "framework": null,
   "headers": [
     {
