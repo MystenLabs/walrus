@@ -17,6 +17,7 @@ const GARBAGE_COLLECTOR_TABLE_COLUMN_FAMILY_NAME: &str = "garbage_collector_last
 const GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY: &str = "started";
 const GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY: &str = "completed";
 const PENDING_RECOVER_BLOBS_COLUMN_FAMILY_NAME: &str = "pending_recover_blobs";
+const BLOB_INFO_SNAPSHOT_PUBLICATION_COLUMN_FAMILY_NAME: &str = "blob_info_snapshot_publication";
 
 // Base name for shard-related column families
 const SHARD_BASE_COLUMN_FAMILY_NAME: &str = "shard";
@@ -93,6 +94,11 @@ pub fn pending_recover_blobs_cf_name() -> &'static str {
     PENDING_RECOVER_BLOBS_COLUMN_FAMILY_NAME
 }
 
+/// Returns the name of the blob info snapshot publication column family.
+pub fn blob_info_snapshot_publication_cf_name() -> &'static str {
+    BLOB_INFO_SNAPSHOT_PUBLICATION_COLUMN_FAMILY_NAME
+}
+
 /// Returns the column family name for primary slivers of a shard.
 pub fn primary_slivers_column_family_name(id: ShardIndex) -> String {
     format!(
@@ -151,6 +157,10 @@ mod tests {
         assert_eq!(node_status_cf_name(), "node_status");
         assert_eq!(event_index_cf_name(), "latest_handled_event_index");
         assert_eq!(pending_recover_blobs_cf_name(), "pending_recover_blobs");
+        assert_eq!(
+            blob_info_snapshot_publication_cf_name(),
+            "blob_info_snapshot_publication"
+        );
 
         let shard = ShardIndex(900);
         assert_eq!(base_column_family_name(shard), "shard-900");
