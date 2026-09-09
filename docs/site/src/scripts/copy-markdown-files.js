@@ -9,9 +9,8 @@ const contentDir = path.join(__dirname, '../../.markdown/with-imports');
 const outputDir = path.join(__dirname, '../../static/markdown');
 const glossaryPath = path.join(__dirname, '../../static/glossary.json');
 
-// NOTE: The llms.txt directive is injected into build/markdown/ files by
-// generate-routes.js (post-build), not here, so that generate-llmstxt.mjs
-// reads clean content without the self-referential directive.
+// NOTE: The llms.txt directive is not injected here so that
+// generate-llmstxt.mjs reads clean content without self-referential links.
 
 /**
  * Checks if a markdown file should be skipped (draft or redirect)
