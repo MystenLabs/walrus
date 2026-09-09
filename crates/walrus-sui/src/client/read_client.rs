@@ -52,6 +52,9 @@ use crate::{
             EventBlob,
             NodeMetadata,
             SharedBlob,
+            SnapshotBlob,
+            SnapshotBlobCertificationState,
+            SnapshotStateKey,
             StakingInnerV1,
             StakingObjectForDeserialization,
             StakingPool,
@@ -190,6 +193,29 @@ pub trait ReadClient: Send + Sync {
     fn last_certified_event_blob(
         &self,
     ) -> impl Future<Output = SuiClientResult<Option<EventBlob>>> + Send;
+
+    /// Returns the last certified blob info snapshot blob.
+    ///
+    /// Returns `None` if no snapshot has been certified yet, or if the deployed contract
+    /// version does not support snapshot certification. The blob's storage may have ended:
+    /// the contract keeps the latest certification whatever its lifetime, so compare the
+    /// returned `end_epoch` with the current epoch before fetching the blob.
+    fn last_certified_snapshot_blob(
+        &self,
+    ) -> impl Future<Output = SuiClientResult<Option<SnapshotBlob>>> + Send;
+
+    /// Returns the certified blob info snapshot blob of `epoch`.
+    ///
+    /// Returns `None` if no snapshot was certified for that epoch, if the contract dropped the
+    /// entry (it drops expired entries at each certification, except the latest one), or if the
+    /// deployed contract version does not support snapshot certification. A returned entry may
+    /// still have expired: the latest certification is kept whatever its lifetime, and entries
+    /// are only pruned when a snapshot certifies, so compare its `end_epoch` with the current
+    /// epoch before fetching the blob. The certification itself is a fact regardless of expiry.
+    fn certified_snapshot_blob_for_epoch(
+        &self,
+        epoch: walrus_core::Epoch,
+    ) -> impl Future<Output = SuiClientResult<Option<SnapshotBlob>>> + Send;
 
     /// Refreshes the Walrus package ID.
     ///
@@ -1228,6 +1254,48 @@ enum WhichCommittee {
     Next,
 }
 
+impl SuiReadClient {
+    /// Reads the blob info snapshot certification state from the system object.
+    ///
+    /// Returns `None` if the deployed contract version does not define the state.
+    async fn snapshot_certification_state(
+        &self,
+    ) -> SuiClientResult<Option<SnapshotBlobCertificationState>> {
+        // The key type only exists in contract versions that support snapshot certification;
+        // for older deployed contracts, and for a supporting version whose migration has not
+        // run yet, report that no snapshot is certified.
+        let Ok(key_tag) = contracts::system::SnapshotStateKey
+            .to_move_struct_tag_with_type_map(&self.type_origin_map().clone(), &[])
+        else {
+            tracing::debug!(
+                "the deployed contract does not define the snapshot certification state"
+            );
+            return Ok(None);
+        };
+        let state: SnapshotBlobCertificationState = match self
+            .sui_client
+            .get_dynamic_field(
+                self.system_object_id,
+                key_tag.into(),
+                SnapshotStateKey { dummy_field: false },
+            )
+            .await
+        {
+            Ok(state) => state,
+            // Between the publication of a package version that defines the key type and the
+            // migration that creates the field, the type exists but the field does not.
+            Err(SuiClientError::GrpcError(status)) if status.code() == tonic::Code::NotFound => {
+                tracing::debug!(
+                    "the snapshot certification state does not exist yet on the deployed contract"
+                );
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(Some(state))
+    }
+}
+
 impl ReadClient for SuiReadClient {
     #[tracing::instrument(err, skip(self))]
     async fn storage_price_per_unit_size(&self) -> SuiClientResult<u64> {
@@ -1259,6 +1327,28 @@ impl ReadClient for SuiReadClient {
             .await?
             .latest_certified_event_blob();
         Ok(blob)
+    }
+
+    async fn last_certified_snapshot_blob(&self) -> SuiClientResult<Option<SnapshotBlob>> {
+        Ok(self
+            .snapshot_certification_state()
+            .await?
+            .and_then(|state| state.certified.last().cloned()))
+    }
+
+    async fn certified_snapshot_blob_for_epoch(
+        &self,
+        epoch: walrus_core::Epoch,
+    ) -> SuiClientResult<Option<SnapshotBlob>> {
+        Ok(self
+            .snapshot_certification_state()
+            .await?
+            .and_then(|state| {
+                state
+                    .certified
+                    .into_iter()
+                    .find(|snapshot| snapshot.epoch == epoch)
+            }))
     }
 
     async fn get_blob_event(&self, event_id: EventID) -> SuiClientResult<BlobEvent> {

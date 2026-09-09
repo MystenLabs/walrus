@@ -208,6 +208,20 @@ public fun cleanup_upgrade_proposals(
 
 // === Emergency Upgrade Cap Public API ===
 
+/// TODO(WAL-1344): no client call yet; invoke through a programmable transaction.
+/// Sets the number of epochs ahead for which certified blob info snapshot blobs are stored.
+///
+/// This is an internal system parameter without an economic stake for storage nodes, so it is
+/// gated by the emergency upgrade capability instead of a committee vote. The new value applies
+/// to snapshots certified after the change; already certified snapshots keep their storage.
+public fun set_snapshot_epochs_ahead(
+    _emergency_upgrade_cap: &EmergencyUpgradeCap,
+    system: &mut System,
+    epochs_ahead: u32,
+) {
+    system.set_snapshot_epochs_ahead(epochs_ahead);
+}
+
 /// Burns the emergency upgrade cap.
 ///
 /// This will prevent any further upgrades using the `EmergencyUpgradeCap` and will
@@ -246,6 +260,14 @@ macro fun package_digest($digest: vector<u8>): PackageDigest {
 }
 
 // === Test only ===
+
+#[test_only]
+public fun new_emergency_upgrade_cap_for_testing(ctx: &mut TxContext): EmergencyUpgradeCap {
+    EmergencyUpgradeCap {
+        id: object::new(ctx),
+        upgrade_manager_id: object::id_from_address(@0x0),
+    }
+}
 
 #[test_only]
 public fun digest_for_testing(ctx: &mut TxContext): vector<u8> {
