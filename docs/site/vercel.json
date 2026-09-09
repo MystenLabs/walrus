@@ -1,7 +1,8 @@
 {
-  "buildCommand": "cd docs/site && pnpm install && pnpm run build",
-  "outputDirectory": "docs/site/build",
+  "buildCommand": "pnpm install && pnpm run build",
+  "outputDirectory": "build",
   "framework": null,
+  "installCommand": "pnpm install",
   "headers": [
     {
       "source": "/(.*)\\.html",
