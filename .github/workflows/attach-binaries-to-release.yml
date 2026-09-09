@@ -244,7 +244,7 @@ jobs:
 
       - name: Setup sccache
         if: ${{ !startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
-        uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # pin@v0.0.10
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # pin@v0.0.11
 
       - name: Cargo build for ${{ matrix.os }} platform
         if: ${{ !startsWith(matrix.os, 'ubuntu') && env.gcp_existing_archive == '' }}
@@ -290,7 +290,7 @@ jobs:
             ./tmp/walrus-${{ env.walrus_tag }}-${{ env.os_type }}.tgz
 
       - name: Attach artifacts to ${{ env.walrus_tag }} release in GH
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # pin@v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # pin@v3.0.3
         with:
           tag_name: ${{ env.walrus_tag }}
           files: |
