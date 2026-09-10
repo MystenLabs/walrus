@@ -158,6 +158,7 @@ use self::{
         RetrieveSymbolError,
         SetRecoveryDeferralError,
         ShardNotAssigned,
+        StorageWriteFailure,
         StoreMetadataError,
         StoreSliverError,
         SyncNodeConfigError,
@@ -195,7 +196,12 @@ use crate::{
     },
     node::{
         blob_event_processor::pending_events::PendingEventCounter,
-        config::{EpochStateConsistencyConfig, LiveUploadDeferralConfig, PriceCurrency},
+        config::{
+            EpochStateConsistencyConfig,
+            LiveUploadDeferralConfig,
+            PriceCurrency,
+            StorageWriteConfig,
+        },
         event_blob_writer::EventBlobWriter,
         garbage_collector::GarbageCollector,
         wal_price_monitor::WalPriceMonitor,
@@ -689,6 +695,7 @@ pub struct StorageNodeInner {
     recovery_deferral_notify: Arc<Notify>,
     recovery_deferral_cleanup_token: CancellationToken,
     live_upload_deferral_config: LiveUploadDeferralConfig,
+    storage_write_config: StorageWriteConfig,
     sliver_ref_cache: Cache<SliverRefCacheKey, Arc<RwLock<Weak<Sliver>>>>,
     #[cfg_attr(any(test, msim), allow(dead_code))]
     epoch_state_consistency_config: EpochStateConsistencyConfig,
@@ -898,6 +905,7 @@ impl StorageNode {
             recovery_deferral_notify: Arc::new(Notify::new()),
             recovery_deferral_cleanup_token: CancellationToken::new(),
             live_upload_deferral_config: config.live_upload_deferral.clone(),
+            storage_write_config: config.storage_write.clone(),
             sliver_ref_cache: Cache::builder()
                 .name("sliver-refs")
                 .eviction_policy(EvictionPolicy::lru())
@@ -2638,6 +2646,51 @@ impl StorageNodeInner {
         thread_pool::unwrap_or_resume_panic(result)
     }
 
+    /// Runs a database write under the configured write timeout, rejecting it up-front if the
+    /// disk is already full.
+    ///
+    /// A write that fails or stalls surfaces as an error to the caller instead of hanging. When
+    /// the disk is (nearly) full, the failure is reported as an out-of-space condition so the
+    /// client gets a clear signal that the node is out of space.
+    async fn run_storage_write<T>(
+        &self,
+        write: impl Future<Output = Result<T, TypedStoreError>>,
+    ) -> Result<T, StorageWriteFailure> {
+        let write_timeout = self.storage_write_config.write_timeout;
+        let result =
+            classify_storage_write(write_timeout, write, || self.disk_appears_full()).await;
+
+        match &result {
+            Err(StorageWriteFailure::OutOfSpace) => {
+                tracing::warn!("storage write rejected or failed: the disk appears full");
+            }
+            Err(StorageWriteFailure::TimedOut) => {
+                tracing::warn!(
+                    ?write_timeout,
+                    "storage write did not complete within the timeout"
+                );
+            }
+            // Database errors are propagated and reported by the caller.
+            Err(StorageWriteFailure::Database(_)) | Ok(_) => {}
+        }
+
+        result
+    }
+
+    /// Returns `true` if the database disk has less free space than the configured minimum.
+    fn disk_appears_full(&self) -> bool {
+        match self.storage.available_disk_space() {
+            Ok(available) => available < self.storage_write_config.min_available_disk_space,
+            Err(error) => {
+                tracing::warn!(
+                    ?error,
+                    "failed to query available disk space; assuming the disk is not full"
+                );
+                false
+            }
+        }
+    }
+
     async fn prepare_sliver_for_storage(
         &self,
         metadata: Arc<VerifiedBlobMetadataWithId>,
@@ -2694,10 +2747,9 @@ impl StorageNodeInner {
 
         let sliver_type = verified_sliver.r#type();
 
-        shard_storage
-            .put_sliver(*metadata.blob_id(), verified_sliver)
+        self.run_storage_write(shard_storage.put_sliver(*metadata.blob_id(), verified_sliver))
             .await
-            .context("unable to store sliver")?;
+            .map_err(StoreSliverError::from)?;
 
         walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver_type).inc();
 
@@ -2721,11 +2773,9 @@ impl StorageNodeInner {
             return Ok(false);
         }
 
-        self.storage
-            .put_verified_metadata(&verified)
+        self.run_storage_write(self.storage.put_verified_metadata(&verified))
             .await
-            .context("unable to store metadata")
-            .map_err(StoreMetadataError::Internal)?;
+            .map_err(StoreMetadataError::from)?;
 
         self.pending_metadata_cache.remove(blob_id).await;
 
@@ -2786,11 +2836,25 @@ impl StorageNodeInner {
         }
 
         if let Some(metadata) = self.pending_metadata_cache.remove(blob_id).await {
-            self.storage
-                .put_verified_metadata(&metadata)
+            if let Err(failure) = self
+                .run_storage_write(self.storage.put_verified_metadata(&metadata))
                 .await
-                .context("unable to persist pending metadata")
-                .map_err(StoreMetadataError::Internal)?;
+            {
+                // Put the metadata back so that a failed flush can be retried later instead of
+                // losing the metadata.
+                if self
+                    .pending_metadata_cache
+                    .insert(*blob_id, metadata)
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!(
+                        %blob_id,
+                        "pending metadata cache is saturated; dropping metadata after failed flush"
+                    );
+                }
+                return Err(failure.into());
+            }
 
             self.metrics
                 .uploaded_metadata_unencoded_blob_bytes
@@ -4331,6 +4395,34 @@ enum PendingCacheError {
     Sliver(StoreSliverError),
 }
 
+/// Runs a database write bounded by `write_timeout` and classifies its outcome.
+///
+/// Refuses the write up-front when the disk is already full: a stalled database write cannot be
+/// cancelled and holds a blocking thread until it completes, so dispatching it would only waste
+/// the timeout and pile up blocked threads while the disk stays full. A dispatched write that
+/// fails or times out is likewise reported as out-of-space if the disk is full by then.
+async fn classify_storage_write<T>(
+    write_timeout: Duration,
+    write: impl Future<Output = Result<T, TypedStoreError>>,
+    disk_appears_full: impl Fn() -> bool,
+) -> Result<T, StorageWriteFailure> {
+    if disk_appears_full() {
+        return Err(StorageWriteFailure::OutOfSpace);
+    }
+
+    let failure = match tokio::time::timeout(write_timeout, write).await {
+        Ok(Ok(value)) => return Ok(value),
+        Ok(Err(error)) => StorageWriteFailure::Database(error),
+        Err(_elapsed) => StorageWriteFailure::TimedOut,
+    };
+
+    if disk_appears_full() {
+        Err(StorageWriteFailure::OutOfSpace)
+    } else {
+        Err(failure)
+    }
+}
+
 fn map_sliver_error_to_metadata(error: StoreSliverError) -> StoreMetadataError {
     match error {
         StoreSliverError::Internal(inner) => StoreMetadataError::Internal(inner),
@@ -4347,6 +4439,8 @@ fn map_sliver_error_to_metadata(error: StoreSliverError) -> StoreMetadataError {
             StoreMetadataError::Internal(anyhow!("sliver cache flush failed: {error:?}"))
         }
         StoreSliverError::ShardNotAssigned(inner) => StoreMetadataError::Internal(inner.into()),
+        StoreSliverError::OutOfSpace(inner) => StoreMetadataError::OutOfSpace(inner),
+        StoreSliverError::WriteTimeout(inner) => StoreMetadataError::WriteTimeout(inner),
     }
 }
 
@@ -4362,20 +4456,34 @@ fn map_metadata_error_to_sliver(error: StoreMetadataError) -> StoreSliverError {
             "metadata associated with event {event:?} was invalid"
         )),
         StoreMetadataError::Internal(inner) => StoreSliverError::Internal(inner),
+        StoreMetadataError::OutOfSpace(inner) => StoreSliverError::OutOfSpace(inner),
+        StoreMetadataError::WriteTimeout(inner) => StoreSliverError::WriteTimeout(inner),
     }
 }
 
 fn map_flush_error_to_confirmation(error: PendingCacheError) -> ComputeStorageConfirmationError {
     match error {
-        PendingCacheError::Metadata(inner) => {
-            ComputeStorageConfirmationError::Internal(inner.into())
-        }
+        PendingCacheError::Metadata(inner) => match inner {
+            StoreMetadataError::OutOfSpace(inner) => {
+                ComputeStorageConfirmationError::OutOfSpace(inner)
+            }
+            StoreMetadataError::WriteTimeout(inner) => {
+                ComputeStorageConfirmationError::WriteTimeout(inner)
+            }
+            other => ComputeStorageConfirmationError::Internal(other.into()),
+        },
         PendingCacheError::Sliver(inner) => match inner {
             StoreSliverError::MissingMetadata => {
                 ComputeStorageConfirmationError::NotCurrentlyRegistered
             }
             StoreSliverError::ShardNotAssigned(inner) => {
                 ComputeStorageConfirmationError::Internal(inner.into())
+            }
+            StoreSliverError::OutOfSpace(inner) => {
+                ComputeStorageConfirmationError::OutOfSpace(inner)
+            }
+            StoreSliverError::WriteTimeout(inner) => {
+                ComputeStorageConfirmationError::WriteTimeout(inner)
             }
             other => ComputeStorageConfirmationError::Internal(other.into()),
         },
@@ -4477,6 +4585,95 @@ mod tests {
             .build()
             .await
             .expect("storage node creation in setup should not fail")
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn classify_storage_write_times_out_stalled_write() {
+        let result = classify_storage_write(
+            Duration::from_secs(1),
+            std::future::pending::<Result<(), TypedStoreError>>(),
+            || false,
+        )
+        .await;
+
+        assert!(matches!(result, Err(StorageWriteFailure::TimedOut)));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn classify_storage_write_rejects_up_front_when_disk_full() {
+        // The write never resolves; the up-front disk check must reject it without waiting for
+        // the timeout to elapse.
+        let result = tokio::time::timeout(
+            Duration::from_millis(1),
+            classify_storage_write(
+                Duration::from_secs(3600),
+                std::future::pending::<Result<(), TypedStoreError>>(),
+                || true,
+            ),
+        )
+        .await
+        .expect("the write must be rejected before its own timeout can elapse");
+
+        assert!(matches!(result, Err(StorageWriteFailure::OutOfSpace)));
+    }
+
+    #[tokio::test]
+    async fn classify_storage_write_passes_through_success_and_database_errors() {
+        let success =
+            classify_storage_write(Duration::from_secs(1), async { Ok(7) }, || false).await;
+        assert_eq!(success.expect("write should succeed"), 7);
+
+        let failure = classify_storage_write(
+            Duration::from_secs(1),
+            async { Err::<(), _>(TypedStoreError::RocksDBError("boom".to_owned())) },
+            || false,
+        )
+        .await;
+        assert!(matches!(failure, Err(StorageWriteFailure::Database(_))));
+    }
+
+    #[tokio::test]
+    async fn classify_storage_write_reports_out_of_space_when_write_fails_on_full_disk() {
+        // The disk fills up while the write is in flight: the up-front check passes, the write
+        // fails, and the failure must be classified as out-of-space.
+        let probe_calls = std::cell::Cell::new(0);
+        let result = classify_storage_write(
+            Duration::from_secs(1),
+            async { Err::<(), _>(TypedStoreError::RocksDBError("no space".to_owned())) },
+            || {
+                let calls = probe_calls.get();
+                probe_calls.set(calls + 1);
+                calls > 0
+            },
+        )
+        .await;
+
+        assert!(matches!(result, Err(StorageWriteFailure::OutOfSpace)));
+    }
+
+    #[test]
+    fn flush_failures_keep_out_of_space_and_timeout_on_confirmation() {
+        use walrus_storage_node_client::api::errors::StatusCode as ApiStatusCode;
+
+        use crate::common::api::RestApiError as _;
+
+        let error = map_flush_error_to_confirmation(PendingCacheError::Metadata(
+            StorageWriteFailure::OutOfSpace.into(),
+        ));
+        assert!(matches!(
+            error,
+            ComputeStorageConfirmationError::OutOfSpace(_)
+        ));
+        assert_eq!(error.status_code(), ApiStatusCode::ResourceExhausted);
+
+        let error = map_flush_error_to_confirmation(PendingCacheError::Sliver(
+            StorageWriteFailure::TimedOut.into(),
+        ));
+        assert!(matches!(
+            error,
+            ComputeStorageConfirmationError::WriteTimeout(_)
+        ));
+        assert_eq!(error.status_code(), ApiStatusCode::DeadlineExceeded);
     }
 
     #[tokio::test]
