@@ -11,6 +11,7 @@ use walrus::{
     blob::Blob,
     bls_aggregate::BlsCommittee,
     epoch_parameters::EpochParams,
+    snapshot_blob::{Self, SnapshotBlobCertificationState},
     storage_accounting::FutureAccountingRingBuffer,
     storage_node::StorageNodeCap,
     storage_pool::StoragePool,
@@ -28,7 +29,13 @@ const EWrongVersion: u64 = 1;
 const EZeroExtractSize: u64 = 2;
 
 /// Flag to indicate the version of the system.
-const VERSION: u64 = 4;
+const VERSION: u64 = 5;
+
+/// Key for the dynamic field on `System` holding the blob info snapshot certification state.
+///
+/// A dedicated key type is used (rather than a `u64`) so that the key can never collide with
+/// the `u64` version keys under which the system state inner is stored.
+public struct SnapshotStateKey() has copy, drop, store;
 
 /// The one and only system object.
 public struct System has key {
@@ -49,6 +56,11 @@ public(package) fun create_empty(max_epochs_ahead: u32, package_id: ID, ctx: &mu
     };
     let system_state_inner = system_state_inner::create_empty(max_epochs_ahead, ctx);
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(
+        &mut system.id,
+        SnapshotStateKey(),
+        snapshot_blob::create_with_empty_state(max_epochs_ahead),
+    );
     transfer::share_object(system);
 }
 
@@ -118,6 +130,61 @@ public fun certify_event_blob(
             epoch,
             ctx,
         )
+}
+
+/// Certifies a blob info snapshot blob for the given epoch.
+public fun certify_snapshot_blob(
+    system: &mut System,
+    cap: &StorageNodeCap,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    snapshot_epoch: u32,
+    ctx: &mut TxContext,
+) {
+    assert!(system.version == VERSION, EWrongVersion);
+    // The certification state is temporarily detached because the system state inner is
+    // another dynamic field of the same object, and both must be mutably borrowed.
+    let mut state: SnapshotBlobCertificationState = dynamic_field::remove(
+        &mut system.id,
+        SnapshotStateKey(),
+    );
+    system
+        .inner_mut()
+        .certify_snapshot_blob(
+            &mut state,
+            cap,
+            blob_id,
+            root_hash,
+            size,
+            encoding_type,
+            snapshot_epoch,
+            ctx,
+        );
+    dynamic_field::add(&mut system.id, SnapshotStateKey(), state);
+}
+
+/// Sets the number of epochs ahead for which certified blob info snapshot blobs are stored.
+///
+/// The authorization is checked by the caller, `upgrade::set_snapshot_epochs_ahead`. The new
+/// value applies to snapshots certified after the change.
+public(package) fun set_snapshot_epochs_ahead(system: &mut System, epochs_ahead: u32) {
+    assert!(system.version == VERSION, EWrongVersion);
+    let max_epochs_ahead = system.inner().future_accounting().max_epochs_ahead();
+    let state: &mut SnapshotBlobCertificationState = dynamic_field::borrow_mut(
+        &mut system.id,
+        SnapshotStateKey(),
+    );
+    state.set_epochs_ahead(epochs_ahead, max_epochs_ahead);
+}
+
+/// Returns the blob info snapshot certification state.
+public(package) fun snapshot_blob_certification_state(
+    system: &System,
+): &SnapshotBlobCertificationState {
+    assert!(system.version == VERSION, EWrongVersion);
+    dynamic_field::borrow(&system.id, SnapshotStateKey())
 }
 
 /// Allows buying a storage reservation for a given period of epochs.
@@ -462,10 +529,10 @@ public(package) fun set_new_package_id(system: &mut System, new_package_id: ID) 
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `system_state_inner` object if needed.
 public(package) fun migrate(system: &mut System) {
-    // Below logic is for upgrading to version 4. When upgrading to future versions, this function
+    // Below logic is for upgrading to version 5. When upgrading to future versions, this function
     // needs to be revisited to perform correct migration steps.
     assert!(system.version < VERSION, EInvalidMigration);
-    assert!(VERSION == 4, EInvalidMigration);
+    assert!(VERSION == 5, EInvalidMigration);
 
     // Move the old system state inner to the new version.
     let system_state_inner: SystemStateInnerV1 = dynamic_field::remove(
@@ -474,6 +541,14 @@ public(package) fun migrate(system: &mut System) {
     );
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     system.version = VERSION;
+
+    // Create the blob info snapshot certification state introduced in version 5.
+    let max_epochs_ahead = system.inner().future_accounting().max_epochs_ahead();
+    dynamic_field::add(
+        &mut system.id,
+        SnapshotStateKey(),
+        snapshot_blob::create_with_empty_state(max_epochs_ahead),
+    );
 
     // Set the new package id.
     assert!(system.new_package_id.is_some(), EInvalidMigration);
@@ -516,7 +591,13 @@ public fun new_for_testing(ctx: &mut TxContext): System {
         new_package_id: option::none(),
     };
     let system_state_inner = system_state_inner::new_for_testing();
+    let max_epochs_ahead = system_state_inner.future_accounting().max_epochs_ahead();
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(
+        &mut system.id,
+        SnapshotStateKey(),
+        snapshot_blob::create_with_empty_state(max_epochs_ahead),
+    );
     system
 }
 
@@ -529,7 +610,13 @@ public(package) fun new_for_testing_with_multiple_members(ctx: &mut TxContext): 
         new_package_id: option::none(),
     };
     let system_state_inner = system_state_inner::new_for_testing_with_multiple_members(ctx);
+    let max_epochs_ahead = system_state_inner.future_accounting().max_epochs_ahead();
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
+    dynamic_field::add(
+        &mut system.id,
+        SnapshotStateKey(),
+        snapshot_blob::create_with_empty_state(max_epochs_ahead),
+    );
     system
 }
 

@@ -1448,7 +1448,8 @@ mod tests {
         assert_eq!(end_upgrade_epoch, upgrade_epoch);
         tracing::info!(upgrade_epoch, "upgraded contract");
 
-        // Migrate the objects (v4 migration does not require set_migration_epoch or epoch wait)
+        // Migrate the objects (the v5 migration does not require set_migration_epoch or an epoch
+        // wait)
         client
             .as_ref()
             .inner
@@ -1458,17 +1459,20 @@ mod tests {
 
         client.as_ref().inner.sui_client().flush_cache().await;
 
-        // Check the version
-        assert_eq!(
-            client
-                .as_ref()
-                .inner
-                .sui_client()
-                .read_client()
-                .system_object_version()
-                .await?,
-            previous_version + 1
-        );
+        // Check the version: the migration lands on the development contracts' current version,
+        // which can be more than one ahead of the deployed testnet-contracts lineage (a single
+        // migration applies all pending steps). Keep in sync with `VERSION` in
+        // `contracts/walrus/sources/system.move`.
+        const EXPECTED_POST_MIGRATION_VERSION: u64 = 5;
+        let migrated_version = client
+            .as_ref()
+            .inner
+            .sui_client()
+            .read_client()
+            .system_object_version()
+            .await?;
+        assert!(migrated_version > previous_version);
+        assert_eq!(migrated_version, EXPECTED_POST_MIGRATION_VERSION);
 
         let blobs = walrus_test_utils::random_data_list(314, 1);
         let store_args = StoreArgs::default_with_epochs(1)

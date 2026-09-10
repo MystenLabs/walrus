@@ -83,6 +83,9 @@ mod metrics;
 mod pending_recover_blobs;
 pub(crate) use pending_recover_blobs::PendingRecoverBlob;
 use pending_recover_blobs::PendingRecoverBlobsTable;
+mod blob_info_snapshot_publication;
+use blob_info_snapshot_publication::SnapshotPublicationTable;
+pub(crate) use blob_info_snapshot_publication::{SnapshotPublication, SnapshotPublicationState};
 
 mod shard;
 
@@ -347,6 +350,7 @@ pub struct Storage {
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
     pending_recover_blobs: PendingRecoverBlobsTable,
+    snapshot_publication: SnapshotPublicationTable,
     garbage_collector_table: DBMap<String, Epoch>,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     db_table_opts_factory: DatabaseTableOptionsFactory,
@@ -447,6 +451,8 @@ impl Storage {
             EventCursorTable::options(&db_table_opts_factory);
         let (pending_recover_blobs_cf_name, pending_recover_blobs_options) =
             PendingRecoverBlobsTable::options(&db_table_opts_factory);
+        let (snapshot_publication_cf_name, snapshot_publication_options) =
+            SnapshotPublicationTable::options(&db_table_opts_factory);
         let garbage_collector_table_cf_name = garbage_collector_table_cf_name();
         let garbage_collector_table_options = db_table_opts_factory.garbage_collector();
 
@@ -458,6 +464,7 @@ impl Storage {
                 (metadata_cf_name, metadata_options),
                 (event_cursor_cf_name, event_cursor_options),
                 (pending_recover_blobs_cf_name, pending_recover_blobs_options),
+                (snapshot_publication_cf_name, snapshot_publication_options),
                 (
                     garbage_collector_table_cf_name,
                     garbage_collector_table_options,
@@ -524,6 +531,7 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
+        let snapshot_publication = SnapshotPublicationTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
@@ -553,6 +561,7 @@ impl Storage {
             blob_info,
             event_cursor,
             pending_recover_blobs,
+            snapshot_publication,
             garbage_collector_table,
             shards,
             db_table_opts_factory,
@@ -1552,6 +1561,26 @@ impl Storage {
     }
 
     /// Returns the number of pending-recovery records.
+    /// Returns the current blob info snapshot publication record, if any.
+    pub(crate) fn snapshot_publication(
+        &self,
+    ) -> Result<Option<SnapshotPublication>, TypedStoreError> {
+        self.snapshot_publication.get()
+    }
+
+    /// Sets the current blob info snapshot publication record.
+    pub(crate) fn set_snapshot_publication(
+        &self,
+        record: &SnapshotPublication,
+    ) -> Result<(), TypedStoreError> {
+        self.snapshot_publication.set(record)
+    }
+
+    /// Removes the current blob info snapshot publication record.
+    pub(crate) fn clear_snapshot_publication(&self) -> Result<(), TypedStoreError> {
+        self.snapshot_publication.clear()
+    }
+
     pub(crate) fn pending_recover_blob_count(&self) -> u64 {
         self.pending_recover_blobs.count()
     }

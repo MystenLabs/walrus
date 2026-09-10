@@ -15,6 +15,7 @@ use walrus::{
     events,
     extended_field::{Self, ExtendedField},
     messages,
+    snapshot_blob::SnapshotBlobCertificationState,
     storage_accounting::{Self, FutureAccountingRingBuffer},
     storage_node::StorageNodeCap,
     storage_pool::{Self, StoragePool},
@@ -559,6 +560,82 @@ public(package) fun certify_event_blob(
     //       blob requires a pointer to previous certified blob, and we just certified blob at
     //       checkpoint X
     self.event_blob_certification_state.reset();
+    blob.burn();
+}
+
+/// Certifies a blob info snapshot blob for the current epoch.
+///
+/// Follows `certify_event_blob` with per-epoch keying: each committee member may attest at
+/// most one snapshot blob id per epoch, and the blob id reaching a quorum of shard weight is
+/// certified, stored without payment for the certification state's `epochs_ahead`, and
+/// burned. The certification state lives in a dynamic field on the `System` object because
+/// the layout of `SystemStateInnerV1` is frozen, so it is detached and passed in by
+/// `system.move`.
+public(package) fun certify_snapshot_blob(
+    self: &mut SystemStateInnerV1,
+    state: &mut SnapshotBlobCertificationState,
+    cap: &StorageNodeCap,
+    blob_id: u256,
+    root_hash: u256,
+    size: u64,
+    encoding_type: u8,
+    snapshot_epoch: u32,
+    ctx: &mut TxContext,
+) {
+    assert!(self.committee().contains(&cap.node_id()), ENotCommitteeMember);
+    assert!(snapshot_epoch == self.epoch(), EInvalidIdEpoch);
+
+    // Clears attestations of older epochs; done lazily here instead of in `advance_epoch` so
+    // that the epoch change transaction does not need to touch the snapshot state.
+    state.advance_tally_epoch(snapshot_epoch);
+
+    // A late attestation after this epoch's snapshot is already certified is a no-op.
+    if (state.is_epoch_certified(snapshot_epoch)) {
+        return
+    };
+
+    // There is exactly one snapshot per epoch, so each node may attest at most once per epoch.
+    assert!(!state.has_attested(&cap.node_id()), ERepeatedAttestation);
+    state.record_attestation(cap.node_id());
+
+    let weight = self.committee().get_member_weight(&cap.node_id());
+    let agg_weight = state.add_aggregate_weight(blob_id, weight);
+    if (!self.committee().is_quorum(agg_weight)) {
+        return
+    };
+
+    let num_shards = self.n_shards();
+    // The lifetime is a system parameter (see `snapshot_blob::set_epochs_ahead`), bounded by
+    // `max_epochs_ahead` when it is set.
+    let epochs_ahead = state.epochs_ahead();
+    let storage = self.reserve_space_without_payment(
+        encoded_blob_length(size, encoding_type, num_shards),
+        0,
+        epochs_ahead,
+        // Do not check total capacity, snapshot blobs are certified already at this point.
+        false,
+        ctx,
+    );
+    let mut blob = blob::new(
+        storage,
+        blob_id,
+        root_hash,
+        size,
+        encoding_type,
+        false,
+        self.epoch(),
+        self.n_shards(),
+        ctx,
+    );
+    // The snapshot blob is a permanent system blob exactly like an event blob, so the same
+    // certified message applies.
+    let certified_blob_msg = messages::certified_event_blob_message(blob_id);
+    blob.certify_with_certified_msg(self.epoch(), certified_blob_msg);
+    // Records the certification, with the storage end so that the chain keeps a record of how
+    // long the snapshot stays retrievable after the blob object is burned, and stops tracking
+    // this epoch's attestations. Late attestations for this epoch are rejected by the
+    // `is_epoch_certified` check above.
+    state.certify(snapshot_epoch, blob_id, blob.storage().end_epoch());
     blob.burn();
 }
 
