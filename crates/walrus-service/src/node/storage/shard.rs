@@ -38,8 +38,7 @@ use walrus_core::{
     ShardIndex,
     Sliver,
     SliverType,
-    by_axis::ByAxis,
-    encoding::{EncodingAxis, Primary, PrimarySliver, Secondary, SecondarySliver},
+    encoding::{EncodingAxis, Primary, Secondary},
 };
 use walrus_utils::{metrics::Registry, tracing_sampled};
 
@@ -48,16 +47,14 @@ use super::{
     blob_info::{BlobInfo, BlobInfoIterator, CertifiedBlobInfoApi},
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
+    sliver_store::{ShardSliverStore, SliverStore},
 };
-use crate::{
-    node::{
-        StorageNodeInner,
-        blob_retirement_notifier::ExecutionResultWithRetirementCheck,
-        config::ShardSyncConfig,
-        errors::{StoreSliverError, SyncShardClientError},
-        shard_sync,
-    },
-    utils,
+use crate::node::{
+    StorageNodeInner,
+    blob_retirement_notifier::ExecutionResultWithRetirementCheck,
+    config::ShardSyncConfig,
+    errors::{StoreSliverError, SyncShardClientError},
+    shard_sync,
 };
 
 type ShardMetrics = CommonDatabaseMetrics;
@@ -96,16 +93,6 @@ struct ShardColumnFamilyNames {
     secondary_slivers: String,
     shard_status: String,
     shard_sync_progress: String,
-}
-
-impl ShardColumnFamilyNames {
-    fn generic_slivers(&self, axis: SliverType) -> &str {
-        if axis.is_primary() {
-            "shard/primary-slivers"
-        } else {
-            "shard/secondary-slivers"
-        }
-    }
 }
 
 impl ShardColumnFamilyNames {
@@ -261,64 +248,15 @@ pub(crate) enum ShardLastSyncStatus {
     Recovery,
 }
 
-/// Primary sliver data stored in the database.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PrimarySliverData {
-    V1(PrimarySliver),
-}
-
-impl From<PrimarySliver> for PrimarySliverData {
-    fn from(sliver: PrimarySliver) -> Self {
-        Self::V1(sliver)
-    }
-}
-
-impl From<PrimarySliverData> for PrimarySliver {
-    fn from(data: PrimarySliverData) -> Self {
-        match data {
-            PrimarySliverData::V1(sliver) => sliver,
-        }
-    }
-}
-
-/// Secondary sliver data stored in the database.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SecondarySliverData {
-    V1(SecondarySliver),
-}
-
-impl From<SecondarySliver> for SecondarySliverData {
-    fn from(sliver: SecondarySliver) -> Self {
-        Self::V1(sliver)
-    }
-}
-
-impl From<SecondarySliverData> for SecondarySliver {
-    fn from(data: SecondarySliverData) -> Self {
-        match data {
-            SecondarySliverData::V1(sliver) => sliver,
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct ShardStorage {
     id: ShardIndex,
+    database: Arc<RocksDB>,
     shard_status: Arc<RwLock<ShardStatusState>>,
-    primary_slivers: DBMap<BlobId, PrimarySliverData>,
-    secondary_slivers: DBMap<BlobId, SecondarySliverData>,
+    slivers: ShardSliverStore,
     shard_sync_progress: DBMap<(), ShardSyncProgress>,
     pending_recover_slivers: DBMap<(SliverType, BlobId), ()>,
-    metrics: ShardMetrics,
     cf_names: Arc<ShardColumnFamilyNames>,
-    sst_primary_buffer: Arc<
-        OnceLock<std::sync::Mutex<typed_store::rocks::SstIngestBuffer<BlobId, PrimarySliverData>>>,
-    >,
-    sst_secondary_buffer: Arc<
-        OnceLock<
-            std::sync::Mutex<typed_store::rocks::SstIngestBuffer<BlobId, SecondarySliverData>>,
-        >,
-    >,
 }
 
 macro_rules! reopen_cf {
@@ -340,6 +278,7 @@ impl ShardStorage {
     pub(crate) fn create_or_reopen(
         id: ShardIndex,
         database: &Arc<RocksDB>,
+        sliver_store: &SliverStore,
         db_table_opts_factory: &DatabaseTableOptionsFactory,
         initial_shard_status: Option<ShardStatus>,
         registry: &Registry,
@@ -358,6 +297,7 @@ impl ShardStorage {
         let response = Self::create_or_reopen_inner(
             id,
             database,
+            sliver_store,
             db_table_opts_factory,
             initial_shard_status,
             metrics.clone(),
@@ -374,6 +314,7 @@ impl ShardStorage {
     fn create_or_reopen_inner(
         id: ShardIndex,
         database: &Arc<RocksDB>,
+        sliver_store: &SliverStore,
         db_table_opts_factory: &DatabaseTableOptionsFactory,
         initial_shard_status: Option<ShardStatus>,
         metrics: ShardMetrics,
@@ -420,38 +361,18 @@ impl ShardStorage {
             rw_options
         );
 
-        // Make sure that sliver column families are created last. They are used to identify
-        // whether the shard storage is initialized in `existing_cf_shards_ids`.
-        let primary_slivers = reopen_cf!(
-            (
-                &cf_names.primary_slivers,
-                "primary_slivers",
-                db_table_opts_factory.shard(),
-            ),
-            database,
-            rw_options
-        );
-        let secondary_slivers = reopen_cf!(
-            (
-                &cf_names.secondary_slivers,
-                "secondary_slivers",
-                db_table_opts_factory.shard(),
-            ),
-            database,
-            rw_options
-        );
+        // Open sliver storage last. For RocksDB, its column families remain the completion marker
+        // used by `existing_cf_shards_ids`.
+        let slivers = sliver_store.open_shard(id, metrics)?;
 
         Ok(Self {
             id,
+            database: Arc::clone(database),
             shard_status,
-            primary_slivers,
-            secondary_slivers,
+            slivers,
             shard_sync_progress,
             pending_recover_slivers,
-            metrics,
             cf_names: Arc::new(cf_names),
-            sst_primary_buffer: Arc::new(OnceLock::new()),
-            sst_secondary_buffer: Arc::new(OnceLock::new()),
         })
     }
 
@@ -462,42 +383,15 @@ impl ShardStorage {
         blob_id: BlobId,
         sliver: Sliver,
     ) -> Result<(), TypedStoreError> {
-        let start = Instant::now();
-        let labels = Labels {
-            collection_name: self.cf_names.generic_slivers(sliver.r#type()),
-            operation_name: OperationType::Insert,
-            query_summary: "INSERT (blob_id, sliver)",
-            ..Default::default()
-        };
-
-        let response = match sliver {
-            Sliver::Primary(primary) => {
-                let table = self.primary_slivers.clone();
-
-                tokio::task::spawn_blocking(move || {
-                    table.insert(&blob_id, &PrimarySliverData::from(primary))
-                })
-                .await
-            }
-            Sliver::Secondary(secondary) => {
-                let table = self.secondary_slivers.clone();
-
-                tokio::task::spawn_blocking(move || {
-                    table.insert(&blob_id, &SecondarySliverData::from(secondary))
-                })
-                .await
-            }
-        };
-        let response = utils::unwrap_or_resume_unwind(response);
-
-        self.metrics
-            .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
-
-        response
+        self.slivers.put(blob_id, sliver).await
     }
 
     pub(crate) fn id(&self) -> ShardIndex {
         self.id
+    }
+
+    pub(super) fn sliver_store(&self) -> ShardSliverStore {
+        self.slivers.clone()
     }
 
     /// Returns the sliver of the specified type that is stored for that Blob ID, if any.
@@ -507,104 +401,13 @@ impl ShardStorage {
         blob_id: &BlobId,
         sliver_type: SliverType,
     ) -> Result<Option<Sliver>, TypedStoreError> {
-        match sliver_type {
-            SliverType::Primary => self
-                .get_primary_sliver(blob_id)
-                .map(|s| s.map(Sliver::Primary)),
-            SliverType::Secondary => self
-                .get_secondary_sliver(blob_id)
-                .map(|s| s.map(Sliver::Secondary)),
-        }
-    }
-
-    /// Retrieves the stored primary sliver for the given blob ID.
-    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn get_primary_sliver(
-        &self,
-        blob_id: &BlobId,
-    ) -> Result<Option<PrimarySliver>, TypedStoreError> {
-        let start = Instant::now();
-        let labels = Labels {
-            collection_name: self.cf_names.generic_slivers(SliverType::Primary),
-            operation_name: OperationType::Get,
-            query_summary: "GET primary_sliver BY blob_id",
-            ..Labels::default()
-        };
-
-        let response = self
-            .primary_slivers
-            .get(blob_id)
-            .map(|s| s.map(|s| s.into()));
-
-        self.metrics
-            .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
-
-        response
-    }
-
-    /// Retrieves the stored secondary sliver for the given blob ID.
-    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn get_secondary_sliver(
-        &self,
-        blob_id: &BlobId,
-    ) -> Result<Option<SecondarySliver>, TypedStoreError> {
-        let start = Instant::now();
-        let labels = Labels {
-            collection_name: self.cf_names.generic_slivers(SliverType::Secondary),
-            operation_name: OperationType::Get,
-            query_summary: "GET secondary_sliver BY blob_id",
-            ..Labels::default()
-        };
-
-        let response = self
-            .secondary_slivers
-            .get(blob_id)
-            .map(|s| s.map(|s| s.into()));
-
-        self.metrics
-            .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
-
-        response
-    }
-
-    /// Returns false only if the shard can prove the sliver-pair is absent.
-    /// May return true for absent sliver-pairs due to bloom-filter false positives.
-    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    pub(crate) fn may_have_sliver_pair(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
-        Ok(self.may_have_sliver_type(blob_id, SliverType::Primary)?
-            && self.may_have_sliver_type(blob_id, SliverType::Secondary)?)
-    }
-
-    #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
-    fn may_have_sliver_type(
-        &self,
-        blob_id: &BlobId,
-        type_: SliverType,
-    ) -> Result<bool, TypedStoreError> {
-        let start = Instant::now();
-        let labels = Labels {
-            collection_name: self.cf_names.generic_slivers(type_),
-            operation_name: OperationType::ContainsKey,
-            query_summary: "KEY_MAY_EXIST blob_id",
-            ..Labels::default()
-        };
-
-        let response = match type_ {
-            SliverType::Primary => self.primary_slivers.may_contain_key(blob_id),
-            SliverType::Secondary => self.secondary_slivers.may_contain_key(blob_id),
-        };
-
-        self.metrics
-            .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
-
-        response
+        self.slivers.get(blob_id, sliver_type)
     }
 
     /// Returns true iff the sliver-pair for the given blob ID is stored by the shard.
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
     pub(crate) fn is_sliver_pair_stored(&self, blob_id: &BlobId) -> Result<bool, TypedStoreError> {
-        Ok(self.is_sliver_stored::<Primary>(blob_id)?
-            && self.is_sliver_stored::<Secondary>(blob_id)?)
+        self.slivers.is_sliver_pair_stored(blob_id)
     }
 
     #[tracing::instrument(skip_all, fields(walrus.shard_index = %self.id), err)]
@@ -621,23 +424,7 @@ impl ShardStorage {
         blob_id: &BlobId,
         type_: SliverType,
     ) -> Result<bool, TypedStoreError> {
-        let start = Instant::now();
-        let labels = Labels {
-            collection_name: self.cf_names.generic_slivers(type_),
-            operation_name: OperationType::ContainsKey,
-            query_summary: "CONTAINS_KEY blob_id",
-            ..Labels::default()
-        };
-
-        let response = match type_ {
-            SliverType::Primary => self.primary_slivers.contains_key(blob_id),
-            SliverType::Secondary => self.secondary_slivers.contains_key(blob_id),
-        };
-
-        self.metrics
-            .observe_operation_duration(labels.with_response(response.as_ref()), start.elapsed());
-
-        response
+        self.slivers.contains(blob_id, type_)
     }
 
     /// Deletes the sliver pair for the given [`BlobId`].
@@ -647,9 +434,7 @@ impl ShardStorage {
         batch: &mut DBBatch,
         blob_id: &BlobId,
     ) -> Result<(), TypedStoreError> {
-        batch.delete_batch(&self.primary_slivers, std::iter::once(blob_id))?;
-        batch.delete_batch(&self.secondary_slivers, std::iter::once(blob_id))?;
-        Ok(())
+        self.slivers.delete_pair_in_batch(batch, blob_id)
     }
 
     /// Deletes the sliver pair for the given [`BlobId`] within a DB transaction.
@@ -658,11 +443,8 @@ impl ShardStorage {
         transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
         blob_id: &BlobId,
     ) -> anyhow::Result<()> {
-        let column_families = [self.primary_slivers.cf()?, self.secondary_slivers.cf()?];
-        for cf in column_families {
-            transaction.delete_cf(&cf, blob_id)?;
-        }
-        Ok(())
+        self.slivers
+            .delete_pair_in_transaction(transaction, blob_id)
     }
 
     /// Returns the ids of existing shards that are fully initialized in the database at the
@@ -778,14 +560,6 @@ impl ShardStorage {
         sliver_type: SliverType,
         slivers_to_fetch: &[BlobId],
     ) -> Result<Vec<(BlobId, Sliver)>, TypedStoreError> {
-        let start = Instant::now();
-        let labels = Labels {
-            collection_name: self.cf_names.generic_slivers(sliver_type),
-            operation_name: OperationType::MultiGet,
-            query_summary: "MULTI_GET sliver BY blob_id_list",
-            ..Labels::default()
-        };
-
         #[cfg(msim)]
         {
             let mut return_empty = false;
@@ -796,39 +570,8 @@ impl ShardStorage {
             }
         }
 
-        let response = ByAxis::from(sliver_type)
-            .map(
-                // TODO(#648): compare multi_get with scan for large value size.
-                |_| self.primary_slivers.multi_get(slivers_to_fetch),
-                |_| self.secondary_slivers.multi_get(slivers_to_fetch),
-            )
-            .transpose();
-
-        self.metrics.observe_operation_duration(
-            labels.with_response(response.as_ref().map(|_| &())),
-            start.elapsed(),
-        );
-
-        let output = match response? {
-            ByAxis::Primary(slivers) => slivers_to_fetch
-                .iter()
-                .zip(slivers)
-                .filter_map(|(&blob_id, sliver)| {
-                    let PrimarySliverData::V1(sliver) = sliver?;
-                    Some((blob_id, Sliver::Primary(sliver)))
-                })
-                .collect(),
-            ByAxis::Secondary(slivers) => slivers_to_fetch
-                .iter()
-                .zip(slivers)
-                .filter_map(|(&blob_id, sliver)| {
-                    let SecondarySliverData::V1(sliver) = sliver?;
-                    Some((blob_id, Sliver::Secondary(sliver)))
-                })
-                .collect(),
-        };
-
-        Ok(output)
+        // TODO(#648): compare multi_get with scan for large value size.
+        self.slivers.get_many(sliver_type, slivers_to_fetch)
     }
 
     /// Syncs the shard to the current epoch from the previous shard owner.
@@ -883,16 +626,7 @@ impl ShardStorage {
         // Ensure any residual SST ingest buffers are reset before starting (or resuming) sync.
         // This protects from out-of-order appends after a failed/resumed run.
         if config.sst_ingestion_config.is_some() {
-            if let Some(m) = self.sst_primary_buffer.get()
-                && let Ok(mut buf) = m.lock()
-            {
-                buf.clear()?;
-            }
-            if let Some(m) = self.sst_secondary_buffer.get()
-                && let Ok(mut buf) = m.lock()
-            {
-                buf.clear()?;
-            }
+            self.slivers.clear_sst_buffers()?;
         }
 
         #[cfg(msim)]
@@ -1054,10 +788,7 @@ impl ShardStorage {
                     epoch,
                     next_starting_blob_id,
                 );
-                let mut batch = match sliver_type {
-                    SliverType::Primary => self.primary_slivers.batch(),
-                    SliverType::Secondary => self.secondary_slivers.batch(),
-                };
+                let mut batch = self.slivers.batch(sliver_type);
 
                 walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_progress,
@@ -1190,61 +921,16 @@ impl ShardStorage {
         sst_file_threshold: usize,
         compact_after_sync: bool,
     ) -> Result<(), TypedStoreError> {
-        let flushed = match sliver_type {
-            SliverType::Primary => {
-                if let Some(buf_mutex) = self.sst_primary_buffer.get() {
-                    self.flush_sst(
-                        buf_mutex,
-                        &self.primary_slivers,
-                        end_of_range,
-                        sst_file_threshold,
-                        compact_after_sync,
-                    )?
-                } else {
-                    false
-                }
-            }
-            SliverType::Secondary => {
-                if let Some(buf_mutex) = self.sst_secondary_buffer.get() {
-                    self.flush_sst(
-                        buf_mutex,
-                        &self.secondary_slivers,
-                        end_of_range,
-                        sst_file_threshold,
-                        compact_after_sync,
-                    )?
-                } else {
-                    false
-                }
-            }
-        };
+        let flushed = self.slivers.flush_sst(
+            sliver_type,
+            end_of_range,
+            sst_file_threshold,
+            compact_after_sync,
+        )?;
         if flushed && let Some(id) = last_pushed {
             self.record_last_synced_blob_id(batch, sliver_type, id)?;
         }
         Ok(())
-    }
-
-    fn flush_sst<V>(
-        &self,
-        buf_mutex: &std::sync::Mutex<typed_store::rocks::SstIngestBuffer<BlobId, V>>,
-        table: &DBMap<BlobId, V>,
-        end_of_range: bool,
-        sst_file_threshold: usize,
-        compact_after_sync: bool,
-    ) -> Result<bool, TypedStoreError>
-    where
-        V: serde::Serialize,
-    {
-        let mut buf = buf_mutex.lock().expect("lock should succeed");
-        let should_flush = buf.size() >= sst_file_threshold || end_of_range;
-        if !should_flush {
-            return Ok(false);
-        }
-        buf.flush()?;
-        if end_of_range && compact_after_sync {
-            table.compact_range_to_bottom(&BlobId::ZERO, &BlobId::MAX)?;
-        }
-        Ok(true)
     }
 
     /// Helper function to add fetched slivers to the db batch and check for missing blobs.
@@ -1324,55 +1010,13 @@ impl ShardStorage {
                     dir_name: None,
                     assume_sorted: true,
                 };
-                match sliver {
-                    Sliver::Primary(primary) => {
-                        assert_eq!(sliver_type, SliverType::Primary);
-                        let buffer_mutex = self.sst_primary_buffer.get_or_init(|| {
-                            let buf = typed_store::rocks::SstIngestBuffer::new(
-                                &self.primary_slivers,
-                                options,
-                            )
-                            .expect("SST buffer creation should succeed");
-                            std::sync::Mutex::new(buf)
-                        });
-                        let mut buffer = buffer_mutex.lock().expect("lock should succeed");
-                        buffer
-                            .push(*blob_id, PrimarySliverData::from(primary.clone()))
-                            .map_err(|e| SyncShardClientError::Internal(anyhow::anyhow!(e)))?;
-                    }
-                    Sliver::Secondary(secondary) => {
-                        assert_eq!(sliver_type, SliverType::Secondary);
-                        let buffer_mutex = self.sst_secondary_buffer.get_or_init(|| {
-                            let buf = typed_store::rocks::SstIngestBuffer::new(
-                                &self.secondary_slivers,
-                                options,
-                            )
-                            .expect("SST buffer creation should succeed");
-                            std::sync::Mutex::new(buf)
-                        });
-                        let mut buffer = buffer_mutex.lock().expect("lock should succeed");
-                        buffer
-                            .push(*blob_id, SecondarySliverData::from(secondary.clone()))
-                            .map_err(|e| SyncShardClientError::Internal(anyhow::anyhow!(e)))?;
-                    }
-                }
+                assert_eq!(sliver_type, sliver.r#type());
+                self.slivers
+                    .push_sst(*blob_id, sliver, options)
+                    .map_err(|e| SyncShardClientError::Internal(anyhow::anyhow!(e)))?;
             } else {
-                match sliver {
-                    Sliver::Primary(primary) => {
-                        assert_eq!(sliver_type, SliverType::Primary);
-                        batch.insert_batch(
-                            &self.primary_slivers,
-                            [(blob_id, &PrimarySliverData::from(primary.clone()))],
-                        )?;
-                    }
-                    Sliver::Secondary(secondary) => {
-                        assert_eq!(sliver_type, SliverType::Secondary);
-                        batch.insert_batch(
-                            &self.secondary_slivers,
-                            [(blob_id, &SecondarySliverData::from(secondary.clone()))],
-                        )?;
-                    }
-                }
+                assert_eq!(sliver_type, sliver.r#type());
+                self.slivers.insert_in_batch(batch, blob_id, sliver)?;
             }
 
             next_blob_info = self.check_and_record_missing_blobs(
@@ -1893,22 +1537,20 @@ impl ShardStorage {
 
     /// Deletes the storage for the shard.
     pub fn delete_shard_storage(&self) -> Result<(), TypedStoreError> {
-        let rocksdb = self.primary_slivers.rocksdb.clone();
-
         // Drop column families in reverse order of creation in ShardStorage::create_or_reopen.
-        rocksdb
+        self.database
             .drop_cf(&self.cf_names.secondary_slivers)
             .map_err(typed_store_err_from_rocks_err)?;
-        rocksdb
+        self.database
             .drop_cf(&self.cf_names.primary_slivers)
             .map_err(typed_store_err_from_rocks_err)?;
-        rocksdb
+        self.database
             .drop_cf(&self.cf_names.pending_recover_slivers)
             .map_err(typed_store_err_from_rocks_err)?;
-        rocksdb
+        self.database
             .drop_cf(&self.cf_names.shard_sync_progress)
             .map_err(typed_store_err_from_rocks_err)?;
-        rocksdb
+        self.database
             .drop_cf(&self.cf_names.shard_status)
             .map_err(typed_store_err_from_rocks_err)?;
         Ok(())
@@ -1925,16 +1567,7 @@ impl ShardStorage {
 
     #[cfg(test)]
     pub(crate) fn sliver_count(&self, sliver_type: SliverType) -> Result<usize, TypedStoreError> {
-        match sliver_type {
-            SliverType::Primary => self
-                .primary_slivers
-                .safe_iter()?
-                .try_fold(0, |count, e| e.map(|_| count + 1)),
-            SliverType::Secondary => self
-                .secondary_slivers
-                .safe_iter()?
-                .try_fold(0, |count, e| e.map(|_| count + 1)),
-        }
+        self.slivers.sliver_count(sliver_type)
     }
 
     #[cfg(test)]

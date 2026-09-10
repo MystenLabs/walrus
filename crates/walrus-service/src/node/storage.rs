@@ -85,8 +85,11 @@ pub(crate) use pending_recover_blobs::PendingRecoverBlob;
 use pending_recover_blobs::PendingRecoverBlobsTable;
 
 mod shard;
+mod sliver_store;
 
-pub(crate) use shard::{PrimarySliverData, SecondarySliverData, ShardStatus, ShardStorage};
+pub(crate) use shard::{ShardStatus, ShardStorage};
+use sliver_store::SliverStore;
+pub(crate) use sliver_store::{PrimarySliverData, SecondarySliverData};
 
 /// The status of the node.
 ///
@@ -342,6 +345,7 @@ impl Display for NodeStatus {
 #[derive(Debug, Clone)]
 pub struct Storage {
     database: Arc<RocksDB>,
+    sliver_store: SliverStore,
     node_status: DBMap<(), NodeStatus>,
     metadata: DBMap<BlobId, BlobMetadata>,
     blob_info: BlobInfoTable,
@@ -482,6 +486,9 @@ impl Storage {
             )?
         };
 
+        let sliver_store =
+            SliverStore::new_rocksdb(Arc::clone(&database), db_table_opts_factory.clone());
+
         let node_status = DBMap::reopen(
             &database,
             Some(node_status_cf_name),
@@ -532,6 +539,7 @@ impl Storage {
                     ShardStorage::create_or_reopen(
                         id,
                         &database,
+                        &sliver_store,
                         &db_table_opts_factory,
                         None,
                         &metrics_registry,
@@ -548,6 +556,7 @@ impl Storage {
 
         let storage = Self {
             database,
+            sliver_store,
             node_status,
             metadata,
             blob_info,
@@ -694,6 +703,7 @@ impl Storage {
             let shard_storage = ShardStorage::create_or_reopen(
                 shard_index,
                 &self.database,
+                &self.sliver_store,
                 &self.db_table_opts_factory,
                 Some(ShardStatus::None),
                 &self.metrics_registry,
@@ -1328,6 +1338,51 @@ impl Storage {
             shard.delete_sliver_pair_in_transaction(transaction, blob_id)?;
         }
         Ok(())
+    }
+
+    /// Returns whether both sliver types are stored for `blob_id` in every required shard.
+    ///
+    /// The operation is delegated as one unit so storage backends that index a blob across shards
+    /// can answer it without issuing one lookup per shard.
+    pub(crate) async fn contains_sliver_pairs_in_all(
+        &self,
+        blob_id: &BlobId,
+        required_shards: &[ShardIndex],
+    ) -> Result<bool, TypedStoreError> {
+        let shard_stores = {
+            let shards = self.shards.read().await;
+            let mut stores = Vec::with_capacity(required_shards.len());
+            for shard in required_shards {
+                let Some(storage) = shards.get(shard) else {
+                    tracing::warn!(
+                        %shard,
+                        "failed to check if blob is stored at shard: shard does not exist"
+                    );
+                    return Ok(false);
+                };
+                stores.push((*shard, storage.sliver_store()));
+            }
+            stores
+        };
+
+        self.sliver_store
+            .contains_sliver_pairs_in_all(*blob_id, shard_stores)
+            .await
+    }
+
+    /// Synchronous coverage check for callers that already run on a blocking executor.
+    #[cfg(msim)]
+    pub(crate) fn contains_sliver_pairs_in_all_snapshot(
+        &self,
+        blob_id: &BlobId,
+        shard_storages: &[Arc<ShardStorage>],
+    ) -> Result<bool, TypedStoreError> {
+        let stores = shard_storages
+            .iter()
+            .map(|storage| (storage.id(), storage.sliver_store()))
+            .collect::<Vec<_>>();
+        self.sliver_store
+            .contains_sliver_pairs_in_all_sync(blob_id, &stores)
     }
 
     /// Returns true if the provided blob-id is stored at the specified shard.
@@ -2039,6 +2094,54 @@ pub(crate) mod tests {
             let result: Vec<_> = storage.as_ref().shards_with_sliver_pairs(&BLOB_ID).await?;
 
             assert_eq!(result, [OTHER_SHARD_INDEX]);
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn checks_sliver_pair_coverage_as_one_storage_operation() -> TestResult {
+            let storage = populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+            ])
+            .await?;
+
+            assert!(
+                storage
+                    .as_ref()
+                    .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
+                    .await?
+            );
+            assert!(
+                storage
+                    .as_ref()
+                    .contains_sliver_pairs_in_all(&BLOB_ID, &[])
+                    .await?
+            );
+
+            Ok(())
+        }
+
+        #[tokio::test]
+        async fn coverage_is_false_for_an_incomplete_or_missing_shard() -> TestResult {
+            let storage = populated_storage(&[
+                (SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Both)]),
+                (OTHER_SHARD_INDEX, vec![(BLOB_ID, WhichSlivers::Primary)]),
+            ])
+            .await?;
+
+            assert!(
+                !storage
+                    .as_ref()
+                    .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
+                    .await?
+            );
+            assert!(
+                !storage
+                    .as_ref()
+                    .contains_sliver_pairs_in_all(&BLOB_ID, &[ShardIndex(u16::MAX)])
+                    .await?
+            );
 
             Ok(())
         }
