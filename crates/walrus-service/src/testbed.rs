@@ -717,6 +717,7 @@ pub async fn create_storage_node_configs(
             storage_path,
             blocklist_path: None,
             blob_info_snapshot: Default::default(),
+            storage_write: Default::default(),
             protocol_key_pair,
             next_protocol_key_pair: None,
             network_key_pair: node.network_keypair.into(),
