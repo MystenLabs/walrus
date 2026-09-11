@@ -12,12 +12,12 @@
 
 use std::sync::Arc;
 
-use rocksdb::Options;
+use rocksdb::{Options, Transaction};
 use serde::{Deserialize, Serialize};
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{DBMap, ReadWriteOptions, RocksDB},
+    rocks::{DBMap, ReadWriteOptions, RocksDB, be_fix_int_ser},
 };
 use walrus_core::{BlobId, Epoch};
 
@@ -119,6 +119,29 @@ impl SnapshotPublicationTable {
     /// Returns the current publication record, if any.
     pub fn get(&self) -> Result<Option<SnapshotPublication>, TypedStoreError> {
         self.inner.get(&())
+    }
+
+    /// Reads the record inside `transaction`, so that a record written while the transaction is
+    /// open conflicts with it instead of racing it.
+    pub fn get_for_update_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+    ) -> Result<Option<SnapshotPublication>, TypedStoreError> {
+        let cf = self.inner.cf()?;
+        // The value of the `exclusive` parameter does not matter for optimistic transactions.
+        transaction
+            .get_for_update_cf_opt(
+                &cf,
+                be_fix_int_ser(&())?,
+                false,
+                &self.inner.opts.readopts(),
+            )
+            .map_err(|error| TypedStoreError::RocksDBError(error.to_string()))?
+            .map(|data| {
+                bcs::from_bytes(&data)
+                    .map_err(|error| TypedStoreError::SerializationError(error.to_string()))
+            })
+            .transpose()
     }
 
     /// Sets the current publication record, replacing any previous one.
