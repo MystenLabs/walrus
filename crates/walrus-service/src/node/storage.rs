@@ -1174,6 +1174,21 @@ impl Storage {
             return Ok(false);
         }
 
+        // The bytes of the blob info snapshot this node is publishing have no blob-info entry of
+        // their own until the snapshot certifies, so an expired entry for the same blob ID (left
+        // by a registration of the same content by someone else) must not take them down: the
+        // boundary reconciliation owns them while the publication record names them. The record
+        // is read inside the transaction, so a record written concurrently conflicts with this
+        // deletion instead of racing it.
+        if self
+            .snapshot_publication
+            .get_for_update_in_transaction(&transaction)?
+            .is_some_and(|record| record.blob_id() == *blob_id)
+        {
+            tracing::info!("skipping the deletion of the blob data of a live snapshot publication");
+            return Ok(false);
+        }
+
         // At this point we are sure that the blob is no longer registered and can actually delete
         // the data. If the blob is reregistered outside this transaction, the transaction will
         // fail.
@@ -1615,7 +1630,6 @@ impl Storage {
         self.pending_recover_blobs.scan_all()
     }
 
-    /// Returns the number of pending-recovery records.
     /// Returns the current blob info snapshot publication record, if any.
     pub(crate) fn snapshot_publication(
         &self,
@@ -1636,6 +1650,7 @@ impl Storage {
         self.snapshot_publication.clear()
     }
 
+    /// Returns the number of pending-recovery records.
     pub(crate) fn pending_recover_blob_count(&self) -> u64 {
         self.pending_recover_blobs.count()
     }
@@ -1871,6 +1886,51 @@ pub(crate) mod tests {
 
         assert!(!storage.has_metadata(blob_id)?);
         assert!(storage.get_metadata(blob_id)?.is_none());
+        Ok(())
+    }
+
+    /// Deleting expired blob data leaves the bytes of a live blob info snapshot publication in
+    /// place, even when an expired blob-info entry names their blob ID (a registration of the
+    /// same content by someone else); once the publication record is gone, they are deleted like
+    /// any other expired data.
+    #[tokio::test]
+    async fn expired_data_deletion_skips_live_snapshot_publication() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        storage.set_node_status(NodeStatus::Active)?;
+        let node_metrics = NodeMetricSet::new(&Registry::default());
+        let metadata = walrus_core::test_utils::verified_blob_metadata();
+        let blob_id = *metadata.blob_id();
+        let shard_storage = storage
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard storage should exist");
+
+        // An expired entry for the snapshot's blob ID, and the snapshot bytes stored the way the
+        // publication stores them: without a blob-info entry of their own.
+        let registered = BlobRegistered::for_testing(blob_id);
+        let expired_epoch = registered.end_epoch + 1;
+        storage.update_blob_info(0, &registered.into())?;
+        storage.put_verified_metadata_without_blob_info(&metadata)?;
+        shard_storage
+            .put_sliver(blob_id, get_sliver(SliverType::Primary, 1))
+            .await?;
+        storage.set_snapshot_publication(&SnapshotPublication::new(expired_epoch, blob_id))?;
+
+        storage
+            .delete_expired_blob_data(expired_epoch, &node_metrics, 100)
+            .await?;
+        assert!(storage.get_metadata(&blob_id)?.is_some());
+        assert!(shard_storage.is_sliver_stored::<walrus_core::encoding::Primary>(&blob_id)?);
+        assert!(storage.get_blob_info(&blob_id)?.is_some());
+
+        storage.clear_snapshot_publication()?;
+        storage
+            .delete_expired_blob_data(expired_epoch, &node_metrics, 100)
+            .await?;
+        assert!(storage.get_metadata(&blob_id)?.is_none());
+        assert!(!shard_storage.is_sliver_stored::<walrus_core::encoding::Primary>(&blob_id)?);
+
         Ok(())
     }
 

@@ -366,9 +366,10 @@ async fn try_certify_snapshot(
         .set_snapshot_publication(&record)
         .context("failed to record the snapshot publication")?;
 
-    // TODO(WAL-1340): until the blob-info entry exists, garbage collection can delete these
-    // bytes if a stale entry for the same blob ID is left by another registration; make it
-    // honor the publication record.
+    // Until the blob-info entry exists, these bytes are invisible to garbage collection, which
+    // iterates the blob-info table; should an expired entry for the same blob ID exist (a
+    // registration of the same content by someone else), the deletion path skips the blob ID
+    // named by the publication record (see `Storage::attempt_to_delete_blob_data_inner`).
     let store_start = Instant::now();
     node.storage()
         .put_verified_metadata_without_blob_info(verified_metadata)
