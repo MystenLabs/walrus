@@ -3,7 +3,11 @@
 
 //! Client for interacting with the StorageNode API.
 
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use fastcrypto::traits::{EncodeDecodeBase64, KeyPair};
 use futures::TryFutureExt as _;
@@ -86,6 +90,7 @@ const PERMANENT_BLOB_CONFIRMATION_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/confi
 const DELETABLE_BLOB_CONFIRMATION_URL_TEMPLATE: &str =
     "/v1/blobs/:blob_id/confirmation/deletable/:object_id";
 const LIST_RECOVERY_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols";
+const LIST_BATCH_RECOVERY_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/recoverySymbols/batch";
 const LIST_DECODING_SYMBOLS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/decodingSymbols";
 const INCONSISTENCY_PROOF_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/inconsistencyProof/:sliver_type";
 const BLOB_STATUS_URL_TEMPLATE: &str = "/v1/blobs/:blob_id/status";
@@ -199,6 +204,13 @@ impl UrlEndpoints {
         (
             self.blob_resource(blob_id, "recoverySymbols"),
             LIST_RECOVERY_SYMBOLS_URL_TEMPLATE,
+        )
+    }
+
+    fn list_batch_recovery_symbols(&self, blob_id: &BlobId) -> (Url, &'static str) {
+        (
+            self.blob_resource(blob_id, "recoverySymbols/batch"),
+            LIST_BATCH_RECOVERY_SYMBOLS_URL_TEMPLATE,
         )
     }
 
@@ -340,6 +352,39 @@ where
     S: Serializer,
 {
     serializer.collect_map(symbols.iter().map(|id| ("id", id)))
+}
+
+/// Filter for the [`StorageNodeClient::list_batch_recovery_symbols()`] endpoint.
+///
+/// Requests the recovery symbols held by the node for all of the target slivers, which must be
+/// of the same type.
+#[derive(Debug, Clone)]
+pub struct BatchRecoverySymbolsFilter {
+    /// The sliver indexes of the target slivers being recovered.
+    pub target_slivers: Vec<SliverIndex>,
+    /// The type of the slivers being recovered.
+    pub target_type: SliverType,
+}
+
+impl Serialize for BatchRecoverySymbolsFilter {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        // Use serde's name mangling to get camelCase field names
+        const TARGET_SLIVERS: &str = "targetSlivers";
+        const TARGET_TYPE: &str = "targetType";
+
+        let mut map = serializer.serialize_map(Some(self.target_slivers.len() + 1))?;
+        for sliver in &self.target_slivers {
+            // Serialize the inner u16 value directly, not the SliverIndex wrapper
+            map.serialize_entry(TARGET_SLIVERS, &sliver.0)?;
+        }
+        map.serialize_entry(TARGET_TYPE, &self.target_type)?;
+        map.end()
+    }
 }
 
 /// Filter for [`StorageNodeClient::list_decoding_symbols()`] endpoint.
@@ -689,6 +734,108 @@ impl StorageNodeClient {
                         walrus.blob_id = %blob_id,
                         walrus.symbol.id = %symbol_id,
                         walrus.symbol.proof_axis = ?proof_axis,
+                        walrus.target_index = %target_index,
+                        walrus.target_type = ?target_type,
+                        "recovery symbol verification failed"
+                    );
+                    final_error = NodeError::other(error);
+                    return false;
+                }
+
+                true
+            });
+
+            if symbols.is_empty() {
+                Err(final_error)
+            } else {
+                Ok(symbols)
+            }
+        })
+        .await
+        .map_err(|_| NodeError::other(ListAndVerifyRecoverySymbolsError::BackgroundWorkerFailed))?
+    }
+
+    /// Gets the recovery symbols held by the node for several target slivers of the same type.
+    #[tracing::instrument(
+        skip_all,
+        fields(
+            walrus.blob_id = %blob_id,
+        ),
+        err(level = Level::DEBUG)
+    )]
+    pub async fn list_batch_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        filter: &BatchRecoverySymbolsFilter,
+    ) -> Result<Vec<GeneralRecoverySymbol>, NodeError> {
+        let (url, template) = self.endpoints.list_batch_recovery_symbols(blob_id);
+        let request = self
+            .client_clone
+            .get(url)
+            .query(&filter)
+            .build()
+            .expect("creating a URL from typed arguments should always succeed");
+        self.send_and_parse_bcs_response(request, template).await
+    }
+
+    /// Gets and verifies the recovery symbols for several target slivers of the same type.
+    ///
+    /// Symbols that were not requested or that fail verification are dropped. Returns an error
+    /// only if no symbol remains.
+    #[tracing::instrument(
+        skip_all, fields(walrus.blob_id = %metadata.blob_id(),), err(level = Level::DEBUG)
+    )]
+    pub async fn list_and_verify_batch_recovery_symbols(
+        &self,
+        filter: BatchRecoverySymbolsFilter,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        encoding_config: Arc<EncodingConfig>,
+    ) -> Result<Vec<GeneralRecoverySymbol>, NodeError> {
+        let mut symbols = self
+            .list_batch_recovery_symbols(metadata.blob_id(), &filter)
+            .await?;
+        tracing::trace!(
+            n_symbols = symbols.len(),
+            "the server returned recovery symbols"
+        );
+
+        let blob_id = *metadata.blob_id();
+
+        tokio::task::spawn_blocking(move || {
+            let target_type = filter.target_type;
+            let expected_proof_axis = target_type.orthogonal();
+            let requested: HashSet<SliverIndex> = filter.target_slivers.iter().copied().collect();
+
+            let mut final_error =
+                NodeError::other(ListAndVerifyRecoverySymbolsError::EmptyResponse);
+
+            symbols.retain(|symbol| {
+                let symbol_id = symbol.id();
+                let target_index = symbol.target_index();
+
+                if symbol.proof_axis() != expected_proof_axis || !requested.contains(&target_index)
+                {
+                    tracing::warn!(
+                        walrus.blob_id = %blob_id,
+                        walrus.symbol.id = %symbol_id,
+                        walrus.symbol.proof_axis = ?symbol.proof_axis(),
+                        walrus.target_index = %target_index,
+                        walrus.target_type = ?target_type,
+                        "server returned an unrequested symbol"
+                    );
+                    return false;
+                }
+
+                if let Err(error) = symbol.verify(
+                    metadata.metadata(),
+                    &encoding_config,
+                    target_index,
+                    target_type,
+                ) {
+                    tracing::warn!(
+                        ?error,
+                        walrus.blob_id = %blob_id,
+                        walrus.symbol.id = %symbol_id,
                         walrus.target_index = %target_index,
                         walrus.target_type = ?target_type,
                         "recovery symbol verification failed"
@@ -1181,6 +1328,41 @@ mod tests {
     }
     fn recovery_symbols_filter_to_query(
         filter: RecoverySymbolsFilter,
+        expected_query: &str,
+    ) -> TestResult {
+        let request = reqwest::Client::new()
+            .get("https://node.com")
+            .query(&filter)
+            .build()
+            .expect("query should serialize successfully");
+
+        assert_eq!(
+            request.url().query().expect("query should be present"),
+            expected_query
+        );
+        Ok(())
+    }
+
+    param_test! {
+        batch_recovery_symbols_filter_to_query -> TestResult: [
+            single_target: (
+                BatchRecoverySymbolsFilter {
+                    target_slivers: vec![SliverIndex(5)],
+                    target_type: SliverType::Primary,
+                },
+                "targetSlivers=5&targetType=primary"
+            ),
+            multiple_targets: (
+                BatchRecoverySymbolsFilter {
+                    target_slivers: vec![SliverIndex(1), SliverIndex(2), SliverIndex(3)],
+                    target_type: SliverType::Secondary,
+                },
+                "targetSlivers=1&targetSlivers=2&targetSlivers=3&targetType=secondary"
+            ),
+        ]
+    }
+    fn batch_recovery_symbols_filter_to_query(
+        filter: BatchRecoverySymbolsFilter,
         expected_query: &str,
     ) -> TestResult {
         let request = reqwest::Client::new()

@@ -150,9 +150,11 @@ blob_recovery:
   invalidity_sync_timeout_secs: 300
   node_connect_timeout_secs: 1
   experimental_sliver_recovery_additional_symbols: 0
+  experimental_batched_sliver_recovery_max_response_bytes: 67108864
   monitor_interval_secs: 60
   max_concurrent_pending_recoveries: 100
   pending_recovery_drain_interval_secs: 60
+  experimental_batched_sliver_recovery: false
 tls:
   disable_tls: false
   certificate_path: null

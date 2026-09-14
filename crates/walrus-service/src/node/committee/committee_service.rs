@@ -48,7 +48,12 @@ use super::{
     EndCommitteeChangeError,
     NodeServiceFactory,
     node_service::{NodeService, NodeServiceError, RemoteStorageNode, Request, Response},
-    request_futures::{GetAndVerifyMetadata, GetInvalidBlobCertificate, RecoverSliver},
+    request_futures::{
+        GetAndVerifyMetadata,
+        GetInvalidBlobCertificate,
+        RecoverSliver,
+        RecoverSliversBatch,
+    },
 };
 use crate::node::{
     config::CommitteeServiceConfig,
@@ -510,6 +515,34 @@ where
         RecoverSliver::new(
             metadata,
             sliver_id,
+            sliver_type,
+            certified_epoch,
+            &self.inner,
+        )
+        .run()
+        .await
+    }
+
+    #[tracing::instrument(
+        name = "recover_slivers_batch__committee",
+        skip_all,
+        fields(
+            walrus.blob_id = %metadata.blob_id(),
+            walrus.sliver.count = sliver_ids.len(),
+            walrus.sliver.type = %sliver_type,
+            walrus.blob.certified_epoch = certified_epoch,
+        )
+    )]
+    async fn recover_slivers_batch(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        sliver_ids: Vec<SliverPairIndex>,
+        sliver_type: SliverType,
+        certified_epoch: Epoch,
+    ) -> Result<Vec<(SliverPairIndex, Sliver)>, InconsistencyProofEnum<MerkleProof>> {
+        RecoverSliversBatch::new(
+            metadata,
+            sliver_ids,
             sliver_type,
             certified_epoch,
             &self.inner,
