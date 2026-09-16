@@ -150,7 +150,7 @@ while true; do
   stuck_pkg=$(printf '%s\n' "$resolve_output" \
     | grep -oE 'failed to select a version for `[^`]+`' \
     | head -n 1 \
-    | sed -E 's/.*`([^`]+)`.*/\1/')
+    | sed -E 's/.*`([^`]+)`.*/\1/') || true  # an unrecognized error must reach the report below
 
   if [[ -z "$stuck_pkg" ]]; then
     printf '%s\n' "$resolve_output" >&2
