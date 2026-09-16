@@ -33,7 +33,7 @@ use walrus_sui::{
         StorageNodeCap,
         UpdatePublicKeyParams,
         move_errors::{MoveExecutionError, StakingInnerError, WalrusSubsidiesInnerError},
-        move_structs::{EpochState, EventBlob},
+        move_structs::{EpochState, EventBlob, SnapshotBlob},
     },
 };
 use walrus_utils::{
@@ -114,6 +114,14 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
         node_capability_object_id: ObjectID,
     ) -> Result<(), SuiClientError>;
 
+    /// Certifies a blob info snapshot blob to the contract for the given epoch.
+    async fn certify_snapshot_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        snapshot_epoch: u32,
+        node_capability_object_id: ObjectID,
+    ) -> Result<(), SuiClientError>;
+
     /// Refreshes the contract package that the service is using.
     async fn refresh_contract_package(&self) -> anyhow::Result<()>;
 
@@ -136,6 +144,9 @@ pub trait SystemContractService: std::fmt::Debug + Sync + Send {
 
     /// Returns the last certified event blob.
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError>;
+
+    /// Returns the last certified blob info snapshot blob.
+    async fn last_certified_snapshot_blob(&self) -> Result<Option<SnapshotBlob>, SuiClientError>;
 
     /// Flushes any cached data to ensure that the next requests are not affected by stale data.
     async fn flush_cache(&self);
@@ -651,6 +662,19 @@ impl SystemContractService for SuiSystemContractService {
             .await
     }
 
+    async fn certify_snapshot_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        snapshot_epoch: u32,
+        node_capability_object_id: ObjectID,
+    ) -> Result<(), SuiClientError> {
+        self.contract_tx_client
+            .lock()
+            .await
+            .certify_snapshot_blob(blob_metadata, snapshot_epoch, node_capability_object_id)
+            .await
+    }
+
     async fn refresh_contract_package(&self) -> anyhow::Result<()> {
         self.contract_tx_client
             .lock()
@@ -698,6 +722,10 @@ impl SystemContractService for SuiSystemContractService {
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
         self.read_client.last_certified_event_blob().await
+    }
+
+    async fn last_certified_snapshot_blob(&self) -> Result<Option<SnapshotBlob>, SuiClientError> {
+        self.read_client.last_certified_snapshot_blob().await
     }
 
     async fn flush_cache(&self) {

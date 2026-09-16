@@ -83,6 +83,8 @@ public fun migrate(_staking: &mut Staking, _system: &mut System) {
 ///   - Do not use migration epoch.
 /// Migrate to version 4:
 ///   - Increase the max size of the active set to the updated `TEMP_ACTIVE_SET_SIZE_LIMIT`.
+/// Migrate to version 5:
+///   - Create the blob info snapshot certification state dynamic field on the system object.
 entry fun migrate_v2(staking: &mut Staking, system: &mut System, _ctx: &mut TxContext) {
     staking.migrate();
     system.migrate();
