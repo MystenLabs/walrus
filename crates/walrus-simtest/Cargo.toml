@@ -22,6 +22,7 @@ sui-types.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+twox-hash.workspace = true
 typed-store.workspace = true
 walrus-core.workspace = true
 walrus-proc-macros = { workspace = true, features = ["walrus-simtest"] }
