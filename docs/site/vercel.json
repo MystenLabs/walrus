@@ -3,6 +3,7 @@
   "outputDirectory": "build",
   "framework": null,
   "installCommand": "pnpm install",
+  "cleanUrls": true,
   "headers": [
     {
       "source": "/(.*)\\.html",
@@ -137,10 +138,6 @@
   ],
   "rewrites": [
     {
-      "source": "/404",
-      "destination": "/404.html"
-    },
-    {
       "source": "/docs/data-security.md",
       "destination": "/markdown/data-security.md"
     },
@@ -201,40 +198,20 @@
       "destination": "/markdown/system-overview/core-concepts.md"
     },
     {
-      "source": "/docs/examples/checkpoint-data",
-      "destination": "/docs/examples/checkpoint-data.html"
-    },
-    {
       "source": "/docs/examples/checkpoint-data.md",
       "destination": "/markdown/examples/checkpoint-data.md"
-    },
-    {
-      "source": "/docs/examples/javascript",
-      "destination": "/docs/examples/javascript.html"
     },
     {
       "source": "/docs/examples/javascript.md",
       "destination": "/markdown/examples/javascript.md"
     },
     {
-      "source": "/docs/examples/move",
-      "destination": "/docs/examples/move.html"
-    },
-    {
       "source": "/docs/examples/move.md",
       "destination": "/markdown/examples/move.md"
     },
     {
-      "source": "/docs/examples/python",
-      "destination": "/docs/examples/python.html"
-    },
-    {
       "source": "/docs/examples/python.md",
       "destination": "/markdown/examples/python.md"
-    },
-    {
-      "source": "/docs/examples/walrus-relay",
-      "destination": "/docs/examples/walrus-relay.html"
     },
     {
       "source": "/docs/examples/walrus-relay.md",
@@ -265,32 +242,16 @@
       "destination": "/markdown/http-api/storing-blobs.md"
     },
     {
-      "source": "/docs/legal/privacy",
-      "destination": "/docs/legal/privacy.html"
-    },
-    {
       "source": "/docs/legal/privacy.md",
       "destination": "/markdown/legal/privacy.md"
-    },
-    {
-      "source": "/docs/legal/testnet_tos",
-      "destination": "/docs/legal/testnet_tos.html"
     },
     {
       "source": "/docs/legal/testnet_tos.md",
       "destination": "/markdown/legal/testnet_tos.md"
     },
     {
-      "source": "/docs/legal/walrus_general_tos",
-      "destination": "/docs/legal/walrus_general_tos.html"
-    },
-    {
       "source": "/docs/legal/walrus_general_tos.md",
       "destination": "/markdown/legal/walrus_general_tos.md"
-    },
-    {
-      "source": "/docs/operator-guide",
-      "destination": "/docs/operator-guide.html"
     },
     {
       "source": "/docs/operator-guide/aggregator.md",
@@ -335,10 +296,6 @@
     {
       "source": "/docs/operator-guide/storage-node.md",
       "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
-    },
-    {
-      "source": "/docs/operator-guide/upload-relay",
-      "destination": "/docs/operator-guide/upload-relay.html"
     },
     {
       "source": "/docs/operator-guide/upload-relay.md",
@@ -417,16 +374,8 @@
       "destination": "/markdown/sites/security/site-data-authentication.md"
     },
     {
-      "source": "/docs/snippets/blob-object-id",
-      "destination": "/docs/snippets/blob-object-id.html"
-    },
-    {
       "source": "/docs/snippets/blob-object-id.md",
       "destination": "/markdown/snippets/blob-object-id.md"
-    },
-    {
-      "source": "/docs/snippets/blog-note-edit",
-      "destination": "/docs/snippets/blog-note-edit.html"
     },
     {
       "source": "/docs/snippets/blog-note-edit.md",
@@ -461,10 +410,6 @@
       "destination": "/markdown/system-overview/quilt.md"
     },
     {
-      "source": "/docs/system-overview/red-stuff",
-      "destination": "/docs/system-overview/red-stuff.html"
-    },
-    {
       "source": "/docs/system-overview/red-stuff.md",
       "destination": "/markdown/system-overview/red-stuff.md"
     },
@@ -483,10 +428,6 @@
     {
       "source": "/docs/troubleshooting/index.md",
       "destination": "/markdown/troubleshooting/index.md"
-    },
-    {
-      "source": "/docs/tusky-migration-guide",
-      "destination": "/docs/tusky-migration-guide.html"
     },
     {
       "source": "/docs/tusky-migration-guide.md",
@@ -647,18 +588,6 @@
     {
       "source": "/docs/walrus-sites/tutorial.md",
       "destination": "/markdown/sites/index.md"
-    },
-    {
-      "source": "/intro",
-      "destination": "/intro.html"
-    },
-    {
-      "source": "/search",
-      "destination": "/search.html"
-    },
-    {
-      "source": "/walrus-pdf",
-      "destination": "/walrus-pdf.html"
     }
   ],
   "redirects": [

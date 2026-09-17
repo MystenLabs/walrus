@@ -160,9 +160,16 @@ const config = {
     [
       "@docusaurus/plugin-client-redirects",
       {
-        fromExtensions: ["html", "htm"],
+        // No fromExtensions: with cleanUrls enabled in vercel.json, Vercel
+        // already 301s /x.html to /x for every page. The plugin's stubs for
+        // those paths collided with the real output — trailingSlash: false
+        // puts the page itself at x.html — so they landed as x.html.html and
+        // x.htm/index.html, which nothing links to. No rule in vercel.json
+        // references a .htm path either.
         redirects: [
-          { from: "/index.html", to: "/" },
+          // /index.html is left to cleanUrls too. The stub for it could never
+          // work anyway: the home page occupies index.html, so the plugin
+          // wrote the stub to index.html.html, which nothing requests.
           { from: "/walrus-memory/getting-started/what-is-walrus-memory", to: "/walrus-memory" },
         ],
         createRedirects(existingPath) {
@@ -174,9 +181,10 @@ const config = {
               : existingPath;
 
           const redirects = [];
+          // The .html form of each legacy path is left to cleanUrls, which
+          // redirects it to the extensionless one this stub already covers.
           const addLegacy = (fromPath) => {
             redirects.push(fromPath);
-            redirects.push(`${fromPath}.html`);
           };
 
           if (normalized.startsWith("/docs/")) {
