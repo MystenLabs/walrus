@@ -21,7 +21,7 @@ mod tests {
     use walrus_proc_macros::walrus_simtest;
     use walrus_service::{
         client::ClientCommunicationConfig,
-        node::config::NodeRecoveryConfig,
+        node::config::{BlobRecoveryConfig, NodeRecoveryConfig},
         test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{
@@ -351,7 +351,23 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_lagging_node_recovery() {
+        run_lagging_node_recovery(false).await;
+    }
+
+    // Same as `test_lagging_node_recovery`, but the nodes recover the missing slivers of a blob
+    // with batched recovery-symbol requests.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_lagging_node_recovery_with_batched_sliver_recovery() {
+        run_lagging_node_recovery(true).await;
+    }
+
+    async fn run_lagging_node_recovery(batched_sliver_recovery: bool) {
         let mut node_recovery_config = NodeRecoveryConfig::default();
+        let blob_recovery_config = BlobRecoveryConfig {
+            experimental_batched_sliver_recovery: batched_sliver_recovery,
+            ..BlobRecoveryConfig::default_for_test()
+        };
 
         // 20% of the time using a more restrictive node recovery config.
         if rand::thread_rng().gen_bool(0.2) {
@@ -371,6 +387,7 @@ mod tests {
                 TestNodesConfig::builder()
                     .with_node_weights(&[1, 2, 3, 3, 4])
                     .with_node_recovery_config(node_recovery_config)
+                    .with_blob_recovery_config(blob_recovery_config)
                     .build(),
             )
             .with_communication_config(

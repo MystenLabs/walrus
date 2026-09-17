@@ -1052,6 +1052,12 @@ pub struct BlobRecoveryConfig {
     #[serde_as(as = "DurationSeconds")]
     #[serde(rename = "pending_recovery_drain_interval_secs")]
     pub pending_recovery_drain_interval: Duration,
+    /// Recovers all missing slivers of a blob with batched recovery-symbol requests.
+    ///
+    /// When enabled, a blob sync groups the missing slivers of the same type and requests the
+    /// symbols for all of them from each peer in one request, instead of one request per sliver
+    /// and peer. Serving peers then read and expand each source sliver once for the whole batch.
+    pub experimental_batched_sliver_recovery: bool,
 }
 
 impl Default for BlobRecoveryConfig {
@@ -1064,6 +1070,7 @@ impl Default for BlobRecoveryConfig {
             monitor_interval: Duration::from_mins(1),
             max_concurrent_pending_recoveries: 100,
             pending_recovery_drain_interval: Duration::from_mins(1),
+            experimental_batched_sliver_recovery: false,
         }
     }
 }
@@ -1165,6 +1172,12 @@ pub struct CommitteeServiceConfig {
     /// The number of additional symbols to request from the remote storage node for sliver
     /// recovery.
     pub experimental_sliver_recovery_additional_symbols: usize,
+    /// The approximate upper bound on the size (in bytes) of one batched recovery-symbol
+    /// response.
+    ///
+    /// The number of target slivers per request is chosen so that the symbols and proofs
+    /// returned by a peer for all of its shards stay below this bound.
+    pub experimental_batched_sliver_recovery_max_response_bytes: u64,
 }
 
 impl Default for CommitteeServiceConfig {
@@ -1178,6 +1191,7 @@ impl Default for CommitteeServiceConfig {
             max_concurrent_metadata_requests: NonZeroUsize::new(1).expect("1 is non-zero"),
             node_connect_timeout: Duration::from_secs(1),
             experimental_sliver_recovery_additional_symbols: 0,
+            experimental_batched_sliver_recovery_max_response_bytes: 64 * 1024 * 1024,
         }
     }
 }

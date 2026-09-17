@@ -216,6 +216,19 @@ pub trait CommitteeService: std::fmt::Debug + Send + Sync {
         certified_epoch: Epoch,
     ) -> Result<Sliver, InconsistencyProofEnum<MerkleProof>>;
 
+    /// Recovers several slivers of the same type from symbols stored by the committee, using
+    /// batched recovery-symbol requests.
+    ///
+    /// Returns the recovered slivers with their pair indices, or an inconsistency proof as soon
+    /// as any of the slivers turns out to be inconsistent with the metadata.
+    async fn recover_slivers_batch(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        sliver_ids: Vec<SliverPairIndex>,
+        sliver_type: SliverType,
+        certified_epoch: Epoch,
+    ) -> Result<Vec<(SliverPairIndex, Sliver)>, InconsistencyProofEnum<MerkleProof>>;
+
     /// Sends the inconsistency proofs to other nodes and gets a certificate of
     /// the blob's invalidity.
     async fn get_invalid_blob_certificate(
