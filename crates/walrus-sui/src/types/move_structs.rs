@@ -631,6 +631,45 @@ pub struct EventBlobCertificationState {
     pub aggregate_weight_per_blob: Vec<(EventBlob, u16)>,
 }
 
+/// A certified blob info snapshot blob.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct SnapshotBlob {
+    /// The walrus epoch whose boundary state the snapshot captures.
+    pub epoch: u32,
+    /// The blob ID of the certified snapshot blob.
+    pub blob_id: BlobId,
+    /// The epoch at which the storage of the snapshot blob ends (exclusive).
+    pub end_epoch: u32,
+}
+
+/// State holding the certification of blob info snapshot blobs.
+///
+/// Lives in a dynamic field on the `System` object keyed by `SnapshotStateKey`.
+#[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
+pub struct SnapshotBlobCertificationState {
+    /// The most recently certified snapshot blobs, oldest first (at most three).
+    pub certified: Vec<SnapshotBlob>,
+    /// Number of epochs ahead for which a certified snapshot blob is stored.
+    pub epochs_ahead: u32,
+    /// The epoch the attestations below belong to.
+    pub tally_epoch: u32,
+    /// Aggregate attested shard weight per snapshot blob id for the tally epoch.
+    pub aggregate_weight_per_blob: Vec<(BlobId, u16)>,
+    /// Nodes that have attested a snapshot for the tally epoch.
+    pub attested_nodes: Vec<ObjectID>,
+}
+
+/// Sui type for the dynamic field key of the snapshot blob certification state on `System`.
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
+pub(crate) struct SnapshotStateKey {
+    /// To match empty struct in Move.
+    pub dummy_field: bool,
+}
+
+impl AssociatedContractStruct for SnapshotStateKey {
+    const CONTRACT_STRUCT: StructTag<'static> = contracts::system::SnapshotStateKey;
+}
+
 /// State holding the certification of event blobs.
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize)]
 pub struct EventBlobCertificationStateTestnet {

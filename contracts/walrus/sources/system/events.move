@@ -34,6 +34,12 @@ public struct BlobCertified has copy, drop {
     is_extension: bool,
 }
 
+#[test_only]
+/// Returns the end epoch of the certified blob, for tests that check storage lifetimes.
+public fun blob_certified_end_epoch(event: &BlobCertified): u32 {
+    event.end_epoch
+}
+
 /// Signals that a blob has been deleted.
 public struct BlobDeleted has copy, drop {
     epoch: u32,
