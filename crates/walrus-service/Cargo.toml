@@ -144,6 +144,7 @@ serde.workspace = true
 serde_json.workspace = true
 serde_test.workspace = true
 serde_with.workspace = true
+strata = { git = "ssh://git@github.com/MystenLabs/strata.git", rev = "9da741b21261c97b1229c8580f90c7a3b0b9c12b" }
 serde_yaml.workspace = true
 sha2.workspace = true
 snap.workspace = true

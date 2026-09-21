@@ -47,7 +47,7 @@ use super::{
     blob_info_snapshot_writer::BlobInfoSnapshotWriterConfig,
     consistency_check::StorageNodeConsistencyCheckConfig,
     garbage_collector::GarbageCollectionConfig,
-    storage::DatabaseConfig,
+    storage::{DatabaseConfig, SliverStoreBackendKind},
 };
 use crate::{
     common::{config::SuiConfig, utils},
@@ -226,6 +226,10 @@ pub struct StorageNodeConfig {
     /// Optional "config" to tune storage database.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub db_config: DatabaseConfig,
+    /// Backend for primary and secondary slivers only. Changing this on an existing node is
+    /// rejected; migration between backends is not yet supported.
+    #[serde(default, skip_serializing_if = "defaults::is_default")]
+    pub sliver_store_backend: SliverStoreBackendKind,
     /// Configuration for deferring recovery while uploads are in progress.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub live_upload_deferral: LiveUploadDeferralConfig,
@@ -491,6 +495,7 @@ impl Default for StorageNodeConfig {
             storage_path: PathBuf::from("/opt/walrus/db"),
             blocklist_path: Default::default(),
             db_config: Default::default(),
+            sliver_store_backend: Default::default(),
             protocol_key_pair: PathOrInPlace::from_path("/opt/walrus/config/protocol.key"),
             next_protocol_key_pair: None,
             network_key_pair: PathOrInPlace::from_path("/opt/walrus/config/network.key"),
@@ -565,6 +570,21 @@ impl Default for StorageNodeConfig {
 
 impl walrus_utils::config::Config for StorageNodeConfig {
     fn validate(&self) -> anyhow::Result<()> {
+        if self.sliver_store_backend == SliverStoreBackendKind::Strata
+            && self.garbage_collection.enable_data_deletion
+        {
+            anyhow::bail!(
+                "Strata sliver storage currently requires garbage_collection.enable_data_deletion \
+                 to be false until cross-store deletion recovery is implemented"
+            );
+        }
+        if self.sliver_store_backend == SliverStoreBackendKind::Strata
+            && self.checkpoint_config.periodic_db_checkpoints
+        {
+            anyhow::bail!(
+                "RocksDB-only checkpoints are not supported with Strata sliver storage"
+            );
+        }
         if !self.db_config.use_optimistic_transaction_db()
             && self.garbage_collection.enable_data_deletion
         {
@@ -1955,6 +1975,17 @@ mod tests {
     use walrus_test_utils::Result as TestResult;
 
     use super::*;
+
+    #[test]
+    fn strata_backend_rejects_unsupported_deletion_and_checkpoints() {
+        let mut config = StorageNodeConfig::default();
+        config.sliver_store_backend = SliverStoreBackendKind::Strata;
+        assert!(config.validate().is_err());
+        config.garbage_collection.enable_data_deletion = false;
+        assert!(config.validate().is_ok());
+        config.checkpoint_config.periodic_db_checkpoints = true;
+        assert!(config.validate().is_err());
+    }
 
     /// Serializes a default config to the example file when tests are run.
     ///

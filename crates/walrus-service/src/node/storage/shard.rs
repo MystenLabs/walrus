@@ -836,7 +836,8 @@ impl ShardStorage {
 
                 // Record sync progress.
                 last_synced_blob_id = fetched_slivers.last().map(|(id, _)| *id);
-                let use_sst = config.sst_ingestion_config.is_some();
+                let use_sst = config.sst_ingestion_config.is_some()
+                    && self.slivers.supports_sst_ingestion();
                 if use_sst {
                     let sst_file_threshold = config
                         .sst_ingestion_config
@@ -960,7 +961,8 @@ impl ShardStorage {
         config: &crate::node::config::ShardSyncConfig,
     ) -> BatchFetchedSliversOutcome {
         let mut cleared_blob_ids = Vec::new();
-        let use_sst = config.sst_ingestion_config.is_some();
+        let use_sst = config.sst_ingestion_config.is_some()
+            && self.slivers.supports_sst_ingestion();
         for (blob_id, sliver) in fetched_slivers.iter() {
             tracing::debug!(
                 walrus.blob_id = %blob_id,
@@ -1541,6 +1543,7 @@ impl ShardStorage {
 
     /// Deletes the storage for the shard.
     pub fn delete_shard_storage(&self) -> Result<(), TypedStoreError> {
+        self.slivers.drop_shard()?;
         // Drop column families in reverse order of creation in ShardStorage::create_or_reopen.
         self.database
             .drop_cf(&self.cf_names.secondary_slivers)

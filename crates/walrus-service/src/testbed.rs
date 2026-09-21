@@ -729,6 +729,7 @@ pub async fn create_storage_node_configs(
             rest_api_address,
             sui,
             db_config: Default::default(),
+            sliver_store_backend: Default::default(),
             rest_server: Default::default(),
             rest_graceful_shutdown_period_secs: None,
             blob_recovery: Default::default(),

@@ -59,6 +59,8 @@ use crate::{
             PendingRecoverBlob,
             PrimarySliverData,
             SecondarySliverData,
+            SLIVER_STORE_BACKEND_CF,
+            SliverStoreBackendKind,
             blob_info::{
                 BlobInfo,
                 CertifiedBlobInfoApi,
@@ -1675,12 +1677,41 @@ fn read_blob_metadata(
     Ok(())
 }
 
+/// The legacy sliver commands inspect RocksDB column families directly. In Strata mode these
+/// families are empty shard markers, not the payload store.
+fn ensure_rocksdb_sliver_backend(db_path: &Path) -> Result<()> {
+    let options = RocksdbOptions::default();
+    if !DB::list_cf(&options, db_path)?
+        .iter()
+        .any(|name| name == SLIVER_STORE_BACKEND_CF)
+    {
+        return Ok(()); // Legacy RocksDB database without a backend marker.
+    }
+    let db = DB::open_cf_with_opts_for_read_only(
+        &options,
+        db_path,
+        [(SLIVER_STORE_BACKEND_CF, RocksdbOptions::default())],
+        false,
+    )?;
+    let cf = db
+        .cf_handle(SLIVER_STORE_BACKEND_CF)
+        .context("sliver backend marker column family is missing")?;
+    if let Some(bytes) = db.get_cf(&cf, be_fix_int_ser(&())?)? {
+        let backend: SliverStoreBackendKind = bcs::from_bytes(&bytes)?;
+        if backend == SliverStoreBackendKind::Strata {
+            bail!("this node stores slivers in Strata; the RocksDB sliver reader cannot inspect them");
+        }
+    }
+    Ok(())
+}
+
 fn read_primary_slivers(
     db_path: PathBuf,
     start_blob_id: Option<BlobId>,
     count: usize,
     shard_index: u16,
 ) -> Result<()> {
+    ensure_rocksdb_sliver_backend(&db_path)?;
     let shard_index = ShardIndex::from(shard_index);
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),
@@ -1729,6 +1760,7 @@ fn read_secondary_slivers(
     count: usize,
     shard_index: u16,
 ) -> Result<()> {
+    ensure_rocksdb_sliver_backend(&db_path)?;
     let shard_index = ShardIndex::from(shard_index);
     let db = DB::open_cf_with_opts_for_read_only(
         &RocksdbOptions::default(),

@@ -55,6 +55,11 @@ pub struct Registry {
 }
 
 impl Registry {
+    /// Returns the underlying Prometheus registry for libraries that register their own metrics.
+    pub fn prometheus_registry(&self) -> &prometheus::Registry {
+        &self.inner
+    }
+
     /// Returns a new instance of the registry wrapping the provided [`prometheus::Registry`]
     pub fn new(inner: prometheus::Registry) -> Self {
         Self {
