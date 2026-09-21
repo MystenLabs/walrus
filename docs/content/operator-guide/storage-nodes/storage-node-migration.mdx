@@ -100,7 +100,7 @@ Stopping the node cleanly is critical. Running `rsync` against a database that i
 Use `--delete` to synchronize any changes made after the first transfer:
 
 ```sh
-rsync -avz --delete --progress $OLD_USER@$OLD_HOST:/opt/walrus/ /opt/walrus
+rsync -avz --deletable --progress $OLD_USER@$OLD_HOST:/opt/walrus/ /opt/walrus
 ```
 
 ##### Step 3: Update DNS records.
