@@ -79,22 +79,22 @@
   {
     "slug": "walrus-sites",
     "title": "Walrus Sites",
-    "description": "",
-    "category": "General",
+    "description": "Deploy and serve decentralized static websites, from site-builder to custom domains.",
+    "category": "Walrus Sites",
     "path": "walrus-sites"
   },
   {
     "slug": "walrus-sites-portal",
     "title": "Walrus Sites Portal",
-    "description": "",
-    "category": "General",
+    "description": "Run a local portal to view testnet sites, and understand base36 subdomain resolution.",
+    "category": "Walrus Sites",
     "path": "walrus-sites/portal"
   },
   {
     "slug": "walrus-sites-publishing",
     "title": "Walrus Sites Publishing",
-    "description": "",
-    "category": "General",
+    "description": "Publish and update sites with site-builder: ws-resources.json, blob expiry, and site lifecycle.",
+    "category": "Walrus Sites",
     "path": "walrus-sites/publishing"
   }
 ]
