@@ -3,11 +3,7 @@
 
 //! Strata implementation of primary and secondary sliver storage.
 
-use std::{
-    path::Path,
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::{path::Path, sync::Arc, time::Duration};
 
 use strata::{
     BlobKey,
@@ -31,7 +27,6 @@ use strata::{
     StrataStoreConfig,
     StrataStoreMetrics,
 };
-use tokio::sync::watch;
 use typed_store::{
     TypedStoreError,
     rocks::{RocksDB, errors::typed_store_err_from_rocks_err},
@@ -42,7 +37,6 @@ use walrus_utils::metrics::Registry;
 use super::{DatabaseTableOptionsFactory, PrimarySliverData, SecondarySliverData, constants};
 use crate::utils;
 
-const DURABILITY_POLL_INTERVAL: Duration = Duration::from_millis(20);
 const DURABILITY_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
@@ -50,7 +44,6 @@ pub(super) struct StrataSliverStore {
     store: Arc<StrataStore>,
     database: Arc<RocksDB>,
     table_options: DatabaseTableOptionsFactory,
-    published: Arc<OnceLock<watch::Receiver<Result<StrataLsn, String>>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,7 +93,6 @@ impl StrataSliverStore {
             store: Arc::new(StrataStore::open(config, metrics)?),
             database,
             table_options,
-            published: Arc::new(OnceLock::new()),
         })
     }
 
@@ -170,47 +162,20 @@ impl StrataSliverStore {
         if lsn == 0 {
             return Ok(());
         }
-        let mut receiver = self
-            .published
-            .get_or_init(|| {
-                let (sender, receiver) = watch::channel(Ok(0));
-                let store = Arc::downgrade(&self.store);
-                tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(DURABILITY_POLL_INTERVAL);
-                    loop {
-                        tokio::select! {
-                            _ = sender.closed() => break,
-                            _ = interval.tick() => {
-                                let Some(store) = store.upgrade() else {
-                                    break;
-                                };
-                                let result = utils::unwrap_or_resume_unwind(
-                                    tokio::task::spawn_blocking(move || {
-                                        store.published_lsn().map_err(store_error)
-                                    }).await,
-                                ).map_err(|error| error.to_string());
-                                let failed = result.is_err();
-                                let _ = sender.send_replace(result);
-                                if failed {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                });
-                receiver
-            })
-            .clone();
+        let mut receiver = self.store.subscribe_durability_progress();
         tokio::time::timeout(DURABILITY_WAIT_TIMEOUT, async move {
             loop {
-                let published = receiver.borrow().clone().map_err(|error| {
-                    TypedStoreError::TaskError(format!("Strata durability publisher: {error}"))
-                })?;
-                if published >= lsn {
+                let progress = receiver.borrow_and_update().clone();
+                if progress.published_lsn >= lsn {
                     return Ok(());
                 }
+                if let Some(reason) = progress.halt_reason {
+                    return Err(TypedStoreError::TaskError(format!(
+                        "Strata halted before publishing sliver LSN {lsn}: {reason}"
+                    )));
+                }
                 receiver.changed().await.map_err(|_| {
-                    TypedStoreError::TaskError("Strata durability publisher stopped".to_owned())
+                    TypedStoreError::TaskError("Strata durability notifier stopped".to_owned())
                 })?;
             }
         })
