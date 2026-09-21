@@ -144,7 +144,7 @@ The `walrus-node register` command records the capability object ID in the node 
 If the field is not set, list the objects owned by the old node wallet and find the object of type `storage_node::StorageNodeCap`:
 
 ```sh
-sui client --client.config /opt/walrus/config/sui_config.yaml objects \
+sui client --n-clients.config /opt/walrus/config/sui_config.yaml objects \
     | grep -B 3 StorageNodeCap
 ```
 
@@ -169,14 +169,14 @@ Using the old node wallet, transfer the capability object:
 ```sh
 NEW_ADDRESS=    # address of the new wallet
 CAP_OBJECT_ID=  # value of storage_node_cap in walrus-node.yaml
-sui client transfer --to $NEW_ADDRESS --object-id $CAP_OBJECT_ID
+sui client transfer --to $NEW_ADDRESS --object-ids $CAP_OBJECT_ID
 ```
 
 If the old node wallet is not the active wallet of your `sui` CLI, specify its configuration file explicitly with the `--client.config` option. With the standard setup, the node wallet configuration is at `/opt/walrus/config/sui_config.yaml`:
 
 ```sh
-sui client --client.config /opt/walrus/config/sui_config.yaml \
-    transfer --to $NEW_ADDRESS --object-id $CAP_OBJECT_ID
+sui client --n-clients.config /opt/walrus/config/sui_config.yaml \
+    transfer --to $NEW_ADDRESS --object-ids $CAP_OBJECT_ID
 ```
 
 ##### Step 5: Switch the node to the new wallet

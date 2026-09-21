@@ -33,7 +33,7 @@ For production read traffic, front an aggregator with a CDN or reverse proxy (fo
 Cache-Control: public, max-age=31536000, immutable
 ```
 
-Key the cache on the request path, which already includes the blob ID (`/v1/blobs/<BLOB_ID>`) or object ID (`/v1/blobs/by-object-id/<OBJECT_ID>`). The CDN then serves repeat reads of a hot blob from its edge without contacting the aggregator.
+Key the cache on the request path, which already includes the blob ID (`/v1/blobs`) or object ID (`/v1/blobs/by-object-id/<OBJECT_ID>`). The CDN then serves repeat reads of a hot blob from its edge without contacting the aggregator.
 
 ### Client-side caching
 
