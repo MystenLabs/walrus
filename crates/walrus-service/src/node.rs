@@ -26,8 +26,6 @@ use consistency_check::StorageNodeConsistencyCheckConfig;
 use epoch_change_driver::EpochChangeDriver;
 use errors::{ListSymbolsError, Unavailable};
 use fastcrypto::traits::KeyPair;
-#[cfg(not(msim))]
-use futures::stream::FuturesUnordered;
 use futures::{
     FutureExt as _,
     StreamExt,
@@ -2198,150 +2196,23 @@ impl StorageNodeInner {
         Ok(())
     }
 
-    async fn first_shard_failing_storage_check(
-        &self,
-        blob_id: BlobId,
-        shard_storages: &[(ShardIndex, Arc<ShardStorage>)],
-        check: fn(&ShardStorage, &BlobId) -> Result<bool, TypedStoreError>,
-    ) -> anyhow::Result<Option<ShardIndex>> {
-        #[cfg(msim)]
-        {
-            for (shard, shard_storage) in shard_storages {
-                let passed =
-                    check(shard_storage.as_ref(), &blob_id).map_err(anyhow::Error::from)?;
-                if !passed {
-                    return Ok(Some(*shard));
-                }
-            }
-            return Ok(None);
-        }
-
-        #[cfg(not(msim))]
-        {
-            const MAX_CONCURRENT_SHARD_STORAGE_CHECKS: usize = 4;
-
-            let thread_pool = self.thread_pool.clone();
-            let make_check = |shard: ShardIndex, shard_storage: Arc<ShardStorage>| {
-                let thread_pool = thread_pool.clone();
-
-                async move {
-                    let passed = thread_pool
-                        .oneshot(move || check(shard_storage.as_ref(), &blob_id))
-                        .map(thread_pool::unwrap_or_resume_panic)
-                        .await
-                        .map_err(anyhow::Error::from)?;
-                    Ok::<_, anyhow::Error>((shard, passed))
-                }
-            };
-
-            let mut shard_iter = shard_storages.iter();
-            let mut checks = FuturesUnordered::new();
-            for _ in 0..MAX_CONCURRENT_SHARD_STORAGE_CHECKS {
-                let Some((shard, shard_storage)) = shard_iter.next() else {
-                    break;
-                };
-                checks.push(make_check(*shard, Arc::clone(shard_storage)));
-            }
-
-            let mut first_failed_shard = None;
-            let mut first_error = None;
-
-            while let Some(result) = checks.next().await {
-                match result {
-                    Ok((shard, false)) => {
-                        if first_failed_shard.is_none() {
-                            first_failed_shard = Some(shard);
-                        }
-                    }
-                    Ok((_, true)) => {}
-                    Err(error) => {
-                        if first_error.is_none() {
-                            first_error = Some(error);
-                        }
-                    }
-                }
-
-                // `oneshot()` schedules detached blocking work underneath. Once a shard check
-                // fails, stop enqueueing new probes but still drain the ones already started so
-                // we don't leave background work behind.
-                if first_failed_shard.is_none()
-                    && first_error.is_none()
-                    && let Some((shard, shard_storage)) = shard_iter.next()
-                {
-                    checks.push(make_check(*shard, Arc::clone(shard_storage)));
-                }
-            }
-
-            if let Some(error) = first_error {
-                Err(error)
-            } else {
-                Ok(first_failed_shard)
-            }
-        }
-    }
-
     #[tracing::instrument(skip_all)]
     async fn is_stored_at_specific_shards(
         &self,
         blob_id: &BlobId,
         shards: &[ShardIndex],
     ) -> anyhow::Result<bool> {
-        let blob_id = *blob_id;
-        let mut shard_storages = Vec::with_capacity(shards.len());
-
-        for shard in shards {
-            let Some(shard_storage) = self.storage.shard_storage(*shard).await else {
-                tracing::warn!(
-                    %shard,
-                    "failed to check if blob is stored at shard: shard does not exist"
-                );
-                return Ok(false);
-            };
-            shard_storages.push((*shard, shard_storage));
-        }
-
-        if shard_storages.len() > 1 {
-            match self
-                .first_shard_failing_storage_check(
-                    blob_id,
-                    &shard_storages,
-                    ShardStorage::may_have_sliver_pair,
-                )
-                .await
-            {
-                Ok(Some(shard)) => {
-                    if cfg!(msim) {
-                        // Extremely helpful for debugging consistency issue in simtest.
-                        tracing::debug!(%blob_id, %shard, "blob not stored at shard");
-                    }
-                    return Ok(false);
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    tracing::warn!(?error, "failed to check if blob is stored at shard");
-                    return Ok(false);
-                }
-            }
-        }
-
         match self
-            .first_shard_failing_storage_check(
-                blob_id,
-                &shard_storages,
-                ShardStorage::is_sliver_pair_stored,
-            )
+            .storage
+            .contains_sliver_pairs_in_all(blob_id, shards)
             .await
         {
-            Ok(Some(shard)) => {
-                if cfg!(msim) {
-                    // Extremely helpful for debugging consistency issue in simtest.
-                    tracing::debug!(%blob_id, %shard, "blob not stored at shard");
-                }
-                Ok(false)
-            }
-            Ok(None) => Ok(true),
+            Ok(is_stored) => Ok(is_stored),
             Err(error) => {
-                tracing::warn!(?error, "failed to check if blob is stored at shard");
+                tracing::warn!(
+                    ?error,
+                    "failed to check if blob is stored in required shards"
+                );
                 Ok(false)
             }
         }
@@ -2419,25 +2290,9 @@ impl StorageNodeInner {
         blob_id: &BlobId,
         active_shard_storages: &[Arc<ShardStorage>],
     ) -> anyhow::Result<bool> {
-        // Mirror `is_stored_at_specific_shards`: run the cheap `may_have_sliver_pair` pre-check
-        // first (only when more than one shard), then the authoritative `is_sliver_pair_stored`.
-        if active_shard_storages.len() > 1 {
-            for shard_storage in active_shard_storages {
-                if !shard_storage.may_have_sliver_pair(blob_id)? {
-                    let shard = shard_storage.id();
-                    tracing::debug!(%blob_id, %shard, "blob not stored at shard");
-                    return Ok(false);
-                }
-            }
-        }
-        for shard_storage in active_shard_storages {
-            if !shard_storage.is_sliver_pair_stored(blob_id)? {
-                let shard = shard_storage.id();
-                tracing::debug!(%blob_id, %shard, "blob not stored at shard");
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        Ok(self
+            .storage
+            .contains_sliver_pairs_in_all_snapshot(blob_id, active_shard_storages)?)
     }
 
     pub(crate) fn storage(&self) -> &Storage {
@@ -6891,18 +6746,16 @@ mod tests {
         assert_eq!(response[0].0, blob_id);
         assert_eq!(
             response[0].1,
-            Sliver::Primary(
-                cluster.nodes[0]
-                    .storage_node
-                    .inner
-                    .storage
-                    .shard_storage(ShardIndex(0))
-                    .await
-                    .unwrap()
-                    .get_primary_sliver(&blob_id)
-                    .unwrap()
-                    .unwrap()
-            )
+            cluster.nodes[0]
+                .storage_node
+                .inner
+                .storage
+                .shard_storage(ShardIndex(0))
+                .await
+                .unwrap()
+                .get_sliver(&blob_id, SliverType::Primary)
+                .unwrap()
+                .unwrap()
         );
 
         Ok(())
