@@ -257,6 +257,23 @@ struct RocksDbShardSliverStore {
         Arc<OnceLock<std::sync::Mutex<SstIngestBuffer<BlobId, SecondarySliverData>>>>,
 }
 
+/// A shard-sync write unit. Control state is committed only after the sliver backend's writes
+/// have crossed its durability boundary. RocksDB currently uses the same batch for both, so its
+/// existing atomicity is preserved.
+pub(crate) struct SliverSyncBatch {
+    control_batch: DBBatch,
+}
+
+impl SliverSyncBatch {
+    pub(crate) fn control(&mut self) -> &mut DBBatch {
+        &mut self.control_batch
+    }
+
+    pub(crate) async fn write(self) -> Result<(), TypedStoreError> {
+        self.control_batch.write()
+    }
+}
+
 impl ShardSliverStore {
     /// Stores one sliver. This remains the normal foreground write API; bulk writes are only an
     /// implementation option for workflows such as shard sync.
@@ -454,31 +471,26 @@ impl ShardSliverStore {
         Ok(output)
     }
 
-    pub(crate) fn batch(&self, sliver_type: SliverType) -> DBBatch {
-        match (&self.backend, sliver_type) {
-            (ShardSliverStoreBackend::RocksDb(store), SliverType::Primary) => {
-                store.primary_slivers.batch()
-            }
-            (ShardSliverStoreBackend::RocksDb(store), SliverType::Secondary) => {
-                store.secondary_slivers.batch()
-            }
-        }
+    pub(crate) fn sync_batch(&self, control_batch: DBBatch) -> SliverSyncBatch {
+        SliverSyncBatch { control_batch }
     }
 
     pub(crate) fn insert_in_batch(
         &self,
-        batch: &mut DBBatch,
+        batch: &mut SliverSyncBatch,
         blob_id: &BlobId,
         sliver: &Sliver,
     ) -> Result<(), TypedStoreError> {
         match (&self.backend, sliver) {
             (ShardSliverStoreBackend::RocksDb(store), Sliver::Primary(primary)) => batch
+                .control()
                 .insert_batch(
                     &store.primary_slivers,
                     [(blob_id, &PrimarySliverData::from(primary.clone()))],
                 )
                 .map(|_| ()),
             (ShardSliverStoreBackend::RocksDb(store), Sliver::Secondary(secondary)) => batch
+                .control()
                 .insert_batch(
                     &store.secondary_slivers,
                     [(blob_id, &SecondarySliverData::from(secondary.clone()))],

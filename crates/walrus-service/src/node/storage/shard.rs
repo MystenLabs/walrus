@@ -47,7 +47,7 @@ use super::{
     blob_info::{BlobInfo, BlobInfoIterator, CertifiedBlobInfoApi},
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
-    sliver_store::{ShardSliverStore, SliverStore},
+    sliver_store::{ShardSliverStore, SliverStore, SliverSyncBatch},
 };
 use crate::node::{
     StorageNodeInner,
@@ -788,7 +788,7 @@ impl ShardStorage {
                     epoch,
                     next_starting_blob_id,
                 );
-                let mut batch = self.slivers.batch(sliver_type);
+                let mut batch = self.slivers.sync_batch(self.shard_sync_progress.batch());
 
                 walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_progress,
@@ -858,10 +858,14 @@ impl ShardStorage {
                         compact_after_sync,
                     )?;
                 } else if let Some(last_synced_blob_id) = last_synced_blob_id {
-                    self.record_last_synced_blob_id(&mut batch, sliver_type, last_synced_blob_id)?;
+                    self.record_last_synced_blob_id(
+                        batch.control(),
+                        sliver_type,
+                        last_synced_blob_id,
+                    )?;
                 }
 
-                batch.write()?;
+                batch.write().await?;
 
                 walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_total,
@@ -914,7 +918,7 @@ impl ShardStorage {
 
     fn handle_sst_progress(
         &self,
-        batch: &mut DBBatch,
+        batch: &mut SliverSyncBatch,
         sliver_type: SliverType,
         last_pushed: Option<BlobId>,
         end_of_range: bool,
@@ -928,7 +932,7 @@ impl ShardStorage {
             compact_after_sync,
         )?;
         if flushed && let Some(id) = last_pushed {
-            self.record_last_synced_blob_id(batch, sliver_type, id)?;
+            self.record_last_synced_blob_id(batch.control(), sliver_type, id)?;
         }
         Ok(())
     }
@@ -952,7 +956,7 @@ impl ShardStorage {
         sliver_type: SliverType,
         mut next_blob_info: NextBlobInfo,
         blob_info_iter: &mut BlobInfoIterator,
-        batch: &mut DBBatch,
+        batch: &mut SliverSyncBatch,
         config: &crate::node::config::ShardSyncConfig,
     ) -> BatchFetchedSliversOutcome {
         let mut cleared_blob_ids = Vec::new();
@@ -975,7 +979,7 @@ impl ShardStorage {
                     next_blob_info,
                     *blob_id,
                     sliver_type,
-                    batch,
+                    batch.control(),
                 )?;
                 continue;
             }
@@ -985,7 +989,7 @@ impl ShardStorage {
                     walrus.blob_id = %blob_id,
                     "fetched sliver failed verification; scheduling the blob for recovery"
                 );
-                batch.insert_batch(
+                batch.control().insert_batch(
                     &self.pending_recover_slivers,
                     [((sliver_type, *blob_id), ())],
                 )?;
@@ -994,7 +998,7 @@ impl ShardStorage {
                     next_blob_info,
                     *blob_id,
                     sliver_type,
-                    batch,
+                    batch.control(),
                 )?;
                 continue;
             }
@@ -1024,7 +1028,7 @@ impl ShardStorage {
                 next_blob_info,
                 *blob_id,
                 sliver_type,
-                batch,
+                batch.control(),
             )?;
 
             cleared_blob_ids.push(*blob_id);
