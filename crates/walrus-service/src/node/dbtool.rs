@@ -58,8 +58,8 @@ use crate::{
         storage::{
             PendingRecoverBlob,
             PrimarySliverData,
-            SecondarySliverData,
             SLIVER_STORE_BACKEND_CF,
+            SecondarySliverData,
             SliverStoreBackendKind,
             blob_info::{
                 BlobInfo,
@@ -1699,7 +1699,7 @@ fn ensure_rocksdb_sliver_backend(db_path: &Path) -> Result<()> {
     if let Some(bytes) = db.get_cf(&cf, be_fix_int_ser(&())?)? {
         let backend: SliverStoreBackendKind = bcs::from_bytes(&bytes)?;
         if backend == SliverStoreBackendKind::Strata {
-            bail!("this node stores slivers in Strata; the RocksDB sliver reader cannot inspect them");
+            bail!("slivers are stored in Strata; the RocksDB sliver reader cannot inspect them");
         }
     }
     Ok(())

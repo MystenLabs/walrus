@@ -531,10 +531,7 @@ impl Storage {
             None if sliver_backend == SliverStoreBackendKind::Strata
                 && !existing_shards_ids.is_empty() =>
             {
-                anyhow::bail!(
-                    "Strata can only be enabled on a clean node; existing RocksDB shard sliver \
-                     tables were found"
-                );
+                anyhow::bail!("Strata requires a clean node without RocksDB sliver tables");
             }
             None => {}
             Some(_) => {}
@@ -544,14 +541,12 @@ impl Storage {
             SliverStoreBackendKind::RocksDb => {
                 SliverStore::new_rocksdb(Arc::clone(&database), db_table_opts_factory.clone())
             }
-            SliverStoreBackendKind::Strata => {
-                SliverStore::new_strata(
-                    path,
-                    Arc::clone(&database),
-                    db_table_opts_factory.clone(),
-                    &metrics_registry,
-                )?
-            }
+            SliverStoreBackendKind::Strata => SliverStore::new_strata(
+                path,
+                Arc::clone(&database),
+                db_table_opts_factory.clone(),
+                &metrics_registry,
+            )?,
         };
         // A crash may interrupt deletion after Strata has durably fenced a shard but before the
         // RocksDB secondary-CF completion marker is removed. Finish that deletion before
@@ -1906,19 +1901,29 @@ pub(crate) mod tests {
         slivers.insert_in_batch(&mut sync_batch, &BLOB_ID, &primary)?;
         sync_batch.write().await?;
         shard.put_sliver(BLOB_ID, secondary.clone()).await?;
-        assert!(storage.contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX]).await?);
-        assert!(!storage
-            .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
-            .await?);
+        assert!(
+            storage
+                .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX])
+                .await?
+        );
+        assert!(
+            !storage
+                .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
+                .await?
+        );
         let other = storage.shard_storage(OTHER_SHARD_INDEX).await.unwrap();
         other.put_sliver(BLOB_ID, primary.clone()).await?;
-        assert!(!storage
-            .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
-            .await?);
+        assert!(
+            !storage
+                .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
+                .await?
+        );
         other.put_sliver(BLOB_ID, secondary.clone()).await?;
-        assert!(storage
-            .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
-            .await?);
+        assert!(
+            storage
+                .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
+                .await?
+        );
         drop(slivers);
         drop(other);
         drop(shard);
@@ -1928,23 +1933,35 @@ pub(crate) mod tests {
 
         let storage = open(SliverStoreBackendKind::Strata).context("Strata reopen after put")?;
         let shard = storage.shard_storage(SHARD_INDEX).await.unwrap();
-        assert_eq!(shard.get_sliver(&BLOB_ID, SliverType::Primary)?, Some(primary));
-        assert_eq!(shard.get_sliver(&BLOB_ID, SliverType::Secondary)?, Some(secondary));
-        assert!(storage
-            .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
-            .await?);
+        assert_eq!(
+            shard.get_sliver(&BLOB_ID, SliverType::Primary)?,
+            Some(primary)
+        );
+        assert_eq!(
+            shard.get_sliver(&BLOB_ID, SliverType::Secondary)?,
+            Some(secondary)
+        );
+        assert!(
+            storage
+                .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
+                .await?
+        );
         drop(shard);
         storage.delete_blob_data(&BLOB_ID).await?;
-        assert!(!storage
-            .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
-            .await?);
+        assert!(
+            !storage
+                .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
+                .await?
+        );
         let database = Arc::downgrade(&storage.database);
         drop(storage);
         wait_for_rocksdb_close(database).await?;
         let storage = open(SliverStoreBackendKind::Strata).context("Strata reopen after delete")?;
-        assert!(!storage
-            .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
-            .await?);
+        assert!(
+            !storage
+                .contains_sliver_pairs_in_all(&BLOB_ID, &[SHARD_INDEX, OTHER_SHARD_INDEX])
+                .await?
+        );
         // Simulate a crash between the durable Strata shard drop and removal of its RocksDB
         // completion marker. Restart must finish the drop, not re-add the old shard generation.
         let shard = storage.shard_storage(SHARD_INDEX).await.unwrap();
@@ -1956,9 +1973,12 @@ pub(crate) mod tests {
         let database = Arc::downgrade(&storage.database);
         drop(storage);
         wait_for_rocksdb_close(database).await?;
-        let storage = open(SliverStoreBackendKind::Strata).context("Strata reopen after shard drop")?;
+        let storage =
+            open(SliverStoreBackendKind::Strata).context("Strata reopen after shard drop")?;
         assert!(!storage.existing_shards().await.contains(&SHARD_INDEX));
-        storage.create_storage_for_shards_for_testing(&[SHARD_INDEX]).await?;
+        storage
+            .create_storage_for_shards_for_testing(&[SHARD_INDEX])
+            .await?;
         let shard = storage.shard_storage(SHARD_INDEX).await.unwrap();
         assert_eq!(shard.get_sliver(&BLOB_ID, SliverType::Primary)?, None);
         drop(shard);
@@ -1975,7 +1995,9 @@ pub(crate) mod tests {
             MetricConf::default(),
             Registry::default(),
         )?;
-        rocks.create_storage_for_shards_for_testing(&[SHARD_INDEX]).await?;
+        rocks
+            .create_storage_for_shards_for_testing(&[SHARD_INDEX])
+            .await?;
         let database = Arc::downgrade(&rocks.database);
         drop(rocks);
         wait_for_rocksdb_close(database).await?;

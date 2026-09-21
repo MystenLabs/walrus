@@ -573,17 +573,12 @@ impl walrus_utils::config::Config for StorageNodeConfig {
         if self.sliver_store_backend == SliverStoreBackendKind::Strata
             && self.garbage_collection.enable_data_deletion
         {
-            anyhow::bail!(
-                "Strata sliver storage currently requires garbage_collection.enable_data_deletion \
-                 to be false until cross-store deletion recovery is implemented"
-            );
+            anyhow::bail!("Strata requires garbage_collection.enable_data_deletion=false");
         }
         if self.sliver_store_backend == SliverStoreBackendKind::Strata
             && self.checkpoint_config.periodic_db_checkpoints
         {
-            anyhow::bail!(
-                "RocksDB-only checkpoints are not supported with Strata sliver storage"
-            );
+            anyhow::bail!("RocksDB-only checkpoints are not supported with Strata sliver storage");
         }
         if !self.db_config.use_optimistic_transaction_db()
             && self.garbage_collection.enable_data_deletion

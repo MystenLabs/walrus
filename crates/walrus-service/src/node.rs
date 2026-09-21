@@ -40,7 +40,11 @@ use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
 pub use storage::{
-    DatabaseConfig, DatabaseTableOptionsFactory, NodeStatus, SliverStoreBackendKind, Storage,
+    DatabaseConfig,
+    DatabaseTableOptionsFactory,
+    NodeStatus,
+    SliverStoreBackendKind,
+    Storage,
 };
 use storage::{StorageShardLock, blob_info::PerObjectBlobInfoApi};
 #[cfg(msim)]
@@ -838,20 +842,19 @@ impl StorageNode {
             config.pending_metadata_cache.cache_ttl,
             metrics.clone(),
         );
-        let checkpoint_manager = if config.sliver_store_backend
-            == storage::SliverStoreBackendKind::Strata
-        {
-            tracing::warn!("RocksDB-only checkpoints are disabled with Strata sliver storage");
-            None
-        } else {
-            match DbCheckpointManager::new(storage.get_db(), config.checkpoint_config.clone()) {
-                Ok(manager) => Some(Arc::new(manager)),
-                Err(error) => {
-                    tracing::warn!(?error, "failed to initialize checkpoint manager");
-                    None
+        let checkpoint_manager =
+            if config.sliver_store_backend == storage::SliverStoreBackendKind::Strata {
+                tracing::warn!("RocksDB-only checkpoints are disabled with Strata sliver storage");
+                None
+            } else {
+                match DbCheckpointManager::new(storage.get_db(), config.checkpoint_config.clone()) {
+                    Ok(manager) => Some(Arc::new(manager)),
+                    Err(error) => {
+                        tracing::warn!(?error, "failed to initialize checkpoint manager");
+                        None
+                    }
                 }
-            }
-        };
+            };
         let system_parameters = contract_service.fixed_system_parameters();
         let (latest_event_epoch_sender, latest_event_epoch_watcher) = watch::channel(None);
         let inner = Arc::new(StorageNodeInner {

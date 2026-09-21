@@ -196,9 +196,12 @@ impl SliverStore {
             SliverStoreBackend::Strata(store) => {
                 let shard_ids = shards.iter().map(|(shard, _)| *shard).collect::<Vec<_>>();
                 let store = store.clone();
-                utils::unwrap_or_resume_unwind(tokio::task::spawn_blocking(move || {
-                    store.contains_pairs_in_all(blob_id, &shard_ids)
-                }).await)
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        store.contains_pairs_in_all(blob_id, &shard_ids)
+                    })
+                    .await,
+                )
             }
         }
     }
@@ -426,12 +429,14 @@ impl ShardSliverStore {
                 .primary_slivers
                 .get(blob_id)
                 .map(|sliver| sliver.map(Into::into)),
-            ShardSliverStoreBackend::Strata(store) => store
-                .get(blob_id, SliverType::Primary)
-                .map(|sliver| sliver.map(|sliver| match sliver {
-                    Sliver::Primary(primary) => primary,
-                    Sliver::Secondary(_) => unreachable!("requested a primary sliver"),
-                })),
+            ShardSliverStoreBackend::Strata(store) => {
+                store.get(blob_id, SliverType::Primary).map(|sliver| {
+                    sliver.map(|sliver| match sliver {
+                        Sliver::Primary(primary) => primary,
+                        Sliver::Secondary(_) => unreachable!("requested a primary sliver"),
+                    })
+                })
+            }
         }
     }
 
@@ -441,12 +446,14 @@ impl ShardSliverStore {
                 .secondary_slivers
                 .get(blob_id)
                 .map(|sliver| sliver.map(Into::into)),
-            ShardSliverStoreBackend::Strata(store) => store
-                .get(blob_id, SliverType::Secondary)
-                .map(|sliver| sliver.map(|sliver| match sliver {
-                    Sliver::Secondary(secondary) => secondary,
-                    Sliver::Primary(_) => unreachable!("requested a secondary sliver"),
-                })),
+            ShardSliverStoreBackend::Strata(store) => {
+                store.get(blob_id, SliverType::Secondary).map(|sliver| {
+                    sliver.map(|sliver| match sliver {
+                        Sliver::Secondary(secondary) => secondary,
+                        Sliver::Primary(_) => unreachable!("requested a secondary sliver"),
+                    })
+                })
+            }
         }
     }
 
@@ -521,12 +528,14 @@ impl ShardSliverStore {
     ) -> Result<Vec<(BlobId, Sliver)>, TypedStoreError> {
         let start = Instant::now();
         if let ShardSliverStoreBackend::Strata(store) = &self.backend {
-            let response = blob_ids.iter().try_fold(Vec::new(), |mut slivers, blob_id| {
-                if let Some(sliver) = store.get(blob_id, sliver_type)? {
-                    slivers.push((*blob_id, sliver));
-                }
-                Ok::<_, TypedStoreError>(slivers)
-            });
+            let response = blob_ids
+                .iter()
+                .try_fold(Vec::new(), |mut slivers, blob_id| {
+                    if let Some(sliver) = store.get(blob_id, sliver_type)? {
+                        slivers.push((*blob_id, sliver));
+                    }
+                    Ok::<_, TypedStoreError>(slivers)
+                });
             self.metrics.observe_operation_duration(
                 sliver_labels(
                     sliver_type,

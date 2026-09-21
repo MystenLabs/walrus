@@ -10,22 +10,37 @@ use std::{
 };
 
 use strata::{
-    BlobKey, DEFAULT_GC_INITIAL_WORKER_COUNT, DEFAULT_GC_INTERVAL, DEFAULT_GC_IO_BYTES_PER_SEC,
-    DEFAULT_GC_MIN_IO_BYTES_PER_SEC, DEFAULT_GC_SYNC_IMPACT_THRESHOLD,
-    DEFAULT_GC_TUNING_WINDOW_CYCLES, DEFAULT_GC_WORKER_COUNT, DEFAULT_LSM_PARTITION_COUNT,
-    DEFAULT_SEGMENT_MAX_BYTES, DEFAULT_SEGMENT_READER_CACHE_CAPACITY,
-    DEFAULT_SHARD_DROP_GC_DRAIN_TIMEOUT, GcPlannerConfig, SealedSegmentIntegrityPolicy, ShardState,
-    StrataLsn, StrataRecoveryPolicy, StrataStore, StrataStoreConfig, StrataStoreMetrics,
+    BlobKey,
+    DEFAULT_GC_INITIAL_WORKER_COUNT,
+    DEFAULT_GC_INTERVAL,
+    DEFAULT_GC_IO_BYTES_PER_SEC,
+    DEFAULT_GC_MIN_IO_BYTES_PER_SEC,
+    DEFAULT_GC_SYNC_IMPACT_THRESHOLD,
+    DEFAULT_GC_TUNING_WINDOW_CYCLES,
+    DEFAULT_GC_WORKER_COUNT,
+    DEFAULT_LSM_PARTITION_COUNT,
+    DEFAULT_SEGMENT_MAX_BYTES,
+    DEFAULT_SEGMENT_READER_CACHE_CAPACITY,
+    DEFAULT_SHARD_DROP_GC_DRAIN_TIMEOUT,
+    GcPlannerConfig,
+    SealedSegmentIntegrityPolicy,
+    ShardState,
+    StrataLsn,
+    StrataRecoveryPolicy,
+    StrataStore,
+    StrataStoreConfig,
+    StrataStoreMetrics,
 };
 use tokio::sync::watch;
-use typed_store::TypedStoreError;
-use typed_store::rocks::{RocksDB, errors::typed_store_err_from_rocks_err};
+use typed_store::{
+    TypedStoreError,
+    rocks::{RocksDB, errors::typed_store_err_from_rocks_err},
+};
 use walrus_core::{BlobId, ShardIndex, Sliver, SliverType};
 use walrus_utils::metrics::Registry;
 
-use crate::utils;
-
 use super::{DatabaseTableOptionsFactory, PrimarySliverData, SecondarySliverData, constants};
+use crate::utils;
 
 const DURABILITY_POLL_INTERVAL: Duration = Duration::from_millis(20);
 const DURABILITY_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
