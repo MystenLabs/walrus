@@ -156,7 +156,7 @@ $ site-builder --context=testnet deploy --epochs 1 ./walrus-snake
 The `deploy` command uses the site object ID stored in `ws-resources.json` from the initial deployment to identify which site to update. If you want to update a different site than the one in `ws-resources`, you can specify a different object ID using the `--object-id <OBJECT_ID>` flag.
 
 ```sh
-$ site-builder --context=testnet deploy --object-id 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba786d7ac --epochs 1 ./walrus-snake
+$ site-builder --context=testnet deploy --object-ids 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba786d7ac --epochs 1 ./walrus-snake
 ```
 
 Additionally, the wallet you are using must be the owner of the Walrus Site object to be able to update it.

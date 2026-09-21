@@ -119,7 +119,7 @@ curl -sSfL https://docs.walrus.site/walrus-signing.pub -o walrus-signing.pub
 
 # Verify the binary
 cosign verify-blob \
-  --key walrus-signing.pub \
+  --keys walrus-signing.pub \
   --signature walrus.sig \
   --insecure-ignore-tlog \
   walrus
@@ -147,7 +147,7 @@ gcloud auth application-default login
 
 # Verify the binary
 cosign verify-blob \
-  --key gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
+  --keys gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
   --signature walrus.sig \
   --insecure-ignore-tlog \
   walrus
@@ -188,14 +188,14 @@ docker pull mysten/walrus-service:a5a6dc7b12345678-signed
 curl -sSfL https://docs.walrus.site/walrus-signing.pub -o walrus-signing.pub
 
 # Verify the image
-cosign verify --key walrus-signing.pub mysten/walrus-service:v1.0.0-signed
+cosign verify --keys walrus-signing.pub mysten/walrus-service:v1.0.0-signed
 ```
 
 You can also verify using the GCP KMS key directly:
 
 ```bash
 cosign verify \
-  --key gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
+  --keys gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
   mysten/walrus-service:v1.0.0-signed
 ```
 

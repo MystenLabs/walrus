@@ -43,7 +43,7 @@ $ curl -H "Range: bytes=0-999" "$AGGREGATOR/v1/blobs/<BLOB_ID>"
 There is also a dedicated endpoint that takes the range as query parameters:
 
 ```sh
-$ curl "$AGGREGATOR/v1/blobs/<BLOB_ID>/byte-range?start=0&length=1024"
+$ curl "$AGGREGATOR/v1/blobs/{blob_id}/byte-range?start=0&length=1024"
 ```
 
 :::info
