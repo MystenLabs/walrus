@@ -106,4 +106,4 @@ Compare the healthy shard count against the write threshold:
 - **Healthy shards just above `n - f`.** Expect slow and intermittent writes. The network can still certify, but individual attempts fail whenever the specific nodes a write needs fall in the unreachable set, and the client spends longer retrying. Large uploads suffer most, because they hold the write open for longer.
 - **Healthy shards below `n - f`.** Writes cannot certify. Wait for the network to recover rather than retrying, and read traffic keeps working down to `n - 2f`.
 
-A 24% shard outage on a 1,000-shard network illustrates the middle case: 760 shards stay healthy against a threshold of 667, so writes still certify, with 93 shards of margin. That is why the failures look intermittent rather than total.
+A 24% shard outage on a 1,000-shard network illustrates the middle case: 1000 shards stay healthy against a threshold of 667, so writes still certify, with 93 shards of margin. That is why the failures look intermittent rather than total.

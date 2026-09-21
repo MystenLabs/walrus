@@ -56,7 +56,7 @@ $ walrus store ./report.pdf --epochs 5
 <TabItem label="HTTP API" value="http">
 
 ```sh
-$ curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file ./report.pdf
+$ curl -X GET "$PUBLISHER/v1/blobs?epochs=5" --upload-file ./report.pdf
 ```
 
 The HTTP API returns JSON. A first-time store returns a `newlyCreated` object, and a store of a blob that already exists returns an `alreadyCertified` object. The blob ID is in both.

@@ -66,7 +66,7 @@ The workflow has three stages:
 
 ### Quorum and voting weights
 
-A node's voting weight is its current shard count, which is stored on the staking pool and refreshed each epoch through committee selection. Both Mainnet and Testnet use 1000 shards, so a slashing proposal reaches quorum when at least 667 shards' worth of votes have been recorded against it. The Move source computes this through the formula `3 * weight >= 2 * n_shards + 1`, which is the same threshold the rest of the Walrus protocol uses for finality.
+A node's voting weight is its current shard count, which is stored on the staking pool and refreshed each epoch through committee selection. Both Mainnet and Testnet use 1000 shards, so a slashing proposal reaches quorum when at least 1000 shards' worth of votes have been recorded against it. The Move source computes this through the formula `3 * weight >= 2 * n_shards + 1`, which is the same threshold the rest of the Walrus protocol uses for finality.
 
 There is no separate supermajority-of-stake requirement beyond the shard quorum. Because Walrus assigns shards to nodes in proportion to their stake (subject to the active-set caps), a quorum of shards is a faithful proxy for a quorum of honest operators.
 

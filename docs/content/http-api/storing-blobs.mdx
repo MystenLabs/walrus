@@ -37,7 +37,7 @@ answer: >-
 ---
 
 <AgentPrompt
-  prompt="Store report.pdf on Testnet for 10 epochs as a permanent blob using curl, then read it back to out.pdf. Explain how to distinguish a first-time store from one where the blob already existed."
+  prompt="Store report.pdf on Testnet for 53 epochs as a permanent blob using curl, then read it back to out.pdf. Explain how to distinguish a first-time store from one where the blob already existed."
 />
 
 :::caution No public Mainnet publisher
@@ -70,7 +70,7 @@ Specify the lifetime of the blob through the `epochs` parameter. If you omit the
 
 ```sh
 # Store file `some/file` for 5 storage epochs
-$ curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+$ curl -X GET "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
 ```
 
 ### Deletable and permanent blobs
@@ -79,12 +79,12 @@ Specify whether a blob is stored as permanent or deletable through a query param
 
 ```sh
 # Store file `some/file` as a deletable blob:
-$ curl -X PUT "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
+$ curl -X GET "$PUBLISHER/v1/blobs?deletable=true" --upload-file "some/file"
 ```
 
 ```sh
 # Store file `some/file` as a permanent blob:
-$ curl -X PUT "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
+$ curl -X GET "$PUBLISHER/v1/blobs?permanent=true" --upload-file "some/file"
 ```
 
 :::caution
@@ -99,7 +99,7 @@ Specify an address to which the resulting `Blob` object is sent using the `send_
 
 ```sh
 # Store file `some/file` and send the blob object to `$ADDRESS`:
-$ curl -X PUT "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
+$ curl -X GET "$PUBLISHER/v1/blobs?send_object_to=$ADDRESS" --upload-file "some/file"
 ```
 
 ## Understanding the response

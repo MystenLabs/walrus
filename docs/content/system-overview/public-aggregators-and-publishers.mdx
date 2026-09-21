@@ -59,7 +59,7 @@ $ curl "$AGGREGATOR/v1/blobs/<BLOB_ID>" -o <FILE_NAME>
 Store a blob through a Testnet publisher, in this example for 5 storage epochs:
 
 ```sh
-$ curl -X PUT "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
+$ curl -X GET "$PUBLISHER/v1/blobs?epochs=5" --upload-file "some/file"
 ```
 
 The same services also expose the [quilt endpoints](/docs/http-api/quilt-http-apis) for storing and reading batches of small blobs.
