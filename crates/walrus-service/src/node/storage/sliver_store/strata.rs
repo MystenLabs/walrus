@@ -13,15 +13,16 @@ use walrus_utils::metrics::Registry;
 use super::{PrimarySliverData, SecondarySliverData};
 use crate::utils;
 
-const DURABILITY_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
+// Time in seconds to wait for data to be fsynced when writing slivers into Strata.
+const SYNC_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Node-wide Strata store for slivers. Walrus control tables remain in RocksDB.
+/// Strata store for slivers. Walrus control tables remain in RocksDB.
 #[derive(Debug, Clone)]
 pub(super) struct StrataSliverStore {
     store: Arc<StrataStore>,
 }
 
-/// One Walrus shard within the node-wide store, holding both primary and secondary slivers.
+/// One Walrus shard within the Strata store, holding both primary and secondary slivers.
 #[derive(Debug, Clone)]
 pub(super) struct StrataShardSliverStore {
     node: StrataSliverStore,
@@ -30,9 +31,6 @@ pub(super) struct StrataShardSliverStore {
 
 impl StrataSliverStore {
     pub(super) fn open(path: &Path, metrics_registry: &Registry) -> anyhow::Result<Self> {
-        // The namespace lives in the slivers subdirectory on the node storage volume.
-        // A RocksDB checkpoint still does not include this directory, so node-level checkpoints
-        // are disabled while Strata is selected.
         let config = StrataStoreConfig::new(path, "slivers");
         let metrics = StrataStoreMetrics::new(
             metrics_registry.prometheus_registry(),
@@ -66,7 +64,7 @@ impl StrataSliverStore {
             .map_err(store_error)
     }
 
-    pub(super) fn contains_pairs_in_all(
+    pub(super) fn contains_sliver_pairs_in_all(
         &self,
         blob_id: BlobId,
         shards: &[ShardIndex],
@@ -88,13 +86,13 @@ impl StrataSliverStore {
         Ok(true)
     }
 
-    /// Waits until the Strata checkpoint makes `lsn` crash-durable, not merely visible to reads.
+    /// Waits until the Strata checkpoint makes `lsn` crash safe, not merely visible to reads.
     pub(super) async fn wait_durable_lsn(&self, lsn: StrataLsn) -> Result<(), TypedStoreError> {
         if lsn == 0 {
             return Ok(());
         }
         let mut receiver = self.store.subscribe_durability_progress();
-        tokio::time::timeout(DURABILITY_WAIT_TIMEOUT, async move {
+        tokio::time::timeout(SYNC_WAIT_TIMEOUT, async move {
             loop {
                 let progress = receiver.borrow_and_update().clone();
                 if progress.published_lsn >= lsn {
@@ -125,15 +123,13 @@ impl StrataShardSliverStore {
             .store
             .drop_shard(u32::from(self.shard.0))
             .map_err(store_error)?;
-        // Strata drop returns when the generation fence is visible, not yet crash-durable. It
+        // Strata drop returns when the generation fence is visible, not yet crash safe. It
         // does not return an LSN to wait on, so sync before removing RocksDB control tables.
-        // Strata keeps sync separate to batch multiple writes/drops into one checkpoint.
         self.node.store.sync().map_err(store_error)
     }
 
     pub(super) async fn put(&self, blob_id: BlobId, sliver: Sliver) -> Result<(), TypedStoreError> {
         let this = self.clone();
-        // Strata's synchronous put waits on its writer thread; keep that wait off Tokio workers.
         let lsn = utils::unwrap_or_resume_unwind(
             tokio::task::spawn_blocking(move || this.put_visible(blob_id, &sliver)).await,
         )?;

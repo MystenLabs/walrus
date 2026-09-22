@@ -196,7 +196,7 @@ impl SliverStore {
                 let store = store.clone();
                 utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
-                        store.contains_pairs_in_all(blob_id, &shard_ids)
+                        store.contains_sliver_pairs_in_all(blob_id, &shard_ids)
                     })
                     .await,
                 )
