@@ -94,7 +94,7 @@ pub(crate) use sliver_store::{PrimarySliverData, SecondarySliverData};
 pub(super) const SLIVER_STORE_BACKEND_CF: &str = "sliver_store_backend";
 
 /// The backend used only for primary and secondary slivers. Other node tables remain in RocksDB.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "snake_case")]
 pub enum SliverStoreBackendKind {
     /// Store slivers in the node's RocksDB column families.
@@ -1813,6 +1813,7 @@ pub(crate) mod tests {
         PermanentBlobInfo,
         ValidBlobInfoV1,
     };
+    use clap::ValueEnum as _;
     use constants::{
         pending_recover_slivers_column_family_name,
         primary_slivers_column_family_name,
@@ -1848,6 +1849,27 @@ pub(crate) mod tests {
 
     pub(crate) const BLOB_ID: BlobId = BlobId([7; 32]);
     pub(crate) const SHARD_INDEX: ShardIndex = ShardIndex(3);
+
+    #[test]
+    fn sliver_store_backend_names_match_cli_and_config() {
+        let rocks_db = SliverStoreBackendKind::RocksDb
+            .to_possible_value()
+            .expect("RocksDB backend must be exposed through clap");
+        let strata = SliverStoreBackendKind::Strata
+            .to_possible_value()
+            .expect("Strata backend must be exposed through clap");
+
+        assert_eq!(rocks_db.get_name(), "rocks-db");
+        assert_eq!(strata.get_name(), "strata");
+        assert_eq!(
+            serde_yaml::to_string(&SliverStoreBackendKind::RocksDb).unwrap(),
+            "rocks_db\n"
+        );
+        assert_eq!(
+            serde_yaml::to_string(&SliverStoreBackendKind::Strata).unwrap(),
+            "strata\n"
+        );
+    }
 
     fn init_typed_store_metrics() {
         static INIT: Once = Once::new();

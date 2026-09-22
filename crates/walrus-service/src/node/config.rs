@@ -1973,8 +1973,10 @@ mod tests {
 
     #[test]
     fn strata_backend_rejects_unsupported_deletion_and_checkpoints() {
-        let mut config = StorageNodeConfig::default();
-        config.sliver_store_backend = SliverStoreBackendKind::Strata;
+        let mut config = StorageNodeConfig {
+            sliver_store_backend: SliverStoreBackendKind::Strata,
+            ..Default::default()
+        };
         assert!(config.validate().is_err());
         config.garbage_collection.enable_data_deletion = false;
         assert!(config.validate().is_ok());

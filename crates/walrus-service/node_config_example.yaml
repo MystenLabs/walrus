@@ -94,6 +94,7 @@ db_config:
   event_store: null
   init_state: null
   shared_shard_storage_block_cache_config: null
+sliver_store_backend: rocks_db
 live_upload_deferral:
   enabled: true
   buckets:

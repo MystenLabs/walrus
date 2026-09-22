@@ -95,7 +95,7 @@ pub(crate) struct SliverStore {
 
 #[derive(Debug)]
 enum SliverStoreBackend {
-    RocksDb(RocksDbSliverStore),
+    RocksDb(Box<RocksDbSliverStore>),
     Strata(StrataSliverStore),
 }
 
@@ -111,10 +111,10 @@ impl SliverStore {
         table_options: DatabaseTableOptionsFactory,
     ) -> Self {
         Self {
-            backend: Arc::new(SliverStoreBackend::RocksDb(RocksDbSliverStore {
+            backend: Arc::new(SliverStoreBackend::RocksDb(Box::new(RocksDbSliverStore {
                 database,
                 table_options,
-            })),
+            }))),
         }
     }
 
@@ -276,12 +276,12 @@ impl RocksDbSliverStore {
 
         Ok(ShardSliverStore {
             metrics,
-            backend: ShardSliverStoreBackend::RocksDb(RocksDbShardSliverStore {
+            backend: ShardSliverStoreBackend::RocksDb(Box::new(RocksDbShardSliverStore {
                 primary_slivers,
                 secondary_slivers,
                 sst_primary_buffer: Arc::new(OnceLock::new()),
                 sst_secondary_buffer: Arc::new(OnceLock::new()),
-            }),
+            })),
         })
     }
 }
@@ -295,7 +295,7 @@ pub(crate) struct ShardSliverStore {
 
 #[derive(Debug, Clone)]
 enum ShardSliverStoreBackend {
-    RocksDb(RocksDbShardSliverStore),
+    RocksDb(Box<RocksDbShardSliverStore>),
     Strata(StrataShardSliverStore),
 }
 
