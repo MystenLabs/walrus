@@ -361,8 +361,8 @@ impl ShardStorage {
             rw_options
         );
 
-        // Open sliver storage last. For RocksDB, its column families remain the completion marker
-        // used by `existing_cf_shards_ids`.
+        // Open sliver storage last. RocksDB's secondary-sliver column family is its completion
+        // marker; Strata's shard registry is the completion marker for the Strata backend.
         let slivers = sliver_store.open_shard(id, metrics)?;
 
         Ok(Self {
@@ -463,6 +463,21 @@ impl ShardStorage {
                     Some((shard_index, SliverType::Secondary)) => Some(shard_index),
                     Some((_, SliverType::Primary)) | None => None,
                 })
+                .collect()
+        )
+    }
+
+    /// Finds shards with a RocksDB control table, including shards whose Strata registration or
+    /// RocksDB shard creation was interrupted. Strata's registry determines which are active.
+    pub(crate) fn existing_status_cf_shards_ids(
+        path: &Path,
+        options: &Options,
+    ) -> HashSet<ShardIndex> {
+        sui_macros::nondeterministic!(
+            DB::list_cf(options, path)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|cf_name| id_from_status_column_family_name(&cf_name))
                 .collect()
         )
     }
@@ -1545,12 +1560,14 @@ impl ShardStorage {
     pub fn delete_shard_storage(&self) -> Result<(), TypedStoreError> {
         self.slivers.drop_shard()?;
         // Drop column families in reverse order of creation in ShardStorage::create_or_reopen.
-        self.database
-            .drop_cf(&self.cf_names.secondary_slivers)
-            .map_err(typed_store_err_from_rocks_err)?;
-        self.database
-            .drop_cf(&self.cf_names.primary_slivers)
-            .map_err(typed_store_err_from_rocks_err)?;
+        if self.slivers.uses_rocksdb_column_families() {
+            self.database
+                .drop_cf(&self.cf_names.secondary_slivers)
+                .map_err(typed_store_err_from_rocks_err)?;
+            self.database
+                .drop_cf(&self.cf_names.primary_slivers)
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
         self.database
             .drop_cf(&self.cf_names.pending_recover_slivers)
             .map_err(typed_store_err_from_rocks_err)?;
@@ -1641,6 +1658,16 @@ fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {
         };
         Some((ShardIndex(id), sliver_type))
     })
+}
+
+fn id_from_status_column_family_name(name: &str) -> Option<ShardIndex> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^shard-(\d+)/status$").expect("valid static regex"))
+        .captures(name)
+        .and_then(|captures| {
+            let id = captures.get(1)?.as_str().parse().ok()?;
+            Some(ShardIndex(id))
+        })
 }
 
 #[cfg(msim)]

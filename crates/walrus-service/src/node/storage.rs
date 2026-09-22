@@ -437,13 +437,9 @@ impl Storage {
         let db_table_opts_factory = DatabaseTableOptionsFactory::new(db_config.clone(), true);
 
         let mut existing_shards_ids = ShardStorage::existing_cf_shards_ids(path, &db_opts);
-        tracing::info!(
-            "open storage for existing shards IDs: {}",
-            existing_shards_ids
-                .iter()
-                .map(ToString::to_string)
-                .join(", ")
-        );
+        let control_cf_shards_ids = ShardStorage::existing_status_cf_shards_ids(path, &db_opts);
+        // RocksDB sliver CFs identify completed RocksDB shards. Strata uses its own registry,
+        // while existing RocksDB control CFs still need to be opened for either backend.
         let mut shard_column_families = existing_shards_ids
             .iter()
             .copied()
@@ -457,20 +453,29 @@ impl Storage {
                         secondary_slivers_column_family_name(id),
                         db_table_opts_factory.shard(),
                     ),
-                    (
-                        shard_status_column_family_name(id),
-                        db_table_opts_factory.shard_status(),
-                    ),
-                    (
-                        shard_sync_progress_column_family_name(id),
-                        db_table_opts_factory.shard_sync_progress(),
-                    ),
-                    (
-                        pending_recover_slivers_column_family_name(id),
-                        db_table_opts_factory.pending_recover_slivers(),
-                    ),
                 ]
             })
+            .chain(
+                existing_shards_ids
+                    .union(&control_cf_shards_ids)
+                    .copied()
+                    .flat_map(|id| {
+                        [
+                            (
+                                shard_status_column_family_name(id),
+                                db_table_opts_factory.shard_status(),
+                            ),
+                            (
+                                shard_sync_progress_column_family_name(id),
+                                db_table_opts_factory.shard_sync_progress(),
+                            ),
+                            (
+                                pending_recover_slivers_column_family_name(id),
+                                db_table_opts_factory.pending_recover_slivers(),
+                            ),
+                        ]
+                    }),
+            )
             .collect::<Vec<_>>();
 
         let node_status_cf_name = node_status_cf_name();
@@ -541,39 +546,39 @@ impl Storage {
             SliverStoreBackendKind::RocksDb => {
                 SliverStore::new_rocksdb(Arc::clone(&database), db_table_opts_factory.clone())
             }
-            SliverStoreBackendKind::Strata => SliverStore::new_strata(
-                path,
-                Arc::clone(&database),
-                db_table_opts_factory.clone(),
-                &metrics_registry,
-            )?,
+            SliverStoreBackendKind::Strata => SliverStore::new_strata(path, &metrics_registry)?,
         };
-        // A crash may interrupt deletion after Strata has durably fenced a shard but before the
-        // RocksDB secondary-CF completion marker is removed. Finish that deletion before
-        // `create_or_reopen` has a chance to re-add the shard as a new Strata generation.
+        // Strata's shard registry is the authority for which control-table shards are active.
+        // A crash may interrupt creation before registration or deletion after a durable drop.
         if sliver_store.is_strata() {
-            let dropped = existing_shards_ids
-                .iter()
-                .copied()
-                .filter_map(|shard| match sliver_store.shard_was_dropped(shard) {
-                    Ok(true) => Some(Ok(shard)),
-                    Ok(false) => None,
-                    Err(error) => Some(Err(error)),
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            for shard in dropped {
-                for column_family in [
-                    secondary_slivers_column_family_name(shard),
-                    primary_slivers_column_family_name(shard),
-                    pending_recover_slivers_column_family_name(shard),
-                    shard_sync_progress_column_family_name(shard),
-                    shard_status_column_family_name(shard),
-                ] {
-                    database.drop_cf(&column_family)?;
+            existing_shards_ids.clear();
+            for shard in control_cf_shards_ids {
+                match sliver_store.strata_shard_state(shard)? {
+                    Some(strata::ShardState::Active) => {
+                        existing_shards_ids.insert(shard);
+                    }
+                    Some(strata::ShardState::Dropped) => {
+                        for column_family in [
+                            pending_recover_slivers_column_family_name(shard),
+                            shard_sync_progress_column_family_name(shard),
+                            shard_status_column_family_name(shard),
+                        ] {
+                            if database.cf_handle(&column_family).is_some() {
+                                database.drop_cf(&column_family)?;
+                            }
+                        }
+                    }
+                    None => {} // Creation stopped before Strata registration; retry can reuse CFs.
                 }
-                existing_shards_ids.remove(&shard);
             }
         }
+        tracing::info!(
+            "open storage for existing shards IDs: {}",
+            existing_shards_ids
+                .iter()
+                .map(ToString::to_string)
+                .join(", ")
+        );
         // Do not commit the backend choice until the selected backend has opened successfully.
         // Shard creation (and therefore sliver writes) starts only after this marker is durable.
         if persisted_sliver_backend.get(&())?.is_none() {
@@ -1795,7 +1800,10 @@ impl Drop for DisableAutoCompactionsGuard<'_> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::ops::Bound::{Excluded, Unbounded};
+    use std::{
+        ops::Bound::{Excluded, Unbounded},
+        sync::Once,
+    };
 
     use blob_info::{
         BlobCertificationStatus,
@@ -1841,6 +1849,13 @@ pub(crate) mod tests {
     pub(crate) const BLOB_ID: BlobId = BlobId([7; 32]);
     pub(crate) const SHARD_INDEX: ShardIndex = ShardIndex(3);
 
+    fn init_typed_store_metrics() {
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            typed_store::metrics::DBMetrics::init(&prometheus::Registry::default());
+        });
+    }
+
     async fn wait_for_rocksdb_close(database: std::sync::Weak<RocksDB>) -> anyhow::Result<()> {
         // Each typed-store DBMap owns a metrics reporter that releases its DB reference on the
         // next Tokio task poll after the map is dropped.
@@ -1856,7 +1871,7 @@ pub(crate) mod tests {
 
     /// Returns an empty storage, with the column families for [`SHARD_INDEX`] already created.
     pub(crate) async fn empty_storage() -> WithTempDir<Storage> {
-        typed_store::metrics::DBMetrics::init(&prometheus::Registry::default());
+        init_typed_store_metrics();
         empty_storage_with_shards(&[SHARD_INDEX]).await
     }
 
@@ -1877,7 +1892,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn strata_slivers_survive_reopen_and_backend_switch_is_rejected() -> TestResult {
-        typed_store::metrics::DBMetrics::init(&prometheus::Registry::default());
+        init_typed_store_metrics();
         let temp_dir = TempDir::new()?;
         let open = |backend| {
             Storage::open_with_sliver_backend(
@@ -1893,6 +1908,21 @@ pub(crate) mod tests {
         storage
             .create_storage_for_shards_for_testing(&[SHARD_INDEX, OTHER_SHARD_INDEX])
             .await?;
+        assert!(temp_dir.path().join("slivers").exists());
+        for shard in [SHARD_INDEX, OTHER_SHARD_INDEX] {
+            assert!(
+                storage
+                    .database
+                    .cf_handle(&primary_slivers_column_family_name(shard))
+                    .is_none()
+            );
+            assert!(
+                storage
+                    .database
+                    .cf_handle(&secondary_slivers_column_family_name(shard))
+                    .is_none()
+            );
+        }
         let shard = storage.shard_storage(SHARD_INDEX).await.unwrap();
         let primary = get_sliver(SliverType::Primary, 2);
         let secondary = get_sliver(SliverType::Secondary, 3);
@@ -1963,7 +1993,7 @@ pub(crate) mod tests {
                 .await?
         );
         // Simulate a crash between the durable Strata shard drop and removal of its RocksDB
-        // completion marker. Restart must finish the drop, not re-add the old shard generation.
+        // control tables. Restart must finish the drop, not re-add the old shard generation.
         let shard = storage.shard_storage(SHARD_INDEX).await.unwrap();
         shard
             .put_sliver(BLOB_ID, get_sliver(SliverType::Primary, 2))
@@ -1976,12 +2006,25 @@ pub(crate) mod tests {
         let storage =
             open(SliverStoreBackendKind::Strata).context("Strata reopen after shard drop")?;
         assert!(!storage.existing_shards().await.contains(&SHARD_INDEX));
+        assert!(
+            storage
+                .database
+                .cf_handle(&shard_status_column_family_name(SHARD_INDEX))
+                .is_none()
+        );
         storage
             .create_storage_for_shards_for_testing(&[SHARD_INDEX])
             .await?;
         let shard = storage.shard_storage(SHARD_INDEX).await.unwrap();
         assert_eq!(shard.get_sliver(&BLOB_ID, SliverType::Primary)?, None);
         drop(shard);
+        storage.remove_storage_for_shards(&[SHARD_INDEX]).await?;
+        assert!(
+            storage
+                .database
+                .cf_handle(&shard_status_column_family_name(SHARD_INDEX))
+                .is_none()
+        );
         let database = Arc::downgrade(&storage.database);
         drop(storage);
         wait_for_rocksdb_close(database).await?;
@@ -2010,6 +2053,52 @@ pub(crate) mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("sliver backend is RocksDb"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn strata_ignores_control_tables_from_interrupted_shard_creation() -> TestResult {
+        init_typed_store_metrics();
+        let temp_dir = TempDir::new()?;
+        let open = || {
+            Storage::open_with_sliver_backend(
+                temp_dir.path(),
+                DatabaseConfig::default_for_test(),
+                MetricConf::default(),
+                Registry::default(),
+                SliverStoreBackendKind::Strata,
+            )
+        };
+        let storage = open()?;
+        let shard = ShardIndex(987);
+        let status_cf = shard_status_column_family_name(shard);
+        storage.database.create_cf(
+            &status_cf,
+            &DatabaseTableOptionsFactory::new(DatabaseConfig::default_for_test(), true)
+                .shard_status(),
+        )?;
+        let database = Arc::downgrade(&storage.database);
+        drop(storage);
+        wait_for_rocksdb_close(database).await?;
+
+        let storage = open()?;
+        assert!(!storage.existing_shards().await.contains(&shard));
+        storage
+            .create_storage_for_shards_for_testing(&[shard])
+            .await?;
+        assert!(storage.existing_shards().await.contains(&shard));
+        assert!(
+            storage
+                .database
+                .cf_handle(&primary_slivers_column_family_name(shard))
+                .is_none()
+        );
+        assert!(
+            storage
+                .database
+                .cf_handle(&secondary_slivers_column_family_name(shard))
+                .is_none()
+        );
         Ok(())
     }
 

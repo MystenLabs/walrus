@@ -5,47 +5,23 @@
 
 use std::{path::Path, sync::Arc, time::Duration};
 
-use strata::{
-    BlobKey,
-    DEFAULT_GC_INITIAL_WORKER_COUNT,
-    DEFAULT_GC_INTERVAL,
-    DEFAULT_GC_IO_BYTES_PER_SEC,
-    DEFAULT_GC_MIN_IO_BYTES_PER_SEC,
-    DEFAULT_GC_SYNC_IMPACT_THRESHOLD,
-    DEFAULT_GC_TUNING_WINDOW_CYCLES,
-    DEFAULT_GC_WORKER_COUNT,
-    DEFAULT_LSM_PARTITION_COUNT,
-    DEFAULT_SEGMENT_MAX_BYTES,
-    DEFAULT_SEGMENT_READER_CACHE_CAPACITY,
-    DEFAULT_SHARD_DROP_GC_DRAIN_TIMEOUT,
-    GcPlannerConfig,
-    SealedSegmentIntegrityPolicy,
-    ShardState,
-    StrataLsn,
-    StrataRecoveryPolicy,
-    StrataStore,
-    StrataStoreConfig,
-    StrataStoreMetrics,
-};
-use typed_store::{
-    TypedStoreError,
-    rocks::{RocksDB, errors::typed_store_err_from_rocks_err},
-};
+use strata::{BlobKey, ShardState, StrataLsn, StrataStore, StrataStoreConfig, StrataStoreMetrics};
+use typed_store::TypedStoreError;
 use walrus_core::{BlobId, ShardIndex, Sliver, SliverType};
 use walrus_utils::metrics::Registry;
 
-use super::{DatabaseTableOptionsFactory, PrimarySliverData, SecondarySliverData, constants};
+use super::{PrimarySliverData, SecondarySliverData};
 use crate::utils;
 
 const DURABILITY_WAIT_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Node-wide Strata store for slivers. Walrus control tables remain in RocksDB.
 #[derive(Debug, Clone)]
 pub(super) struct StrataSliverStore {
     store: Arc<StrataStore>,
-    database: Arc<RocksDB>,
-    table_options: DatabaseTableOptionsFactory,
 }
 
+/// One Walrus shard within the node-wide store, holding both primary and secondary slivers.
 #[derive(Debug, Clone)]
 pub(super) struct StrataShardSliverStore {
     node: StrataSliverStore,
@@ -53,46 +29,17 @@ pub(super) struct StrataShardSliverStore {
 }
 
 impl StrataSliverStore {
-    pub(super) fn open(
-        path: &Path,
-        database: Arc<RocksDB>,
-        table_options: DatabaseTableOptionsFactory,
-        metrics_registry: &Registry,
-    ) -> anyhow::Result<Self> {
-        // Keep Strata under the configured storage directory so it uses the same mounted volume.
+    pub(super) fn open(path: &Path, metrics_registry: &Registry) -> anyhow::Result<Self> {
+        // The namespace lives in the slivers subdirectory on the node storage volume.
         // A RocksDB checkpoint still does not include this directory, so node-level checkpoints
         // are disabled while Strata is selected.
-        let root_dir = path.join("strata-slivers");
-        let config = StrataStoreConfig {
-            root_dir,
-            namespace: "slivers".to_owned(),
-            segment_max_bytes: DEFAULT_SEGMENT_MAX_BYTES,
-            write_queue_capacity: 1024,
-            max_unsealed_segments: 8,
-            segment_reader_cache_capacity: DEFAULT_SEGMENT_READER_CACHE_CAPACITY,
-            lsm_partition_count: DEFAULT_LSM_PARTITION_COUNT,
-            recovery_policy: StrataRecoveryPolicy::PointInTime,
-            sealed_segment_integrity_policy: SealedSegmentIntegrityPolicy::MetadataOnly,
-            gc_workers_enabled: true,
-            gc_interval: DEFAULT_GC_INTERVAL,
-            gc_worker_count: DEFAULT_GC_WORKER_COUNT,
-            gc_initial_worker_count: DEFAULT_GC_INITIAL_WORKER_COUNT,
-            gc_tuning_window_cycles: DEFAULT_GC_TUNING_WINDOW_CYCLES,
-            gc_sync_impact_threshold: DEFAULT_GC_SYNC_IMPACT_THRESHOLD,
-            gc_io_bytes_per_sec: DEFAULT_GC_IO_BYTES_PER_SEC,
-            gc_min_io_bytes_per_sec: DEFAULT_GC_MIN_IO_BYTES_PER_SEC,
-            gc_planner_config: GcPlannerConfig::default(),
-            shard_drop_gc_drain_timeout: DEFAULT_SHARD_DROP_GC_DRAIN_TIMEOUT,
-            starting_epoch: 0,
-        };
+        let config = StrataStoreConfig::new(path, "slivers");
         let metrics = StrataStoreMetrics::new(
             metrics_registry.prometheus_registry(),
             format!("slivers:{}", path.display()),
         )?;
         Ok(Self {
             store: Arc::new(StrataStore::open(config, metrics)?),
-            database,
-            table_options,
         })
     }
 
@@ -100,40 +47,23 @@ impl StrataSliverStore {
         &self,
         shard: ShardIndex,
     ) -> Result<StrataShardSliverStore, TypedStoreError> {
-        let primary = constants::primary_slivers_column_family_name(shard);
-        if self.database.cf_handle(&primary).is_none() {
-            self.database
-                .create_cf(&primary, &self.table_options.shard())
-                .map_err(typed_store_err_from_rocks_err)?;
-        }
         self.store
             .add_shard(u32::from(shard.0))
             .map_err(store_error)?;
-        // Empty RocksDB sliver CFs are only shard-creation completion markers. No sliver payload
-        // is written to them in Strata mode.
-        let secondary = constants::secondary_slivers_column_family_name(shard);
-        if self.database.cf_handle(&secondary).is_none() {
-            self.database
-                .create_cf(&secondary, &self.table_options.shard())
-                .map_err(typed_store_err_from_rocks_err)?;
-        }
         Ok(StrataShardSliverStore {
             node: self.clone(),
             shard,
         })
     }
 
-    pub(super) fn shard_was_dropped(&self, shard: ShardIndex) -> Result<bool, TypedStoreError> {
-        let info = self
-            .store
+    pub(super) fn shard_state(
+        &self,
+        shard: ShardIndex,
+    ) -> Result<Option<ShardState>, TypedStoreError> {
+        self.store
             .shard_info(u32::from(shard.0))
-            .map_err(store_error)?
-            .ok_or_else(|| {
-                TypedStoreError::TaskError(format!(
-                    "RocksDB has a completed shard marker for {shard}, but Strata has no shard"
-                ))
-            })?;
-        Ok(info.state == ShardState::Dropped)
+            .map(|info| info.map(|info| info.state))
+            .map_err(store_error)
     }
 
     pub(super) fn contains_pairs_in_all(
@@ -158,7 +88,8 @@ impl StrataSliverStore {
         Ok(true)
     }
 
-    pub(super) async fn wait_published(&self, lsn: StrataLsn) -> Result<(), TypedStoreError> {
+    /// Waits until the Strata checkpoint makes `lsn` crash-durable, not merely visible to reads.
+    pub(super) async fn wait_durable_lsn(&self, lsn: StrataLsn) -> Result<(), TypedStoreError> {
         if lsn == 0 {
             return Ok(());
         }
@@ -171,7 +102,7 @@ impl StrataSliverStore {
                 }
                 if let Some(reason) = progress.halt_reason {
                     return Err(TypedStoreError::TaskError(format!(
-                        "Strata halted before publishing sliver LSN {lsn}: {reason}"
+                        "Strata halted before sliver LSN {lsn} became durable: {reason}"
                     )));
                 }
                 receiver.changed().await.map_err(|_| {
@@ -182,7 +113,7 @@ impl StrataSliverStore {
         .await
         .map_err(|_| {
             TypedStoreError::TaskError(format!(
-                "timed out waiting for Strata to publish sliver LSN {lsn}"
+                "timed out waiting for Strata sliver LSN {lsn} to become durable"
             ))
         })?
     }
@@ -194,17 +125,19 @@ impl StrataShardSliverStore {
             .store
             .drop_shard(u32::from(self.shard.0))
             .map_err(store_error)?;
-        // Unlike put/tombstone, the current Strata drop API does not return its LSN. Force one
-        // sync before RocksDB's shard-completion marker is removed.
+        // Strata drop returns when the generation fence is visible, not yet crash-durable. It
+        // does not return an LSN to wait on, so sync before removing RocksDB control tables.
+        // Strata keeps sync separate to batch multiple writes/drops into one checkpoint.
         self.node.store.sync().map_err(store_error)
     }
 
     pub(super) async fn put(&self, blob_id: BlobId, sliver: Sliver) -> Result<(), TypedStoreError> {
         let this = self.clone();
+        // Strata's synchronous put waits on its writer thread; keep that wait off Tokio workers.
         let lsn = utils::unwrap_or_resume_unwind(
             tokio::task::spawn_blocking(move || this.put_visible(blob_id, &sliver)).await,
         )?;
-        self.node.wait_published(lsn).await
+        self.node.wait_durable_lsn(lsn).await
     }
 
     fn put_visible(&self, blob_id: BlobId, sliver: &Sliver) -> Result<StrataLsn, TypedStoreError> {
@@ -237,7 +170,7 @@ impl StrataShardSliverStore {
             })
             .await,
         )?;
-        self.node.wait_published(lsn).await
+        self.node.wait_durable_lsn(lsn).await
     }
 
     pub(super) fn get(
@@ -279,7 +212,7 @@ impl StrataShardSliverStore {
             })
             .await,
         )?;
-        self.node.wait_published(lsn).await
+        self.node.wait_durable_lsn(lsn).await
     }
 }
 

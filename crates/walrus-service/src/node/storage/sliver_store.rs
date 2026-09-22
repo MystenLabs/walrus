@@ -120,15 +120,11 @@ impl SliverStore {
 
     pub(crate) fn new_strata(
         path: &Path,
-        database: Arc<RocksDB>,
-        table_options: DatabaseTableOptionsFactory,
         metrics_registry: &walrus_utils::metrics::Registry,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             backend: Arc::new(SliverStoreBackend::Strata(StrataSliverStore::open(
                 path,
-                database,
-                table_options,
                 metrics_registry,
             )?)),
         })
@@ -138,12 +134,14 @@ impl SliverStore {
         matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
     }
 
-    /// Detects a crash after a durable Strata shard drop but before Walrus removed its RocksDB
-    /// completion marker. Such a shard must not be reactivated on restart.
-    pub(crate) fn shard_was_dropped(&self, shard: ShardIndex) -> Result<bool, TypedStoreError> {
+    /// Reads Strata's shard registry to distinguish active, dropped, and interrupted creations.
+    pub(crate) fn strata_shard_state(
+        &self,
+        shard: ShardIndex,
+    ) -> Result<Option<::strata::ShardState>, TypedStoreError> {
         match self.backend.as_ref() {
-            SliverStoreBackend::RocksDb(_) => Ok(false),
-            SliverStoreBackend::Strata(store) => store.shard_was_dropped(shard),
+            SliverStoreBackend::RocksDb(_) => Ok(None),
+            SliverStoreBackend::Strata(store) => store.shard_state(shard),
         }
     }
 
@@ -332,6 +330,10 @@ impl SliverSyncBatch {
 }
 
 impl ShardSliverStore {
+    pub(crate) fn uses_rocksdb_column_families(&self) -> bool {
+        matches!(self.backend, ShardSliverStoreBackend::RocksDb(_))
+    }
+
     pub(crate) fn supports_sst_ingestion(&self) -> bool {
         matches!(self.backend, ShardSliverStoreBackend::RocksDb(_))
     }
