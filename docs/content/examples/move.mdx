@@ -83,7 +83,7 @@ The `walrus::system` module exposes lifecycle functions on the shared `System` o
 - `extend_blob_with_resource(system, blob, extension)` extends the blob with a `Storage` resource you already own; the resource must match the blob's storage size and last longer.
 - `delete_blob(system, blob)` consumes a deletable blob and returns its `Storage` resource, which you can reuse for another blob.
 
-The `walrus::blob` module additionally provides `burn(blob)`, which destroys the `Blob` object without deleting the data from Walrus and without refunding storage, and metadata functions such as `insert_or_update_metadata_pair` and `remove_metadata_pair` to manage key-value metadata on a blob you hold. The [Managing Blobs](/docs/walrus-client/managing-blobs) page describes the CLI equivalents.
+The `walrus::blob` module additionally provides `burn(blob)`, which destroys the `Blob` object without deleting the data from Walrus and without refunding storage, and metadata functions such as `insert_or_update_metadata_pair` and `remove_metadata_pair` to manage key-value metadata on a blob you hold. Once a blob is certified, Walrus ensures that sufficient slivers are always available on storage nodes to recover it within the specified epochs. The [Managing Blobs](/docs/walrus-client/managing-blobs) page describes the CLI equivalents.
 
 ## Share a blob
 

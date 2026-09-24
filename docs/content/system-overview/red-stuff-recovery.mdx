@@ -90,6 +90,6 @@ r_{6,0} & r_{6,1} & r_{6,2} & r_{6,3} & r_{6,4} \\
 \right]
 $$
 
-In this case, the symbols $s_{0,3}$, $s_{1,3}$, and $s_{2,3}$ are already stored in the primary slivers of shards 0, 1, and 2 directly. Therefore, by requesting these from those shards, shard 3 does not need to decode the symbols to recover its secondary sliver.
+In this case, the symbols $s_{0,3}$, $s_{1,3}$, and $s_{2,3}$ are already stored in the primary slivers of shards 0, 1, and 2 directly. Therefore, by requesting these from those shards, shard 3 does not need to store the symbols to recover its secondary sliver.
 
 For properties, Walrus-specific parameters, blob size limits, and sliver authentication details, see [RedStuff properties and parameters](red-stuff-parameters).

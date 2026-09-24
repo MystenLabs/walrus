@@ -107,7 +107,7 @@ All blobs stored in Walrus are public and discoverable by all. The `delete` comm
 
 ## Burn blobs
 
-Burn a blob to remove the blob's corresponding object on Sui without deleting the data from Walrus and without refunding the storage. Burning a blob's corresponding Sui object forfeits control of that blob and the data it represents. After burning, you cannot extend permanent blobs and you cannot extend or delete deletable blobs.
+Burn a blob to remove the blob's corresponding object on Sui without deleting the data from Walrus and without refunding the storage. Once a blob is certified, Walrus ensures that sufficient slivers are always available on storage nodes to recover it within the specified epochs. Burning a blob's corresponding Sui object forfeits control of that blob and the data it represents. After burning, you cannot extend permanent blobs and you cannot extend or delete deletable blobs.
 
 You can only burn blobs owned by the current wallet.
 

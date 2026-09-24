@@ -1,8 +1,7 @@
 ---
 title: Known Restrictions
 description: >-
-  A comprehensive reference of known restrictions and limitations when
-  developing and deploying Walrus Sites.
+  A comprehensive reference of known restrictions and limitations when developing and deploying Walrus Sites.
 keywords:
   - walrus sites
   - restrictions
@@ -113,4 +112,4 @@ The server-side portal does not share these limitations. However, because Walrus
 
 - **SuiNS dependency for human-readable URLs:** Without a [SuiNS name](/docs/sites/custom-domains/setting-a-suins-name), a site is only accessible via a Base36-encoded Sui object ID subdomain (e.g., `58gr4pinoayuijgdixud23441t55jd94ugep68fsm72b8mwmq2.wal.app`). This is because subdomains are case-insensitive (ruling out Base64/Base58) and limited to 63 characters (ruling out hex, which requires 64).
 - **No traditional DNS control:** Walrus Sites do not support custom DNS records or traditional domain name configuration. Human-readable names are exclusively managed through SuiNS.
-- **Subdomain isolation required:** Each site must be accessed through a unique subdomain of the portal domain to ensure security isolation between sites and correct wallet connection behavior in the browser. Shared-origin access is not supported.
+[This claim should be removed or corrected as it contradicts PAGE A which states sites can be accessed by Base36 object ID on Mainnet without SuiNS domains] Shared-origin access is not supported.

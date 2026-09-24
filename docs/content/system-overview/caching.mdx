@@ -8,7 +8,7 @@ Walrus blobs are content-addressed and immutable, which makes them well suited t
 
 ## Why caching works well on Walrus
 
-A blob ID is derived from the blob's contents. Reading the same blob ID always returns the same data, so a cache entry keyed by blob ID can be treated as immutable and given a long lifetime. This is different from mutable object storage, where a key can be overwritten and caches must revalidate.
+A blob ID is derived from the blob's contents. Reading the same blob ID always returns the same data, so a cache entry keyed by blob ID can be treated as immutable, but its lifetime is bounded by the blob's storage period and deletion risk. This is different from mutable object storage, where a key can be overwritten and caches must revalidate.
 
 Two properties still bound how long a cached copy is valid:
 

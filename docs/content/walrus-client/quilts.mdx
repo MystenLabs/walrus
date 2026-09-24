@@ -58,7 +58,7 @@ Like the regular `store` command, you can specify the storage duration using `--
 $ walrus store-quilt --epochs <EPOCHS> --paths <PATH_TO_DIRECTORY_1> <PATH_TO_DIRECTORY_2> <PATH_TO_BLOB>
 ```
 
-All identifiers must be unique within a quilt. The operation fails otherwise. Identifiers are the unique names used to retrieve individual blobs from within the quilt.
+Each blob within a quilt must have a unique identifier. The operation fails otherwise. Identifiers are the unique names used to retrieve individual blobs from within the quilt.
 
 To specify a list of blobs as JSON objects, use the `--blobs` flag. This gives you more control, allowing you to set a custom `identifier` and `tags` for each file. If `identifier` is `null` or omitted, the file name is used instead.
 ```sh

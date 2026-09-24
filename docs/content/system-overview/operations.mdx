@@ -220,7 +220,7 @@ Inconsistency handling uses the following process:
 
 #### Reading inconsistent blobs
 
-A blob ID marked as inconsistent always resolves to `None` upon reading. This occurs because the read process re-encodes the received blob to verify that the blob ID was derived from consistent encoding.
+A blob ID marked as inconsistent always resolves to None upon reading. This occurs because the read process re-encodes the received blob to verify that the blob ID was derived from consistent encoding.
 
 An inconsistency proof reveals only a true fact to storage nodes (which do not otherwise run decoding) and does not change read output in any case.
 

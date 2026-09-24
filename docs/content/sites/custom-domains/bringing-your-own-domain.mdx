@@ -48,7 +48,7 @@ By default, Walrus Sites are served through a portal at a subdomain address like
 
 :::info
 
-This guide requires you to deploy and run your own portal. The public `wal.app` portal does not support custom DNS domains. For an alternative approach that does not require running your own portal, see [Setting a SuiNS Name](/docs/sites/custom-domains/setting-a-suins-name).
+This guide requires you to deploy and run your own portal. The public `wal.app` portal does not support custom DNS domains. For an alternative approach that does not require running your own portal, see [Known Restrictions](/docs/sites/known-restrictions).
 
 :::
 
@@ -162,4 +162,4 @@ Once your portal is running and accessible at a public IP address, configure you
 
 ## Update the site content
 
-When you redeploy your Walrus Site and receive a new object ID, update the `landing_page_oid_b36` value in `portal-config.yaml` with the new Base36 object ID and restart the portal. Your custom domain continues to work without any DNS changes because the domain still points to the same portal server.
+When you redeploy your Walrus Site and receive a new object ID, update the `landing_page_oid_b36` value in `portal-config.yaml` with the new Base36 object ID and restart the portal. Your custom domain continues to work without any DNS changes because each site is accessed through a unique subdomain of the portal domain, which remains unchanged.

@@ -99,7 +99,7 @@ When storing a blob, the client performs a number of automatic optimizations, in
 
 - If the blob is already stored as a permanent blob on Walrus for a sufficient number of epochs, the command does not store it again. You can override this behavior with the `--force` CLI option, which stores the blob again and creates a fresh Sui object belonging to the wallet address.
 - If your wallet has a storage resource of suitable size and duration, it is used instead of buying a new one.
-- If the blob is already certified on Walrus but is a deletable blob or is not stored for a sufficient number of epochs, the command skips sending encoded blob data to the storage nodes and just collects the availability certificate.
+- If the blob is already certified on Walrus and is stored for a sufficient number of epochs as a permanent blob, the command skips sending encoded blob data to the storage nodes and just collects the availability certificate. However, immutable blobs derived from their content cannot be re-stored with a different ID.
 
 ## Store blobs in a storage pool
 

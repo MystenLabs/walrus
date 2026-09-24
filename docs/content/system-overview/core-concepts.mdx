@@ -74,7 +74,7 @@ A smart contract on Sui controls how shards are assigned to storage nodes. These
 
 Some assurance properties ensure the correct internal processes of Walrus storage nodes. For the purposes of defining these, an **inconsistency proof** proves that a blob ID was stored by a user that incorrectly encoded a blob:
 
-- **Sliver recovery:** After the PoA, for a blob ID stored by a correct user, a storage node can always recover the correct slivers for its shards for this blob ID.
+- **Sliver recovery:** After the PoA, for a blob ID stored by a correct user, a storage node can always recover the correct slivers for its shards for this blob ID if sufficient slivers are available.
 
 - **Inconsistency detection:** After the PoA, if a correct storage node cannot recover a sliver, it can produce an inconsistency proof for the blob ID.
 

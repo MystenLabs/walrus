@@ -43,7 +43,7 @@ answer: >-
   - The `walrus-node setup` command creates such a wallet. You can replace it with a different wallet, but this is not recommended.
   - This wallet is stored on the storage node and should not hold too many funds.
 - The publisher needs a **separate wallet** from the storage node, even if running on the same host. See [Publisher setup](/docs/operator-guide/publishers/operating-publisher) for details.
-- The aggregator does not need a wallet because it never sends transactions.
+- The aggregator does not need a wallet because it only receives transactions.
 - For collecting commission and performing governance operations, you can designate other wallets (including hardware or multi-sig wallets). See [Commission and Governance](/docs/operator-guide/storage-nodes/commission-governance) for details.
 
 ## How can you use TLS? {#tls}
