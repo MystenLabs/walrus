@@ -10,6 +10,8 @@ on:
       - testnet
       - mainnet
       - "releases/walrus-*-release"
+    paths-ignore:
+      - "docs/**"
 
 concurrency: ${{ github.workflow }}-${{ github.ref_name }}
 
