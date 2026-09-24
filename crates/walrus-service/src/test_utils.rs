@@ -225,6 +225,7 @@ pub struct TestNodesConfig {
     blocklist_dir: Option<PathBuf>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    blob_recovery_config: Option<BlobRecoveryConfig>,
 }
 
 impl TestNodesConfig {
@@ -253,6 +254,11 @@ impl TestNodesConfig {
         self.node_recovery_config.as_ref()
     }
 
+    /// Returns the blob recovery config.
+    pub fn blob_recovery_config(&self) -> Option<&BlobRecoveryConfig> {
+        self.blob_recovery_config.as_ref()
+    }
+
     /// Creates a new builder for `TestNodesConfig`.
     pub fn builder() -> TestNodesConfigBuilder {
         TestNodesConfigBuilder::new()
@@ -273,6 +279,7 @@ pub struct TestNodesConfigBuilder {
     blocklist_dir: Option<PathBuf>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    blob_recovery_config: Option<BlobRecoveryConfig>,
 }
 
 impl Default for TestNodesConfigBuilder {
@@ -294,6 +301,7 @@ impl TestNodesConfigBuilder {
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            blob_recovery_config: None,
         }
     }
 
@@ -336,6 +344,12 @@ impl TestNodesConfigBuilder {
         self
     }
 
+    /// Sets the blob recovery config.
+    pub fn with_blob_recovery_config(mut self, config: BlobRecoveryConfig) -> Self {
+        self.blob_recovery_config = Some(config);
+        self
+    }
+
     /// Builds the [`TestNodesConfig`], validating constraints.
     ///
     /// # Panics
@@ -359,6 +373,7 @@ impl TestNodesConfigBuilder {
             blocklist_dir: self.blocklist_dir,
             enable_node_config_synchronizer: self.enable_node_config_synchronizer,
             node_recovery_config: self.node_recovery_config,
+            blob_recovery_config: self.blob_recovery_config,
         }
     }
 }
@@ -869,6 +884,7 @@ pub struct StorageNodeHandleBuilder {
     num_checkpoints_per_blob: Option<u32>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    blob_recovery_config: Option<BlobRecoveryConfig>,
     garbage_collection_config: Option<GarbageCollectionConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<u32>,
@@ -1033,6 +1049,12 @@ impl StorageNodeHandleBuilder {
         self
     }
 
+    /// Sets the blob recovery config for the node.
+    pub fn with_blob_recovery_config(mut self, blob_recovery_config: BlobRecoveryConfig) -> Self {
+        self.blob_recovery_config = Some(blob_recovery_config);
+        self
+    }
+
     /// Specify the event stream catchup min checkpoint lag for the node.
     pub fn with_event_stream_catchup_min_checkpoint_lag(
         mut self,
@@ -1130,7 +1152,10 @@ impl StorageNodeHandleBuilder {
             } else {
                 Default::default()
             },
-            blob_recovery: BlobRecoveryConfig::default_for_test(),
+            blob_recovery: self
+                .blob_recovery_config
+                .clone()
+                .unwrap_or_else(BlobRecoveryConfig::default_for_test),
             garbage_collection: self
                 .garbage_collection_config
                 .unwrap_or_else(GarbageCollectionConfig::default_for_test),
@@ -1319,7 +1344,10 @@ impl StorageNodeHandleBuilder {
             },
             storage_node_cap: node_capability.map(|cap| cap.id),
             node_recovery_config: self.node_recovery_config.clone().unwrap_or_default(),
-            blob_recovery: BlobRecoveryConfig::default_for_test(),
+            blob_recovery: self
+                .blob_recovery_config
+                .clone()
+                .unwrap_or_else(BlobRecoveryConfig::default_for_test),
             garbage_collection: self
                 .garbage_collection_config
                 .unwrap_or_else(|| GarbageCollectionConfig::default_for_test()),
@@ -1404,6 +1432,7 @@ impl Default for StorageNodeHandleBuilder {
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            blob_recovery_config: None,
             garbage_collection_config: None,
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
@@ -1694,6 +1723,16 @@ impl CommitteeService for StubCommitteeService {
         _sliver_type: SliverType,
         _certified_epoch: Epoch,
     ) -> Result<Sliver, InconsistencyProofEnum<MerkleProof>> {
+        std::future::pending().await
+    }
+
+    async fn recover_slivers_batch(
+        &self,
+        _metadata: Arc<VerifiedBlobMetadataWithId>,
+        _sliver_ids: Vec<SliverPairIndex>,
+        _sliver_type: SliverType,
+        _certified_epoch: Epoch,
+    ) -> Result<Vec<(SliverPairIndex, Sliver)>, InconsistencyProofEnum<MerkleProof>> {
         std::future::pending().await
     }
 
@@ -2058,6 +2097,7 @@ pub struct TestClusterBuilder {
     disable_event_blob_writer: Vec<bool>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    blob_recovery_config: Option<BlobRecoveryConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<EpochCount>,
     n_shards: u16,
@@ -2250,6 +2290,12 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the blob recovery config for each storage node.
+    pub fn with_blob_recovery_config(mut self, blob_recovery_config: BlobRecoveryConfig) -> Self {
+        self.blob_recovery_config = Some(blob_recovery_config);
+        self
+    }
+
     /// Sets the event stream catchup min checkpoint lag for all storage nodes.
     pub fn with_event_stream_catchup_min_checkpoint_lag(
         mut self,
@@ -2343,6 +2389,11 @@ impl TestClusterBuilder {
                 .with_disabled_event_blob_writer(node_setup.disable_event_blob_writer)
                 .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer)
                 .with_node_recovery_config(self.node_recovery_config.clone().unwrap_or_default())
+                .with_blob_recovery_config(
+                    self.blob_recovery_config
+                        .clone()
+                        .unwrap_or_else(BlobRecoveryConfig::default_for_test),
+                )
                 .with_event_stream_catchup_min_checkpoint_lag(
                     self.event_stream_catchup_min_checkpoint_lag,
                 )
@@ -2562,6 +2613,7 @@ impl Default for TestClusterBuilder {
             num_checkpoints_per_blob: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            blob_recovery_config: None,
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
             n_shards,
@@ -3028,6 +3080,10 @@ pub mod test_cluster {
 
             if let Some(node_recovery_config) = test_nodes_config.node_recovery_config {
                 cluster_builder = cluster_builder.with_node_recovery_config(node_recovery_config);
+            }
+
+            if let Some(blob_recovery_config) = test_nodes_config.blob_recovery_config {
+                cluster_builder = cluster_builder.with_blob_recovery_config(blob_recovery_config);
             }
 
             cluster_builder = cluster_builder

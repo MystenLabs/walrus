@@ -32,6 +32,7 @@ use walrus_core::{
         Primary,
         PrimaryRecoverySymbol,
         RequiredCount,
+        SliverPair,
     },
     inconsistency::PrimaryInconsistencyProof,
     keys::ProtocolKeyPair,
@@ -472,6 +473,232 @@ fn recovery_symbols_by_shard(
         target_sliver_index,
         HashMap::from_iter(recovery_symbols),
     ))
+}
+
+/// Encodes a random blob for a system with `n_shards` shards and returns the metadata, the
+/// sliver pairs, and the encoding config.
+fn encoded_blob_for_batch_recovery(
+    n_shards: u16,
+) -> TestResult<(VerifiedBlobMetadataWithId, Vec<SliverPair>, EncodingConfig)> {
+    let blob = walrus_test_utils::random_data(314);
+    let n_shards = NonZero::new(n_shards).unwrap();
+    let encoding_config = EncodingConfig::new(n_shards);
+    let (sliver_pairs, metadata) = encoding_config
+        .get_for_type(DEFAULT_ENCODING)
+        .encode_with_metadata(blob)?;
+    Ok((metadata, sliver_pairs, encoding_config))
+}
+
+/// Returns the recovery symbols for the primary `target_indexes` computed from the secondary
+/// sliver of `pair`.
+fn batch_recovery_symbols_from_pair(
+    pair: &SliverPair,
+    target_indexes: &[SliverIndex],
+    encoding_config: &EncodingConfig,
+) -> Vec<GeneralRecoverySymbol> {
+    let n_shards = encoding_config.n_shards();
+    let config_enum = encoding_config.get_for_type(DEFAULT_ENCODING);
+    target_indexes
+        .iter()
+        .map(|target_index| {
+            GeneralRecoverySymbol::from_recovery_symbol(
+                pair.secondary
+                    .recovery_symbol_for_sliver(
+                        target_index.to_pair_index::<Primary>(n_shards),
+                        &config_enum,
+                    )
+                    .expect("valid target index"),
+                *target_index,
+            )
+        })
+        .collect()
+}
+
+/// How a node in the batched recovery tests responds to batched symbol requests.
+#[derive(Debug, Clone, Copy)]
+enum BatchNodeBehaviour {
+    /// Returns the symbols for all requested targets.
+    Full,
+    /// Returns the symbols for only the first requested target.
+    FirstTargetOnly,
+    /// Fails every request.
+    AlwaysFails,
+    /// Fails the first request and serves all later ones.
+    FailsOnce,
+}
+
+/// Recovers three primary slivers in one batch from a committee in which two nodes never
+/// respond, one node responds only partially, and one node fails its first request.
+///
+/// With 10 shards, 7 symbols are required per target, so every one of the 7 responding nodes
+/// is needed, and the partial and failing nodes force a second round of requests.
+#[tokio::test(start_paused = true)]
+async fn recovers_slivers_batch_with_partial_and_failing_nodes() -> TestResult {
+    let rng = StdRng::seed_from_u64(11);
+    let (metadata, sliver_pairs, encoding_config) = encoded_blob_for_batch_recovery(10)?;
+    let n_shards = metadata.n_shards();
+    let blob_id = *metadata.blob_id();
+
+    let target_pairs = vec![SliverPairIndex(0), SliverPairIndex(3), SliverPairIndex(7)];
+    let expected: Vec<_> = target_pairs
+        .iter()
+        .map(|pair_index| {
+            let pair = &sliver_pairs[usize::from(pair_index.get())];
+            (*pair_index, walrus_core::Sliver::from(pair.primary.clone()))
+        })
+        .collect();
+
+    let (committees, _) = valid_committees(1, ShardAssignment::OneEach);
+    let committee = committees.current_committee();
+
+    let mut service_map = ServiceFactoryMap::default();
+    let mut n_requests_by_node: Vec<Arc<std::sync::atomic::AtomicUsize>> = Vec::new();
+    for (position, pair) in sliver_pairs.iter().enumerate() {
+        let shard_index = pair.index().to_shard_index(n_shards, &blob_id);
+        let node = committee.find_by_shard(shard_index).unwrap();
+        let behaviour = match position {
+            0 | 1 => BatchNodeBehaviour::AlwaysFails,
+            2 => BatchNodeBehaviour::FirstTargetOnly,
+            3 => BatchNodeBehaviour::FailsOnce,
+            _ => BatchNodeBehaviour::Full,
+        };
+        let n_requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        n_requests_by_node.push(n_requests.clone());
+
+        let pair = pair.clone();
+        let encoding_config = encoding_config.clone();
+        service_map.insert_ready(node.public_key.clone(), move |request| match request {
+            Request::ListVerifiedBatchRecoverySymbols {
+                target_indexes,
+                target_type,
+                ..
+            } => {
+                assert_eq!(target_type, SliverType::Primary);
+                let n_previous = n_requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let served: &[SliverIndex] = match behaviour {
+                    BatchNodeBehaviour::Full => &target_indexes,
+                    BatchNodeBehaviour::FirstTargetOnly => &target_indexes[..1],
+                    BatchNodeBehaviour::AlwaysFails => {
+                        return Err(NodeServiceError::Other("unavailable".into()));
+                    }
+                    BatchNodeBehaviour::FailsOnce if n_previous == 0 => {
+                        return Err(NodeServiceError::Other("unavailable".into()));
+                    }
+                    BatchNodeBehaviour::FailsOnce => &target_indexes,
+                };
+                Ok(Response::VerifiedRecoverySymbols(
+                    batch_recovery_symbols_from_pair(&pair, served, &encoding_config),
+                ))
+            }
+            request => panic!("unexpected request: {request:?}"),
+        });
+    }
+
+    let (committee_lookup, _committee_handle) = lookup_service_pair(committees);
+    let committee_service = NodeCommitteeService::builder()
+        .randomness(rng)
+        .config(CommitteeServiceConfig {
+            sliver_request_timeout: Duration::from_secs(1),
+            ..Default::default()
+        })
+        .build_with_factory(committee_lookup, service_map)
+        .await?;
+
+    let mut recovered = time::timeout(
+        Duration::from_mins(1),
+        committee_service.recover_slivers_batch(
+            metadata.into(),
+            target_pairs.clone(),
+            SliverType::Primary,
+            1,
+        ),
+    )
+    .await
+    .expect("recovery must complete")
+    .expect("slivers must be consistent");
+    recovered.sort_by_key(|(pair_index, _)| *pair_index);
+
+    assert_eq!(recovered, expected);
+
+    // The partial node and the node that failed once must have been asked again for the
+    // targets they did not serve.
+    assert!(n_requests_by_node[2].load(std::sync::atomic::Ordering::SeqCst) >= 2);
+    assert!(n_requests_by_node[3].load(std::sync::atomic::Ordering::SeqCst) >= 2);
+
+    Ok(())
+}
+
+/// Recovers the slivers in several requests per node when the response-size bound only allows a
+/// single target per request.
+#[tokio::test(start_paused = true)]
+async fn recovers_slivers_batch_split_by_response_size() -> TestResult {
+    let rng = StdRng::seed_from_u64(12);
+    let (metadata, sliver_pairs, encoding_config) = encoded_blob_for_batch_recovery(10)?;
+    let n_shards = metadata.n_shards();
+    let blob_id = *metadata.blob_id();
+
+    let target_pairs: Vec<_> = (0..4).map(SliverPairIndex).collect();
+    let expected: Vec<_> = target_pairs
+        .iter()
+        .map(|pair_index| {
+            let pair = &sliver_pairs[usize::from(pair_index.get())];
+            (*pair_index, walrus_core::Sliver::from(pair.primary.clone()))
+        })
+        .collect();
+
+    let (committees, _) = valid_committees(1, ShardAssignment::OneEach);
+    let committee = committees.current_committee();
+
+    let mut service_map = ServiceFactoryMap::default();
+    for pair in sliver_pairs.iter() {
+        let shard_index = pair.index().to_shard_index(n_shards, &blob_id);
+        let node = committee.find_by_shard(shard_index).unwrap();
+        let pair = pair.clone();
+        let encoding_config = encoding_config.clone();
+        service_map.insert_ready(node.public_key.clone(), move |request| match request {
+            Request::ListVerifiedBatchRecoverySymbols { target_indexes, .. } => {
+                assert_eq!(
+                    target_indexes.len(),
+                    1,
+                    "the response-size bound allows a single target per request"
+                );
+                Ok(Response::VerifiedRecoverySymbols(
+                    batch_recovery_symbols_from_pair(&pair, &target_indexes, &encoding_config),
+                ))
+            }
+            request => panic!("unexpected request: {request:?}"),
+        });
+    }
+
+    let (committee_lookup, _committee_handle) = lookup_service_pair(committees);
+    let committee_service = NodeCommitteeService::builder()
+        .randomness(rng)
+        .config(CommitteeServiceConfig {
+            sliver_request_timeout: Duration::from_secs(1),
+            // Smaller than a single symbol with its proof.
+            experimental_batched_sliver_recovery_max_response_bytes: 1,
+            ..Default::default()
+        })
+        .build_with_factory(committee_lookup, service_map)
+        .await?;
+
+    let mut recovered = time::timeout(
+        Duration::from_mins(1),
+        committee_service.recover_slivers_batch(
+            metadata.into(),
+            target_pairs,
+            SliverType::Primary,
+            1,
+        ),
+    )
+    .await
+    .expect("recovery must complete")
+    .expect("slivers must be consistent");
+    recovered.sort_by_key(|(pair_index, _)| *pair_index);
+
+    assert_eq!(recovered, expected);
+
+    Ok(())
 }
 
 #[tokio::test(start_paused = true)]

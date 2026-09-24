@@ -30,13 +30,17 @@ use futures::{
     FutureExt as _,
     StreamExt,
     TryFutureExt as _,
-    stream::{self, FuturesOrdered},
+    stream::{self, FuturesOrdered, FuturesUnordered},
 };
 use itertools::Either;
 use moka::{future::Cache, policy::EvictionPolicy};
 use node_recovery::NodeRecoveryHandler;
 use rand::{Rng, SeedableRng, rngs::StdRng, thread_rng};
-use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
+use recovery_symbol_service::{
+    BatchRecoverySymbolRequest,
+    RecoverySymbolRequest,
+    RecoverySymbolService,
+};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
 pub use storage::{DatabaseConfig, DatabaseTableOptionsFactory, NodeStatus, Storage};
@@ -380,6 +384,19 @@ pub trait ServiceState {
         &self,
         blob_id: &BlobId,
         filter: RecoverySymbolsFilter,
+    ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send;
+
+    /// Retrieves the recovery symbols held by this node for several target slivers of the same
+    /// type.
+    ///
+    /// Each source sliver held by the node is read and expanded at most once for the whole
+    /// request. Shards whose sliver cannot be served are skipped, so the response may be
+    /// partial. Returns an error if no symbol can be retrieved at all.
+    fn retrieve_batch_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        target_type: SliverType,
+        target_indexes: Vec<SliverIndex>,
     ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send;
 
     /// Retrieves multiple decoding symbols.
@@ -3177,11 +3194,12 @@ impl StorageNodeInner {
     }
 
     async fn wait_for_ready_symbol_service(&self) -> RecoverySymbolService {
-        self.symbol_service
-            .clone()
-            .ready_oneshot()
-            .await
-            .expect("polling the symbol_service is infallible")
+        // Readiness is the same for both request types, as both are gated by the thread pool.
+        <RecoverySymbolService as ServiceExt<RecoverySymbolRequest>>::ready_oneshot(
+            self.symbol_service.clone(),
+        )
+        .await
+        .expect("polling the symbol_service is infallible")
     }
 
     fn get_ready_symbol_service(&self) -> Result<RecoverySymbolService, RetrieveSymbolError> {
@@ -3469,6 +3487,16 @@ impl ServiceState for StorageNode {
     ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send {
         self.inner
             .retrieve_multiple_recovery_symbols(blob_id, filter)
+    }
+
+    fn retrieve_batch_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        target_type: SliverType,
+        target_indexes: Vec<SliverIndex>,
+    ) -> impl Future<Output = Result<Vec<GeneralRecoverySymbol>, ListSymbolsError>> + Send {
+        self.inner
+            .retrieve_batch_recovery_symbols(blob_id, target_type, target_indexes)
     }
 
     fn retrieve_multiple_decoding_symbols(
@@ -3944,6 +3972,117 @@ impl ServiceState for StorageNodeInner {
                 // completely invalid symbols. These are ignored unless there are no successes.
                 Err(error) => {
                     tracing::debug!(%error, %symbol_id, "failed to get requested symbol");
+                    last_error = error.into();
+                }
+            }
+        }
+
+        if output.is_empty() {
+            Err(last_error)
+        } else {
+            Ok(output)
+        }
+    }
+
+    #[tracing::instrument(skip_all)]
+    async fn retrieve_batch_recovery_symbols(
+        &self,
+        blob_id: &BlobId,
+        target_type: SliverType,
+        mut target_indexes: Vec<SliverIndex>,
+    ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+        // Begin by fetching a ready worker, as this gates all database reads based
+        // on whether we have capacity to even serve the request.
+        let mut worker = Some(self.get_ready_symbol_service()?);
+
+        target_indexes.sort_unstable();
+        target_indexes.dedup();
+        if target_indexes.is_empty() {
+            return Err(ListSymbolsError::NoTargetSliversSpecified);
+        }
+        for target_index in &target_indexes {
+            self.check_index(*target_index)
+                .map_err(RetrieveSymbolError::from)?;
+        }
+
+        self.validate_blob_access(
+            blob_id,
+            RetrieveSliverError::Forbidden,
+            RetrieveSliverError::Unavailable,
+        )
+        .await
+        .map_err(RetrieveSymbolError::RetrieveSliver)?;
+
+        let encoding_type = self
+            .get_encoding_type_for_blob(blob_id)
+            .await
+            .context("could not retrieve blob encoding type")?
+            .ok_or_else(|| anyhow!("encoding type unavailable for blob {:?}", blob_id))?;
+
+        let n_shards = self.n_shards();
+        let source_type = target_type.orthogonal();
+        let target_indexes: Arc<[SliverIndex]> = target_indexes.into();
+
+        // One task per owned shard: read the source sliver stored at the shard and derive the
+        // symbols for all targets from it.
+        let mut responses = FuturesUnordered::new();
+        for shard in self.owned_shards_at_latest_epoch() {
+            let owned_worker = worker.take();
+            let target_indexes = target_indexes.clone();
+
+            responses.push(async move {
+                let source_pair_index = shard.to_pair_index(n_shards, blob_id);
+
+                // Since we acquired the service above, and began processing this request, wait
+                // for workers for the subsequent shards so that we make an attempt at
+                // processing the entire request.
+                let wait_for_worker = async {
+                    match owned_worker {
+                        Some(worker) => worker,
+                        None => self.wait_for_ready_symbol_service().await,
+                    }
+                };
+
+                let (mut worker, sliver_result) = tokio::join!(
+                    wait_for_worker,
+                    self.retrieve_sliver_unchecked(blob_id, source_pair_index, source_type)
+                );
+
+                let source_sliver = match sliver_result {
+                    Ok(sliver) => sliver,
+                    Err(error) => return (shard, Err(RetrieveSymbolError::from(error))),
+                };
+
+                let request = BatchRecoverySymbolRequest {
+                    blob_id: *blob_id,
+                    source_sliver,
+                    encoding_type,
+                    target_indexes,
+                };
+
+                let result = match worker.call(request).await {
+                    Ok(symbols) => Ok(symbols),
+                    Err(RecoverySymbolError::IndexTooLarge) => {
+                        panic!("index validity must be checked before calling this function")
+                    }
+                    Err(RecoverySymbolError::EncodeError(error)) => {
+                        Err(RetrieveSymbolError::Internal(anyhow!(error)))
+                    }
+                };
+                (shard, result)
+            });
+        }
+
+        let mut output = vec![];
+        let mut last_error = ListSymbolsError::from(RetrieveSymbolError::SymbolNotPresentAtShards);
+
+        while let Some((shard, result)) = responses.next().await {
+            match result {
+                Ok(symbols) => output.extend(symbols),
+                // The sliver may be missing at this shard, or the shard may have moved. These
+                // are skipped so that the symbols of the other shards can still be served.
+                Err(error) => {
+                    tracing::debug!(%error, %shard, "failed to get recovery symbols from shard");
                     last_error = error.into();
                 }
             }
@@ -5252,6 +5391,14 @@ mod tests {
         assignment: &[&[u16]],
         shard_sync_config: Option<ShardSyncConfig>,
     ) -> TestResult<(TestCluster, Sender<ContractEvent>)> {
+        cluster_at_epoch1_without_blobs_with_config(assignment, shard_sync_config, None).await
+    }
+
+    async fn cluster_at_epoch1_without_blobs_with_config(
+        assignment: &[&[u16]],
+        shard_sync_config: Option<ShardSyncConfig>,
+        blob_recovery_config: Option<config::BlobRecoveryConfig>,
+    ) -> TestResult<(TestCluster, Sender<ContractEvent>)> {
         let events = Sender::new(48);
 
         let cluster: TestCluster = {
@@ -5262,6 +5409,9 @@ mod tests {
                 .with_system_event_providers(events.clone());
             if let Some(shard_sync_config) = shard_sync_config {
                 builder = builder.with_shard_sync_config(shard_sync_config);
+            }
+            if let Some(blob_recovery_config) = blob_recovery_config {
+                builder = builder.with_blob_recovery_config(blob_recovery_config);
             }
             builder.build().await?
         };
@@ -5321,7 +5471,21 @@ mod tests {
     where
         F: FnMut(&ShardIndex, SliverType) -> bool,
     {
-        let (cluster, events) = cluster_at_epoch1_without_blobs(assignment, None).await?;
+        cluster_with_partially_stored_blob_with_config(assignment, blob, store_at_shard, None).await
+    }
+
+    async fn cluster_with_partially_stored_blob_with_config<F>(
+        assignment: &[&[u16]],
+        blob: &[u8],
+        store_at_shard: F,
+        blob_recovery_config: Option<config::BlobRecoveryConfig>,
+    ) -> TestResult<(TestCluster, Sender<ContractEvent>, EncodedBlob)>
+    where
+        F: FnMut(&ShardIndex, SliverType) -> bool,
+    {
+        let (cluster, events) =
+            cluster_at_epoch1_without_blobs_with_config(assignment, None, blob_recovery_config)
+                .await?;
 
         let config = cluster.encoding_config();
         let mut blob_details = EncodedBlob::new(blob, config);
@@ -5735,6 +5899,92 @@ mod tests {
                 *blob.assigned_sliver_pair(shard),
                 "invalid sliver pair for {shard}"
             );
+        }
+
+        Ok(())
+    }
+
+    fn batched_blob_recovery_config() -> config::BlobRecoveryConfig {
+        config::BlobRecoveryConfig {
+            experimental_batched_sliver_recovery: true,
+            ..config::BlobRecoveryConfig::default_for_test()
+        }
+    }
+
+    // Recovers all slivers of a multi-shard node with batched sliver recovery. The blob is
+    // stored at no shard of the recovering node and at every shard of the other node.
+    #[tokio::test]
+    async fn batched_recovery_recovers_all_shards_for_multi_shard_node() -> TestResult {
+        walrus_test_utils::init_tracing();
+        let shards: &[&[u16]] = &[&[0, 1, 2], &[3, 4, 5, 6]];
+
+        let (cluster, events, blob) = cluster_with_partially_stored_blob_with_config(
+            shards,
+            BLOB,
+            |shard, _| shard.get() >= 3,
+            Some(batched_blob_recovery_config()),
+        )
+        .await?;
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+        let node_client = cluster.client(0);
+        for shard in ShardIndex::range(0..3) {
+            let synced_sliver_pair =
+                expect_sliver_pair_stored_before_timeout(&blob, node_client, shard, TIMEOUT).await;
+            assert_eq!(
+                synced_sliver_pair,
+                *blob.assigned_sliver_pair(shard),
+                "invalid sliver pair for {shard}"
+            );
+        }
+
+        Ok(())
+    }
+
+    // Recovers only the missing slivers with batched sliver recovery, when some slivers of the
+    // recovering node are already stored and the other nodes hold only a subset of the slivers.
+    #[tokio::test]
+    async fn batched_recovery_recovers_missing_slivers_from_a_small_set() -> TestResult {
+        walrus_test_utils::init_tracing();
+        let shards: &[&[u16]] = &[&[0, 1, 2], &(3..=9).collect::<Vec<_>>()];
+        // The recovering node already has the primary sliver at shard 1 and the secondary
+        // sliver at shard 2.
+        let stored_at_recovering_node = |shard: &ShardIndex, sliver_type: SliverType| {
+            (shard.get() == 1 && sliver_type == SliverType::Primary)
+                || (shard.get() == 2 && sliver_type == SliverType::Secondary)
+        };
+        // The other node holds only the secondary slivers of a few shards, from which every
+        // primary sliver can be recovered; the recovered primaries then serve the secondaries.
+        let store_secondary_at: Vec<_> = ShardIndex::range(3..=9).collect();
+
+        let (cluster, events, blob) = cluster_with_partially_stored_blob_with_config(
+            shards,
+            BLOB,
+            |shard, sliver_type| {
+                stored_at_recovering_node(shard, sliver_type)
+                    || (sliver_type == SliverType::Secondary && store_secondary_at.contains(shard))
+            },
+            Some(batched_blob_recovery_config()),
+        )
+        .await?;
+
+        events.send(BlobCertified::for_testing(*blob.blob_id()).into())?;
+
+        for (node_index, shards) in shards.iter().enumerate() {
+            let node_client = cluster.client(node_index);
+
+            for shard in shards.iter() {
+                let expected = blob.assigned_sliver_pair(shard.into());
+                let synced = expect_sliver_pair_stored_before_timeout(
+                    &blob,
+                    node_client,
+                    shard.into(),
+                    TIMEOUT,
+                )
+                .await;
+
+                assert_eq!(synced, *expected);
+            }
         }
 
         Ok(())
