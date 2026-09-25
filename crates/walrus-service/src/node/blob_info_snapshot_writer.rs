@@ -23,6 +23,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use futures::future::try_join_all;
+use rand::Rng as _;
 use serde::{Deserialize, Serialize};
 #[cfg(msim)]
 use sui_types::base_types::ObjectID;
@@ -37,7 +38,8 @@ use walrus_core::{
     encoding::{EncodingFactory as _, SliverPair},
     metadata::VerifiedBlobMetadataWithId,
 };
-use walrus_sui::client::BlobObjectMetadata;
+use walrus_sui::client::{BlobObjectMetadata, SuiClientError};
+use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use super::{
     StorageNodeInner,
@@ -302,6 +304,15 @@ async fn write_snapshot_file(
     Ok(())
 }
 
+/// Minimum delay before the first background retry of a `certify_snapshot_blob` transaction.
+const CERTIFY_RETRY_MIN_BACKOFF: Duration = Duration::from_secs(1);
+/// Maximum delay between background retries of a `certify_snapshot_blob` transaction.
+const CERTIFY_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(60);
+/// Maximum number of background retries of a `certify_snapshot_blob` transaction. This covers
+/// congestion on the shared system object (every node attests within seconds of the boundary)
+/// and short RPC trouble; a longer outage should show up in the metrics instead.
+const CERTIFY_RETRY_MAX_ATTEMPTS: u32 = 10;
+
 /// Certifies the snapshot on chain, reporting errors through the log and metrics without
 /// failing the epoch change.
 async fn certify_snapshot(
@@ -324,7 +335,7 @@ async fn certify_snapshot(
 }
 
 /// Stores this node's slivers and the blob metadata, then attests the snapshot blob through the
-/// system contract.
+/// system contract. A transient failure of the attestation is retried in the background.
 async fn try_certify_snapshot(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
@@ -392,9 +403,23 @@ async fn try_certify_snapshot(
     let blob_metadata: BlobObjectMetadata = verified_metadata
         .try_into()
         .context("failed to convert the snapshot blob metadata")?;
-    node.contract_service
-        .certify_snapshot_blob(blob_metadata, epoch, node.node_capability())
-        .await?;
+    if let Err(error) = node
+        .contract_service
+        .certify_snapshot_blob(blob_metadata.clone(), epoch, node.node_capability())
+        .await
+    {
+        if !is_transient_certify_error(&error) {
+            return Err(error.into());
+        }
+        tracing::warn!(
+            ?error,
+            walrus.epoch = epoch,
+            walrus.blob_id = %blob_id,
+            "failed to attest the blob info snapshot; retrying in the background"
+        );
+        spawn_certification_retry(node.clone(), epoch, blob_metadata);
+        return Ok(());
+    }
     let certify_elapsed = certify_start.elapsed();
     node.metrics
         .blob_info_snapshot_certify_duration_seconds
@@ -408,6 +433,73 @@ async fn try_certify_snapshot(
         "attested blob info snapshot on chain"
     );
     Ok(())
+}
+
+/// Returns whether a failed `certify_snapshot_blob` transaction is worth retrying: anything but
+/// a contract abort, which does not change within the epoch (the node already attested, the
+/// epoch moved on, or the node is not a committee member).
+fn is_transient_certify_error(error: &SuiClientError) -> bool {
+    !matches!(error, SuiClientError::TransactionExecutionError(_))
+}
+
+/// Retries the attestation of the snapshot of `epoch` in the background with a bounded backoff
+/// after the inline attempt failed transiently, so that the epoch-change handler never sleeps.
+/// The publication record already names the attempt, so a crash of the node loses only the
+/// retry itself; the boundary reconciliation cleans up an attempt that never certifies.
+fn spawn_certification_retry(
+    node: Arc<StorageNodeInner>,
+    epoch: Epoch,
+    blob_metadata: BlobObjectMetadata,
+) {
+    tokio::spawn(async move {
+        let blob_id = blob_metadata.blob_id;
+        let mut backoff = ExponentialBackoff::new_with_seed(
+            CERTIFY_RETRY_MIN_BACKOFF,
+            CERTIFY_RETRY_MAX_BACKOFF,
+            Some(CERTIFY_RETRY_MAX_ATTEMPTS),
+            rand::thread_rng().r#gen(),
+        );
+        while let Some(delay) = backoff.next_delay() {
+            tokio::time::sleep(delay).await;
+            match node
+                .contract_service
+                .certify_snapshot_blob(blob_metadata.clone(), epoch, node.node_capability())
+                .await
+            {
+                Ok(()) => {
+                    tracing::info!(
+                        walrus.epoch = epoch,
+                        walrus.blob_id = %blob_id,
+                        "attested blob info snapshot on chain after retrying"
+                    );
+                    return;
+                }
+                Err(error) if is_transient_certify_error(&error) => tracing::warn!(
+                    ?error,
+                    walrus.epoch = epoch,
+                    walrus.blob_id = %blob_id,
+                    "failed to attest the blob info snapshot; retrying"
+                ),
+                Err(error) => {
+                    node.metrics.blob_info_snapshot_certify_error_total.inc();
+                    tracing::warn!(
+                        ?error,
+                        walrus.epoch = epoch,
+                        walrus.blob_id = %blob_id,
+                        "failed to attest the blob info snapshot"
+                    );
+                    return;
+                }
+            }
+        }
+        node.metrics.blob_info_snapshot_certify_error_total.inc();
+        tracing::warn!(
+            walrus.epoch = epoch,
+            walrus.blob_id = %blob_id,
+            attempts = CERTIFY_RETRY_MAX_ATTEMPTS,
+            "giving up on the blob info snapshot attestation after retrying"
+        );
+    });
 }
 
 /// Reports the epoch of the latest blob info snapshot certified on chain through the
