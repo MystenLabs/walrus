@@ -66,7 +66,7 @@ Control the resulting blob through query parameters on the store call:
 
 The `blobId` the parser returns identifies the data on Walrus, and `endEpoch` tells you when the storage period ends. See [Understanding the response](/docs/http-api/storing-blobs#understanding-the-response) for the full format.
 
-Reading by blob ID returns `application/octet-stream`, so set the media type yourself when you embed a blob in a page. To get stored headers such as `content-type` back, read by Sui object ID instead with `/v1/blobs/by-object-id/<objectId>`. See [Reading Blobs](/docs/http-api/reading-blobs).
+Reading by blob ID returns `application/octet-stream`, so set the media type yourself when you embed a blob in a page. To get stored headers such as `content-type` back, read by Sui object ID instead with `/v1/blobs/by-object-id/{blob_object_id}`. See [Reading Blobs](/docs/http-api/reading-blobs).
 
 :::tip Reading a blob right after upload?
 

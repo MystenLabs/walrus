@@ -52,7 +52,7 @@ The wallet column decides most integrations. A caller that cannot hold SUI and W
 
 An aggregator serves stored blobs over HTTP. It performs no Sui onchain actions and therefore consumes no gas, which makes it the cheapest component to run and the safest to expose publicly.
 
-Read a blob by blob ID at `/v1/blobs/<blobId>`, or by Sui object ID at `/v1/blobs/by-object-id/<objectId>`. Reading by object ID also returns the stored attributes as HTTP headers, so prefer it when the content type matters. See [Reading Blobs](/docs/http-api/reading-blobs).
+Read a blob by blob ID at `/v1/blobs/{blob_id}`, or by Sui object ID at `/v1/blobs/by-object-id/<objectId>`. Reading by object ID also returns the stored attributes as HTTP headers, so prefer it when the content type matters. See [Reading Blobs](/docs/http-api/reading-blobs).
 
 ## Publisher
 
