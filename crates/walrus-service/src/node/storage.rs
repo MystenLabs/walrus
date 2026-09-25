@@ -83,6 +83,9 @@ mod metrics;
 mod pending_recover_blobs;
 pub(crate) use pending_recover_blobs::PendingRecoverBlob;
 use pending_recover_blobs::PendingRecoverBlobsTable;
+mod blob_info_snapshot_publication;
+pub(crate) use blob_info_snapshot_publication::SnapshotPublication;
+use blob_info_snapshot_publication::SnapshotPublicationTable;
 
 mod shard;
 mod sliver_store;
@@ -351,6 +354,7 @@ pub struct Storage {
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
     pending_recover_blobs: PendingRecoverBlobsTable,
+    snapshot_publication: SnapshotPublicationTable,
     garbage_collector_table: DBMap<String, Epoch>,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     db_table_opts_factory: DatabaseTableOptionsFactory,
@@ -451,6 +455,8 @@ impl Storage {
             EventCursorTable::options(&db_table_opts_factory);
         let (pending_recover_blobs_cf_name, pending_recover_blobs_options) =
             PendingRecoverBlobsTable::options(&db_table_opts_factory);
+        let (snapshot_publication_cf_name, snapshot_publication_options) =
+            SnapshotPublicationTable::options(&db_table_opts_factory);
         let garbage_collector_table_cf_name = garbage_collector_table_cf_name();
         let garbage_collector_table_options = db_table_opts_factory.garbage_collector();
 
@@ -462,6 +468,7 @@ impl Storage {
                 (metadata_cf_name, metadata_options),
                 (event_cursor_cf_name, event_cursor_options),
                 (pending_recover_blobs_cf_name, pending_recover_blobs_options),
+                (snapshot_publication_cf_name, snapshot_publication_options),
                 (
                     garbage_collector_table_cf_name,
                     garbage_collector_table_options,
@@ -531,6 +538,7 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
+        let snapshot_publication = SnapshotPublicationTable::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
@@ -562,6 +570,7 @@ impl Storage {
             blob_info,
             event_cursor,
             pending_recover_blobs,
+            snapshot_publication,
             garbage_collector_table,
             shards,
             db_table_opts_factory,
@@ -1165,6 +1174,21 @@ impl Storage {
             return Ok(false);
         }
 
+        // The bytes of the blob info snapshot this node is publishing have no blob-info entry of
+        // their own until the snapshot certifies, so an expired entry for the same blob ID (left
+        // by a registration of the same content by someone else) must not take them down: the
+        // boundary reconciliation owns them while the publication record names them. The record
+        // is read inside the transaction, so a record written concurrently conflicts with this
+        // deletion instead of racing it.
+        if self
+            .snapshot_publication
+            .get_for_update_in_transaction(&transaction)?
+            .is_some_and(|record| record.blob_id() == *blob_id)
+        {
+            tracing::info!("skipping the deletion of the blob data of a live snapshot publication");
+            return Ok(false);
+        }
+
         // At this point we are sure that the blob is no longer registered and can actually delete
         // the data. If the blob is reregistered outside this transaction, the transaction will
         // fail.
@@ -1606,6 +1630,26 @@ impl Storage {
         self.pending_recover_blobs.scan_all()
     }
 
+    /// Returns the current blob info snapshot publication record, if any.
+    pub(crate) fn snapshot_publication(
+        &self,
+    ) -> Result<Option<SnapshotPublication>, TypedStoreError> {
+        self.snapshot_publication.get()
+    }
+
+    /// Sets the current blob info snapshot publication record.
+    pub(crate) fn set_snapshot_publication(
+        &self,
+        record: &SnapshotPublication,
+    ) -> Result<(), TypedStoreError> {
+        self.snapshot_publication.set(record)
+    }
+
+    /// Removes the current blob info snapshot publication record.
+    pub(crate) fn clear_snapshot_publication(&self) -> Result<(), TypedStoreError> {
+        self.snapshot_publication.clear()
+    }
+
     /// Returns the number of pending-recovery records.
     pub(crate) fn pending_recover_blob_count(&self) -> u64 {
         self.pending_recover_blobs.count()
@@ -1842,6 +1886,51 @@ pub(crate) mod tests {
 
         assert!(!storage.has_metadata(blob_id)?);
         assert!(storage.get_metadata(blob_id)?.is_none());
+        Ok(())
+    }
+
+    /// Deleting expired blob data leaves the bytes of a live blob info snapshot publication in
+    /// place, even when an expired blob-info entry names their blob ID (a registration of the
+    /// same content by someone else); once the publication record is gone, they are deleted like
+    /// any other expired data.
+    #[tokio::test]
+    async fn expired_data_deletion_skips_live_snapshot_publication() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        storage.set_node_status(NodeStatus::Active)?;
+        let node_metrics = NodeMetricSet::new(&Registry::default());
+        let metadata = walrus_core::test_utils::verified_blob_metadata();
+        let blob_id = *metadata.blob_id();
+        let shard_storage = storage
+            .shard_storage(SHARD_INDEX)
+            .await
+            .expect("shard storage should exist");
+
+        // An expired entry for the snapshot's blob ID, and the snapshot bytes stored the way the
+        // publication stores them: without a blob-info entry of their own.
+        let registered = BlobRegistered::for_testing(blob_id);
+        let expired_epoch = registered.end_epoch + 1;
+        storage.update_blob_info(0, &registered.into())?;
+        storage.put_verified_metadata_without_blob_info(&metadata)?;
+        shard_storage
+            .put_sliver(blob_id, get_sliver(SliverType::Primary, 1))
+            .await?;
+        storage.set_snapshot_publication(&SnapshotPublication::new(expired_epoch, blob_id))?;
+
+        storage
+            .delete_expired_blob_data(expired_epoch, &node_metrics, 100)
+            .await?;
+        assert!(storage.get_metadata(&blob_id)?.is_some());
+        assert!(shard_storage.is_sliver_stored::<walrus_core::encoding::Primary>(&blob_id)?);
+        assert!(storage.get_blob_info(&blob_id)?.is_some());
+
+        storage.clear_snapshot_publication()?;
+        storage
+            .delete_expired_blob_data(expired_epoch, &node_metrics, 100)
+            .await?;
+        assert!(storage.get_metadata(&blob_id)?.is_none());
+        assert!(!shard_storage.is_sliver_stored::<walrus_core::encoding::Primary>(&blob_id)?);
+
         Ok(())
     }
 
