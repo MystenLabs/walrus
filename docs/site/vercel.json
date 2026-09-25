@@ -41,7 +41,7 @@
       ]
     },
     {
-      "source": "/markdown/(.*)\\.md",
+      "source": "/(.*)\\.md",
       "headers": [
         {
           "key": "Content-Disposition",
@@ -271,7 +271,7 @@
     },
     {
       "source": "/docs/operator-guide/operator-guide.md",
-      "destination": "/markdown/operator-guide/signed-binaries.md"
+      "destination": "/markdown/operator-guide/index.md"
     },
     {
       "source": "/docs/operator-guide/signed-binaries.md",
@@ -283,19 +283,19 @@
     },
     {
       "source": "/docs/operator-guide/storage-node-maintenance.md",
-      "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
+      "destination": "/markdown/operator-guide/storage-nodes/storage-node-maintenance.md"
     },
     {
       "source": "/docs/operator-guide/storage-node-migration.md",
-      "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
+      "destination": "/markdown/operator-guide/storage-nodes/storage-node-migration.md"
     },
     {
       "source": "/docs/operator-guide/storage-node-setup.md",
-      "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
+      "destination": "/markdown/operator-guide/storage-nodes/storage-node-setup.md"
     },
     {
       "source": "/docs/operator-guide/storage-node.md",
-      "destination": "/markdown/operator-guide/storage-nodes/storage-node-faq.md"
+      "destination": "/markdown/operator-guide/storage-nodes/index.md"
     },
     {
       "source": "/docs/operator-guide/upload-relay.md",
@@ -447,7 +447,7 @@
     },
     {
       "source": "/docs/usage/examples.md",
-      "destination": "/markdown/examples/javascript.md"
+      "destination": "/markdown/examples/index.md"
     },
     {
       "source": "/docs/usage/glossary.md",
