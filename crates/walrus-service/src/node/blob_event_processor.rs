@@ -177,6 +177,16 @@ impl BackgroundEventProcessor {
         Ok(())
     }
 
+    /// Returns whether the blob is certified as of the current committee epoch.
+    ///
+    /// The lookup reads the blob-info table, so it runs on a blocking thread.
+    async fn is_blob_certified(&self, blob_id: BlobId) -> anyhow::Result<bool> {
+        let node = self.node.clone();
+        tokio::task::spawn_blocking(move || node.is_blob_certified(&blob_id))
+            .map(unwrap_or_resume_unwind)
+            .await
+    }
+
     /// Processes a blob certified event.
     #[tracing::instrument(skip_all)]
     async fn process_blob_certified_event(
@@ -206,16 +216,12 @@ impl BackgroundEventProcessor {
             }
         );
 
-        let is_certified = {
-            let node = self.node.clone();
-            let blob_id = blob_id;
-            tokio::task::spawn_blocking(move || node.is_blob_certified(&blob_id))
-                .map(unwrap_or_resume_unwind)
-                .await?
-        };
-        if skip_blob_sync_in_test
-            || !is_certified
+        // `node_status` reads a single-key column family, whereas `is_blob_certified` reads the
+        // blob-info table, which is large on a node that is replaying history. Testing the status
+        // first keeps a catching-up node from paying for a read whose result it always discards.
+        let skip_blob_sync = skip_blob_sync_in_test
             || self.node.storage.node_status()?.is_catching_up()
+            || !self.is_blob_certified(blob_id).await?
             || (current_event_epoch.is_some()
                 && self
                     .node
@@ -223,8 +229,9 @@ impl BackgroundEventProcessor {
                         &blob_id,
                         current_event_epoch.expect("just checked that current event epoch is set"),
                     )
-                    .await?)
-        {
+                    .await?);
+
+        if skip_blob_sync {
             event_handle.mark_as_complete();
 
             tracing::debug!(
