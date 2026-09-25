@@ -44,7 +44,6 @@ use super::{
     errors::StoreSliverError,
     storage::{
         SnapshotPublication,
-        SnapshotPublicationState,
         blob_info_snapshot::{SnapshotHeader, SnapshotStats},
     },
 };
@@ -376,9 +375,6 @@ async fn try_certify_snapshot(
         .context("failed to store the snapshot blob metadata")?;
     store_own_slivers(node, verified_metadata, sliver_pairs).await?;
     let store_elapsed = store_start.elapsed();
-    node.storage()
-        .set_snapshot_publication(&record.with_state(SnapshotPublicationState::Stored))
-        .context("failed to record the snapshot publication")?;
     // No-op outside of simtest.
     sui_macros::fail_point_arg!(
         "storage_node_blob_info_snapshot_stored",
@@ -400,9 +396,6 @@ async fn try_certify_snapshot(
         .certify_snapshot_blob(blob_metadata, epoch, node.node_capability())
         .await?;
     let certify_elapsed = certify_start.elapsed();
-    node.storage()
-        .set_snapshot_publication(&record.with_state(SnapshotPublicationState::Attested))
-        .context("failed to record the snapshot publication")?;
     node.metrics
         .blob_info_snapshot_certify_duration_seconds
         .set(certify_elapsed.as_secs_f64());
@@ -559,7 +552,6 @@ pub(super) async fn reconcile_previous_publication(
     tracing::warn!(
         walrus.epoch = epoch,
         walrus.blob_id = %blob_id,
-        state = ?record.state(),
         "the blob info snapshot was not certified; its stored data is cleaned up"
     );
     Ok(())
