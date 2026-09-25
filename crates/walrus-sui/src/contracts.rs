@@ -225,6 +225,8 @@ pub mod system {
     contract_ident!(fn system::invalidate_blob_id);
     contract_ident!(fn system::delete_blob);
     contract_ident!(fn system::certify_event_blob);
+    contract_ident!(fn system::certify_snapshot_blob);
+    contract_ident!(struct system::SnapshotStateKey);
     contract_ident!(fn system::extend_blob);
     contract_ident!(fn system::create_storage_pool);
     contract_ident!(fn system::register_pooled_blob);
