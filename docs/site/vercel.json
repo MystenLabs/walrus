@@ -41,7 +41,7 @@
       ]
     },
     {
-      "source": "/markdown/(.*)\\.md",
+      "source": "/(.*)\\.md",
       "headers": [
         {
           "key": "Content-Disposition",
