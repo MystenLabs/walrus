@@ -84,8 +84,8 @@ mod pending_recover_blobs;
 pub(crate) use pending_recover_blobs::PendingRecoverBlob;
 use pending_recover_blobs::PendingRecoverBlobsTable;
 mod blob_info_snapshot_publication;
+pub(crate) use blob_info_snapshot_publication::SnapshotPublication;
 use blob_info_snapshot_publication::SnapshotPublicationTable;
-pub(crate) use blob_info_snapshot_publication::{SnapshotPublication, SnapshotPublicationState};
 
 mod shard;
 mod sliver_store;
