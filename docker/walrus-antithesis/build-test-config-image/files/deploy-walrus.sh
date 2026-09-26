@@ -35,6 +35,7 @@ RUST_LOG=walrus=debug,info /opt/walrus/bin/walrus-deploy generate-dry-run-config
   --working-dir /opt/walrus/outputs \
   --extra-client-wallets stress,staking \
   --admin-wallet-path /opt/walrus/outputs/sui_admin.yaml \
+  --sliver-store-backend "${SLIVER_STORE_BACKEND:-rocks-db}" \
   --sui-amount 1000000000000 \
   --sui-client-request-timeout 90s \
   || die "Failed to generate dry-run configs"

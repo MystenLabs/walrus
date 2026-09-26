@@ -47,7 +47,7 @@ use super::{
     blob_info::{BlobInfo, BlobInfoIterator, CertifiedBlobInfoApi},
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
-    sliver_store::{ShardSliverStore, SliverStore},
+    sliver_store::{ShardSliverStore, SliverStore, SliverSyncBatch},
 };
 use crate::node::{
     StorageNodeInner,
@@ -361,8 +361,8 @@ impl ShardStorage {
             rw_options
         );
 
-        // Open sliver storage last. For RocksDB, its column families remain the completion marker
-        // used by `existing_cf_shards_ids`.
+        // Open sliver storage last. RocksDB's secondary-sliver column family is its completion
+        // marker; Strata's shard registry is the completion marker for the Strata backend.
         let slivers = sliver_store.open_shard(id, metrics)?;
 
         Ok(Self {
@@ -463,6 +463,21 @@ impl ShardStorage {
                     Some((shard_index, SliverType::Secondary)) => Some(shard_index),
                     Some((_, SliverType::Primary)) | None => None,
                 })
+                .collect()
+        )
+    }
+
+    /// Finds shards with a RocksDB control table, including shards whose Strata registration or
+    /// RocksDB shard creation was interrupted. Strata's registry determines which are active.
+    pub(crate) fn existing_status_cf_shards_ids(
+        path: &Path,
+        options: &Options,
+    ) -> HashSet<ShardIndex> {
+        sui_macros::nondeterministic!(
+            DB::list_cf(options, path)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|cf_name| id_from_status_column_family_name(&cf_name))
                 .collect()
         )
     }
@@ -788,7 +803,7 @@ impl ShardStorage {
                     epoch,
                     next_starting_blob_id,
                 );
-                let mut batch = self.slivers.batch(sliver_type);
+                let mut batch = self.slivers.sync_batch(self.shard_sync_progress.batch());
 
                 walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_progress,
@@ -836,7 +851,8 @@ impl ShardStorage {
 
                 // Record sync progress.
                 last_synced_blob_id = fetched_slivers.last().map(|(id, _)| *id);
-                let use_sst = config.sst_ingestion_config.is_some();
+                let use_sst =
+                    config.sst_ingestion_config.is_some() && self.slivers.supports_sst_ingestion();
                 if use_sst {
                     let sst_file_threshold = config
                         .sst_ingestion_config
@@ -858,10 +874,14 @@ impl ShardStorage {
                         compact_after_sync,
                     )?;
                 } else if let Some(last_synced_blob_id) = last_synced_blob_id {
-                    self.record_last_synced_blob_id(&mut batch, sliver_type, last_synced_blob_id)?;
+                    self.record_last_synced_blob_id(
+                        batch.control(),
+                        sliver_type,
+                        last_synced_blob_id,
+                    )?;
                 }
 
-                batch.write()?;
+                batch.write().await?;
 
                 walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_total,
@@ -914,7 +934,7 @@ impl ShardStorage {
 
     fn handle_sst_progress(
         &self,
-        batch: &mut DBBatch,
+        batch: &mut SliverSyncBatch,
         sliver_type: SliverType,
         last_pushed: Option<BlobId>,
         end_of_range: bool,
@@ -928,7 +948,7 @@ impl ShardStorage {
             compact_after_sync,
         )?;
         if flushed && let Some(id) = last_pushed {
-            self.record_last_synced_blob_id(batch, sliver_type, id)?;
+            self.record_last_synced_blob_id(batch.control(), sliver_type, id)?;
         }
         Ok(())
     }
@@ -952,11 +972,12 @@ impl ShardStorage {
         sliver_type: SliverType,
         mut next_blob_info: NextBlobInfo,
         blob_info_iter: &mut BlobInfoIterator,
-        batch: &mut DBBatch,
+        batch: &mut SliverSyncBatch,
         config: &crate::node::config::ShardSyncConfig,
     ) -> BatchFetchedSliversOutcome {
         let mut cleared_blob_ids = Vec::new();
-        let use_sst = config.sst_ingestion_config.is_some();
+        let use_sst =
+            config.sst_ingestion_config.is_some() && self.slivers.supports_sst_ingestion();
         for (blob_id, sliver) in fetched_slivers.iter() {
             tracing::debug!(
                 walrus.blob_id = %blob_id,
@@ -975,7 +996,7 @@ impl ShardStorage {
                     next_blob_info,
                     *blob_id,
                     sliver_type,
-                    batch,
+                    batch.control(),
                 )?;
                 continue;
             }
@@ -985,7 +1006,7 @@ impl ShardStorage {
                     walrus.blob_id = %blob_id,
                     "fetched sliver failed verification; scheduling the blob for recovery"
                 );
-                batch.insert_batch(
+                batch.control().insert_batch(
                     &self.pending_recover_slivers,
                     [((sliver_type, *blob_id), ())],
                 )?;
@@ -994,7 +1015,7 @@ impl ShardStorage {
                     next_blob_info,
                     *blob_id,
                     sliver_type,
-                    batch,
+                    batch.control(),
                 )?;
                 continue;
             }
@@ -1024,7 +1045,7 @@ impl ShardStorage {
                 next_blob_info,
                 *blob_id,
                 sliver_type,
-                batch,
+                batch.control(),
             )?;
 
             cleared_blob_ids.push(*blob_id);
@@ -1537,13 +1558,16 @@ impl ShardStorage {
 
     /// Deletes the storage for the shard.
     pub fn delete_shard_storage(&self) -> Result<(), TypedStoreError> {
+        self.slivers.drop_shard()?;
         // Drop column families in reverse order of creation in ShardStorage::create_or_reopen.
-        self.database
-            .drop_cf(&self.cf_names.secondary_slivers)
-            .map_err(typed_store_err_from_rocks_err)?;
-        self.database
-            .drop_cf(&self.cf_names.primary_slivers)
-            .map_err(typed_store_err_from_rocks_err)?;
+        if self.slivers.uses_rocksdb_column_families() {
+            self.database
+                .drop_cf(&self.cf_names.secondary_slivers)
+                .map_err(typed_store_err_from_rocks_err)?;
+            self.database
+                .drop_cf(&self.cf_names.primary_slivers)
+                .map_err(typed_store_err_from_rocks_err)?;
+        }
         self.database
             .drop_cf(&self.cf_names.pending_recover_slivers)
             .map_err(typed_store_err_from_rocks_err)?;
@@ -1634,6 +1658,16 @@ fn id_from_column_family_name(name: &str) -> Option<(ShardIndex, SliverType)> {
         };
         Some((ShardIndex(id), sliver_type))
     })
+}
+
+fn id_from_status_column_family_name(name: &str) -> Option<ShardIndex> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"^shard-(\d+)/status$").expect("valid static regex"))
+        .captures(name)
+        .and_then(|captures| {
+            let id = captures.get(1)?.as_str().parse().ok()?;
+            Some(ShardIndex(id))
+        })
 }
 
 #[cfg(msim)]
