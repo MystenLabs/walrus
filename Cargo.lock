@@ -2408,7 +2408,7 @@ dependencies = [
 [[package]]
 name = "core"
 version = "0.1.0"
-source = "git+ssh://git@github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -4079,7 +4079,7 @@ dependencies = [
 [[package]]
 name = "gc"
 version = "0.1.0"
-source = "git+ssh://git@github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
 dependencies = [
  "core",
 ]
@@ -4826,7 +4826,7 @@ checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
 [[package]]
 name = "index"
 version = "0.1.0"
-source = "git+ssh://git@github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
 dependencies = [
  "bcs",
  "core",
@@ -5626,7 +5626,7 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 [[package]]
 name = "lsm"
 version = "0.1.0"
-source = "git+ssh://git@github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
 dependencies = [
  "core",
  "segment",
@@ -9548,7 +9548,7 @@ dependencies = [
 [[package]]
 name = "segment"
 version = "0.1.0"
-source = "git+ssh://git@github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
 dependencies = [
  "core",
  "libc",
@@ -10253,7 +10253,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "store"
 version = "0.1.0"
-source = "git+ssh://git@github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
 dependencies = [
  "core",
  "gc",
@@ -10271,7 +10271,7 @@ dependencies = [
 [[package]]
 name = "strata"
 version = "0.1.0"
-source = "git+ssh://git@github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
 dependencies = [
  "core",
  "store",
