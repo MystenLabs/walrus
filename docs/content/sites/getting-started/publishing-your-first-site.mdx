@@ -139,7 +139,7 @@ New site object ID: 0x617221edd060dafb4070b73160ebf535e1516bf7f246890ed35190eba7
 This output shows the following:
 - For each file in your website's build directory, a new blob is created and uploaded to Walrus. Walrus Sites uses the Walrus Quilt feature to optimize storage of small website files. This means every blob created as part of a Walrus Site has a `QuiltPatchID`. Together, these form a single [quilt](/docs/system-overview/quilt). This is because the `site-builder` stores files on Walrus using quilts, which offers faster upload speeds and lower storage costs, especially when uploading many small files. The tradeoff is that you cannot update a single file within a quilt; if any file changes, the entire quilt must be re-uploaded.
 - A Walrus Site object is created on Sui. Use the printed object ID to view the site's object information through a network explorer. This site object is what you will link to a SuiNS name for sites deployed to Mainnet. The `deploy` command saves the site object ID to the local file `ws-resources.json`.
-- The URL where you can browse the site.
+- The URLs where you can browse the site. Because wal.app only supports sites deployed on Mainnet, a Testnet site is reachable through the printed local portal URL once you self-host a portal.
 
 ## Update the site
 
@@ -192,7 +192,7 @@ Site object ID: 0x4a1be0fb330215c532d74c70d34bc35f185cc7ce025e04b9ad42bc4ac8eda5
 
 ## Using a web framework
 
-If you are building a Walrus Site using a web framework (such as React, Node.js, or Django), ensure
+If you are building a Walrus Site using a web framework (such as Vite, Create React App, Next.js, Vue CLI, or Docusaurus), ensure
 you point the `site-builder` to your site's build output folder when running the `deploy`
 command. `site-builder` should not point to the project root.
 
