@@ -531,8 +531,8 @@ public(package) fun migrate(system: &mut System) {
     system.version = VERSION;
 
     // Create the blob info snapshot certification state introduced in version 4.
-    // TODO: remove this step when upgrading to version 5; the field then already exists on the
-    // migrated objects, and adding it again would abort the migration.
+    // TODO(WAL-1364): remove this step when upgrading to version 5; the field then already
+    // exists on the migrated objects, and adding it again would abort the migration.
     dynamic_field::add(
         &mut system.id,
         SnapshotStateKey(),
