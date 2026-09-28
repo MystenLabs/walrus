@@ -101,7 +101,7 @@ pub mod rpc_client;
 pub mod rpc_config;
 
 pub mod transaction_builder;
-use crate::types::move_structs::EventBlob;
+use crate::types::move_structs::{EventBlob, SnapshotBlob};
 
 pub mod contract_config;
 
@@ -2041,6 +2041,19 @@ impl ReadClient for SuiContractClient {
 
     async fn last_certified_event_blob(&self) -> SuiClientResult<Option<EventBlob>> {
         self.read_client.last_certified_event_blob().await
+    }
+
+    async fn last_certified_snapshot_blob(&self) -> SuiClientResult<Option<SnapshotBlob>> {
+        self.read_client.last_certified_snapshot_blob().await
+    }
+
+    async fn certified_snapshot_blob_for_epoch(
+        &self,
+        epoch: walrus_core::Epoch,
+    ) -> SuiClientResult<Option<SnapshotBlob>> {
+        self.read_client
+            .certified_snapshot_blob_for_epoch(epoch)
+            .await
     }
 
     async fn refresh_package_id(&self) -> SuiClientResult<()> {
