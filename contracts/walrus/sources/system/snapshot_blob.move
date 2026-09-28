@@ -9,7 +9,8 @@
 /// This follows the event blob certification pattern (`event_blob.move`) with one
 /// simplification: there is exactly one snapshot per epoch, so attestations are keyed by epoch
 /// instead of by checkpoint, and no per-capability attestation bookkeeping is needed — a node
-/// may attest at most once per epoch, tracked in this state directly.///
+/// may attest at most once per epoch, tracked in this state directly.
+///
 /// Certified snapshot blobs are stored for the system's `max_epochs_ahead`, the longest a blob
 /// can be stored: a recovering node needs the last certified snapshot to still be stored, so the
 /// lifetime bounds the certification outage the network can recover from, and the cost of the
