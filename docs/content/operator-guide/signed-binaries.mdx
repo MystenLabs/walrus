@@ -191,7 +191,7 @@ curl -sSfL https://docs.walrus.site/walrus-signing.pub -o walrus-signing.pub
 cosign verify --keys walrus-signing.pub mysten/walrus-service:v1.0.0-signed
 ```
 
-You can also verify using the GCP KMS key directly:
+If the output reports no matching signatures, see [No matching signatures error for Docker images](#no-matching-signatures-error-for-docker-images). You can also verify using the GCP KMS key directly:
 
 ```bash
 cosign verify \
