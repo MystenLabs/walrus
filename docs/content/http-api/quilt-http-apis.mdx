@@ -43,7 +43,7 @@ Walrus supports storing and retrieving multiple blobs as a single unit called a 
 
 ## Storing quilts
 
-All query parameters available for [storing regular blobs](#store) can also be used when storing quilts.
+All query parameters available for [storing regular blobs](/docs/http-api/storing-blobs#configuring-storage-options) can also be used when storing quilts.
 
 The following example stores 2 files as a quilt with custom identifiers:
 
@@ -137,7 +137,7 @@ Each blob in a quilt has a unique patch ID. Retrieve a specific blob using its p
 $ curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
 ```
 
-You can obtain quilt patch IDs from the store quilt output or by using the [`list-patches-in-quilt`](/docs/walrus-client/storing-blobs#batch-store) CLI command.
+You can obtain quilt patch IDs from the store quilt output or by using the [`list-patches-in-quilt`](/docs/walrus-client/quilts#read-blobs-from-a-quilt) CLI command.
 
 ### Retrieving by quilt ID and identifier
 
