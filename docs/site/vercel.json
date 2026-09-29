@@ -833,7 +833,7 @@
     },
     {
       "source": "/docs/usage/stake",
-      "destination": "/docs/stake",
+      "destination": "/docs/operator-guide/stake",
       "permanent": true
     },
     {
@@ -938,7 +938,7 @@
     },
     {
       "source": "/docs/walrus-sites/routing",
-      "destination": "/docs/sites/configuration/setting-up-routing-rules",
+      "destination": "/docs/sites/linking/redirects",
       "permanent": true
     },
     {
@@ -1063,7 +1063,7 @@
     },
     {
       "source": "/usage/stake",
-      "destination": "/docs/stake",
+      "destination": "/docs/operator-guide/stake",
       "permanent": true
     },
     {
@@ -1168,7 +1168,7 @@
     },
     {
       "source": "/walrus-sites/routing",
-      "destination": "/docs/sites/configuration/setting-up-routing-rules",
+      "destination": "/docs/sites/linking/redirects",
       "permanent": true
     },
     {
