@@ -87,9 +87,13 @@ use pending_recover_blobs::PendingRecoverBlobsTable;
 mod shard;
 mod sliver_store;
 
+// Queue producers and the worker are connected in later milestones.
+#[allow(dead_code)]
+pub(crate) mod strata_queue;
 pub(crate) use shard::{ShardStatus, ShardStorage};
 use sliver_store::SliverStore;
 pub(crate) use sliver_store::{PrimarySliverData, SecondarySliverData};
+use strata_queue::StrataQueue;
 
 pub(super) const SLIVER_STORE_BACKEND_CF: &str = "sliver_store_backend";
 
@@ -364,6 +368,8 @@ pub struct Storage {
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
     pending_recover_blobs: PendingRecoverBlobsTable,
+    #[allow(dead_code)] // No production producers until the queue protocol is complete.
+    pub(crate) strata_queue: StrataQueue,
     garbage_collector_table: DBMap<String, Epoch>,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     db_table_opts_factory: DatabaseTableOptionsFactory,
@@ -505,6 +511,7 @@ impl Storage {
                 ),
             ])
             .chain(blob_info_column_families)
+            .chain(StrataQueue::options(&db_table_opts_factory))
             .collect::<Vec<_>>();
 
         let database = if db_config.use_optimistic_transaction_db() {
@@ -629,6 +636,7 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
+        let strata_queue = StrataQueue::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
@@ -660,6 +668,7 @@ impl Storage {
             blob_info,
             event_cursor,
             pending_recover_blobs,
+            strata_queue,
             garbage_collector_table,
             shards,
             db_table_opts_factory,
