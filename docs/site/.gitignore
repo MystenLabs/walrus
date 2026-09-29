@@ -13,6 +13,13 @@ src/.generated/*
 ws-resources.json
 .markdown/
 
+# llms.txt is generated from static/markdown by `gen:llms`, which runs as part
+# of `build:prep`. Committing it only produces diff noise and stale copies.
+/static/llms.txt
+/static/llms-full.txt
+/static/walrus-memory/llms.txt
+/static/walrus-memory/llms-full.txt
+
 # Fetched external docs
 /walrus-memory-content
 
