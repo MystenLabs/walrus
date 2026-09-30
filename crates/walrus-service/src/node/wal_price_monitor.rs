@@ -627,20 +627,6 @@ mod tests {
                 let fetcher = <$fetcher_type>::new(metrics.clone(), Duration::from_secs(60));
                 let result = fetcher.fetch().await;
 
-                // Price APIs sometimes block or rate-limit CI runner IPs. Skip in that case
-                // rather than failing on an outage that is outside our control.
-                if let Some(status) = result
-                    .as_ref()
-                    .err()
-                    .and_then(|error| error.downcast_ref::<reqwest::Error>())
-                    .and_then(reqwest::Error::status)
-                    && (status == reqwest::StatusCode::FORBIDDEN
-                        || status == reqwest::StatusCode::TOO_MANY_REQUESTS)
-                {
-                    eprintln!("skipping test: {} returned HTTP {}", $source, status);
-                    return;
-                }
-
                 assert!(
                     result.is_ok(),
                     "Failed to fetch WAL price from {}: {:?}",
