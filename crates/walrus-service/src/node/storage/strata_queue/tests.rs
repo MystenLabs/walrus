@@ -116,12 +116,16 @@ async fn batches_commit_metadata_blob_commands_and_barriers_together() -> TestRe
         assert_eq!(progress.get(&())?, Some(42));
         assert_eq!(last_revision(&storage)?.get(&())?, Some(Revision(2)));
         let snapshot = queue.durable_snapshot()?;
-        let rows = snapshot.blobs()?.collect::<Result<Vec<_>>>()?;
+        let rows = queue
+            .blobs(snapshot.as_ref())?
+            .collect::<Result<Vec<_>>>()?;
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].1.commands()[0].revision, registration);
         assert_eq!(rows[0].1.commands()[0].source, source());
         assert_eq!(
-            snapshot.barriers()?.collect::<Result<Vec<_>>>()?,
+            queue
+                .barriers(snapshot.as_ref())?
+                .collect::<Result<Vec<_>>>()?,
             vec![(
                 Revision(2),
                 EpochBarrier::V1 {
@@ -151,8 +155,18 @@ async fn aborted_batch_discards_all_tables_and_revision_allocation() -> TestResu
         assert_eq!(progress.get(&())?, None);
         assert_eq!(last_revision(&storage)?.get(&())?, None);
         let snapshot = queue.durable_snapshot()?;
-        assert!(snapshot.blobs()?.collect::<Result<Vec<_>>>()?.is_empty());
-        assert!(snapshot.barriers()?.collect::<Result<Vec<_>>>()?.is_empty());
+        assert!(
+            queue
+                .blobs(snapshot.as_ref())?
+                .collect::<Result<Vec<_>>>()?
+                .is_empty()
+        );
+        assert!(
+            queue
+                .barriers(snapshot.as_ref())?
+                .collect::<Result<Vec<_>>>()?
+                .is_empty()
+        );
         assert_eq!(
             queue.write_batch(|w| w.register(b"a", 15, source()))?,
             Revision(1)
@@ -173,9 +187,9 @@ async fn registration_cancels_deletes_without_scanning_and_ack_preserves_newer_w
             w.append(b"a", delete(false), vec![])?;
             w.register(b"a", 15, source())
         })?;
+        let snapshot = queue.durable_snapshot()?;
         let rows = queue
-            .durable_snapshot()?
-            .blobs()?
+            .blobs(snapshot.as_ref())?
             .collect::<Result<Vec<_>>>()?;
         assert_eq!(
             rows[0]
@@ -198,9 +212,9 @@ async fn registration_cancels_deletes_without_scanning_and_ack_preserves_newer_w
         .encode()?;
         cleanup.partial_merge_batch(&map, [(b"a".to_vec(), operand)])?;
         cleanup.write_with_sync(true)?;
+        let snapshot = queue.durable_snapshot()?;
         let rows = queue
-            .durable_snapshot()?
-            .blobs()?
+            .blobs(snapshot.as_ref())?
             .collect::<Result<Vec<_>>>()?;
         assert_eq!(rows[0].1.commands().len(), 1);
         assert_eq!(rows[0].1.commands()[0].revision, Revision(4));
@@ -226,28 +240,36 @@ async fn durable_snapshot_streams_stable_rows_and_epoch_barriers() -> TestResult
             w.register(b"b", 20, source())
         })?;
         let snapshot = queue.durable_snapshot()?;
+        let mut rows = queue.blobs(snapshot.as_ref())?;
+        // The barrier iterator is created later but must use the same captured view.
         queue.write_batch(|w| {
             w.append(b"a", delete(true), vec![])?;
             w.register(b"c", 25, source())?;
             w.advance_epoch(12, source())
         })?;
-        let mut rows = snapshot.blobs()?;
         let a = rows.next().expect("first row exists")?;
         assert_eq!(a.0, b"a");
         assert_eq!(a.1.commands().len(), 1);
         assert_eq!(rows.next().expect("second row exists")?.0, b"b");
         assert!(rows.next().is_none());
         assert_eq!(
-            snapshot
-                .barriers()?
+            queue
+                .barriers(snapshot.as_ref())?
                 .map(|row| row.map(|(revision, _)| revision))
                 .collect::<Result<Vec<_>>>()?,
             vec![Revision(255), Revision(256)]
         );
+        let latest = queue.durable_snapshot()?;
         assert_eq!(
             queue
-                .durable_snapshot()?
-                .blobs()?
+                .blobs(latest.as_ref())?
+                .collect::<Result<Vec<_>>>()?
+                .len(),
+            3
+        );
+        assert_eq!(
+            queue
+                .barriers(latest.as_ref())?
                 .collect::<Result<Vec<_>>>()?
                 .len(),
             3
@@ -278,10 +300,10 @@ async fn concurrent_producers_append_without_lost_operations() -> TestResult {
         }
         Ok::<_, Error>(())
     })?;
-    let rows = storage
-        .strata_queue
-        .durable_snapshot()?
-        .blobs()?
+    let queue = &storage.strata_queue;
+    let snapshot = queue.durable_snapshot()?;
+    let rows = queue
+        .blobs(snapshot.as_ref())?
         .collect::<Result<Vec<_>>>()?;
     assert_eq!(
         rows[0]
@@ -323,8 +345,11 @@ async fn synced_queue_reopens_and_revisions_survive_row_cleanup() -> TestResult 
         })
         .await?;
         let storage = open(dir.path(), optimistic)?;
-        let snapshot = storage.strata_queue.durable_snapshot()?;
-        let rows = snapshot.blobs()?.collect::<Result<Vec<_>>>()?;
+        let queue = &storage.strata_queue;
+        let snapshot = queue.durable_snapshot()?;
+        let rows = queue
+            .blobs(snapshot.as_ref())?
+            .collect::<Result<Vec<_>>>()?;
         assert_eq!(rows.len(), 1);
         assert_eq!(
             rows[0]
@@ -336,7 +361,10 @@ async fn synced_queue_reopens_and_revisions_survive_row_cleanup() -> TestResult 
             vec![Revision(1), Revision(3)]
         );
         assert_eq!(
-            snapshot.barriers()?.collect::<Result<Vec<_>>>()?[0].0,
+            queue
+                .barriers(snapshot.as_ref())?
+                .collect::<Result<Vec<_>>>()?[0]
+                .0,
             Revision(5)
         );
         assert_eq!(
@@ -365,11 +393,11 @@ async fn revision_exhaustion_does_not_commit_metadata() -> TestResult {
             .is_err()
     );
     assert_eq!(progress.get(&())?, None);
+    let queue = &storage.strata_queue;
+    let snapshot = queue.durable_snapshot()?;
     assert!(
-        storage
-            .strata_queue
-            .durable_snapshot()?
-            .blobs()?
+        queue
+            .blobs(snapshot.as_ref())?
             .collect::<Result<Vec<_>>>()?
             .is_empty()
     );
@@ -385,8 +413,14 @@ async fn corrupt_merge_data_is_an_error_instead_of_an_empty_queue() -> TestResul
         let mut batch = map.batch();
         batch.partial_merge_batch(&map, [(b"a".to_vec(), vec![255])])?;
         batch.write()?;
-        let snapshot = storage.strata_queue.durable_snapshot()?;
-        assert!(snapshot.blobs()?.collect::<Result<Vec<_>>>().is_err());
+        let queue = &storage.strata_queue;
+        let snapshot = queue.durable_snapshot()?;
+        assert!(
+            queue
+                .blobs(snapshot.as_ref())?
+                .collect::<Result<Vec<_>>>()
+                .is_err()
+        );
     }
     Ok(())
 }
