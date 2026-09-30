@@ -636,7 +636,7 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
-        let strata_queue = strata_queue::reopen(&database)?;
+        let strata_queue = strata_queue::reopen(&database);
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids

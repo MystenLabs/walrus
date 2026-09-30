@@ -1935,7 +1935,7 @@ dependencies = [
  "typed-store 1.58.0",
  "walrus-sui",
  "walrus-test-utils",
- "walrus-utils 1.58.0",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -2408,7 +2408,7 @@ dependencies = [
 [[package]]
 name = "core"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=0a9de02605ec4b795076a9912f67e7afea0b4355#0a9de02605ec4b795076a9912f67e7afea0b4355"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -4079,7 +4079,7 @@ dependencies = [
 [[package]]
 name = "gc"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=0a9de02605ec4b795076a9912f67e7afea0b4355#0a9de02605ec4b795076a9912f67e7afea0b4355"
 dependencies = [
  "core",
 ]
@@ -4826,16 +4826,17 @@ checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
 [[package]]
 name = "index"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=0a9de02605ec4b795076a9912f67e7afea0b4355#0a9de02605ec4b795076a9912f67e7afea0b4355"
 dependencies = [
- "bcs",
+ "bincode",
  "core",
+ "fdlimit 0.3.0",
  "gc",
  "lsm",
+ "rmp-serde",
  "rocksdb",
  "serde",
  "thiserror 2.0.20",
- "typed-store 1.58.0 (git+https://github.com/MystenLabs/walrus.git?rev=0b21e9f546fc1acb8fc7234e62628743e4b6c10f)",
 ]
 
 [[package]]
@@ -5626,9 +5627,10 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 [[package]]
 name = "lsm"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=0a9de02605ec4b795076a9912f67e7afea0b4355#0a9de02605ec4b795076a9912f67e7afea0b4355"
 dependencies = [
  "core",
+ "libc",
  "segment",
  "serde",
  "sha2 0.10.9",
@@ -9051,6 +9053,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "rmp"
+version = "0.8.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ba8be72d372b2c9b35542551678538b562e7cf86c3315773cae48dfbfe7790c"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
+name = "rmp-serde"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72f81bee8c8ef9b577d1681a70ebbc962c232461e397b22c208c43c04b67a155"
+dependencies = [
+ "rmp",
+ "serde",
+]
+
+[[package]]
 name = "roaring"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9548,7 +9569,7 @@ dependencies = [
 [[package]]
 name = "segment"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=0a9de02605ec4b795076a9912f67e7afea0b4355#0a9de02605ec4b795076a9912f67e7afea0b4355"
 dependencies = [
  "core",
  "libc",
@@ -10253,38 +10274,28 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "store"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=0a9de02605ec4b795076a9912f67e7afea0b4355#0a9de02605ec4b795076a9912f67e7afea0b4355"
 dependencies = [
  "core",
  "gc",
  "index",
  "lsm",
+ "parking_lot 0.12.4",
  "prometheus",
  "segment",
  "sha2 0.10.9",
  "thiserror 2.0.20",
  "tokio",
- "typed-store 1.58.0 (git+https://github.com/MystenLabs/walrus.git?rev=0b21e9f546fc1acb8fc7234e62628743e4b6c10f)",
  "xxhash-rust",
 ]
 
 [[package]]
 name = "strata"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=a481f39366932b117c15c3460068da617eb21206#a481f39366932b117c15c3460068da617eb21206"
+source = "git+https://github.com/MystenLabs/strata.git?rev=0a9de02605ec4b795076a9912f67e7afea0b4355#0a9de02605ec4b795076a9912f67e7afea0b4355"
 dependencies = [
  "core",
  "store",
-]
-
-[[package]]
-name = "strata-queue"
-version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=e5171e855fc73447cab19447aa2661fe345dd691#e5171e855fc73447cab19447aa2661fe345dd691"
-dependencies = [
- "bcs",
- "serde",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -13290,34 +13301,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uint 0.10.0",
- "walrus-utils 1.58.0",
-]
-
-[[package]]
-name = "typed-store"
-version = "1.58.0"
-source = "git+https://github.com/MystenLabs/walrus.git?rev=0b21e9f546fc1acb8fc7234e62628743e4b6c10f#0b21e9f546fc1acb8fc7234e62628743e4b6c10f"
-dependencies = [
- "async-trait",
- "bcs",
- "bincode",
- "collectable",
- "eyre",
- "fdlimit 0.3.0",
- "hdrhistogram",
- "itertools 0.14.0",
- "once_cell",
- "prometheus",
- "rand 0.8.5",
- "rocksdb",
- "serde",
- "sui-macros",
- "sui-simulator",
- "tap",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "walrus-utils 1.58.0 (git+https://github.com/MystenLabs/walrus.git?rev=0b21e9f546fc1acb8fc7234e62628743e4b6c10f)",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -13720,7 +13704,7 @@ dependencies = [
  "walrus-sui",
  "walrus-test-utils",
  "walrus-upload-relay",
- "walrus-utils 1.58.0",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -13749,7 +13733,7 @@ dependencies = [
  "walrus-service",
  "walrus-sui",
  "walrus-test-utils",
- "walrus-utils 1.58.0",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -13778,7 +13762,7 @@ dependencies = [
  "walrus-core",
  "walrus-service",
  "walrus-sui",
- "walrus-utils 1.58.0",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -13833,7 +13817,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "walrus-sui",
- "walrus-utils 1.58.0",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -13877,7 +13861,7 @@ dependencies = [
  "walrus-storage-node-client",
  "walrus-sui",
  "walrus-test-utils",
- "walrus-utils 1.58.0",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -13916,6 +13900,7 @@ dependencies = [
  "http-body-util",
  "http-range-header",
  "humantime",
+ "index",
  "indexmap 2.14.0",
  "indicatif",
  "indoc",
@@ -13959,7 +13944,6 @@ dependencies = [
  "sha2 0.10.9",
  "snap",
  "strata",
- "strata-queue",
  "sui-config",
  "sui-macros",
  "sui-package-resolver",
@@ -13992,7 +13976,7 @@ dependencies = [
  "walrus-storage-node-client",
  "walrus-sui",
  "walrus-test-utils",
- "walrus-utils 1.58.0",
+ "walrus-utils",
  "x509-cert",
  "zstd",
 ]
@@ -14026,7 +14010,7 @@ dependencies = [
  "walrus-stress",
  "walrus-sui",
  "walrus-test-utils",
- "walrus-utils 1.58.0",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -14063,7 +14047,7 @@ dependencies = [
  "utoipa",
  "walrus-core",
  "walrus-test-utils",
- "walrus-utils 1.58.0",
+ "walrus-utils",
  "x509-cert",
 ]
 
@@ -14090,7 +14074,7 @@ dependencies = [
  "walrus-service",
  "walrus-sui",
  "walrus-test-utils",
- "walrus-utils 1.58.0",
+ "walrus-utils",
 ]
 
 [[package]]
@@ -14152,7 +14136,7 @@ dependencies = [
  "walkdir",
  "walrus-core",
  "walrus-test-utils",
- "walrus-utils 1.58.0",
+ "walrus-utils",
  "zstd",
 ]
 
@@ -14235,21 +14219,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "walrus-test-utils",
-]
-
-[[package]]
-name = "walrus-utils"
-version = "1.58.0"
-source = "git+https://github.com/MystenLabs/walrus.git?rev=0b21e9f546fc1acb8fc7234e62628743e4b6c10f#0b21e9f546fc1acb8fc7234e62628743e4b6c10f"
-dependencies = [
- "anyhow",
- "const-str 0.6.4",
- "git-version",
- "humantime",
- "once_cell",
- "serde",
- "serde_yaml 0.9.34+deprecated",
- "tracing",
 ]
 
 [[package]]

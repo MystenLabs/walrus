@@ -3,10 +3,28 @@
 
 use std::{path::Path, time::Duration};
 
-use ::strata_queue::{BlobEdit, BlobOperand, BlobOperation, ShardGeneration};
+use strata_index::{
+    Error,
+    Result,
+    port::{IndexDb, TypedMap, codec::encode_key},
+    queue::{
+        BlobEdit,
+        BlobOperand,
+        BlobOperation,
+        EpochBarrier,
+        LAST_REVISION_CF,
+        PENDING_BLOBS_CF,
+        PendingBatch,
+        PendingBlobOps,
+        ShardGeneration,
+    },
+};
 use sui_types::digests::TransactionDigest;
 use tempfile::TempDir;
-use typed_store::rocks::MetricConf;
+use typed_store::{
+    Map,
+    rocks::{DBMap, MetricConf, ReadWriteOptions},
+};
 use walrus_test_utils::Result as TestResult;
 use walrus_utils::metrics::Registry;
 
@@ -24,31 +42,36 @@ fn open(path: &Path, optimistic: bool) -> anyhow::Result<Storage> {
     Storage::open(path, config, MetricConf::default(), Registry::default())
 }
 
-fn progress(storage: &Storage) -> Result<DBMap<(), u64>> {
-    Ok(DBMap::reopen(
+fn progress(
+    storage: &Storage,
+) -> std::result::Result<DBMap<(), u64>, typed_store::TypedStoreError> {
+    DBMap::reopen(
         &storage.database,
         Some(constants::event_index_cf_name()),
         &ReadWriteOptions::default(),
         false,
-    )?)
+    )
 }
 
-fn last_revision(storage: &Storage) -> Result<DBMap<(), Revision>> {
-    Ok(DBMap::reopen(
-        &storage.database,
-        Some(LAST_REVISION_CF),
-        &ReadWriteOptions::default(),
-        false,
-    )?)
+fn database(storage: &Storage) -> Arc<dyn IndexDb> {
+    Arc::new(database::Database(Arc::clone(&storage.database)))
 }
 
-fn blobs(storage: &Storage) -> Result<DBMap<Vec<u8>, PendingBlobOps>> {
-    Ok(DBMap::reopen(
-        &storage.database,
-        Some(PENDING_BLOBS_CF),
-        &ReadWriteOptions::default(),
-        false,
-    )?)
+fn last_revision(storage: &Storage) -> Result<TypedMap<(), Revision>> {
+    Ok(TypedMap::new(database(storage), LAST_REVISION_CF))
+}
+
+fn blobs(storage: &Storage) -> Result<TypedMap<Vec<u8>, PendingBlobOps>> {
+    Ok(TypedMap::new(database(storage), PENDING_BLOBS_CF))
+}
+
+fn stage_progress(batch: &mut PendingBatch, value: u64) -> Result<()> {
+    // Walrus metadata keeps its existing BCS encoding; the shared batch carries raw bytes.
+    batch.metadata().put(
+        constants::event_index_cf_name(),
+        &encode_key(&())?,
+        &bcs::to_bytes(&value).map_err(|error| Error::Serialization(error.to_string()))?,
+    )
 }
 
 fn source() -> Vec<u8> {
@@ -72,8 +95,8 @@ fn delete(cancellable: bool) -> BlobOperation {
     }
 }
 
-fn aborted() -> QueueError {
-    QueueError::Storage(TypedStoreError::TaskError("abort".into()))
+fn aborted() -> Error {
+    Error::InvalidPendingOperation("abort".into())
 }
 
 #[tokio::test]
@@ -86,19 +109,19 @@ async fn batches_commit_metadata_blob_commands_and_barriers_together() -> TestRe
         let registration = queue.write_batch(|write| {
             let registration = write.register(b"a", 15, source())?;
             write.advance_epoch(10, source())?;
-            write.metadata().insert_batch(&progress, [((), 42)])?;
+            stage_progress(write, 42)?;
             Ok(registration)
         })?;
         assert_eq!(registration, Revision(1));
         assert_eq!(progress.get(&())?, Some(42));
         assert_eq!(last_revision(&storage)?.get(&())?, Some(Revision(2)));
         let snapshot = queue.durable_snapshot()?;
-        let rows = snapshot.blobs(None, 10)?;
+        let rows = snapshot.blobs()?.collect::<Result<Vec<_>>>()?;
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].1.commands()[0].revision, registration);
         assert_eq!(rows[0].1.commands()[0].source, source());
         assert_eq!(
-            snapshot.barriers(None, 10)?,
+            snapshot.barriers()?.collect::<Result<Vec<_>>>()?,
             vec![(
                 Revision(2),
                 EpochBarrier::V1 {
@@ -119,7 +142,7 @@ async fn aborted_batch_discards_all_tables_and_revision_allocation() -> TestResu
         let progress = progress(&storage)?;
         let queue = &storage.strata_queue;
         let result: Result<()> = queue.write_batch(|write| {
-            write.metadata().insert_batch(&progress, [((), 42)])?;
+            stage_progress(write, 42)?;
             write.register(b"a", 15, source())?;
             write.advance_epoch(10, source())?;
             Err(aborted())
@@ -128,8 +151,8 @@ async fn aborted_batch_discards_all_tables_and_revision_allocation() -> TestResu
         assert_eq!(progress.get(&())?, None);
         assert_eq!(last_revision(&storage)?.get(&())?, None);
         let snapshot = queue.durable_snapshot()?;
-        assert!(snapshot.blobs(None, 10)?.is_empty());
-        assert!(snapshot.barriers(None, 10)?.is_empty());
+        assert!(snapshot.blobs()?.collect::<Result<Vec<_>>>()?.is_empty());
+        assert!(snapshot.barriers()?.collect::<Result<Vec<_>>>()?.is_empty());
         assert_eq!(
             queue.write_batch(|w| w.register(b"a", 15, source()))?,
             Revision(1)
@@ -150,7 +173,10 @@ async fn registration_cancels_deletes_without_scanning_and_ack_preserves_newer_w
             w.append(b"a", delete(false), vec![])?;
             w.register(b"a", 15, source())
         })?;
-        let rows = queue.durable_snapshot()?.blobs(None, 10)?;
+        let rows = queue
+            .durable_snapshot()?
+            .blobs()?
+            .collect::<Result<Vec<_>>>()?;
         assert_eq!(
             rows[0]
                 .1
@@ -172,7 +198,10 @@ async fn registration_cancels_deletes_without_scanning_and_ack_preserves_newer_w
         .encode()?;
         cleanup.partial_merge_batch(&map, [(b"a".to_vec(), operand)])?;
         cleanup.write_with_sync(true)?;
-        let rows = queue.durable_snapshot()?.blobs(None, 10)?;
+        let rows = queue
+            .durable_snapshot()?
+            .blobs()?
+            .collect::<Result<Vec<_>>>()?;
         assert_eq!(rows[0].1.commands().len(), 1);
         assert_eq!(rows[0].1.commands()[0].revision, Revision(4));
         assert_eq!(
@@ -184,7 +213,7 @@ async fn registration_cancels_deletes_without_scanning_and_ack_preserves_newer_w
 }
 
 #[tokio::test]
-async fn durable_snapshot_is_stable_and_pages_blobs_and_epoch_barriers() -> TestResult {
+async fn durable_snapshot_streams_stable_rows_and_epoch_barriers() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;
         let storage = open(dir.path(), optimistic)?;
@@ -202,28 +231,27 @@ async fn durable_snapshot_is_stable_and_pages_blobs_and_epoch_barriers() -> Test
             w.register(b"c", 25, source())?;
             w.advance_epoch(12, source())
         })?;
-        let a = snapshot.blobs(None, 1)?;
-        assert_eq!(a.len(), 1);
-        assert_eq!(a[0].0, b"a");
-        assert_eq!(a[0].1.commands().len(), 1);
-        let b = snapshot.blobs(Some(&a[0].0), 10)?;
-        assert_eq!(b.len(), 1);
-        assert_eq!(b[0].0, b"b");
-        assert!(snapshot.blobs(Some(&b[0].0), 1)?.is_empty());
-        assert!(snapshot.blobs(None, 0)?.is_empty());
-        let barriers = snapshot.barriers(None, 1)?;
-        assert_eq!(barriers[0].0, Revision(255));
+        let mut rows = snapshot.blobs()?;
+        let a = rows.next().expect("first row exists")?;
+        assert_eq!(a.0, b"a");
+        assert_eq!(a.1.commands().len(), 1);
+        assert_eq!(rows.next().expect("second row exists")?.0, b"b");
+        assert!(rows.next().is_none());
         assert_eq!(
             snapshot
-                .barriers(Some(Revision(255)), 10)?
-                .iter()
-                .map(|(r, _)| *r)
-                .collect::<Vec<_>>(),
-            vec![Revision(256)]
+                .barriers()?
+                .map(|row| row.map(|(revision, _)| revision))
+                .collect::<Result<Vec<_>>>()?,
+            vec![Revision(255), Revision(256)]
         );
-        assert!(snapshot.barriers(Some(Revision(256)), 10)?.is_empty());
-        assert!(snapshot.barriers(None, 0)?.is_empty());
-        assert_eq!(queue.durable_snapshot()?.blobs(None, 10)?.len(), 3);
+        assert_eq!(
+            queue
+                .durable_snapshot()?
+                .blobs()?
+                .collect::<Result<Vec<_>>>()?
+                .len(),
+            3
+        );
     }
     Ok(())
 }
@@ -248,9 +276,13 @@ async fn concurrent_producers_append_without_lost_operations() -> TestResult {
         for thread in threads {
             thread.join().expect("producer must not panic")?;
         }
-        Ok::<_, QueueError>(())
+        Ok::<_, Error>(())
     })?;
-    let rows = storage.strata_queue.durable_snapshot()?.blobs(None, 10)?;
+    let rows = storage
+        .strata_queue
+        .durable_snapshot()?
+        .blobs()?
+        .collect::<Result<Vec<_>>>()?;
     assert_eq!(
         rows[0]
             .1
@@ -292,7 +324,7 @@ async fn synced_queue_reopens_and_revisions_survive_row_cleanup() -> TestResult 
         .await?;
         let storage = open(dir.path(), optimistic)?;
         let snapshot = storage.strata_queue.durable_snapshot()?;
-        let rows = snapshot.blobs(None, 10)?;
+        let rows = snapshot.blobs()?.collect::<Result<Vec<_>>>()?;
         assert_eq!(rows.len(), 1);
         assert_eq!(
             rows[0]
@@ -303,7 +335,10 @@ async fn synced_queue_reopens_and_revisions_survive_row_cleanup() -> TestResult 
                 .collect::<Vec<_>>(),
             vec![Revision(1), Revision(3)]
         );
-        assert_eq!(snapshot.barriers(None, 10)?[0].0, Revision(5));
+        assert_eq!(
+            snapshot.barriers()?.collect::<Result<Vec<_>>>()?[0].0,
+            Revision(5)
+        );
         assert_eq!(
             storage
                 .strata_queue
@@ -324,7 +359,7 @@ async fn revision_exhaustion_does_not_commit_metadata() -> TestResult {
         storage
             .strata_queue
             .write_batch(|w| {
-                w.metadata().insert_batch(&progress, [((), 42)])?;
+                stage_progress(w, 42)?;
                 w.register(b"a", 15, source())
             })
             .is_err()
@@ -334,7 +369,8 @@ async fn revision_exhaustion_does_not_commit_metadata() -> TestResult {
         storage
             .strata_queue
             .durable_snapshot()?
-            .blobs(None, 10)?
+            .blobs()?
+            .collect::<Result<Vec<_>>>()?
             .is_empty()
     );
     Ok(())
@@ -350,7 +386,7 @@ async fn corrupt_merge_data_is_an_error_instead_of_an_empty_queue() -> TestResul
         batch.partial_merge_batch(&map, [(b"a".to_vec(), vec![255])])?;
         batch.write()?;
         let snapshot = storage.strata_queue.durable_snapshot()?;
-        assert!(snapshot.blobs(None, 10).is_err());
+        assert!(snapshot.blobs()?.collect::<Result<Vec<_>>>().is_err());
     }
     Ok(())
 }

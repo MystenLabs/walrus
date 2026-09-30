@@ -311,15 +311,6 @@ macro_rules! delegate_pair {
 }
 
 impl RocksDB {
-    /// Flush and sync the WAL for all writes visible before this call. Concurrent later writes
-    /// may remain unsynced; consumers that need a durable read view must snapshot before calling.
-    pub fn sync_wal(&self) -> Result<(), rocksdb::Error> {
-        match self {
-            Self::DB(db) => db.underlying.flush_wal(true),
-            Self::OptimisticTransactionDB(db) => db.underlying.flush_wal(true),
-        }
-    }
-
     /// Returns an optimistic-transaction handle if the DB is using the optimistic engine.
     /// This allows invoking transaction APIs only when supported.
     pub fn as_optimistic(&self) -> Option<OptimisticHandle<'_>> {
