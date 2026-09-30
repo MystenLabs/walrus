@@ -75,9 +75,9 @@ pub(crate) const SNAPSHOT_MAGIC: u32 = 0xB10B1F05;
 /// versioned enums that are self-describing per entry; see the module docs.
 pub(crate) const SNAPSHOT_FORMAT_VERSION: u32 = 1;
 
-const SECTION_TAG_PER_OBJECT: u8 = 1;
-const SECTION_TAG_STORAGE_POOL: u8 = 2;
-const SECTION_TAG_PER_OBJECT_POOLED: u8 = 3;
+pub(crate) const SECTION_TAG_PER_OBJECT: u8 = 1;
+pub(crate) const SECTION_TAG_STORAGE_POOL: u8 = 2;
+pub(crate) const SECTION_TAG_PER_OBJECT_POOLED: u8 = 3;
 
 /// Errors occurring during blob info snapshot serialization.
 #[derive(Debug, thiserror::Error)]

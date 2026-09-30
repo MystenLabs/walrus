@@ -5,6 +5,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io::{Cursor, Read},
     path::{Path, PathBuf},
     thread::sleep,
     time::Duration,
@@ -12,7 +13,9 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use bincode::Options;
+use byteorder::{BigEndian, ReadBytesExt};
 use clap::{Subcommand, ValueEnum};
+use integer_encoding::VarIntReader;
 use rocksdb::{
     BottommostLevelCompaction,
     ColumnFamilyDescriptor,
@@ -29,7 +32,7 @@ use rocksdb::{
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
-use typed_store::rocks::be_fix_int_ser;
+use typed_store::{TypedStoreError, rocks::be_fix_int_ser};
 use walrus_core::{
     BlobId,
     Epoch,
@@ -63,11 +66,14 @@ use crate::{
                 BlobInfo,
                 CertifiedBlobInfoApi,
                 PerObjectBlobInfo,
+                PerObjectPooledBlobInfo,
+                StoragePoolInfo,
                 blob_info_cf_options,
                 per_object_blob_info_cf_options,
                 per_object_pooled_blob_info_cf_options,
                 storage_pool_info_cf_options,
             },
+            blob_info_snapshot::{self, SnapshotHeader},
             constants::{
                 aggregate_blob_info_cf_name,
                 event_cursor_cf_name,
@@ -369,6 +375,14 @@ pub enum DbToolCommands {
         #[command(subcommand)]
         command: EventProcessorCommands,
     },
+
+    /// Decode a blob info snapshot file, print its header and per-section entry counts, and
+    /// re-encode it with the node's writer, asserting a byte-identical round-trip.
+    DecodeBlobInfoSnapshot {
+        /// Path to the snapshot file, as written by the node or read back as a blob.
+        #[arg(long)]
+        input: PathBuf,
+    },
 }
 
 /// Commands for reading event blob writer metadata.
@@ -493,6 +507,7 @@ impl DbToolCommands {
             Self::EventProcessor { db_path, command } => match command {
                 EventProcessorCommands::ReadInitState => read_event_processor_init_state(db_path),
             },
+            Self::DecodeBlobInfoSnapshot { input } => decode_blob_info_snapshot(input),
         }
     }
 }
@@ -1927,6 +1942,124 @@ fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// The decoded contents of a blob info snapshot: the header and the three sections' entries.
+type DecodedSnapshot = (
+    SnapshotHeader,
+    Vec<(ObjectID, PerObjectBlobInfo)>,
+    Vec<(ObjectID, PerObjectPooledBlobInfo)>,
+    Vec<(ObjectID, StoragePoolInfo)>,
+);
+
+/// Decodes a blob info snapshot file (the count-prefixed format) into its header and three
+/// sections, mirroring `blob_info_snapshot::write_snapshot`.
+fn read_blob_info_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot> {
+    let mut reader = Cursor::new(bytes);
+    let magic = reader.read_u32::<BigEndian>()?;
+    if magic != blob_info_snapshot::SNAPSHOT_MAGIC {
+        bail!("unexpected magic {magic:#010x}");
+    }
+    let version = reader.read_u32::<BigEndian>()?;
+    if version != blob_info_snapshot::SNAPSHOT_FORMAT_VERSION {
+        bail!("unsupported snapshot version {version}");
+    }
+    let header_len: u64 = reader.read_varint()?;
+    let header_bytes = read_snapshot_bytes(&mut reader, header_len)?;
+    let header: SnapshotHeader =
+        bcs::from_bytes(&header_bytes).context("failed to decode the snapshot header")?;
+
+    let per_object =
+        read_snapshot_section(&mut reader, blob_info_snapshot::SECTION_TAG_PER_OBJECT)?;
+    let pools = read_snapshot_section(&mut reader, blob_info_snapshot::SECTION_TAG_STORAGE_POOL)?;
+    let pooled = read_snapshot_section(
+        &mut reader,
+        blob_info_snapshot::SECTION_TAG_PER_OBJECT_POOLED,
+    )?;
+
+    let position = reader.position();
+    let length = u64::try_from(bytes.len()).expect("snapshot length fits in u64");
+    if position != length {
+        bail!(
+            "{} unexpected trailing bytes after the last section",
+            length - position
+        );
+    }
+    Ok((header, per_object, pooled, pools))
+}
+
+fn read_snapshot_section<V: serde::de::DeserializeOwned>(
+    reader: &mut Cursor<&[u8]>,
+    expected_tag: u8,
+) -> Result<Vec<(ObjectID, V)>> {
+    let tag = reader.read_u8()?;
+    if tag != expected_tag {
+        bail!("expected section tag {expected_tag}, found {tag}");
+    }
+    let count = reader.read_u64::<BigEndian>()?;
+    let mut entries = Vec::with_capacity(usize::try_from(count).expect("count fits in usize"));
+    for _ in 0..count {
+        let key_len: u64 = reader.read_varint()?;
+        let key_bytes = read_snapshot_bytes(reader, key_len)?;
+        let key: ObjectID = bcs::from_bytes(&key_bytes).context("failed to decode an entry key")?;
+        let value_len: u64 = reader.read_varint()?;
+        let value_bytes = read_snapshot_bytes(reader, value_len)?;
+        let value: V = bcs::from_bytes(&value_bytes).context("failed to decode an entry value")?;
+        entries.push((key, value));
+    }
+    Ok(entries)
+}
+
+fn read_snapshot_bytes(reader: &mut Cursor<&[u8]>, len: u64) -> Result<Vec<u8>> {
+    let mut buffer = vec![0u8; usize::try_from(len).expect("length fits in usize")];
+    reader.read_exact(&mut buffer)?;
+    Ok(buffer)
+}
+
+/// Decodes a snapshot file, prints its header and entry counts, re-encodes it with the writer, and
+/// asserts a byte-identical round-trip.
+fn decode_blob_info_snapshot(input: PathBuf) -> Result<()> {
+    let bytes = std::fs::read(&input)
+        .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
+    let (header, per_object, pooled, pools) = read_blob_info_snapshot(&bytes)?;
+    let (per_object_count, pooled_count, pools_count) =
+        (per_object.len(), pooled.len(), pools.len());
+
+    let mut cursor = Cursor::new(Vec::with_capacity(bytes.len()));
+    blob_info_snapshot::write_snapshot(
+        &mut cursor,
+        &header,
+        per_object.into_iter().map(Ok::<_, TypedStoreError>),
+        pooled.into_iter().map(Ok::<_, TypedStoreError>),
+        pools.into_iter().map(Ok::<_, TypedStoreError>),
+    )?;
+    let reencoded = cursor.into_inner();
+
+    let event_id = header.event_cursor.event_id();
+    println!("Blob info snapshot ({})", input.display());
+    println!("  epoch in header:  {}", header.epoch);
+    println!(
+        "  event cursor:     tx {} seq {}, next event index {}",
+        event_id.tx_digest,
+        event_id.event_seq,
+        header.event_cursor.next_event_index()
+    );
+    println!(
+        "  decoded entries:  per_object {per_object_count}, pooled {pooled_count}, \
+        pool {pools_count}"
+    );
+    println!("  input size:       {} bytes", bytes.len());
+    println!("  re-encoded size:  {} bytes", reencoded.len());
+    if reencoded == bytes {
+        println!("  ROUND-TRIP OK: decode -> re-encode is byte-identical");
+        Ok(())
+    } else {
+        bail!(
+            "round-trip mismatch: re-encoded {} bytes differ from input {} bytes",
+            reencoded.len(),
+            bytes.len()
+        )
+    }
 }
 
 #[cfg(test)]
