@@ -12,7 +12,6 @@ use strata_index::{
         BlobOperand,
         BlobOperation,
         EpochBarrier,
-        LAST_REVISION_CF,
         PENDING_BLOBS_CF,
         PendingBatch,
         PendingBlobOps,
@@ -57,10 +56,6 @@ fn database(storage: &Storage) -> Arc<dyn IndexDb> {
     Arc::new(database::Database(Arc::clone(&storage.database)))
 }
 
-fn last_revision(storage: &Storage) -> Result<TypedMap<(), Revision>> {
-    Ok(TypedMap::new(database(storage), LAST_REVISION_CF))
-}
-
 fn blobs(storage: &Storage) -> Result<TypedMap<Vec<u8>, PendingBlobOps>> {
     Ok(TypedMap::new(database(storage), PENDING_BLOBS_CF))
 }
@@ -74,9 +69,9 @@ fn stage_progress(batch: &mut PendingBatch, value: u64) -> Result<()> {
     )
 }
 
-fn source() -> Vec<u8> {
+fn source(event_index: u64) -> Vec<u8> {
     bcs::to_bytes(&StrataSourceEvent {
-        event_index: 42,
+        event_index,
         event_id: EventID {
             tx_digest: TransactionDigest::new([7; 32]),
             event_seq: 3,
@@ -106,31 +101,31 @@ async fn batches_commit_metadata_blob_commands_and_barriers_together() -> TestRe
         let storage = open(dir.path(), optimistic)?;
         let progress = progress(&storage)?;
         let queue = &storage.strata_queue;
-        let registration = queue.write_batch(|write| {
-            let registration = write.register(b"a", 15, source())?;
-            write.advance_epoch(10, source())?;
-            stage_progress(write, 42)?;
-            Ok(registration)
+        queue.write_batch(|write| {
+            write.register(b"a", 42, 15, source(42))?;
+            write.register(b"b", 42, 15, source(42))?;
+            write.advance_epoch(43, 10, source(43))?;
+            stage_progress(write, 43)
         })?;
-        assert_eq!(registration, Revision(1));
-        assert_eq!(progress.get(&())?, Some(42));
-        assert_eq!(last_revision(&storage)?.get(&())?, Some(Revision(2)));
+        assert_eq!(progress.get(&())?, Some(43));
         let snapshot = queue.durable_snapshot()?;
         let rows = queue
             .blobs(snapshot.as_ref())?
             .collect::<Result<Vec<_>>>()?;
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].1.commands()[0].revision, registration);
-        assert_eq!(rows[0].1.commands()[0].source, source());
+        assert_eq!(rows.len(), 2);
+        for (_, row) in rows {
+            assert_eq!(row.commands()[0].event_index, 42);
+            assert_eq!(row.commands()[0].source, source(42));
+        }
         assert_eq!(
             queue
                 .barriers(snapshot.as_ref())?
                 .collect::<Result<Vec<_>>>()?,
             vec![(
-                Revision(2),
+                43,
                 EpochBarrier::V1 {
                     epoch: 10,
-                    source: source()
+                    source: source(43)
                 }
             )]
         );
@@ -139,21 +134,20 @@ async fn batches_commit_metadata_blob_commands_and_barriers_together() -> TestRe
 }
 
 #[tokio::test]
-async fn aborted_batch_discards_all_tables_and_revision_allocation() -> TestResult {
+async fn aborted_batch_discards_metadata_and_pending_events() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;
         let storage = open(dir.path(), optimistic)?;
         let progress = progress(&storage)?;
         let queue = &storage.strata_queue;
         let result: Result<()> = queue.write_batch(|write| {
-            stage_progress(write, 42)?;
-            write.register(b"a", 15, source())?;
-            write.advance_epoch(10, source())?;
+            stage_progress(write, 1)?;
+            write.register(b"a", 0, 15, source(0))?;
+            write.advance_epoch(1, 10, source(1))?;
             Err(aborted())
         });
         assert!(result.is_err());
         assert_eq!(progress.get(&())?, None);
-        assert_eq!(last_revision(&storage)?.get(&())?, None);
         let snapshot = queue.durable_snapshot()?;
         assert!(
             queue
@@ -167,9 +161,21 @@ async fn aborted_batch_discards_all_tables_and_revision_allocation() -> TestResu
                 .collect::<Result<Vec<_>>>()?
                 .is_empty()
         );
+        queue.write_batch(|w| {
+            w.register(b"a", 0, 15, source(0))?;
+            stage_progress(w, 0)
+        })?;
+        assert_eq!(progress.get(&())?, Some(0));
+        let snapshot = queue.durable_snapshot()?;
         assert_eq!(
-            queue.write_batch(|w| w.register(b"a", 15, source()))?,
-            Revision(1)
+            queue
+                .blobs(snapshot.as_ref())?
+                .next()
+                .expect("row exists")?
+                .1
+                .commands()[0]
+                .event_index,
+            0
         );
     }
     Ok(())
@@ -183,9 +189,9 @@ async fn registration_cancels_deletes_without_scanning_and_ack_preserves_newer_w
         let storage = open(dir.path(), optimistic)?;
         let queue = &storage.strata_queue;
         queue.write_batch(|w| {
-            w.append(b"a", delete(true), vec![])?;
-            w.append(b"a", delete(false), vec![])?;
-            w.register(b"a", 15, source())
+            w.append(b"a", 10, delete(true), source(10))?;
+            w.append(b"a", 20, delete(false), source(20))?;
+            w.register(b"a", 30, 15, source(30))
         })?;
         let snapshot = queue.durable_snapshot()?;
         let rows = queue
@@ -196,18 +202,23 @@ async fn registration_cancels_deletes_without_scanning_and_ack_preserves_newer_w
                 .1
                 .commands()
                 .iter()
-                .map(|c| c.revision)
+                .map(|c| c.event_index)
                 .collect::<Vec<_>>(),
-            vec![Revision(2), Revision(3)]
+            vec![20, 30]
         );
-        // Worker captured through revision 3. A new command arrives before its acknowledgement.
+        // Worker captured through event 30. Event 40 arrives before its acknowledgement.
         queue.write_batch(|w| {
-            w.append(b"a", BlobOperation::SetLifetime { end_epoch: 20 }, source())
+            w.append(
+                b"a",
+                40,
+                BlobOperation::SetLifetime { end_epoch: 20 },
+                source(40),
+            )
         })?;
         let map = blobs(&storage)?;
         let mut cleanup = map.batch();
         let operand = BlobOperand::V1(BlobEdit::Acknowledge {
-            through: Revision(3),
+            through_event_index: 30,
         })
         .encode()?;
         cleanup.partial_merge_batch(&map, [(b"a".to_vec(), operand)])?;
@@ -217,7 +228,7 @@ async fn registration_cancels_deletes_without_scanning_and_ack_preserves_newer_w
             .blobs(snapshot.as_ref())?
             .collect::<Result<Vec<_>>>()?;
         assert_eq!(rows[0].1.commands().len(), 1);
-        assert_eq!(rows[0].1.commands()[0].revision, Revision(4));
+        assert_eq!(rows[0].1.commands()[0].event_index, 40);
         assert_eq!(
             rows[0].1.commands()[0].operation,
             BlobOperation::SetLifetime { end_epoch: 20 }
@@ -232,20 +243,19 @@ async fn durable_snapshot_streams_stable_rows_and_epoch_barriers() -> TestResult
         let dir = TempDir::new()?;
         let storage = open(dir.path(), optimistic)?;
         let queue = &storage.strata_queue;
-        last_revision(&storage)?.insert(&(), &Revision(253))?;
         queue.write_batch(|w| {
-            w.register(b"a", 15, source())?;
-            w.advance_epoch(10, source())?;
-            w.advance_epoch(11, source())?;
-            w.register(b"b", 20, source())
+            w.register(b"a", 254, 15, source(254))?;
+            w.advance_epoch(255, 10, source(255))?;
+            w.advance_epoch(256, 11, source(256))?;
+            w.register(b"b", 257, 20, source(257))
         })?;
         let snapshot = queue.durable_snapshot()?;
         let mut rows = queue.blobs(snapshot.as_ref())?;
         // The barrier iterator is created later but must use the same captured view.
         queue.write_batch(|w| {
-            w.append(b"a", delete(true), vec![])?;
-            w.register(b"c", 25, source())?;
-            w.advance_epoch(12, source())
+            w.append(b"a", 258, delete(true), source(258))?;
+            w.register(b"c", 259, 25, source(259))?;
+            w.advance_epoch(260, 12, source(260))
         })?;
         let a = rows.next().expect("first row exists")?;
         assert_eq!(a.0, b"a");
@@ -255,9 +265,9 @@ async fn durable_snapshot_streams_stable_rows_and_epoch_barriers() -> TestResult
         assert_eq!(
             queue
                 .barriers(snapshot.as_ref())?
-                .map(|row| row.map(|(revision, _)| revision))
+                .map(|row| row.map(|(event_index, _)| event_index))
                 .collect::<Result<Vec<_>>>()?,
-            vec![Revision(255), Revision(256)]
+            vec![255, 256]
         );
         let latest = queue.durable_snapshot()?;
         assert_eq!(
@@ -279,17 +289,23 @@ async fn durable_snapshot_streams_stable_rows_and_epoch_barriers() -> TestResult
 }
 
 #[tokio::test]
-async fn concurrent_producers_append_without_lost_operations() -> TestResult {
+async fn concurrent_blobs_preserve_caller_event_order() -> TestResult {
     let dir = TempDir::new()?;
     let storage = open(dir.path(), true)?;
     std::thread::scope(|scope| {
         let mut threads = Vec::new();
-        for _ in 0..4 {
+        for blob in 0u8..4 {
             let queue = storage.strata_queue.clone();
             threads.push(scope.spawn(move || -> Result<()> {
-                for _ in 0..16 {
+                // Each blob receives the same event stream; scheduling across blobs is independent.
+                for event_index in 0..16 {
                     queue.write_batch(|w| {
-                        w.append(b"a", BlobOperation::SetLifetime { end_epoch: 20 }, vec![])
+                        w.append(
+                            &[blob],
+                            event_index,
+                            BlobOperation::SetLifetime { end_epoch: 20 },
+                            source(event_index),
+                        )
                     })?;
                 }
                 Ok(())
@@ -305,31 +321,32 @@ async fn concurrent_producers_append_without_lost_operations() -> TestResult {
     let rows = queue
         .blobs(snapshot.as_ref())?
         .collect::<Result<Vec<_>>>()?;
-    assert_eq!(
-        rows[0]
-            .1
-            .commands()
-            .iter()
-            .map(|c| c.revision.0)
-            .collect::<Vec<_>>(),
-        (1..=64).collect::<Vec<_>>()
-    );
+    assert_eq!(rows.len(), 4);
+    for (_, row) in rows {
+        assert_eq!(
+            row.commands()
+                .iter()
+                .map(|c| c.event_index)
+                .collect::<Vec<_>>(),
+            (0..16).collect::<Vec<_>>()
+        );
+    }
     Ok(())
 }
 
 #[tokio::test]
-async fn synced_queue_reopens_and_revisions_survive_row_cleanup() -> TestResult {
+async fn caller_event_indexes_survive_reopen_and_row_cleanup() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;
         let storage = open(dir.path(), optimistic)?;
         storage.strata_queue.write_batch(|w| {
-            w.register(b"a", 15, source())?;
-            w.append(b"a", delete(true), vec![])?;
-            w.register(b"a", 20, source())?;
-            w.register(b"b", 20, source())?;
-            w.advance_epoch(10, source())
+            w.register(b"a", 0, 15, source(0))?;
+            w.append(b"a", 7, delete(true), source(7))?;
+            w.register(b"a", 42, 20, source(42))?;
+            w.register(b"b", 42, 20, source(42))?;
+            w.advance_epoch(100, 10, source(100))
         })?;
-        // Model safe row cleanup after completion. The revision allocator is never deleted.
+        // Model safe row cleanup after completion. Subsequent IDs still come from Walrus.
         let map = blobs(&storage)?;
         let mut cleanup = map.batch();
         cleanup.delete_batch(&map, [b"b".to_vec()])?;
@@ -356,51 +373,68 @@ async fn synced_queue_reopens_and_revisions_survive_row_cleanup() -> TestResult 
                 .1
                 .commands()
                 .iter()
-                .map(|c| c.revision)
+                .map(|c| c.event_index)
                 .collect::<Vec<_>>(),
-            vec![Revision(1), Revision(3)]
+            vec![0, 42]
         );
         assert_eq!(
             queue
                 .barriers(snapshot.as_ref())?
                 .collect::<Result<Vec<_>>>()?[0]
                 .0,
-            Revision(5)
+            100
         );
-        assert_eq!(
-            storage
-                .strata_queue
-                .write_batch(|w| w.register(b"b", 25, source()))?,
-            Revision(6)
-        );
+        queue.write_batch(|w| w.register(b"b", 200, 25, source(200)))?;
+        let latest = queue.durable_snapshot()?;
+        let rows = queue.blobs(latest.as_ref())?.collect::<Result<Vec<_>>>()?;
+        assert_eq!(rows[1].1.commands()[0].event_index, 200);
     }
     Ok(())
 }
 
 #[tokio::test]
-async fn revision_exhaustion_does_not_commit_metadata() -> TestResult {
-    let dir = TempDir::new()?;
-    let storage = open(dir.path(), true)?;
-    let progress = progress(&storage)?;
-    last_revision(&storage)?.insert(&(), &Revision(u64::MAX))?;
-    assert!(
-        storage
-            .strata_queue
-            .write_batch(|w| {
-                stage_progress(w, 42)?;
-                w.register(b"a", 15, source())
-            })
-            .is_err()
-    );
-    assert_eq!(progress.get(&())?, None);
-    let queue = &storage.strata_queue;
-    let snapshot = queue.durable_snapshot()?;
-    assert!(
-        queue
+async fn persisted_event_progress_filters_retries_even_after_acknowledgement() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let progress = progress(&storage)?;
+        let queue = &storage.strata_queue;
+        // Model Walrus's ordered event handler, including the replay check before enqueueing.
+        let enqueue = |event_index| -> TestResult {
+            if progress
+                .get(&())?
+                .is_some_and(|handled| handled >= event_index)
+            {
+                return Ok(());
+            }
+            queue.write_batch(|w| {
+                w.register(b"a", event_index, 15, source(event_index))?;
+                stage_progress(w, event_index)
+            })?;
+            Ok(())
+        };
+        enqueue(0)?;
+        assert_eq!(progress.get(&())?, Some(0));
+        let map = blobs(&storage)?;
+        let mut cleanup = map.batch();
+        let operand = BlobOperand::V1(BlobEdit::Acknowledge {
+            through_event_index: 0,
+        })
+        .encode()?;
+        cleanup.partial_merge_batch(&map, [(b"a".to_vec(), operand)])?;
+        cleanup.write_with_sync(true)?;
+        enqueue(0)?;
+        let snapshot = queue.durable_snapshot()?;
+        let rows = queue
             .blobs(snapshot.as_ref())?
-            .collect::<Result<Vec<_>>>()?
-            .is_empty()
-    );
+            .collect::<Result<Vec<_>>>()?;
+        assert!(rows[0].1.commands().is_empty());
+        enqueue(u64::MAX)?;
+        assert_eq!(progress.get(&())?, Some(u64::MAX));
+        let latest = queue.durable_snapshot()?;
+        let rows = queue.blobs(latest.as_ref())?.collect::<Result<Vec<_>>>()?;
+        assert_eq!(rows[0].1.commands()[0].event_index, u64::MAX);
+    }
     Ok(())
 }
 
