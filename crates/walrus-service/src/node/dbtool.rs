@@ -32,13 +32,17 @@ use rocksdb::{
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
-use typed_store::{TypedStoreError, rocks::be_fix_int_ser};
+use typed_store::{
+    TypedStoreError,
+    rocks::{MetricConf, be_fix_int_ser},
+};
 use walrus_core::{
     BlobId,
     Epoch,
     ShardIndex,
     metadata::{BlobMetadata, BlobMetadataApi},
 };
+use walrus_utils::metrics::Registry;
 
 use super::DatabaseTableOptionsFactory;
 use crate::{
@@ -62,6 +66,7 @@ use crate::{
             PendingRecoverBlob,
             PrimarySliverData,
             SecondarySliverData,
+            Storage,
             blob_info::{
                 BlobInfo,
                 CertifiedBlobInfoApi,
@@ -383,6 +388,25 @@ pub enum DbToolCommands {
         #[arg(long)]
         input: PathBuf,
     },
+
+    /// Replace a stopped node's blob info tables with the contents of a blob info snapshot.
+    ///
+    /// Clears and refills `per_object_blob_info`, `per_object_pooled_blob_info`, and
+    /// `storage_pool_info`, rebuilds `aggregate_blob_info` from them, moves the event cursor to the
+    /// snapshot's boundary event, sets the garbage-collection progress to the snapshot's epoch,
+    /// and sets the node status to `RecoveryCatchUp`, all in one atomic write. On its next start,
+    /// the node replays events from the snapshot's epoch boundary and then recovers any missing
+    /// data through the regular recovery path. Metadata, slivers, and the remaining tables are
+    /// not touched; the command refuses to run on a database with a column family it does not
+    /// know. The node must be stopped; back up the database first.
+    LoadBlobInfoSnapshot {
+        /// Path to the node's storage database directory; the database must already exist.
+        #[arg(long)]
+        db_path: PathBuf,
+        /// Path to the snapshot file, as written by the node or read back as a blob.
+        #[arg(long)]
+        input: PathBuf,
+    },
 }
 
 /// Commands for reading event blob writer metadata.
@@ -508,6 +532,9 @@ impl DbToolCommands {
                 EventProcessorCommands::ReadInitState => read_event_processor_init_state(db_path),
             },
             Self::DecodeBlobInfoSnapshot { input } => decode_blob_info_snapshot(input),
+            Self::LoadBlobInfoSnapshot { db_path, input } => {
+                load_blob_info_snapshot(db_path, input)
+            }
         }
     }
 }
@@ -2072,6 +2099,57 @@ fn decode_blob_info_snapshot(input: PathBuf) -> Result<()> {
     }
 }
 
+/// Loads a blob info snapshot file into the database of a stopped node.
+fn load_blob_info_snapshot(db_path: PathBuf, input: PathBuf) -> Result<()> {
+    // `Storage::open` creates a missing database, so check first that the path holds a node's
+    // storage database; otherwise a wrong path would get a new database with the snapshot loaded.
+    let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)
+        .with_context(|| format!("no database found at {}", db_path.display()))?;
+    if !column_families
+        .iter()
+        .any(|name| name == metadata_cf_name())
+    {
+        bail!(
+            "the database at {} is not a storage node database",
+            db_path.display()
+        );
+    }
+    let bytes = std::fs::read(&input)
+        .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
+    let (header, per_object, pooled, pools) = read_blob_info_snapshot(&bytes)?;
+
+    // Opening the storage starts database metrics tasks, which need a runtime.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _runtime_guard = runtime.enter();
+    let storage = Storage::open(
+        &db_path,
+        DatabaseConfig::default(),
+        MetricConf::default(),
+        Registry::default(),
+    )
+    .with_context(|| format!("failed to open the database at {}", db_path.display()))?;
+    let aggregate_count = storage.load_blob_info_snapshot(&header, &per_object, &pooled, &pools)?;
+
+    println!("Loaded blob info snapshot ({})", input.display());
+    println!("  epoch in header:     {}", header.epoch);
+    println!(
+        "  loaded entries:      per_object {}, pooled {}, pool {}",
+        per_object.len(),
+        pooled.len(),
+        pools.len()
+    );
+    println!("  rebuilt aggregate:   {aggregate_count} entries");
+    println!(
+        "  event cursor:        next event index {} (the boundary event)",
+        header.event_cursor.next_event_index().saturating_sub(1)
+    );
+    println!("  gc progress:         epoch {}", header.epoch);
+    println!("  node status:         RecoveryCatchUp");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use clap::{CommandFactory, Parser};
@@ -2350,5 +2428,27 @@ mod tests {
             DbToolArgs::try_parse_from(["db-tool", "recover-db", "--db-path", "/tmp/testdb"])
                 .expect("hidden recover-db command should still parse");
         assert!(matches!(recover.command, DbToolCommands::RecoverDb { .. }));
+    }
+
+    #[test]
+    fn load_blob_info_snapshot_refuses_a_directory_without_a_database() -> Result<()> {
+        let snapshot_directory = tempdir()?;
+        let snapshot = snapshot_directory.path().join("snapshot");
+        blob_info_snapshot::write_snapshot(
+            std::fs::File::create(&snapshot)?,
+            &blob_info_snapshot::SnapshotHeader::new(
+                1,
+                walrus_sui::test_utils::fixed_event_id_for_testing(0),
+                1,
+            ),
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+        )?;
+        let directory = tempdir()?;
+
+        assert!(load_blob_info_snapshot(directory.path().to_path_buf(), snapshot).is_err());
+        assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
+        Ok(())
     }
 }

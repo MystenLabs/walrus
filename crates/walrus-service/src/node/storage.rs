@@ -12,6 +12,7 @@ use std::{
 };
 
 use anyhow::Context;
+use bincode::Options as _;
 use futures::FutureExt as _;
 use itertools::Itertools;
 use rocksdb::{Options, Transaction};
@@ -44,19 +45,28 @@ use self::{
         PerObjectBlobInfoIterator,
         PerObjectPooledBlobInfo,
         PerObjectPooledBlobInfoIterator,
+        StoragePoolInfo,
     },
     blob_info_snapshot::{SnapshotError, SnapshotHeader, SnapshotStats},
     constants::{
+        aggregate_blob_info_cf_name,
+        blob_info_snapshot_publication_cf_name,
+        event_cursor_cf_name,
+        event_index_cf_name,
         garbage_collector_last_completed_epoch_key,
         garbage_collector_last_started_epoch_key,
         garbage_collector_table_cf_name,
         metadata_cf_name,
         node_status_cf_name,
+        pending_recover_blobs_cf_name,
         pending_recover_slivers_column_family_name,
+        per_object_blob_info_cf_name,
+        per_object_pooled_blob_info_cf_name,
         primary_slivers_column_family_name,
         secondary_slivers_column_family_name,
         shard_status_column_family_name,
         shard_sync_progress_column_family_name,
+        storage_pool_info_cf_name,
     },
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
@@ -395,6 +405,28 @@ impl StorageShardLock {
     }
 }
 
+/// Returns whether `name` is one of the per-shard column families, named
+/// `<shard base>-<index>/<table>`.
+fn is_shard_column_family(name: &str) -> bool {
+    let Some(shard_index) = name
+        .split_once('/')
+        .and_then(|(base, _)| base.rsplit_once('-'))
+        .and_then(|(_, index)| index.parse().ok())
+        .map(ShardIndex)
+    else {
+        return false;
+    };
+    [
+        primary_slivers_column_family_name(shard_index),
+        secondary_slivers_column_family_name(shard_index),
+        shard_status_column_family_name(shard_index),
+        shard_sync_progress_column_family_name(shard_index),
+        pending_recover_slivers_column_family_name(shard_index),
+    ]
+    .iter()
+    .any(|shard_table| shard_table == name)
+}
+
 impl Storage {
     /// Opens the storage database located at the specified path, creating the database if absent.
     pub fn open(
@@ -668,6 +700,134 @@ impl Storage {
         writer: W,
     ) -> Result<SnapshotStats, SnapshotError> {
         self.blob_info.write_snapshot(header, writer)
+    }
+
+    /// Loads a blob info snapshot, in one atomic write: replaces the blob info tables with the
+    /// snapshot's contents and the aggregate rebuilt from them, moves the event cursor to the
+    /// snapshot's boundary event, sets the garbage-collection progress to the snapshot's epoch,
+    /// and sets the node status to `RecoveryCatchUp`.
+    ///
+    /// Only while no component that reads or writes the blob info tables or processes events is
+    /// running: offline, or while the node is being constructed. The cursor is placed on the
+    /// snapshot's boundary `EpochChangeStart` event rather than after it, so the node processes
+    /// that event once more; for a snapshot of the current epoch this lets the node leave catch-up
+    /// right away instead of at the next epoch change.
+    ///
+    /// Every column family of the database is handled by name, either rewritten or kept on
+    /// purpose. The load fails without writing anything if the database has a column family it
+    /// does not handle: neither clearing nor keeping is a safe default for a table nobody has
+    /// looked at.
+    ///
+    /// Returns the number of rebuilt aggregate blob info entries.
+    pub(crate) fn load_blob_info_snapshot(
+        &self,
+        header: &SnapshotHeader,
+        per_object: &[(ObjectID, PerObjectBlobInfo)],
+        per_object_pooled: &[(ObjectID, PerObjectPooledBlobInfo)],
+        storage_pools: &[(ObjectID, StoragePoolInfo)],
+    ) -> anyhow::Result<usize> {
+        let boundary_event_index = header
+            .event_cursor
+            .next_event_index()
+            .checked_sub(1)
+            .context("the snapshot cursor must be after the boundary event")?;
+        let aggregate = blob_info::rebuild_aggregate_blob_info(
+            header.epoch,
+            per_object,
+            per_object_pooled,
+            self.stored_metadata_blob_ids()?,
+        )?;
+
+        let mut batch = self.node_status.batch();
+        let mut unhandled = Vec::new();
+        for name in rocksdb::DB::list_cf(&Options::default(), self.database.path())? {
+            match name.as_str() {
+                // The snapshot's tables, and the aggregate rebuilt from them.
+                name if name == per_object_blob_info_cf_name() => self
+                    .blob_info
+                    .schedule_replace_per_object_blob_info(&mut batch, per_object)?,
+                name if name == per_object_pooled_blob_info_cf_name() => self
+                    .blob_info
+                    .schedule_replace_per_object_pooled_blob_info(&mut batch, per_object_pooled)?,
+                name if name == storage_pool_info_cf_name() => self
+                    .blob_info
+                    .schedule_replace_storage_pool_info(&mut batch, storage_pools)?,
+                name if name == aggregate_blob_info_cf_name() => self
+                    .blob_info
+                    .schedule_replace_aggregate_blob_info(&mut batch, &aggregate)?,
+                // Event processing restarts at the boundary event.
+                name if name == event_cursor_cf_name() => {
+                    self.event_cursor.schedule_reposition_event_cursor(
+                        &mut batch,
+                        header.event_cursor.event_id(),
+                        boundary_event_index,
+                    )?
+                }
+                name if name == event_index_cf_name() => self
+                    .blob_info
+                    .schedule_set_latest_handled_event_index(&mut batch, boundary_event_index)?,
+                name if name == node_status_cf_name() => {
+                    batch.insert_batch(&self.node_status, [(&(), &NodeStatus::RecoveryCatchUp)])?;
+                }
+                // Garbage collection is complete through the snapshot's epoch: the snapshot is
+                // taken after the epoch's blob info cleanup, and replaying the boundary event
+                // starts the epoch's collection again. This also keeps an unfinished collection
+                // from a later epoch from restarting at startup against the snapshot's state,
+                // before the events are replayed.
+                name if name == garbage_collector_table_cf_name() => {
+                    batch.insert_batch(
+                        &self.garbage_collector_table,
+                        [
+                            (garbage_collector_last_started_epoch_key(), header.epoch),
+                            (garbage_collector_last_completed_epoch_key(), header.epoch),
+                        ],
+                    )?;
+                }
+                // Kept: the blob data and the shards' sync state.
+                name if name == metadata_cf_name() || is_shard_column_family(name) => (),
+                // Kept: each record is checked against the blob info again before it is acted on.
+                name if name == pending_recover_blobs_cf_name() => (),
+                // Kept: the only reference to the data stored for the node's own snapshot blob,
+                // which the next epoch boundary deletes if that snapshot was not certified.
+                name if name == blob_info_snapshot_publication_cf_name() => (),
+                // Kept: unused, but every RocksDB database has it.
+                rocksdb::DEFAULT_COLUMN_FAMILY_NAME => (),
+                name => unhandled.push(name.to_owned()),
+            }
+        }
+        anyhow::ensure!(
+            unhandled.is_empty(),
+            "the database has column families that loading a blob info snapshot does not handle: \
+            {unhandled:?}"
+        );
+        batch.write()?;
+
+        // The batch does not update the in-memory event sequencer; bring it to the new position so
+        // that this storage can process events right away, as during the startup bootstrap.
+        self.event_cursor
+            .reposition_event_cursor(header.event_cursor.event_id(), boundary_event_index)?;
+
+        Ok(aggregate.len())
+    }
+
+    /// Returns the IDs of all blobs whose metadata this node stores, decoding only the keys of
+    /// the metadata table.
+    fn stored_metadata_blob_ids(&self) -> anyhow::Result<Vec<BlobId>> {
+        // The key encoding of `typed_store`.
+        let key_encoding = bincode::DefaultOptions::new()
+            .with_big_endian()
+            .with_fixint_encoding();
+        let mut iterator = self
+            .database
+            .raw_iterator_cf(&self.metadata.cf()?, rocksdb::ReadOptions::default());
+        iterator.seek_to_first();
+        let mut blob_ids = Vec::new();
+        while let Some(key) = iterator.key() {
+            blob_ids.push(key_encoding.deserialize(key)?);
+            iterator.next();
+        }
+        iterator.status()?;
+        Ok(blob_ids)
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.

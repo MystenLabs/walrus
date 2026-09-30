@@ -10,7 +10,7 @@ mod perm_blob_info;
 mod storage_pool_info;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
     ops::Bound::{self, Unbounded},
     sync::{Arc, Mutex},
@@ -472,6 +472,72 @@ impl BlobInfoTable {
             self.storage_pool_info
                 .safe_iter_with_snapshot(&engine_snapshot)?,
         )
+    }
+
+    /// Adds to `batch` the writes that replace every entry of `per_object_blob_info` with
+    /// `entries`; see [`schedule_replace_all`].
+    pub fn schedule_replace_per_object_blob_info(
+        &self,
+        batch: &mut DBBatch,
+        entries: &[(ObjectID, PerObjectBlobInfo)],
+    ) -> Result<(), TypedStoreError> {
+        schedule_replace_all(
+            batch,
+            &self.per_object_blob_info,
+            entries.iter().map(|(key, value)| (key, value)),
+        )
+    }
+
+    /// Adds to `batch` the writes that replace every entry of `per_object_pooled_blob_info` with
+    /// `entries`; see [`schedule_replace_all`].
+    pub fn schedule_replace_per_object_pooled_blob_info(
+        &self,
+        batch: &mut DBBatch,
+        entries: &[(ObjectID, PerObjectPooledBlobInfo)],
+    ) -> Result<(), TypedStoreError> {
+        schedule_replace_all(
+            batch,
+            &self.per_object_pooled_blob_info,
+            entries.iter().map(|(key, value)| (key, value)),
+        )
+    }
+
+    /// Adds to `batch` the writes that replace every entry of `storage_pool_info` with `entries`;
+    /// see [`schedule_replace_all`].
+    pub fn schedule_replace_storage_pool_info(
+        &self,
+        batch: &mut DBBatch,
+        entries: &[(ObjectID, StoragePoolInfo)],
+    ) -> Result<(), TypedStoreError> {
+        schedule_replace_all(
+            batch,
+            &self.storage_pool_info,
+            entries.iter().map(|(key, value)| (key, value)),
+        )
+    }
+
+    /// Adds to `batch` the writes that replace every entry of `aggregate_blob_info` with
+    /// `entries`; see [`schedule_replace_all`].
+    pub fn schedule_replace_aggregate_blob_info(
+        &self,
+        batch: &mut DBBatch,
+        entries: &BTreeMap<BlobId, BlobInfo>,
+    ) -> Result<(), TypedStoreError> {
+        schedule_replace_all(batch, &self.aggregate_blob_info, entries)
+    }
+
+    /// Adds to `batch` the write that sets `latest_handled_event_index` to `event_index`.
+    pub fn schedule_set_latest_handled_event_index(
+        &self,
+        batch: &mut DBBatch,
+        event_index: u64,
+    ) -> Result<(), TypedStoreError> {
+        let latest_handled_event_index = self
+            .latest_handled_event_index
+            .lock()
+            .expect("mutex should not be poisoned");
+        batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
+        Ok(())
     }
 
     /// Returns an iterator over all entries in the aggregate blob info table within the given
@@ -1275,6 +1341,149 @@ impl BlobInfoTable {
         }
         Ok(())
     }
+}
+
+/// Adds to `batch` a point delete for every existing key of `table`, followed by the inserts of
+/// `entries`. A range delete would not do: reads ignore range tombstones, so the old entries would
+/// stay visible.
+fn schedule_replace_all<'a, K, V>(
+    batch: &mut DBBatch,
+    table: &DBMap<K, V>,
+    entries: impl IntoIterator<Item = (&'a K, &'a V)>,
+) -> Result<(), TypedStoreError>
+where
+    K: Serialize + DeserializeOwned + 'a,
+    V: Serialize + DeserializeOwned + 'a,
+{
+    let keys = table
+        .safe_iter()?
+        .map(|entry| entry.map(|(key, _)| key))
+        .collect::<Result<Vec<_>, _>>()?;
+    batch.delete_batch(table, keys)?;
+    batch.insert_batch(table, entries)?;
+    Ok(())
+}
+
+/// Rebuilds the aggregate blob info entries from the per-object tables of a blob info snapshot
+/// taken at the boundary of `snapshot_epoch`.
+///
+/// Replays through the regular merge logic a registration, and a certification if certified, for
+/// every object registered at `snapshot_epoch` and every pooled blob (certifications in epoch
+/// order, after all registrations), then marks the metadata as stored where `is_metadata_stored`
+/// says so. The counters and the V1 permanent end epochs match event replay. Fields that remember
+/// objects no longer in the tables are best knowledge: `initial_certified_epoch` becomes the
+/// earliest certification among the remaining objects, the `latest_seen_deletable_*` end epochs
+/// the latest remaining ones, and a blob whose pooled references are all gone stays V1. Status
+/// events are the objects' latest events, as a per-object entry keeps no earlier one. Invalidated
+/// blobs are not reconstructed.
+///
+/// `stored_metadata` lists every blob this node holds metadata for. A blob in it without objects
+/// (one whose data garbage collection has not deleted yet, or one the node's own state still
+/// tracked) gets the entry that marking metadata stored creates for an untracked blob: it is not
+/// registered, so the next data deletion removes the blob's data together with the entry. Any
+/// other blob without objects gets no entry.
+pub(super) fn rebuild_aggregate_blob_info(
+    snapshot_epoch: Epoch,
+    per_object: &[(ObjectID, PerObjectBlobInfo)],
+    per_object_pooled: &[(ObjectID, PerObjectPooledBlobInfo)],
+    stored_metadata: impl IntoIterator<Item = BlobId>,
+) -> Result<BTreeMap<BlobId, BlobInfo>, TypedStoreError> {
+    let mut registrations = Vec::new();
+    let mut certifications = Vec::new();
+
+    for (_, PerObjectBlobInfo::V1(object)) in per_object {
+        if !object.is_registered(snapshot_epoch) {
+            continue;
+        }
+        let change_info = BlobStatusChangeInfo {
+            blob_id: object.blob_id,
+            deletable: object.deletable,
+            epoch: object.registered_epoch,
+            end_epoch: object.end_epoch,
+            status_event: object.event,
+        };
+        if let Some(certified_epoch) = object.certified_epoch {
+            certifications.push((
+                certified_epoch,
+                object.blob_id,
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::Certify,
+                    change_info: BlobStatusChangeInfo {
+                        epoch: certified_epoch,
+                        ..change_info.clone()
+                    },
+                },
+            ));
+        }
+        registrations.push((
+            object.blob_id,
+            BlobInfoMergeOperand::ChangeStatus {
+                change_type: BlobStatusChangeType::Register,
+                change_info,
+            },
+        ));
+    }
+
+    for (_, PerObjectPooledBlobInfo::V1(object)) in per_object_pooled {
+        let change_info = PooledBlobChangeInfo {
+            blob_id: object.blob_id,
+            epoch: object.registered_epoch,
+            storage_pool_id: object.storage_pool_id,
+            status_event: object.event,
+        };
+        if let Some(certified_epoch) = object.certified_epoch {
+            certifications.push((
+                certified_epoch,
+                object.blob_id,
+                BlobInfoMergeOperand::PooledBlobChangeStatus {
+                    change_type: BlobStatusChangeType::Certify,
+                    change_info: PooledBlobChangeInfo {
+                        epoch: certified_epoch,
+                        ..change_info.clone()
+                    },
+                },
+            ));
+        }
+        registrations.push((
+            object.blob_id,
+            BlobInfoMergeOperand::PooledBlobChangeStatus {
+                change_type: BlobStatusChangeType::Register,
+                change_info,
+            },
+        ));
+    }
+
+    certifications.sort_by_key(|(certified_epoch, _, _)| *certified_epoch);
+
+    let mut aggregate: BTreeMap<BlobId, BlobInfo> = BTreeMap::new();
+    let operands = registrations.into_iter().chain(
+        certifications
+            .into_iter()
+            .map(|(_, blob_id, operand)| (blob_id, operand)),
+    );
+    for (blob_id, operand) in operands {
+        if let Some(merged) = BlobInfo::merge(aggregate.remove(&blob_id), operand) {
+            aggregate.insert(blob_id, merged);
+        }
+    }
+
+    for blob_id in stored_metadata {
+        let blob_info = match aggregate.remove(&blob_id) {
+            Some(blob_info) => blob_info.merge_with(BlobInfoMergeOperand::MarkMetadataStored(true)),
+            // What `BlobInfoV1::merge_new` creates for `MarkMetadataStored(true)`, without its log
+            // line, which would repeat for every such blob.
+            None => BlobInfo::V1(
+                blob_info_v1::ValidBlobInfoV1 {
+                    is_metadata_stored: true,
+                    ..Default::default()
+                }
+                .into(),
+            ),
+        };
+        aggregate.insert(blob_id, blob_info);
+    }
+
+    Ok(aggregate)
 }
 
 // TODO(#900): Rewrite other tests without relying on blob-info internals.
