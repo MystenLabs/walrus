@@ -17,8 +17,6 @@ const GARBAGE_COLLECTOR_TABLE_COLUMN_FAMILY_NAME: &str = "garbage_collector_last
 const GARBAGE_COLLECTOR_LAST_STARTED_EPOCH_KEY: &str = "started";
 const GARBAGE_COLLECTOR_LAST_COMPLETED_EPOCH_KEY: &str = "completed";
 const PENDING_RECOVER_BLOBS_COLUMN_FAMILY_NAME: &str = "pending_recover_blobs";
-const STRATA_QUEUE_COLUMN_FAMILY_NAME: &str = "strata_queue";
-const STRATA_QUEUE_SEQUENCE_COLUMN_FAMILY_NAME: &str = "strata_queue_sequence";
 
 // Base name for shard-related column families
 const SHARD_BASE_COLUMN_FAMILY_NAME: &str = "shard";
@@ -93,16 +91,6 @@ pub fn garbage_collector_last_completed_epoch_key() -> String {
 /// Returns the name of the pending recover blobs column family.
 pub fn pending_recover_blobs_cf_name() -> &'static str {
     PENDING_RECOVER_BLOBS_COLUMN_FAMILY_NAME
-}
-
-/// Returns the column family for ordered, pending Strata operations.
-pub fn strata_queue_cf_name() -> &'static str {
-    STRATA_QUEUE_COLUMN_FAMILY_NAME
-}
-
-/// Returns the column family containing the last allocated Strata queue sequence.
-pub fn strata_queue_sequence_cf_name() -> &'static str {
-    STRATA_QUEUE_SEQUENCE_COLUMN_FAMILY_NAME
 }
 
 /// Returns the column family name for primary slivers of a shard.

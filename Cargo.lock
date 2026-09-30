@@ -10278,6 +10278,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-queue"
+version = "0.1.0"
+source = "git+https://github.com/MystenLabs/strata.git?rev=e5171e855fc73447cab19447aa2661fe345dd691#e5171e855fc73447cab19447aa2661fe345dd691"
+dependencies = [
+ "bcs",
+ "serde",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "string_cache"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -13949,6 +13959,7 @@ dependencies = [
  "sha2 0.10.9",
  "snap",
  "strata",
+ "strata-queue",
  "sui-config",
  "sui-macros",
  "sui-package-resolver",

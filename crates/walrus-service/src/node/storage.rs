@@ -511,7 +511,7 @@ impl Storage {
                 ),
             ])
             .chain(blob_info_column_families)
-            .chain(StrataQueue::options(&db_table_opts_factory))
+            .chain(strata_queue::options(&db_table_opts_factory))
             .collect::<Vec<_>>();
 
         let database = if db_config.use_optimistic_transaction_db() {
@@ -636,7 +636,7 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
-        let strata_queue = StrataQueue::reopen(&database)?;
+        let strata_queue = strata_queue::reopen(&database)?;
         let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids

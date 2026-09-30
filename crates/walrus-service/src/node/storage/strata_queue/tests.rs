@@ -3,6 +3,7 @@
 
 use std::{path::Path, time::Duration};
 
+use ::strata_queue::{BlobEdit, BlobOperand, BlobOperation, ShardGeneration};
 use sui_types::digests::TransactionDigest;
 use tempfile::TempDir;
 use typed_store::rocks::MetricConf;
@@ -10,194 +11,236 @@ use walrus_test_utils::Result as TestResult;
 use walrus_utils::metrics::Registry;
 
 use super::*;
-use crate::node::storage::{DatabaseConfig, Storage};
+use crate::node::storage::{DatabaseConfig, Storage, constants};
 
 fn open(path: &Path, optimistic: bool) -> anyhow::Result<Storage> {
+    // The metrics accessor initializes a shared registry; serialize its first use in these tests.
+    static METRICS: std::sync::Once = std::sync::Once::new();
+    METRICS.call_once(|| {
+        typed_store::DBMetrics::get();
+    });
     let mut config = DatabaseConfig::default_for_test();
     config.global.use_optimistic_transaction_db = optimistic;
     Storage::open(path, config, MetricConf::default(), Registry::default())
 }
 
-fn event_progress(storage: &Storage) -> Result<DBMap<(), u64>, TypedStoreError> {
-    DBMap::reopen(
+fn progress(storage: &Storage) -> Result<DBMap<(), u64>> {
+    Ok(DBMap::reopen(
         &storage.database,
         Some(constants::event_index_cf_name()),
         &ReadWriteOptions::default(),
         false,
-    )
+    )?)
 }
 
-fn registration() -> StrataQueueEntry {
-    StrataQueueEntry::V1(StrataQueueEntryV1 {
-        source_event: Some(StrataSourceEvent {
-            event_index: 42,
-            event_id: EventID {
-                tx_digest: TransactionDigest::new([7; 32]),
-                event_seq: 3,
-            },
-        }),
-        operation: StrataOperation::RegisterBlob {
-            blob_id: BlobId([9; 32]),
-            end_epoch: 12,
+fn last_revision(storage: &Storage) -> Result<DBMap<(), Revision>> {
+    Ok(DBMap::reopen(
+        &storage.database,
+        Some(LAST_REVISION_CF),
+        &ReadWriteOptions::default(),
+        false,
+    )?)
+}
+
+fn blobs(storage: &Storage) -> Result<DBMap<Vec<u8>, PendingBlobOps>> {
+    Ok(DBMap::reopen(
+        &storage.database,
+        Some(PENDING_BLOBS_CF),
+        &ReadWriteOptions::default(),
+        false,
+    )?)
+}
+
+fn source() -> Vec<u8> {
+    bcs::to_bytes(&StrataSourceEvent {
+        event_index: 42,
+        event_id: EventID {
+            tx_digest: TransactionDigest::new([7; 32]),
+            event_seq: 3,
         },
     })
+    .expect("event serialization succeeds")
 }
 
-fn advance_epoch(epoch: Epoch) -> StrataQueueEntry {
-    StrataQueueEntry::V1(StrataQueueEntryV1 {
-        source_event: None,
-        operation: StrataOperation::AdvanceEpoch { epoch },
-    })
+fn delete(cancellable: bool) -> BlobOperation {
+    BlobOperation::Delete {
+        shards: vec![ShardGeneration {
+            shard: 2,
+            generation: 3,
+        }],
+        cancellable,
+    }
 }
 
-fn aborted() -> TypedStoreError {
-    TypedStoreError::TaskError("abort before commit".to_owned())
-}
-
-fn stage_progress(
-    write: &StrataQueueTransaction<'_>,
-    progress: &DBMap<(), u64>,
-    value: u64,
-) -> Result<(), TypedStoreError> {
-    write
-        .metadata()
-        .put_cf(
-            &progress.cf()?,
-            be_fix_int_ser(&())?,
-            bcs::to_bytes(&value).map_err(typed_store_err_from_bcs_err)?,
-        )
-        .map_err(typed_store_err_from_rocks_err)
+fn aborted() -> QueueError {
+    QueueError::Storage(TypedStoreError::TaskError("abort".into()))
 }
 
 #[tokio::test]
-async fn batch_commits_metadata_and_commands_together_on_both_engines() -> TestResult {
+async fn batches_commit_metadata_blob_commands_and_barriers_together() -> TestResult {
     for optimistic in [false, true] {
-        let directory = TempDir::new()?;
-        let storage = open(directory.path(), optimistic)?;
-        let progress = event_progress(&storage)?;
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let progress = progress(&storage)?;
         let queue = &storage.strata_queue;
-        assert_eq!(queue.last_committed_sequence()?, StrataQueueSequence(0));
-
-        let dependency = queue.write_batch(|write| {
-            let sequence = write.enqueue(&registration())?;
-            write.enqueue(&advance_epoch(10))?;
+        let registration = queue.write_batch(|write| {
+            let registration = write.register(b"a", 15, source())?;
+            write.advance_epoch(10, source())?;
             write.metadata().insert_batch(&progress, [((), 42)])?;
-            Ok(sequence)
+            Ok(registration)
         })?;
-
-        assert_eq!(dependency, StrataQueueSequence(1));
+        assert_eq!(registration, Revision(1));
         assert_eq!(progress.get(&())?, Some(42));
-        assert_eq!(queue.last_committed_sequence()?, StrataQueueSequence(2));
+        assert_eq!(last_revision(&storage)?.get(&())?, Some(Revision(2)));
+        let snapshot = queue.durable_snapshot()?;
+        let rows = snapshot.blobs(None, 10)?;
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1.commands()[0].revision, registration);
+        assert_eq!(rows[0].1.commands()[0].source, source());
         assert_eq!(
-            queue.scan(None, StrataQueueSequence(2), 10)?,
-            vec![
-                (StrataQueueSequence(1), registration()),
-                (StrataQueueSequence(2), advance_epoch(10)),
-            ]
+            snapshot.barriers(None, 10)?,
+            vec![(
+                Revision(2),
+                EpochBarrier::V1 {
+                    epoch: 10,
+                    source: source()
+                }
+            )]
         );
     }
     Ok(())
 }
 
 #[tokio::test]
-async fn aborted_batch_discards_metadata_commands_and_sequence_allocation() -> TestResult {
+async fn aborted_batch_discards_all_tables_and_revision_allocation() -> TestResult {
     for optimistic in [false, true] {
-        let directory = TempDir::new()?;
-        let storage = open(directory.path(), optimistic)?;
-        let progress = event_progress(&storage)?;
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let progress = progress(&storage)?;
         let queue = &storage.strata_queue;
-
-        let result: Result<(), _> = queue.write_batch(|write| {
+        let result: Result<()> = queue.write_batch(|write| {
             write.metadata().insert_batch(&progress, [((), 42)])?;
-            write.enqueue(&registration())?;
+            write.register(b"a", 15, source())?;
+            write.advance_epoch(10, source())?;
             Err(aborted())
         });
-        assert_eq!(result, Err(aborted()));
+        assert!(result.is_err());
         assert_eq!(progress.get(&())?, None);
-        assert_eq!(queue.last_committed_sequence()?, StrataQueueSequence(0));
-        assert!(queue.scan(None, StrataQueueSequence(10), 10)?.is_empty());
+        assert_eq!(last_revision(&storage)?.get(&())?, None);
+        let snapshot = queue.durable_snapshot()?;
+        assert!(snapshot.blobs(None, 10)?.is_empty());
+        assert!(snapshot.barriers(None, 10)?.is_empty());
         assert_eq!(
-            queue.write_batch(|write| write.enqueue(&registration()))?,
-            StrataQueueSequence(1)
+            queue.write_batch(|w| w.register(b"a", 15, source()))?,
+            Revision(1)
         );
     }
     Ok(())
 }
 
 #[tokio::test]
-async fn transaction_abort_and_conflict_do_not_leave_queue_records() -> TestResult {
-    let directory = TempDir::new()?;
-    let storage = open(directory.path(), true)?;
-    let progress = event_progress(&storage)?;
-    let queue = &storage.strata_queue;
-
-    let result: Result<(), _> = queue.write_transaction(|write| {
-        stage_progress(write, &progress, 42)?;
-        write.enqueue(&registration())?;
-        Err(aborted())
-    });
-    assert_eq!(result, Err(aborted()));
-    assert_eq!(progress.get(&())?, None);
-    assert_eq!(queue.last_committed_sequence()?, StrataQueueSequence(0));
-    assert!(queue.scan(None, StrataQueueSequence(10), 10)?.is_empty());
-
-    progress.insert(&(), &10)?;
-    let result = queue.write_transaction(|write| {
-        write
-            .metadata()
-            .get_for_update_cf(&progress.cf()?, be_fix_int_ser(&())?, false)
-            .map_err(typed_store_err_from_rocks_err)?;
-        stage_progress(write, &progress, 42)?;
-        let sequence = write.enqueue(&registration())?;
-        // An independent metadata writer wins after the transaction's read.
-        progress.insert(&(), &11)?;
-        Ok(sequence)
-    });
-    assert_eq!(result, Err(TypedStoreError::RetryableTransactionError));
-    assert_eq!(progress.get(&())?, Some(11));
-    assert_eq!(queue.last_committed_sequence()?, StrataQueueSequence(0));
-    assert!(queue.scan(None, StrataQueueSequence(10), 10)?.is_empty());
-
-    let sequence = queue.write_transaction(|write| {
-        stage_progress(write, &progress, 42)?;
-        write.enqueue(&registration())
-    })?;
-    assert_eq!(sequence, StrataQueueSequence(1));
-    assert_eq!(progress.get(&())?, Some(42));
-    assert_eq!(
-        queue.scan(None, sequence, 10)?,
-        vec![(sequence, registration())]
-    );
+async fn registration_cancels_deletes_without_scanning_and_ack_preserves_newer_work() -> TestResult
+{
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let queue = &storage.strata_queue;
+        queue.write_batch(|w| {
+            w.append(b"a", delete(true), vec![])?;
+            w.append(b"a", delete(false), vec![])?;
+            w.register(b"a", 15, source())
+        })?;
+        let rows = queue.durable_snapshot()?.blobs(None, 10)?;
+        assert_eq!(
+            rows[0]
+                .1
+                .commands()
+                .iter()
+                .map(|c| c.revision)
+                .collect::<Vec<_>>(),
+            vec![Revision(2), Revision(3)]
+        );
+        // Worker captured through revision 3. A new command arrives before its acknowledgement.
+        queue.write_batch(|w| {
+            w.append(b"a", BlobOperation::SetLifetime { end_epoch: 20 }, source())
+        })?;
+        let map = blobs(&storage)?;
+        let mut cleanup = map.batch();
+        let operand = BlobOperand::V1(BlobEdit::Acknowledge {
+            through: Revision(3),
+        })
+        .encode()?;
+        cleanup.partial_merge_batch(&map, [(b"a".to_vec(), operand)])?;
+        cleanup.write_with_sync(true)?;
+        let rows = queue.durable_snapshot()?.blobs(None, 10)?;
+        assert_eq!(rows[0].1.commands().len(), 1);
+        assert_eq!(rows[0].1.commands()[0].revision, Revision(4));
+        assert_eq!(
+            rows[0].1.commands()[0].operation,
+            BlobOperation::SetLifetime { end_epoch: 20 }
+        );
+    }
     Ok(())
 }
 
 #[tokio::test]
-async fn concurrent_batch_and_transaction_producers_share_one_sequence() -> TestResult {
-    let directory = TempDir::new()?;
-    let storage = open(directory.path(), true)?;
-    let progress = event_progress(&storage)?;
+async fn durable_snapshot_is_stable_and_pages_blobs_and_epoch_barriers() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let queue = &storage.strata_queue;
+        last_revision(&storage)?.insert(&(), &Revision(253))?;
+        queue.write_batch(|w| {
+            w.register(b"a", 15, source())?;
+            w.advance_epoch(10, source())?;
+            w.advance_epoch(11, source())?;
+            w.register(b"b", 20, source())
+        })?;
+        let snapshot = queue.durable_snapshot()?;
+        queue.write_batch(|w| {
+            w.append(b"a", delete(true), vec![])?;
+            w.register(b"c", 25, source())?;
+            w.advance_epoch(12, source())
+        })?;
+        let a = snapshot.blobs(None, 1)?;
+        assert_eq!(a.len(), 1);
+        assert_eq!(a[0].0, b"a");
+        assert_eq!(a[0].1.commands().len(), 1);
+        let b = snapshot.blobs(Some(&a[0].0), 10)?;
+        assert_eq!(b.len(), 1);
+        assert_eq!(b[0].0, b"b");
+        assert!(snapshot.blobs(Some(&b[0].0), 1)?.is_empty());
+        assert!(snapshot.blobs(None, 0)?.is_empty());
+        let barriers = snapshot.barriers(None, 1)?;
+        assert_eq!(barriers[0].0, Revision(255));
+        assert_eq!(
+            snapshot
+                .barriers(Some(Revision(255)), 10)?
+                .iter()
+                .map(|(r, _)| *r)
+                .collect::<Vec<_>>(),
+            vec![Revision(256)]
+        );
+        assert!(snapshot.barriers(Some(Revision(256)), 10)?.is_empty());
+        assert!(snapshot.barriers(None, 0)?.is_empty());
+        assert_eq!(queue.durable_snapshot()?.blobs(None, 10)?.len(), 3);
+    }
+    Ok(())
+}
 
+#[tokio::test]
+async fn concurrent_producers_append_without_lost_operations() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), true)?;
     std::thread::scope(|scope| {
         let mut threads = Vec::new();
-        for producer in 0..4 {
+        for _ in 0..4 {
             let queue = storage.strata_queue.clone();
-            let progress = progress.clone();
-            threads.push(scope.spawn(move || -> Result<(), TypedStoreError> {
-                for epoch in 1..=16 {
-                    if producer % 2 == 0 {
-                        queue.write_batch(|write| {
-                            let sequence = write.enqueue(&advance_epoch(epoch))?;
-                            write
-                                .metadata()
-                                .insert_batch(&progress, [((), sequence.0)])?;
-                            Ok(())
-                        })?;
-                    } else {
-                        queue.write_transaction(|write| {
-                            let sequence = write.enqueue(&advance_epoch(epoch))?;
-                            stage_progress(write, &progress, sequence.0)
-                        })?;
-                    }
+            threads.push(scope.spawn(move || -> Result<()> {
+                for _ in 0..16 {
+                    queue.write_batch(|w| {
+                        w.append(b"a", BlobOperation::SetLifetime { end_epoch: 20 }, vec![])
+                    })?;
                 }
                 Ok(())
             }));
@@ -205,18 +248,15 @@ async fn concurrent_batch_and_transaction_producers_share_one_sequence() -> Test
         for thread in threads {
             thread.join().expect("producer must not panic")?;
         }
-        Ok::<_, TypedStoreError>(())
+        Ok::<_, QueueError>(())
     })?;
-
-    let tail = storage.strata_queue.last_committed_sequence()?;
-    assert_eq!(tail, StrataQueueSequence(64));
-    assert_eq!(progress.get(&())?, Some(64));
+    let rows = storage.strata_queue.durable_snapshot()?.blobs(None, 10)?;
     assert_eq!(
-        storage
-            .strata_queue
-            .scan(None, tail, 100)?
-            .into_iter()
-            .map(|(sequence, _)| sequence.0)
+        rows[0]
+            .1
+            .commands()
+            .iter()
+            .map(|c| c.revision.0)
             .collect::<Vec<_>>(),
         (1..=64).collect::<Vec<_>>()
     );
@@ -224,45 +264,24 @@ async fn concurrent_batch_and_transaction_producers_share_one_sequence() -> Test
 }
 
 #[tokio::test]
-async fn scans_are_numeric_bounded_and_exclude_newer_commits() -> TestResult {
-    let directory = TempDir::new()?;
-    let storage = open(directory.path(), true)?;
-    let queue = &storage.strata_queue;
-    queue.last_sequence.insert(&(), &StrataQueueSequence(254))?;
-    queue.write_batch(|write| {
-        write.enqueue(&advance_epoch(1))?;
-        write.enqueue(&advance_epoch(2))
-    })?;
-    let captured = queue.last_committed_sequence()?;
-    queue.write_transaction(|write| write.enqueue(&advance_epoch(3)))?;
-    let first = queue.scan(None, captured, 1)?;
-    assert_eq!(first, vec![(StrataQueueSequence(255), advance_epoch(1))]);
-    assert_eq!(
-        queue.scan(Some(first[0].0), captured, 10)?,
-        vec![(StrataQueueSequence(256), advance_epoch(2))]
-    );
-    assert!(queue.scan(Some(captured), captured, 10)?.is_empty());
-    assert!(queue.scan(None, captured, 0)?.is_empty());
-    Ok(())
-}
-
-#[tokio::test]
-async fn reopen_preserves_commands_and_never_reuses_cleaned_up_sequences() -> TestResult {
+async fn synced_queue_reopens_and_revisions_survive_row_cleanup() -> TestResult {
     for optimistic in [false, true] {
-        let directory = TempDir::new()?;
-        let storage = open(directory.path(), optimistic)?;
-        let progress = event_progress(&storage)?;
-        storage.strata_queue.write_batch(|write| {
-            write.enqueue(&registration())?;
-            write.enqueue(&advance_epoch(10))?;
-            write.metadata().insert_batch(&progress, [((), 42)])?;
-            Ok(())
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        storage.strata_queue.write_batch(|w| {
+            w.register(b"a", 15, source())?;
+            w.append(b"a", delete(true), vec![])?;
+            w.register(b"a", 20, source())?;
+            w.register(b"b", 20, source())?;
+            w.advance_epoch(10, source())
         })?;
-        // Model future worker cleanup. The allocation high-water mark must outlive queue rows.
-        let mut cleanup = storage.strata_queue.entries.batch();
-        cleanup.delete_batch(&storage.strata_queue.entries, [StrataQueueSequence(1)])?;
-        cleanup.write_with_sync(true)?;
-        drop(progress);
+        // Model safe row cleanup after completion. The revision allocator is never deleted.
+        let map = blobs(&storage)?;
+        let mut cleanup = map.batch();
+        cleanup.delete_batch(&map, [b"b".to_vec()])?;
+        cleanup.write()?;
+        drop(map);
+        drop(storage.strata_queue.durable_snapshot()?);
         let database = Arc::downgrade(&storage.database);
         drop(storage);
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -271,53 +290,67 @@ async fn reopen_preserves_commands_and_never_reuses_cleaned_up_sequences() -> Te
             }
         })
         .await?;
-
-        let storage = open(directory.path(), optimistic)?;
-        assert_eq!(event_progress(&storage)?.get(&())?, Some(42));
-        let queue = &storage.strata_queue;
-        assert_eq!(queue.last_committed_sequence()?, StrataQueueSequence(2));
+        let storage = open(dir.path(), optimistic)?;
+        let snapshot = storage.strata_queue.durable_snapshot()?;
+        let rows = snapshot.blobs(None, 10)?;
+        assert_eq!(rows.len(), 1);
         assert_eq!(
-            queue.scan(None, StrataQueueSequence(2), 10)?,
-            vec![(StrataQueueSequence(2), advance_epoch(10))]
+            rows[0]
+                .1
+                .commands()
+                .iter()
+                .map(|c| c.revision)
+                .collect::<Vec<_>>(),
+            vec![Revision(1), Revision(3)]
         );
+        assert_eq!(snapshot.barriers(None, 10)?[0].0, Revision(5));
         assert_eq!(
-            queue.write_batch(|write| write.enqueue(&registration()))?,
-            StrataQueueSequence(3)
+            storage
+                .strata_queue
+                .write_batch(|w| w.register(b"b", 25, source()))?,
+            Revision(6)
         );
     }
     Ok(())
 }
 
 #[tokio::test]
-async fn sequence_exhaustion_does_not_commit_metadata() -> TestResult {
-    let directory = TempDir::new()?;
-    let storage = open(directory.path(), true)?;
-    let progress = event_progress(&storage)?;
-    let queue = &storage.strata_queue;
-    queue
-        .last_sequence
-        .insert(&(), &StrataQueueSequence(u64::MAX))?;
+async fn revision_exhaustion_does_not_commit_metadata() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), true)?;
+    let progress = progress(&storage)?;
+    last_revision(&storage)?.insert(&(), &Revision(u64::MAX))?;
     assert!(
-        queue
-            .write_batch(|write| {
-                write.metadata().insert_batch(&progress, [((), 42)])?;
-                write.enqueue(&registration())
-            })
-            .is_err()
-    );
-    assert!(
-        queue
-            .write_transaction(|write| {
-                stage_progress(write, &progress, 42)?;
-                write.enqueue(&registration())
+        storage
+            .strata_queue
+            .write_batch(|w| {
+                w.metadata().insert_batch(&progress, [((), 42)])?;
+                w.register(b"a", 15, source())
             })
             .is_err()
     );
     assert_eq!(progress.get(&())?, None);
     assert!(
-        queue
-            .scan(None, StrataQueueSequence(u64::MAX), 10)?
+        storage
+            .strata_queue
+            .durable_snapshot()?
+            .blobs(None, 10)?
             .is_empty()
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn corrupt_merge_data_is_an_error_instead_of_an_empty_queue() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let map = blobs(&storage)?;
+        let mut batch = map.batch();
+        batch.partial_merge_batch(&map, [(b"a".to_vec(), vec![255])])?;
+        batch.write()?;
+        let snapshot = storage.strata_queue.durable_snapshot()?;
+        assert!(snapshot.blobs(None, 10).is_err());
+    }
     Ok(())
 }
