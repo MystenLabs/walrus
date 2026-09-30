@@ -1997,7 +1997,8 @@ fn read_snapshot_section<V: serde::de::DeserializeOwned>(
         bail!("expected section tag {expected_tag}, found {tag}");
     }
     let count = reader.read_u64::<BigEndian>()?;
-    let mut entries = Vec::with_capacity(usize::try_from(count).expect("count fits in usize"));
+    // The count comes from the file, so it must not size an allocation.
+    let mut entries = Vec::new();
     for _ in 0..count {
         let key_len: u64 = reader.read_varint()?;
         let key_bytes = read_snapshot_bytes(reader, key_len)?;
@@ -2010,8 +2011,17 @@ fn read_snapshot_section<V: serde::de::DeserializeOwned>(
     Ok(entries)
 }
 
+/// Reads `len` bytes, rejecting a length larger than the remaining input before allocating, so a
+/// corrupted length prefix returns an error instead of aborting the process on allocation.
 fn read_snapshot_bytes(reader: &mut Cursor<&[u8]>, len: u64) -> Result<Vec<u8>> {
-    let mut buffer = vec![0u8; usize::try_from(len).expect("length fits in usize")];
+    let remaining = reader.get_ref().len().saturating_sub(
+        usize::try_from(reader.position()).context("snapshot position exceeds usize")?,
+    );
+    let len = usize::try_from(len).context("snapshot length prefix exceeds usize")?;
+    if len > remaining {
+        bail!("length prefix {len} exceeds the {remaining} remaining snapshot bytes");
+    }
+    let mut buffer = vec![0u8; len];
     reader.read_exact(&mut buffer)?;
     Ok(buffer)
 }
