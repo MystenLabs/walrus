@@ -5,7 +5,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io::{Cursor, Read},
+    io::Cursor,
     path::{Path, PathBuf},
     thread::sleep,
     time::Duration,
@@ -13,9 +13,7 @@ use std::{
 
 use anyhow::{Context, Result, bail};
 use bincode::Options;
-use byteorder::{BigEndian, ReadBytesExt};
 use clap::{Subcommand, ValueEnum};
-use integer_encoding::VarIntReader;
 use rocksdb::{
     BottommostLevelCompaction,
     ColumnFamilyDescriptor,
@@ -71,14 +69,12 @@ use crate::{
                 BlobInfo,
                 CertifiedBlobInfoApi,
                 PerObjectBlobInfo,
-                PerObjectPooledBlobInfo,
-                StoragePoolInfo,
                 blob_info_cf_options,
                 per_object_blob_info_cf_options,
                 per_object_pooled_blob_info_cf_options,
                 storage_pool_info_cf_options,
             },
-            blob_info_snapshot::{self, SnapshotHeader},
+            blob_info_snapshot,
             constants::{
                 aggregate_blob_info_cf_name,
                 event_cursor_cf_name,
@@ -1969,94 +1965,12 @@ fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// The decoded contents of a blob info snapshot: the header and the three sections' entries.
-type DecodedSnapshot = (
-    SnapshotHeader,
-    Vec<(ObjectID, PerObjectBlobInfo)>,
-    Vec<(ObjectID, PerObjectPooledBlobInfo)>,
-    Vec<(ObjectID, StoragePoolInfo)>,
-);
-
-/// Decodes a blob info snapshot file (the count-prefixed format) into its header and three
-/// sections, mirroring `blob_info_snapshot::write_snapshot`.
-fn read_blob_info_snapshot(bytes: &[u8]) -> Result<DecodedSnapshot> {
-    let mut reader = Cursor::new(bytes);
-    let magic = reader.read_u32::<BigEndian>()?;
-    if magic != blob_info_snapshot::SNAPSHOT_MAGIC {
-        bail!("unexpected magic {magic:#010x}");
-    }
-    let version = reader.read_u32::<BigEndian>()?;
-    if version != blob_info_snapshot::SNAPSHOT_FORMAT_VERSION {
-        bail!("unsupported snapshot version {version}");
-    }
-    let header_len: u64 = reader.read_varint()?;
-    let header_bytes = read_snapshot_bytes(&mut reader, header_len)?;
-    let header: SnapshotHeader =
-        bcs::from_bytes(&header_bytes).context("failed to decode the snapshot header")?;
-
-    let per_object =
-        read_snapshot_section(&mut reader, blob_info_snapshot::SECTION_TAG_PER_OBJECT)?;
-    let pools = read_snapshot_section(&mut reader, blob_info_snapshot::SECTION_TAG_STORAGE_POOL)?;
-    let pooled = read_snapshot_section(
-        &mut reader,
-        blob_info_snapshot::SECTION_TAG_PER_OBJECT_POOLED,
-    )?;
-
-    let position = reader.position();
-    let length = u64::try_from(bytes.len()).expect("snapshot length fits in u64");
-    if position != length {
-        bail!(
-            "{} unexpected trailing bytes after the last section",
-            length - position
-        );
-    }
-    Ok((header, per_object, pooled, pools))
-}
-
-fn read_snapshot_section<V: serde::de::DeserializeOwned>(
-    reader: &mut Cursor<&[u8]>,
-    expected_tag: u8,
-) -> Result<Vec<(ObjectID, V)>> {
-    let tag = reader.read_u8()?;
-    if tag != expected_tag {
-        bail!("expected section tag {expected_tag}, found {tag}");
-    }
-    let count = reader.read_u64::<BigEndian>()?;
-    // The count comes from the file, so it must not size an allocation.
-    let mut entries = Vec::new();
-    for _ in 0..count {
-        let key_len: u64 = reader.read_varint()?;
-        let key_bytes = read_snapshot_bytes(reader, key_len)?;
-        let key: ObjectID = bcs::from_bytes(&key_bytes).context("failed to decode an entry key")?;
-        let value_len: u64 = reader.read_varint()?;
-        let value_bytes = read_snapshot_bytes(reader, value_len)?;
-        let value: V = bcs::from_bytes(&value_bytes).context("failed to decode an entry value")?;
-        entries.push((key, value));
-    }
-    Ok(entries)
-}
-
-/// Reads `len` bytes, rejecting a length larger than the remaining input before allocating, so a
-/// corrupted length prefix returns an error instead of aborting the process on allocation.
-fn read_snapshot_bytes(reader: &mut Cursor<&[u8]>, len: u64) -> Result<Vec<u8>> {
-    let remaining = reader.get_ref().len().saturating_sub(
-        usize::try_from(reader.position()).context("snapshot position exceeds usize")?,
-    );
-    let len = usize::try_from(len).context("snapshot length prefix exceeds usize")?;
-    if len > remaining {
-        bail!("length prefix {len} exceeds the {remaining} remaining snapshot bytes");
-    }
-    let mut buffer = vec![0u8; len];
-    reader.read_exact(&mut buffer)?;
-    Ok(buffer)
-}
-
 /// Decodes a snapshot file, prints its header and entry counts, re-encodes it with the writer, and
 /// asserts a byte-identical round-trip.
 fn decode_blob_info_snapshot(input: PathBuf) -> Result<()> {
     let bytes = std::fs::read(&input)
         .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
-    let (header, per_object, pooled, pools) = read_blob_info_snapshot(&bytes)?;
+    let (header, per_object, pooled, pools) = blob_info_snapshot::read_snapshot(&bytes)?;
     let (per_object_count, pooled_count, pools_count) =
         (per_object.len(), pooled.len(), pools.len());
 
@@ -2104,7 +2018,7 @@ fn load_blob_info_snapshot(db_path: PathBuf, input: PathBuf) -> Result<()> {
     }
     let bytes = std::fs::read(&input)
         .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
-    let (header, per_object, pooled, pools) = read_blob_info_snapshot(&bytes)?;
+    let (header, per_object, pooled, pools) = blob_info_snapshot::read_snapshot(&bytes)?;
 
     // Opening the storage starts database metrics tasks, which need a runtime.
     let runtime = tokio::runtime::Builder::new_current_thread()
