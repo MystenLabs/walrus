@@ -44,6 +44,7 @@ use self::{
         PerObjectBlobInfoIterator,
         PerObjectPooledBlobInfo,
         PerObjectPooledBlobInfoIterator,
+        StoragePoolInfo,
     },
     blob_info_snapshot::{SnapshotError, SnapshotHeader, SnapshotStats},
     constants::{
@@ -668,6 +669,50 @@ impl Storage {
         writer: W,
     ) -> Result<SnapshotStats, SnapshotError> {
         self.blob_info.write_snapshot(header, writer)
+    }
+
+    /// Replaces the blob info tables with the contents of a blob info snapshot, repositions the
+    /// event cursor, and sets the node status to `RecoveryCatchUp`, all in one atomic write.
+    ///
+    /// Only for a database that no node is running on: the event cursor and the node status take
+    /// effect when the storage is next opened. The cursor is placed on the snapshot's boundary
+    /// `EpochChangeStart` event rather than after it, so the node processes that event once more;
+    /// for a snapshot of the current epoch this lets the node leave catch-up right away instead of
+    /// at the next epoch change.
+    ///
+    /// Returns the number of rebuilt aggregate blob info entries.
+    pub(crate) fn load_blob_info_snapshot(
+        &self,
+        header: &SnapshotHeader,
+        per_object: &[(ObjectID, PerObjectBlobInfo)],
+        per_object_pooled: &[(ObjectID, PerObjectPooledBlobInfo)],
+        storage_pools: &[(ObjectID, StoragePoolInfo)],
+    ) -> anyhow::Result<usize> {
+        let boundary_event_index = header
+            .event_cursor
+            .next_event_index()
+            .checked_sub(1)
+            .context("the snapshot cursor must be after the boundary event")?;
+
+        let mut batch = self.node_status.batch();
+        let aggregate_count = self.blob_info.schedule_snapshot_load(
+            &mut batch,
+            header.epoch,
+            boundary_event_index,
+            per_object,
+            per_object_pooled,
+            storage_pools,
+            |blob_id| self.metadata.contains_key(blob_id),
+        )?;
+        self.event_cursor.schedule_reposition_event_cursor(
+            &mut batch,
+            header.event_cursor.event_id(),
+            boundary_event_index,
+        )?;
+        batch.insert_batch(&self.node_status, [(&(), &NodeStatus::RecoveryCatchUp)])?;
+        batch.write()?;
+
+        Ok(aggregate_count)
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
