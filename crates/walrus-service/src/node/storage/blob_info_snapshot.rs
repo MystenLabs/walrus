@@ -9,8 +9,8 @@
 //! serialize identical bytes. `aggregate_blob_info` is excluded because it carries node-local state
 //! (`is_metadata_stored`) and so differs across nodes.
 //!
-//! This module contains only the writer; deserialization belongs to the (not yet implemented)
-//! recovery workflow.
+//! This module contains the writer and the reader. The reader bounds every length prefix by the
+//! remaining input, so a corrupted file yields an error instead of an oversized allocation.
 //!
 //! The format is versioned and self-delimiting:
 //!
@@ -53,10 +53,11 @@
 //! The file carries no checksum; the cross-node content digest (xxhash64 of the whole file) is
 //! computed and logged by the writer, not stored.
 
-use std::io::{Seek, SeekFrom, Write};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
-use byteorder::{BigEndian, WriteBytesExt};
-use integer_encoding::VarIntWriter;
+use anyhow::{Context as _, bail};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use integer_encoding::{VarIntReader, VarIntWriter};
 use serde::{Deserialize, Serialize};
 use sui_types::{base_types::ObjectID, event::EventID};
 use typed_store::TypedStoreError;
@@ -75,9 +76,9 @@ pub(crate) const SNAPSHOT_MAGIC: u32 = 0xB10B1F05;
 /// versioned enums that are self-describing per entry; see the module docs.
 pub(crate) const SNAPSHOT_FORMAT_VERSION: u32 = 1;
 
-pub(crate) const SECTION_TAG_PER_OBJECT: u8 = 1;
-pub(crate) const SECTION_TAG_STORAGE_POOL: u8 = 2;
-pub(crate) const SECTION_TAG_PER_OBJECT_POOLED: u8 = 3;
+const SECTION_TAG_PER_OBJECT: u8 = 1;
+const SECTION_TAG_STORAGE_POOL: u8 = 2;
+const SECTION_TAG_PER_OBJECT_POOLED: u8 = 3;
 
 /// Errors occurring during blob info snapshot serialization.
 #[derive(Debug, thiserror::Error)]
@@ -208,6 +209,84 @@ fn write_section<W: Write + Seek, V: Serialize>(
     writer.write_u64::<BigEndian>(count)?;
     writer.seek(SeekFrom::Start(section_end))?;
     Ok(count)
+}
+
+/// The decoded contents of a blob info snapshot: the header and the three sections' entries.
+pub(crate) type DecodedSnapshot = (
+    SnapshotHeader,
+    Vec<(ObjectID, PerObjectBlobInfo)>,
+    Vec<(ObjectID, PerObjectPooledBlobInfo)>,
+    Vec<(ObjectID, StoragePoolInfo)>,
+);
+
+/// Decodes a blob info snapshot file (the count-prefixed format) into its header and three
+/// sections, mirroring [`write_snapshot`].
+pub(crate) fn read_snapshot(bytes: &[u8]) -> anyhow::Result<DecodedSnapshot> {
+    let mut reader = Cursor::new(bytes);
+    let magic = reader.read_u32::<BigEndian>()?;
+    if magic != SNAPSHOT_MAGIC {
+        bail!("unexpected magic {magic:#010x}");
+    }
+    let version = reader.read_u32::<BigEndian>()?;
+    if version != SNAPSHOT_FORMAT_VERSION {
+        bail!("unsupported snapshot version {version}");
+    }
+    let header_len: u64 = reader.read_varint()?;
+    let header_bytes = read_snapshot_bytes(&mut reader, header_len)?;
+    let header: SnapshotHeader =
+        bcs::from_bytes(&header_bytes).context("failed to decode the snapshot header")?;
+
+    let per_object = read_snapshot_section(&mut reader, SECTION_TAG_PER_OBJECT)?;
+    let pools = read_snapshot_section(&mut reader, SECTION_TAG_STORAGE_POOL)?;
+    let pooled = read_snapshot_section(&mut reader, SECTION_TAG_PER_OBJECT_POOLED)?;
+
+    let position = reader.position();
+    let length = u64::try_from(bytes.len()).expect("snapshot length fits in u64");
+    if position != length {
+        bail!(
+            "{} unexpected trailing bytes after the last section",
+            length - position
+        );
+    }
+    Ok((header, per_object, pooled, pools))
+}
+
+fn read_snapshot_section<V: serde::de::DeserializeOwned>(
+    reader: &mut Cursor<&[u8]>,
+    expected_tag: u8,
+) -> anyhow::Result<Vec<(ObjectID, V)>> {
+    let tag = reader.read_u8()?;
+    if tag != expected_tag {
+        bail!("expected section tag {expected_tag}, found {tag}");
+    }
+    let count = reader.read_u64::<BigEndian>()?;
+    // The count comes from the file, so it must not size an allocation.
+    let mut entries = Vec::new();
+    for _ in 0..count {
+        let key_len: u64 = reader.read_varint()?;
+        let key_bytes = read_snapshot_bytes(reader, key_len)?;
+        let key: ObjectID = bcs::from_bytes(&key_bytes).context("failed to decode an entry key")?;
+        let value_len: u64 = reader.read_varint()?;
+        let value_bytes = read_snapshot_bytes(reader, value_len)?;
+        let value: V = bcs::from_bytes(&value_bytes).context("failed to decode an entry value")?;
+        entries.push((key, value));
+    }
+    Ok(entries)
+}
+
+/// Reads `len` bytes, rejecting a length larger than the remaining input before allocating, so a
+/// corrupted length prefix returns an error instead of aborting the process on allocation.
+fn read_snapshot_bytes(reader: &mut Cursor<&[u8]>, len: u64) -> anyhow::Result<Vec<u8>> {
+    let remaining = reader.get_ref().len().saturating_sub(
+        usize::try_from(reader.position()).context("snapshot position exceeds usize")?,
+    );
+    let len = usize::try_from(len).context("snapshot length prefix exceeds usize")?;
+    if len > remaining {
+        bail!("length prefix {len} exceeds the {remaining} remaining snapshot bytes");
+    }
+    let mut buffer = vec![0u8; len];
+    reader.read_exact(&mut buffer)?;
+    Ok(buffer)
 }
 
 #[cfg(test)]
