@@ -46,6 +46,7 @@ use super::{
     errors::StoreSliverError,
     storage::{
         SnapshotPublication,
+        blob_info::CertifiedBlobInfoApi as _,
         blob_info_snapshot::{SnapshotHeader, SnapshotStats},
     },
 };
@@ -537,16 +538,17 @@ pub(super) async fn report_last_certified_snapshot_epoch(node: &Arc<StorageNodeI
 ///
 /// Whether the previous snapshot certified is decided locally: a certification during epoch E
 /// emits `BlobCertified` before `EpochChangeStart(E + 1)` in the checkpoint-ordered event
-/// stream, and the boundary handler drains all blob events before calling this, so a blob-info
-/// entry for the snapshot's blob ID exists if and only if it certified. This relies on the
-/// contract's lower bound of two epochs on the snapshot lifetime: garbage collection phase 1
-/// runs before this and expires blobs whose storage ends at `E + 1`, which a one-epoch snapshot
-/// certified in E would, so its entry would be gone before it is checked. A snapshot that did not
-/// certify never will (the contract only accepts the current epoch), and its metadata and
-/// slivers have no blob-info entry, so garbage collection would never find them: they are
-/// deleted here. Why a snapshot did not certify (no quorum, or a divergence of this node's tables
-/// from the network's) is not classified here yet; fleet-wide detection comes from comparing the
-/// `blob_info_snapshot_blob_id` gauges across nodes (see `TODO(WAL-1341)` below).
+/// stream, and the boundary handler drains all blob events before calling this, so the blob-info
+/// entry for the snapshot's blob ID is certified if and only if the snapshot certified. This
+/// relies on the contract's lower bound of two epochs on the snapshot lifetime: garbage
+/// collection phase 1 runs before this and expires blobs whose storage ends at `E + 1`, which a
+/// one-epoch snapshot certified in E would, so its entry would be gone before it is checked. A
+/// snapshot that did not certify never will (the contract only accepts the current epoch), and
+/// without a blob-info entry its metadata and slivers would never be found by garbage
+/// collection: they are deleted here. Why a snapshot did not certify (no quorum, or a divergence
+/// of this node's tables from the network's) is not classified here yet; fleet-wide detection
+/// comes from comparing the `blob_info_snapshot_blob_id` gauges across nodes (see
+/// `TODO(WAL-1341)` below).
 ///
 /// Storage errors are returned to the caller, which fails the epoch change; the boundary is then
 /// replayed on restart and this function runs again. It is idempotent: the record is cleared only
@@ -571,57 +573,59 @@ pub(super) async fn reconcile_previous_publication(
     // Lets a simtest crash the node here, where a storage error in the lookup below would stop
     // it, to exercise the replay of this boundary. No-op outside of simtest.
     sui_macros::fail_point_async!("storage_node_blob_info_snapshot_reconcile");
-    if node.is_blob_certified(&blob_id)? {
-        // Certified: from here on the blob is ordinary certified data owned by garbage
-        // collection. The metadata was stored before the blob had a blob-info entry, so mark
-        // it stored now, as for event blobs, provided it is still there; the node's own slivers
-        // were stored the same way and are found by the regular existence checks.
-        if node
-            .storage()
-            .get_metadata(&blob_id)
-            .context("failed to read the snapshot blob metadata")?
-            .is_some()
-        {
-            node.storage()
-                .update_blob_info_with_metadata(&blob_id)
-                .context("failed to mark the certified snapshot's metadata as stored")?;
-        }
-        node.storage()
-            .clear_snapshot_publication()
-            .context("failed to clear the snapshot publication record")?;
-        // No-op outside of simtest.
-        sui_macros::fail_point_arg!(
-            "storage_node_blob_info_snapshot_reconciled",
-            |reconciled_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, bool>>>>| {
-                reconciled_map
-                    .lock()
-                    .expect("failed to lock the reconciled map")
-                    .entry(epoch)
-                    .or_default()
-                    .insert(node.node_capability, true);
-            }
-        );
-        return Ok(());
-    }
-
-    // Never certified as a snapshot. Delete whatever was stored for it, unless a blob-info
-    // entry exists for the blob ID: the same content can be registered by anyone, and an entry
-    // means the regular lifecycle owns the bytes (garbage collection deletes them once nothing
-    // registers the blob), whereas without an entry nothing else would ever find them.
-    if node
+    let blob_info = node
         .storage()
         .get_blob_info(&blob_id)
-        .context("failed to read the snapshot blob info")?
-        .is_none()
-    {
-        node.storage
-            .delete_blob_data(&blob_id)
-            .await
-            .context("failed to delete the uncertified snapshot blob data")?;
+        .context("failed to read the snapshot blob info")?;
+    let certified = match blob_info {
+        Some(blob_info) if blob_info.is_certified(node.current_committee_epoch()) => {
+            // Certified: from here on the blob is ordinary certified data owned by garbage
+            // collection. The metadata was stored before the blob had a blob-info entry, so
+            // mark it stored now, as for event blobs, provided it is still there; the node's
+            // own slivers were stored the same way and are found by the regular existence
+            // checks.
+            if node
+                .storage()
+                .get_metadata(&blob_id)
+                .context("failed to read the snapshot blob metadata")?
+                .is_some()
+            {
+                node.storage()
+                    .update_blob_info_with_metadata(&blob_id)
+                    .context("failed to mark the certified snapshot's metadata as stored")?;
+            }
+            true
+        }
+        Some(_) => {
+            // Never certified as a snapshot, but the same content was registered by someone
+            // else: the regular lifecycle owns the bytes (garbage collection deletes them once
+            // nothing registers the blob), so nothing is deleted here.
+            false
+        }
+        None => {
+            // Never certified as a snapshot and nothing references the blob ID: no blob-info
+            // entry will ever cover the stored metadata and slivers, so garbage collection
+            // would never find them. Delete them here.
+            node.storage
+                .delete_blob_data(&blob_id)
+                .await
+                .context("failed to delete the uncertified snapshot blob data")?;
+            false
+        }
+    };
+    if !certified {
+        node.metrics
+            .blob_info_snapshot_uncertified_cleanup_total
+            .inc();
+        // TODO(WAL-1341): classify why the snapshot did not certify (no quorum, or a divergence
+        // from the snapshot the network certified) from the on-chain history, and expose it
+        // through metrics; acting on a divergence is part of the recovery milestone (WAL-1252).
+        tracing::warn!(
+            walrus.epoch = epoch,
+            walrus.blob_id = %blob_id,
+            "the blob info snapshot was not certified; its stored data is cleaned up"
+        );
     }
-    node.metrics
-        .blob_info_snapshot_uncertified_cleanup_total
-        .inc();
     node.storage()
         .clear_snapshot_publication()
         .context("failed to clear the snapshot publication record")?;
@@ -634,17 +638,8 @@ pub(super) async fn reconcile_previous_publication(
                 .expect("failed to lock the reconciled map")
                 .entry(epoch)
                 .or_default()
-                .insert(node.node_capability, false);
+                .insert(node.node_capability, certified);
         }
-    );
-
-    // TODO(WAL-1341): classify why the snapshot did not certify (no quorum, or a divergence
-    // from the snapshot the network certified) from the on-chain history, and expose it through
-    // metrics; acting on a divergence is part of the recovery milestone (WAL-1252).
-    tracing::warn!(
-        walrus.epoch = epoch,
-        walrus.blob_id = %blob_id,
-        "the blob info snapshot was not certified; its stored data is cleaned up"
     );
     Ok(())
 }
