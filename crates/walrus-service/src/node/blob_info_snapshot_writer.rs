@@ -593,6 +593,18 @@ pub(super) async fn reconcile_previous_publication(
                 node.storage()
                     .update_blob_info_with_metadata(&blob_id)
                     .context("failed to mark the certified snapshot's metadata as stored")?;
+            } else {
+                // Rare: this node attested the snapshot but does not hold its metadata, so its
+                // own store at the previous boundary was interrupted (a crash after the record
+                // was written) or failed. Nothing is fetched here: the slivers are missing too
+                // (they are stored after the metadata), so the certified event already started
+                // a blob sync for this blob, which stores the metadata and sets the flag itself.
+                tracing::warn!(
+                    walrus.epoch = epoch,
+                    walrus.blob_id = %blob_id,
+                    "the certified blob info snapshot's metadata is not stored on this node; \
+                    left to the blob sync"
+                );
             }
             true
         }
