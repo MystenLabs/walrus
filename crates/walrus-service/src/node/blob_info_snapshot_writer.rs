@@ -192,7 +192,8 @@ pub(super) async fn serialize_snapshot_at_epoch_boundary(
 /// them where the new epoch's shard sync deliberately does not look (it skips blobs certified in
 /// the epoch it is syncing, which are expected to have been written to their new owners
 /// directly). Runs whether the file was just written or already existed (a replayed boundary).
-/// Deliberately synchronous, like the serialization, to measure the full inline cost.
+/// The encoding and the store run inline, like the serialization; the attestation transaction
+/// runs in a background task.
 ///
 /// TODO(WAL-1252): resume an interrupted publication here once snapshots are published and
 /// certified.
@@ -305,17 +306,22 @@ async fn write_snapshot_file(
     Ok(())
 }
 
-/// Minimum delay before the first background retry of a `certify_snapshot_blob` transaction.
+/// Minimum delay before the first retry of a `certify_snapshot_blob` transaction.
 const CERTIFY_RETRY_MIN_BACKOFF: Duration = Duration::from_secs(1);
-/// Maximum delay between background retries of a `certify_snapshot_blob` transaction.
+/// Maximum delay between retries of a `certify_snapshot_blob` transaction.
 const CERTIFY_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(60);
-/// Maximum number of background retries of a `certify_snapshot_blob` transaction. This covers
+/// Maximum number of retries of a `certify_snapshot_blob` transaction. This covers
 /// congestion on the shared system object (every node attests within seconds of the boundary)
 /// and short RPC trouble; a longer outage should show up in the metrics instead.
 const CERTIFY_RETRY_MAX_ATTEMPTS: u32 = 10;
 
 /// Certifies the snapshot on chain, reporting errors through the log and metrics without
 /// failing the epoch change.
+///
+/// Only the attestation transaction is retried (see [`spawn_snapshot_attestation`]). A failure
+/// to record or store the snapshot is not: the node skips this epoch's attestation, the next
+/// boundary's reconciliation cleans up what was stored, and the next epoch attests its own
+/// snapshot (the contract only accepts the snapshot of the current epoch).
 async fn certify_snapshot(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
@@ -323,20 +329,17 @@ async fn certify_snapshot(
     verified_metadata: &VerifiedBlobMetadataWithId,
 ) {
     if let Err(error) = try_certify_snapshot(node, epoch, sliver_pairs, verified_metadata).await {
-        // TODO(WAL-1342): benign contract aborts (a late attestation, a committee change, a
-        // replayed boundary) are counted as errors here; classify them as the event blob writer
-        // does.
         node.metrics.blob_info_snapshot_certify_error_total.inc();
         tracing::warn!(
             ?error,
             walrus.epoch = epoch,
-            "failed to certify the blob info snapshot"
+            "failed to store the blob info snapshot for certification"
         );
     }
 }
 
-/// Stores this node's slivers and the blob metadata, then attests the snapshot blob through the
-/// system contract. A transient failure of the attestation is retried in the background.
+/// Stores this node's slivers and the blob metadata, then starts the attestation of the snapshot
+/// blob through the system contract in the background.
 async fn try_certify_snapshot(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
@@ -400,39 +403,10 @@ async fn try_certify_snapshot(
         }
     );
 
-    let certify_start = Instant::now();
     let blob_metadata: BlobObjectMetadata = verified_metadata
         .try_into()
         .context("failed to convert the snapshot blob metadata")?;
-    if let Err(error) = node
-        .contract_service
-        .certify_snapshot_blob(blob_metadata.clone(), epoch, node.node_capability())
-        .await
-    {
-        if !is_transient_certify_error(&error) {
-            return Err(error.into());
-        }
-        tracing::warn!(
-            ?error,
-            walrus.epoch = epoch,
-            walrus.blob_id = %blob_id,
-            "failed to attest the blob info snapshot; retrying in the background"
-        );
-        spawn_certification_retry(node.clone(), epoch, blob_metadata);
-        return Ok(());
-    }
-    let certify_elapsed = certify_start.elapsed();
-    node.metrics
-        .blob_info_snapshot_certify_duration_seconds
-        .set(certify_elapsed.as_secs_f64());
-
-    tracing::info!(
-        walrus.epoch = epoch,
-        walrus.blob_id = %blob_id,
-        ?store_elapsed,
-        ?certify_elapsed,
-        "attested blob info snapshot on chain"
-    );
+    spawn_snapshot_attestation(node.clone(), epoch, blob_metadata, store_elapsed);
     Ok(())
 }
 
@@ -443,14 +417,16 @@ fn is_transient_certify_error(error: &SuiClientError) -> bool {
     !matches!(error, SuiClientError::TransactionExecutionError(_))
 }
 
-/// Retries the attestation of the snapshot of `epoch` in the background with a bounded backoff
-/// after the inline attempt failed transiently, so that the epoch-change handler never sleeps.
-/// The publication record already names the attempt, so a crash of the node loses only the
-/// retry itself; the boundary reconciliation cleans up an attempt that never certifies.
-fn spawn_certification_retry(
+/// Attests the stored snapshot of `epoch` in a background task, retrying a transient failure
+/// with a bounded backoff, so that the epoch-change handler neither waits for the transaction
+/// nor sleeps between attempts. The publication record already names the attempt, so a crash of
+/// the node loses only the attestation; the boundary reconciliation cleans up an attempt that
+/// never certifies.
+fn spawn_snapshot_attestation(
     node: Arc<StorageNodeInner>,
     epoch: Epoch,
     blob_metadata: BlobObjectMetadata,
+    store_elapsed: Duration,
 ) {
     tokio::spawn(async move {
         let blob_id = blob_metadata.blob_id;
@@ -460,46 +436,54 @@ fn spawn_certification_retry(
             Some(CERTIFY_RETRY_MAX_ATTEMPTS),
             rand::thread_rng().r#gen(),
         );
-        while let Some(delay) = backoff.next_delay() {
-            tokio::time::sleep(delay).await;
-            match node
+        loop {
+            let certify_start = Instant::now();
+            let error = match node
                 .contract_service
                 .certify_snapshot_blob(blob_metadata.clone(), epoch, node.node_capability())
                 .await
             {
                 Ok(()) => {
+                    let certify_elapsed = certify_start.elapsed();
+                    node.metrics
+                        .blob_info_snapshot_certify_duration_seconds
+                        .set(certify_elapsed.as_secs_f64());
                     tracing::info!(
                         walrus.epoch = epoch,
                         walrus.blob_id = %blob_id,
-                        "attested blob info snapshot on chain after retrying"
+                        ?store_elapsed,
+                        ?certify_elapsed,
+                        "attested blob info snapshot on chain"
                     );
                     return;
                 }
-                Err(error) if is_transient_certify_error(&error) => tracing::warn!(
+                Err(error) => error,
+            };
+            if is_transient_certify_error(&error)
+                && let Some(delay) = backoff.next_delay()
+            {
+                tracing::warn!(
                     ?error,
+                    ?delay,
                     walrus.epoch = epoch,
                     walrus.blob_id = %blob_id,
                     "failed to attest the blob info snapshot; retrying"
-                ),
-                Err(error) => {
-                    node.metrics.blob_info_snapshot_certify_error_total.inc();
-                    tracing::warn!(
-                        ?error,
-                        walrus.epoch = epoch,
-                        walrus.blob_id = %blob_id,
-                        "failed to attest the blob info snapshot"
-                    );
-                    return;
-                }
+                );
+                tokio::time::sleep(delay).await;
+                continue;
             }
+            // TODO(WAL-1342): benign contract aborts (a late attestation, a committee change, a
+            // replayed boundary) are counted as errors here; classify them as the event blob
+            // writer does.
+            node.metrics.blob_info_snapshot_certify_error_total.inc();
+            tracing::warn!(
+                ?error,
+                walrus.epoch = epoch,
+                walrus.blob_id = %blob_id,
+                "failed to attest the blob info snapshot"
+            );
+            return;
         }
-        node.metrics.blob_info_snapshot_certify_error_total.inc();
-        tracing::warn!(
-            walrus.epoch = epoch,
-            walrus.blob_id = %blob_id,
-            attempts = CERTIFY_RETRY_MAX_ATTEMPTS,
-            "giving up on the blob info snapshot attestation after retrying"
-        );
     });
 }
 

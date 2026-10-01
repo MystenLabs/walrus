@@ -369,9 +369,10 @@ impl StorageNode {
         // Publish the snapshot (encode; store and attest when configured) only now:
         // `execute_epoch_change` has advanced the committee and created this node's shards for
         // the new epoch, so the slivers are stored under the assignment the contract tallies by
-        // and readers route by. Still inline, to measure the full cost at the boundary; the
-        // finisher may already have marked the event complete, so a crash from here on skips
-        // this epoch's publication (absorbed by the quorum; resume is TODO(WAL-1252)).
+        // and readers route by. The encoding and the store run inline; the attestation
+        // transaction runs in a background task. The finisher may already have marked the event
+        // complete, so a crash from here on skips this epoch's publication (absorbed by the
+        // quorum; resume is TODO(WAL-1252)).
         // A node that discovered inside `execute_epoch_change` that it is far behind enters
         // catch-up there; its snapshot is then stale and its committee view has moved on, so
         // the publication is skipped like the serialization would have been.
