@@ -493,8 +493,10 @@ impl<'a> BlobEncoder<'a> {
     /// [`compute_metadata()`][Self::compute_metadata], and the sliver pairs are then encoded with
     /// [`encode_sliver_pairs()`][Self::encode_sliver_pairs]. Compared to
     /// [`encode_with_metadata()`][Self::encode_with_metadata], this expands the message matrix a
-    /// second time but never holds it in memory: a storage node encoding a blob for its own
-    /// shards needs only its fraction of the roughly 4.5x expansion.
+    /// second time but never holds it in memory. The peak is that of
+    /// [`compute_metadata()`][Self::compute_metadata], which keeps the non-systematic secondary
+    /// slivers (about half the blob) and the symbol-hash matrix, plus the requested pairs,
+    /// instead of the roughly 4.5x expansion.
     ///
     /// # Panics
     ///

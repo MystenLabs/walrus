@@ -659,8 +659,8 @@ async fn encode_snapshot(
 
 /// Encodes the snapshot file, reports its blob ID for cross-node comparison, and returns the
 /// sliver pairs of this node's shards in the current committee, so that certification can store
-/// and attest them. Only those pairs are encoded: the full expansion of the snapshot (roughly
-/// 4.5x its size) is never held in memory.
+/// and attest them. Only those pairs are encoded, so the full expansion of the snapshot (roughly
+/// 4.5x its size) is never held in memory; the peak is that of computing the metadata.
 async fn try_encode_snapshot(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
