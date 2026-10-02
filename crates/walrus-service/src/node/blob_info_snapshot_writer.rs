@@ -68,8 +68,9 @@ pub struct BlobInfoSnapshotWriterConfig {
     ///
     /// The snapshot is encoded at every epoch boundary regardless, to report its blob ID.
     /// When this is enabled (together with `enabled`), the node additionally stores its own
-    /// shards' slivers and attests the snapshot blob through the system contract, synchronously
-    /// once the epoch change has been applied locally. Has no effect if `enabled` is false.
+    /// shards' slivers once the epoch change has been applied locally, and then attests the
+    /// snapshot blob through the system contract from a background task. Has no effect if
+    /// `enabled` is false.
     pub certify: bool,
 }
 
@@ -642,8 +643,8 @@ pub(super) async fn reconcile_previous_publication(
 ///
 /// Only those sliver pairs are touched: the others belong to shards this node never looks up,
 /// including shards whose storage is being removed in the background at this boundary. A shard
-/// that is assigned but not yet owned by this node (still being synced) is skipped, as in the
-/// event blob writer.
+/// that is still being synced or recovered is written like any other; an assigned shard without
+/// local storage, or one locked to move, is skipped, as in the event blob writer.
 async fn store_own_slivers(
     node: &Arc<StorageNodeInner>,
     verified_metadata: &VerifiedBlobMetadataWithId,
