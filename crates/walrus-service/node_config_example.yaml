@@ -236,6 +236,7 @@ consistency_check:
 blob_info_snapshot:
   enabled: true
   certify: false
+  bootstrap: true
 checkpoint_config:
   max_db_checkpoints: 3
   db_checkpoint_interval:

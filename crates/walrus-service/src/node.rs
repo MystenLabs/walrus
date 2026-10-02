@@ -212,6 +212,7 @@ pub mod server;
 pub mod system_events;
 
 pub(crate) mod blob_event_processor;
+mod blob_info_snapshot_bootstrap;
 pub(crate) mod blob_info_snapshot_writer;
 pub(crate) mod consistency_check;
 pub(crate) mod db_checkpoint;
@@ -798,6 +799,18 @@ impl StorageNode {
             )?
         };
         tracing::info!("successfully opened the node database");
+
+        // Before any component that reads or writes the blob info tables starts, a brand-new node
+        // whose event replay is not covered loads the latest certified snapshot.
+        blob_info_snapshot_bootstrap::bootstrap_from_snapshot_if_needed(
+            config.blob_info_snapshot.bootstrap,
+            &storage,
+            event_manager.as_ref(),
+            contract_service.as_ref(),
+            config.sui.as_ref(),
+        )
+        .await
+        .context("failed to bootstrap the blob info tables from a certified snapshot")?;
 
         // General thread pool: used for metadata verification and other high-priority CPU work.
         // Runs at the default OS scheduling priority (nice=0).
