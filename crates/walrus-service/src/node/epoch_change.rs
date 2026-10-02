@@ -296,34 +296,52 @@ impl StorageNode {
         // Serialize only when enabled, not reprocessing, and not catching up (a catching-up node's
         // blob info tables are not at the clean cross-node boundary). The node-status DB lookup
         // runs only after the other two checks short-circuit.
-        let should_serialize = self.inner.blob_info_snapshot_config.enabled
-            && !node_is_reprocessing_events
-            && !self.inner.storage.node_status()?.is_catching_up();
+        let at_clean_boundary =
+            !node_is_reprocessing_events && !self.inner.storage.node_status()?.is_catching_up();
+        let should_serialize = self.inner.blob_info_snapshot_config.enabled && at_clean_boundary;
+
+        // Report the latest certified snapshot epoch on chain, for the no-certification alert.
+        // Only a gauge depends on it, so the read runs in a background task and a slow full node
+        // cannot delay the boundary.
+        if should_serialize {
+            let node = self.inner.clone();
+            tokio::spawn(async move {
+                blob_info_snapshot_writer::report_last_certified_snapshot_epoch(&node).await;
+            });
+        }
+
+        // Reconcile the previous publication before this epoch's one overwrites its record. This
+        // runs even when snapshots are disabled, and a storage error fails the epoch change.
+        if at_clean_boundary {
+            blob_info_snapshot_writer::reconcile_previous_publication(&self.inner, event.epoch)
+                .await
+                .context("failed to reconcile the previous blob info snapshot publication")?;
+        }
 
         // Serialize after GC phase 1 has settled the tables and before `execute_epoch_change`
-        // spawns the finisher that marks the event complete (so a crash before completion replays
-        // and re-creates it). Errors are logged and counted, never failing epoch processing.
-        //
-        // TODO(WAL-1250): this only writes the snapshot to local disk. Publishing and certifying it
-        // on-chain (encode, store the node's own slivers, attest, track to certified) is future
-        // work.
-        if should_serialize
-            && let Err(error) = blob_info_snapshot_writer::serialize_snapshot_at_epoch_boundary(
-                self.inner.clone(),
+        // spawns the finisher, so that a crash before the event completes replays this step.
+        let snapshot_serialized = should_serialize
+            && match blob_info_snapshot_writer::serialize_snapshot_at_epoch_boundary(
+                &self.inner,
                 event.epoch,
                 // Mirror what the node persists after completing this event: the
                 // `EpochChangeStart`'s id, and its index + 1 as the next index to process.
                 EventStreamCursor::new(Some(event_handle.event_id()), event_index + 1),
             )
             .await
-        {
-            self.inner.metrics.blob_info_snapshot_error_total.inc();
-            tracing::warn!(
-                ?error,
-                walrus.epoch = event.epoch,
-                "failed to serialize the blob info snapshot in-process at the epoch boundary"
-            );
-        }
+            {
+                Ok(()) => true,
+                Err(error) => {
+                    self.inner.metrics.blob_info_snapshot_error_total.inc();
+                    tracing::warn!(
+                        ?error,
+                        walrus.epoch = event.epoch,
+                        "failed to serialize the blob info snapshot in-process at the epoch \
+                        boundary"
+                    );
+                    false
+                }
+            };
 
         // Now the general tasks around epoch change are done. Next, entering epoch change logic
         // to bring the node state to the next epoch. `execute_epoch_change` ends by spawning
@@ -338,6 +356,18 @@ impl StorageNode {
         self.inner
             .latest_event_epoch_sender
             .send(Some(event.epoch))?;
+
+        // Publish the snapshot now that the new committee and shards are in place. A crash from
+        // here on skips this epoch's publication, as the finisher may already have marked the
+        // event complete. A node that entered catch-up during the epoch change skips it too: its
+        // snapshot is stale.
+        if snapshot_serialized && !self.inner.storage.node_status()?.is_catching_up() {
+            blob_info_snapshot_writer::publish_snapshot_after_epoch_change(
+                &self.inner,
+                event.epoch,
+            )
+            .await;
+        }
 
         // Schedule post-epoch-change subsidies to distribute usage-independent subsidies
         // for the epoch that just ended.
