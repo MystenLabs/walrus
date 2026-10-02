@@ -540,12 +540,21 @@ mod tests {
                 .collect(),
             "the restarted nodes must clean up their epoch-2 publication with snapshots disabled"
         );
+        // The blob ID of a snapshot is reported after the epoch change has been applied, later
+        // than the reconciliation above. Once every node is in epoch 4, the boundary into epoch 3
+        // has been fully handled everywhere, so exactly the nodes that still produce snapshots
+        // must have reported an epoch-3 blob ID.
+        simtest_utils::wait_for_nodes_to_reach_epoch(nodes, 4, 2 * EPOCH_DURATION).await;
+        let producing_node_ids: HashSet<_> = nodes
+            .iter()
+            .map(node_capability_id)
+            .filter(|node_id| !attesting_node_ids.contains(node_id))
+            .collect();
         let blob_ids = consistency_check.blob_info_snapshot_blob_ids(3);
-        assert!(
-            attesting_node_ids
-                .iter()
-                .all(|node_id| !blob_ids.contains_key(node_id)),
-            "nodes with snapshots disabled must not produce the epoch-3 snapshot: {blob_ids:?}"
+        assert_eq!(
+            blob_ids.keys().copied().collect::<HashSet<_>>(),
+            producing_node_ids,
+            "only the nodes with snapshots enabled must produce the epoch-3 snapshot: {blob_ids:?}"
         );
         assert!(
             client
