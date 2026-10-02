@@ -594,36 +594,19 @@ pub(super) async fn reconcile_previous_publication(
     Ok(())
 }
 
-/// Stores the slivers of the shards assigned to this node in the current committee, and touches
-/// no other shard (some are being removed in the background at this boundary).
+/// Stores `sliver_pairs`, which are exactly the pairs of this node's shards (see
+/// [`try_encode_snapshot`]), so no other shard is touched.
 async fn store_own_slivers(
     node: &Arc<StorageNodeInner>,
     verified_metadata: &VerifiedBlobMetadataWithId,
     sliver_pairs: &[SliverPair],
 ) -> Result<()> {
-    let n_shards = node.encoding_config().n_shards();
-    let own_shards = node
-        .committee_service
-        .active_committees()
-        .current_committee()
-        .shards_for_node_public_key(node.public_key())
-        .to_vec();
-    let own_pairs: Vec<&SliverPair> = sliver_pairs
-        .iter()
-        .filter(|pair| {
-            own_shards.contains(
-                &pair
-                    .index()
-                    .to_shard_index(n_shards, verified_metadata.blob_id()),
-            )
-        })
-        .collect();
     let metadata = Arc::new(verified_metadata.clone());
-    store_slivers_of_type(node, &metadata, &own_pairs, |pair| {
+    store_slivers_of_type(node, &metadata, sliver_pairs, |pair| {
         Sliver::Primary(pair.primary.clone())
     })
     .await?;
-    store_slivers_of_type(node, &metadata, &own_pairs, |pair| {
+    store_slivers_of_type(node, &metadata, sliver_pairs, |pair| {
         Sliver::Secondary(pair.secondary.clone())
     })
     .await
@@ -632,10 +615,10 @@ async fn store_own_slivers(
 async fn store_slivers_of_type(
     node: &Arc<StorageNodeInner>,
     metadata: &Arc<VerifiedBlobMetadataWithId>,
-    sliver_pairs: &[&SliverPair],
+    sliver_pairs: &[SliverPair],
     sliver_of_pair: impl Fn(&SliverPair) -> Sliver,
 ) -> Result<()> {
-    try_join_all(sliver_pairs.iter().map(|&sliver_pair| {
+    try_join_all(sliver_pairs.iter().map(|sliver_pair| {
         let metadata = metadata.clone();
         let sliver = sliver_of_pair(sliver_pair);
         let index: SliverPairIndex = sliver_pair.index();
@@ -675,12 +658,9 @@ async fn encode_snapshot(
 }
 
 /// Encodes the snapshot file, reports its blob ID for cross-node comparison, and returns the
-/// sliver pairs so that certification can store and attest them.
-///
-/// TODO(WAL-1345): this encodes every sliver pair, holding the full expansion of the snapshot
-/// (roughly 4.5x its size) while the node needs only its own shards' pairs. Once
-/// `compute_metadata_with_slivers_for_shards` (PR #3758) is available, use it with the node's
-/// shard assignment when certification is on, and `compute_metadata` when it is off.
+/// sliver pairs of this node's shards in the current committee, so that certification can store
+/// and attest them. Only those pairs are encoded, so the full expansion of the snapshot (roughly
+/// 4.5x its size) is never held in memory; the peak is that of computing the metadata.
 async fn try_encode_snapshot(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
@@ -696,6 +676,12 @@ async fn try_encode_snapshot(
         "the system must be able to encode"
     );
 
+    let own_shards = node
+        .committee_service
+        .active_committees()
+        .current_committee()
+        .shards_for_node_public_key(node.public_key())
+        .to_vec();
     let encode_start = Instant::now();
     let path = snapshot_path.to_path_buf();
     let (sliver_pairs, verified_metadata) = tokio::task::spawn_blocking(move || {
@@ -715,7 +701,7 @@ async fn try_encode_snapshot(
             content
         };
         encoding_config
-            .encode_with_metadata(content)
+            .compute_metadata_with_slivers_for_shards(&content, &own_shards)
             .map_err(anyhow::Error::from)
     })
     .await
