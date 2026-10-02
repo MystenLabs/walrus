@@ -371,6 +371,78 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /v1/blobs/{blob_id}/recoverySymbols/batch:
+    get:
+      tags:
+      - Recovery
+      summary: Get the recovery symbols for several target slivers of the same type.
+      description: |-
+        Returns the symbols held by this node for all of the requested targets. The response may be
+        partial if some of the node's slivers cannot be served.
+      operationId: list_batch_recovery_symbols
+      parameters:
+      - name: blob_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/BlobId'
+      - name: targetSlivers
+        in: query
+        description: The sliver indexes of the target slivers being recovered.
+        required: true
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/SliverIndex'
+        style: form
+      - name: targetType
+        in: query
+        description: The type of the slivers being recovered.
+        required: true
+        schema:
+          $ref: '#/components/schemas/Axis'
+        style: form
+      responses:
+        '200':
+          description: List of BCS-encoded recovery symbols
+          content:
+            application/octet-stream:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: int32
+                  minimum: 0
+        '400':
+          description: May be returned when (1) The index identifying the resource is out-of-range for the system. (2) The shard associated with the operation is not assigned to this storage node.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '404':
+          description: The requested sliver could not be found at this storage node. It has either not been uploaded, does not exist, or has already been deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '451':
+          description: The sliver cannot be returned, as the associated blob has been blocked on this storage node.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '500':
+          description: An internal server error has occurred. Please report this error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        '503':
+          description: Generic "service unavailable" error propagated to REST callers when a node-level limiter trips.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /v1/blobs/{blob_id}/slivers/{sliver_pair_index}/{sliver_type}:
     get:
       tags:

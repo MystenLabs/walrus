@@ -451,6 +451,14 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The number of recovery futures in a given recovery state."]
         recovery_future_state: IntGaugeVec["recovery_state", "tail_count"],
+
+        #[help = "The total number of batched recovery symbol requests sent to other nodes."]
+        recovery_batch_requests_total: IntCounter[],
+
+        #[help = "The number of target slivers per batched recovery symbol request."]
+        recovery_batch_request_targets: Histogram {
+            buckets: prometheus::exponential_buckets(1.0, 2.0, 11).expect("valid static buckets"),
+        },
     }
 }
 

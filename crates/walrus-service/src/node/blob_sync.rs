@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
+    cmp,
     collections::{HashMap, HashSet, hash_map::Entry},
     sync::{Arc, Mutex},
     time::Duration,
@@ -31,6 +32,7 @@ use walrus_core::{
     Epoch,
     InconsistencyProof,
     ShardIndex,
+    SliverPairIndex,
     encoding::{EncodingAxis, EncodingConfig, Primary, Secondary},
     metadata::VerifiedBlobMetadataWithId,
 };
@@ -103,6 +105,9 @@ pub(crate) struct BlobSyncHandler {
     // Wakes the pending-recovery executor when a record is inserted.
     pending_recovery_notify: Arc<Notify>,
     pending_recovery_task: Arc<Mutex<Option<JoinHandle<()>>>>,
+    // Recover the missing slivers of a blob with batched requests instead of one request stream
+    // per sliver.
+    batched_sliver_recovery: bool,
 }
 
 impl BlobSyncHandler {
@@ -121,6 +126,7 @@ impl BlobSyncHandler {
             pending_recovery_drain_interval: config.pending_recovery_drain_interval,
             pending_recovery_notify: Arc::default(),
             pending_recovery_task: Arc::default(),
+            batched_sliver_recovery: config.experimental_batched_sliver_recovery,
         }
     }
 
@@ -381,6 +387,7 @@ impl BlobSyncHandler {
                     certified_epoch,
                     self.node.clone(),
                     cancel_token.clone(),
+                    self.batched_sliver_recovery,
                 );
 
                 let sender_for_task = status_sender.clone();
@@ -793,6 +800,7 @@ pub(super) struct BlobSynchronizer {
     node: Arc<StorageNodeInner>,
     certified_epoch: Epoch,
     cancel_token: CancellationToken,
+    batched_sliver_recovery: bool,
 }
 
 impl BlobSynchronizer {
@@ -801,12 +809,14 @@ impl BlobSynchronizer {
         certified_epoch: Epoch,
         node: Arc<StorageNodeInner>,
         cancel_token: CancellationToken,
+        batched_sliver_recovery: bool,
     ) -> Self {
         Self {
             blob_id,
             node,
             certified_epoch,
             cancel_token,
+            batched_sliver_recovery,
         }
     }
 
@@ -908,11 +918,15 @@ impl BlobSynchronizer {
             .await
             .expect("database operations should not fail");
 
-        while let Err(error) = this
-            .clone()
-            .recover_blob_slivers(sliver_permits.clone(), shared_metadata.clone())
-            .await
-        {
+        while let Err(error) = if this.batched_sliver_recovery {
+            this.clone()
+                .recover_blob_slivers_batched(sliver_permits.clone(), shared_metadata.clone())
+                .await
+        } else {
+            this.clone()
+                .recover_blob_slivers(sliver_permits.clone(), shared_metadata.clone())
+                .await
+        } {
             let backoff_duration = if cfg!(msim) {
                 // Doing fast retry in simtest to save some time.
                 Duration::from_secs(0)
@@ -1081,6 +1095,197 @@ impl BlobSynchronizer {
         Ok(())
     }
 
+    /// Recovers all missing slivers of the blob with batched recovery-symbol requests.
+    ///
+    /// The missing slivers of each type are recovered together in one batched request stream
+    /// per type. One sliver-sync permit is held per shard with a missing sliver, up to the size
+    /// of the semaphore, so that the concurrency bound is comparable with per-sliver recovery.
+    async fn recover_blob_slivers_batched(
+        self: Arc<Self>,
+        sliver_permits: Arc<Semaphore>,
+        shared_metadata: Arc<VerifiedBlobMetadataWithId>,
+    ) -> Result<(), RecoverSliverError> {
+        let histograms = &self.metrics().recover_blob_part_duration_seconds;
+
+        // Only the slivers in the shards assigned to the node at the epoch of the current event
+        // need to be recovered: the node may not have created the shards of a newer epoch yet,
+        // and the blob was certified earlier, so it is this node's responsibility to hold,
+        // recover, and transfer these shards.
+        let latest_event_epoch = self.node.current_event_epoch().await?;
+        let shards = self
+            .node
+            .owned_shards_at_epoch(latest_event_epoch)
+            .unwrap_or_else(|error| {
+                tracing::error!(
+                    certified_epoch = latest_event_epoch,
+                    ?error,
+                    "shard assignment must be found at the certified epoch",
+                );
+                panic!(
+                    "shard assignment must be found at the certified epoch {latest_event_epoch}, \
+                    error: {error}",
+                )
+            });
+
+        let mut missing_primary = Vec::new();
+        let mut missing_secondary = Vec::new();
+        for shard in shards {
+            let (primary_stored, secondary_stored) = self.are_slivers_stored(shard).await?;
+            let pair_index = shard.to_pair_index(self.encoding_config().n_shards(), &self.blob_id);
+            if !primary_stored {
+                missing_primary.push((shard, pair_index));
+            }
+            if !secondary_stored {
+                missing_secondary.push((shard, pair_index));
+            }
+        }
+
+        let n_shards_to_recover = missing_primary
+            .iter()
+            .chain(missing_secondary.iter())
+            .map(|(shard, _)| *shard)
+            .collect::<HashSet<_>>()
+            .len();
+        if n_shards_to_recover == 0 {
+            tracing::debug!("not syncing slivers: all already stored");
+            return Ok(());
+        }
+
+        let n_permits = u32::try_from(cmp::min(
+            n_shards_to_recover,
+            sliver_permits.available_permits().max(1),
+        ))
+        .expect("bounded by the number of shards");
+        let _permits = sliver_permits
+            .acquire_many_owned(n_permits)
+            .await
+            .expect("semaphore should not been dropped");
+
+        let (primary_result, secondary_result) = future::join(
+            self.clone()
+                .recover_slivers_batched::<Primary>(shared_metadata.clone(), missing_primary)
+                .observe_future(histograms.clone(), labels_from_batch_result::<Primary>),
+            self.clone()
+                .recover_slivers_batched::<Secondary>(shared_metadata.clone(), missing_secondary)
+                .observe_future(histograms.clone(), labels_from_batch_result::<Secondary>),
+        )
+        .await;
+
+        for result in [primary_result, secondary_result] {
+            match result {
+                Ok(()) => (),
+                Err(RecoverSliverError::Inconsistent(inconsistency_proof)) => {
+                    tracing::warn!("received an inconsistency proof");
+                    // No need to recover other slivers, sync the proof and return
+                    self.sync_inconsistency_proof(&inconsistency_proof)
+                        .observe_future(histograms.clone(), labels_from_inconsistency_sync_result)
+                        .await;
+                    return Ok(());
+                }
+                Err(RecoverSliverError::Database(err)) => match err {
+                    // A shard may be removed from the storage while the recovery is running.
+                    TypedStoreError::UnregisteredColumn(ref column) => {
+                        tracing::error!(
+                            "database error during sliver sync: unregistered column {:?}",
+                            column
+                        );
+                        return Err(RecoverSliverError::Database(err));
+                    }
+                    // Internal tasks may get cancelled while the node is shutting down.
+                    TypedStoreError::TaskError(ref message) => {
+                        tracing::error!(
+                            "database error during sliver sync: task error {:?}",
+                            message
+                        );
+                        return Err(RecoverSliverError::Database(err));
+                    }
+                    _ => panic!("database operations should not fail: {err:?}"),
+                },
+                Err(error @ RecoverSliverError::WatchRecvError(_)) => return Err(error),
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Returns whether the primary and the secondary sliver of the blob are stored at the shard.
+    async fn are_slivers_stored(&self, shard: ShardIndex) -> Result<(bool, bool), TypedStoreError> {
+        let shard_storage = self
+            .storage()
+            .shard_storage(shard)
+            .await
+            .unwrap_or_else(|| panic!("shard {shard} is managed by this node"));
+        let blob_id = self.blob_id;
+        tokio::task::spawn_blocking(move || {
+            Ok((
+                shard_storage.is_sliver_stored::<Primary>(&blob_id)?,
+                shard_storage.is_sliver_stored::<Secondary>(&blob_id)?,
+            ))
+        })
+        .map(utils::unwrap_or_resume_unwind)
+        .await
+    }
+
+    /// Recovers and stores the slivers of type `A` at the given shards in one batch.
+    #[tracing::instrument(
+        skip_all,
+        fields(walrus.sliver.r#type = A::NAME, walrus.sliver.count = targets.len())
+    )]
+    async fn recover_slivers_batched<A: EncodingAxis>(
+        self: Arc<Self>,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        targets: Vec<(ShardIndex, SliverPairIndex)>,
+    ) -> Result<(), RecoverSliverError> {
+        if targets.is_empty() {
+            return Ok(());
+        }
+        tracing::debug!("syncing slivers");
+
+        let shard_by_pair_index: HashMap<SliverPairIndex, ShardIndex> = targets
+            .iter()
+            .map(|(shard, pair_index)| (*pair_index, *shard))
+            .collect();
+
+        let slivers_or_proof = self
+            .committee_service()
+            .recover_slivers_batch(
+                metadata,
+                targets
+                    .into_iter()
+                    .map(|(_, pair_index)| pair_index)
+                    .collect(),
+                A::sliver_type(),
+                self.certified_epoch,
+            )
+            .await;
+
+        sui_macros::fail_point_async!("fail_point_recover_sliver_before_put_sliver");
+
+        let slivers = match slivers_or_proof {
+            Ok(slivers) => slivers,
+            Err(proof) => {
+                tracing::debug!("sliver inconsistent");
+                return Err(RecoverSliverError::Inconsistent(proof));
+            }
+        };
+
+        for (pair_index, sliver) in slivers {
+            let shard = shard_by_pair_index
+                .get(&pair_index)
+                .copied()
+                .expect("only requested slivers are recovered");
+            let shard_storage = self
+                .storage()
+                .shard_storage(shard)
+                .await
+                .unwrap_or_else(|| panic!("shard {shard} is managed by this node"));
+            shard_storage.put_sliver(self.blob_id, sliver).await?;
+        }
+
+        tracing::debug!("slivers successfully synced");
+        Ok(())
+    }
+
     /// Drives the recovery and storage of the slivers associated with this blob, for one shard.
     ///
     /// May end early if either sliver results in an inconsistency proof.
@@ -1237,6 +1442,26 @@ const fn labels_from_sliver_result<A: EncodingAxis>(
         None => metrics::STATUS_ABORTED,
         Some(Ok(true)) => metrics::STATUS_SUCCESS,
         Some(Ok(false)) => metrics::STATUS_SKIPPED,
+        Some(Err(RecoverSliverError::Database(_))) => metrics::STATUS_FAILURE,
+        Some(Err(RecoverSliverError::Inconsistent(_))) => metrics::STATUS_INCONSISTENT,
+        Some(Err(RecoverSliverError::WatchRecvError(_))) => metrics::STATUS_FAILURE,
+    };
+
+    [part, status]
+}
+
+const fn labels_from_batch_result<A: EncodingAxis>(
+    result: Option<&Result<(), RecoverSliverError>>,
+) -> [&'static str; 2] {
+    let part = if A::IS_PRIMARY {
+        "primary-batch"
+    } else {
+        "secondary-batch"
+    };
+
+    let status = match result {
+        None => metrics::STATUS_ABORTED,
+        Some(Ok(())) => metrics::STATUS_SUCCESS,
         Some(Err(RecoverSliverError::Database(_))) => metrics::STATUS_FAILURE,
         Some(Err(RecoverSliverError::Inconsistent(_))) => metrics::STATUS_INCONSISTENT,
         Some(Err(RecoverSliverError::WatchRecvError(_))) => metrics::STATUS_FAILURE,

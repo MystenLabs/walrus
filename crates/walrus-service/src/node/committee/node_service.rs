@@ -40,6 +40,7 @@ use walrus_core::{
     metadata::VerifiedBlobMetadataWithId,
 };
 use walrus_storage_node_client::{
+    BatchRecoverySymbolsFilter,
     ClientBuildError,
     NodeError,
     RecoverySymbolsFilter,
@@ -73,6 +74,13 @@ pub(crate) enum Request {
         filter: RecoverySymbolsFilter,
         metadata: Arc<VerifiedBlobMetadataWithId>,
         target_index: SliverIndex,
+        target_type: SliverType,
+    },
+    /// Lists the verified recovery symbols held by the node for several target slivers of the
+    /// same type.
+    ListVerifiedBatchRecoverySymbols {
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        target_indexes: Vec<SliverIndex>,
         target_type: SliverType,
     },
 }
@@ -274,6 +282,22 @@ impl Service<Request> for UnboundedRemoteStorageNode {
                         encoding_config.clone(),
                         target_index,
                         target_type,
+                    )
+                    .await
+                    .map(Response::VerifiedRecoverySymbols)?,
+
+                Request::ListVerifiedBatchRecoverySymbols {
+                    metadata,
+                    target_indexes,
+                    target_type,
+                } => client
+                    .list_and_verify_batch_recovery_symbols(
+                        BatchRecoverySymbolsFilter {
+                            target_slivers: target_indexes,
+                            target_type,
+                        },
+                        metadata,
+                        encoding_config.clone(),
                     )
                     .await
                     .map(Response::VerifiedRecoverySymbols)?,

@@ -425,6 +425,10 @@ where
                 get(routes::list_recovery_symbols),
             )
             .route(
+                routes::LIST_BATCH_RECOVERY_SYMBOL_ENDPOINT,
+                get(routes::list_batch_recovery_symbols),
+            )
+            .route(
                 routes::LIST_DECODING_SYMBOL_ENDPOINT,
                 get(routes::list_decoding_symbols),
             )
@@ -595,7 +599,7 @@ mod tests {
             StoredOnNodeStatus,
             errors::StatusCode as ApiStatusCode,
         },
-        client::DecodingSymbolsFilter,
+        client::{BatchRecoverySymbolsFilter, DecodingSymbolsFilter},
     };
     use walrus_sui::test_utils::event_id_for_testing;
     use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
@@ -682,6 +686,28 @@ mod tests {
             };
             let symbol = GeneralRecoverySymbol::from_recovery_symbol(symbol, SliverIndex(0));
             Ok(vec![symbol.clone(), symbol])
+        }
+
+        // A mock implementation returning one symbol per target sliver, whose target index
+        // echoes the requested index so that query parsing can be checked.
+        async fn retrieve_batch_recovery_symbols(
+            &self,
+            _blob_id: &BlobId,
+            target_type: SliverType,
+            target_indexes: Vec<SliverIndex>,
+        ) -> Result<Vec<GeneralRecoverySymbol>, ListSymbolsError> {
+            assert_eq!(target_type, SliverType::Primary);
+            let RecoverySymbol::Primary(symbol) =
+                walrus_core::test_utils::primary_recovery_symbol()
+            else {
+                panic!("util method must return primary recovery symbol");
+            };
+            Ok(target_indexes
+                .into_iter()
+                .map(|target_index| {
+                    GeneralRecoverySymbol::from_recovery_symbol(symbol.clone(), target_index)
+                })
+                .collect())
         }
 
         // A mock implementation returning a single decoding symbol for each target sliver.
@@ -1536,6 +1562,29 @@ mod tests {
             .expect("Rustls must recognise key as valid");
 
         Ok(())
+    }
+
+    // Test the query of the batched recovery symbol endpoint is parsed correctly.
+    #[tokio::test]
+    async fn list_batch_recovery_symbols() {
+        let _ = tracing_subscriber::fmt::try_init();
+        let (config, _handle) = start_rest_api_with_test_config().await;
+
+        let client = storage_node_client(config.as_ref());
+        let blob_id = walrus_core::test_utils::random_blob_id();
+
+        let filter = BatchRecoverySymbolsFilter {
+            target_slivers: vec![SliverIndex(17), SliverIndex(28)],
+            target_type: SliverType::Primary,
+        };
+
+        let result = client
+            .list_batch_recovery_symbols(&blob_id, &filter)
+            .await
+            .expect("request should succeed");
+
+        let target_indexes: Vec<_> = result.iter().map(|symbol| symbol.target_index()).collect();
+        assert_eq!(target_indexes, vec![SliverIndex(17), SliverIndex(28)]);
     }
 
     // Test the query sent to the server can be parsed correctly.

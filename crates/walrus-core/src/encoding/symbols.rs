@@ -432,6 +432,11 @@ impl<U> GeneralRecoverySymbol<U> {
         }
     }
 
+    /// Returns the index of the sliver that this symbol helps to recover.
+    pub fn target_index(&self) -> SliverIndex {
+        self.target_index
+    }
+
     /// Returns the axis from which the proof was constructed.
     pub fn proof_axis(&self) -> SliverType {
         match self.symbol {

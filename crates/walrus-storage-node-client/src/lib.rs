@@ -10,6 +10,7 @@ use walrus_core::NetworkPublicKey;
 
 pub use self::{
     client::{
+        BatchRecoverySymbolsFilter,
         RecoverySymbolsFilter,
         StorageNodeClient,
         StorageNodeClientBuilder,

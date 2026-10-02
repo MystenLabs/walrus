@@ -3,14 +3,14 @@
 
 use std::{
     cmp,
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     num::NonZero,
     pin::Pin,
     sync::{Arc, Mutex as SyncMutex, Weak},
     task::{Context, Poll, ready},
 };
 
-use ::futures::{FutureExt as _, StreamExt as _, stream};
+use ::futures::{FutureExt as _, StreamExt as _, future::join_all, stream};
 use futures::{Stream as _, TryFutureExt as _, future::BoxFuture, stream::FuturesUnordered};
 use rand::{rngs::StdRng, seq::SliceRandom as _};
 use tokio::{
@@ -34,6 +34,7 @@ use walrus_core::{
     encoding::{
         self,
         EncodingAxis,
+        EncodingConfig,
         EncodingFactory as _,
         GeneralRecoverySymbol,
         Primary,
@@ -47,7 +48,7 @@ use walrus_core::{
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::MerkleProof,
     messages::{CertificateError, InvalidBlobCertificate, InvalidBlobIdAttestation},
-    metadata::VerifiedBlobMetadataWithId,
+    metadata::{BlobMetadataApi as _, VerifiedBlobMetadataWithId},
 };
 use walrus_sdk::active_committees::CommitteeTracker;
 use walrus_storage_node_client::RecoverySymbolsFilter;
@@ -413,83 +414,138 @@ where
         &mut self,
         tracker: SymbolTracker,
     ) -> Option<Result<Sliver, InconsistencyProofEnum>> {
-        if self.target_sliver_type == SliverType::Primary {
-            self.decode_sliver_by_axis::<Primary, _>(tracker.into_symbols())
-                .await
-        } else {
-            self.decode_sliver_by_axis::<Secondary, _>(tracker.into_symbols())
-                .await
-        }
-    }
-
-    /// Decodes the sliver using the specified recovery symbols.
-    ///
-    /// The function *does not* verify the recovery symbols. It is the caller's responsibility to
-    /// ensure that the recovery symbols have been verified to be useable to recover the identified
-    /// symbol.
-    ///
-    /// It is also the caller's responsibility to ensure that the number of recovery symbols is
-    /// sufficient to recover the sliver. The function returns `None` if this is not the case or
-    /// decoding fails for other reasons.
-    ///
-    /// Returns an inconsistency proof if the sliver turns out to be inconsistent.
-    async fn decode_sliver_by_axis<A, I>(
-        &self,
-        verified_recovery_symbols: I,
-    ) -> Option<Result<Sliver, InconsistencyProofEnum>>
-    where
-        A: EncodingAxis,
-        I: IntoIterator<Item = RecoverySymbolData<A, MerkleProof>> + Send + 'static,
-        SliverData<A>: Into<Sliver>,
-        InconsistencyProof<A, MerkleProof>: Into<InconsistencyProofEnum>,
-    {
-        tracing::debug!("beginning to decode recovered sliver");
-        let index = self.target_index;
-        let metadata = self.metadata.clone();
-        let encoding_config = self.shared.encoding_config.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            SliverData::<A>::recover_sliver_or_generate_inconsistency_proof(
-                verified_recovery_symbols,
-                index,
-                metadata.metadata(),
-                &encoding_config,
-            )
-        })
+        decode_sliver(
+            tracker.collected.into_values(),
+            self.target_index,
+            self.target_sliver_type,
+            self.metadata.clone(),
+            self.shared.encoding_config.clone(),
+        )
         .await
-        .expect("sliver recovery must not panic");
-        tracing::debug!("completing decoding, parsing result");
+    }
+}
 
-        match result {
-            Ok(SliverOrInconsistencyProof::Sliver(sliver)) => {
-                tracing::debug!("successfully recovered sliver");
-                Some(Ok(sliver.into()))
-            }
-            Ok(SliverOrInconsistencyProof::InconsistencyProof(proof)) => {
-                tracing::debug!("resulted in an inconsistency proof");
-                Some(Err(proof.into()))
-            }
-            Err(SliverRecoveryOrVerificationError::RecoveryError(err)) => match err {
-                encoding::SliverRecoveryError::BlobSizeTooLarge(_) => {
-                    panic!("blob size from verified metadata should not be too large")
-                }
-                encoding::SliverRecoveryError::DecodingFailure => {
-                    tracing::debug!("unable to decode with collected symbols");
-                    None
-                }
-            },
-            Err(SliverRecoveryOrVerificationError::VerificationError(err)) => match err {
-                SliverVerificationError::IndexTooLarge => {
-                    panic!("checked above by pre-condition")
-                }
-                SliverVerificationError::SliverSizeMismatch
-                | SliverVerificationError::SymbolSizeMismatch => panic!(
-                    "should not occur since symbols were verified and sliver constructed here"
-                ),
-                SliverVerificationError::MerkleRootMismatch => {
-                    panic!("should have been converted to an inconsistency proof")
-                }
-            },
+/// Decodes the sliver of the given type and index using the specified recovery symbols.
+///
+/// The symbols must all carry proofs from the axis orthogonal to `target_sliver_type`.
+async fn decode_sliver<I>(
+    verified_recovery_symbols: I,
+    target_index: SliverIndex,
+    target_sliver_type: SliverType,
+    metadata: Arc<VerifiedBlobMetadataWithId>,
+    encoding_config: Arc<EncodingConfig>,
+) -> Option<Result<Sliver, InconsistencyProofEnum>>
+where
+    I: IntoIterator<Item = GeneralRecoverySymbol> + Send + 'static,
+    I::IntoIter: Send,
+{
+    if target_sliver_type == SliverType::Primary {
+        decode_sliver_by_axis::<Primary, _>(
+            into_typed_symbols::<Primary, _>(verified_recovery_symbols),
+            target_index,
+            metadata,
+            encoding_config,
+        )
+        .await
+    } else {
+        decode_sliver_by_axis::<Secondary, _>(
+            into_typed_symbols::<Secondary, _>(verified_recovery_symbols),
+            target_index,
+            metadata,
+            encoding_config,
+        )
+        .await
+    }
+}
+
+/// Converts general recovery symbols into the symbols of the specified axis.
+///
+/// The symbols must be of the required type, which is ensured by the filter argument when
+/// requesting symbols as well as in the client when receiving the results.
+// TODO(jsmith): Remove once inconsistency proofs are updated to use the new recovery symbol.
+fn into_typed_symbols<A, I>(
+    symbols: I,
+) -> impl Iterator<Item = RecoverySymbolData<A, MerkleProof>> + Send
+where
+    A: EncodingAxis,
+    I: IntoIterator<Item = GeneralRecoverySymbol>,
+    I::IntoIter: Send,
+    RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<A, MerkleProof>>,
+{
+    symbols.into_iter().map(|symbol| {
+        let Ok(symbol) = RecoverySymbol::from(symbol).try_into() else {
+            panic!("symbols must be checked against filter in API call")
+        };
+        symbol
+    })
+}
+
+/// Decodes the sliver using the specified recovery symbols.
+///
+/// The function *does not* verify the recovery symbols. It is the caller's responsibility to
+/// ensure that the recovery symbols have been verified to be useable to recover the identified
+/// symbol.
+///
+/// It is also the caller's responsibility to ensure that the number of recovery symbols is
+/// sufficient to recover the sliver. The function returns `None` if this is not the case or
+/// decoding fails for other reasons.
+///
+/// Returns an inconsistency proof if the sliver turns out to be inconsistent.
+async fn decode_sliver_by_axis<A, I>(
+    verified_recovery_symbols: I,
+    index: SliverIndex,
+    metadata: Arc<VerifiedBlobMetadataWithId>,
+    encoding_config: Arc<EncodingConfig>,
+) -> Option<Result<Sliver, InconsistencyProofEnum>>
+where
+    A: EncodingAxis,
+    I: IntoIterator<Item = RecoverySymbolData<A, MerkleProof>> + Send + 'static,
+    SliverData<A>: Into<Sliver>,
+    InconsistencyProof<A, MerkleProof>: Into<InconsistencyProofEnum>,
+{
+    tracing::debug!("beginning to decode recovered sliver");
+    let result = tokio::task::spawn_blocking(move || {
+        SliverData::<A>::recover_sliver_or_generate_inconsistency_proof(
+            verified_recovery_symbols,
+            index,
+            metadata.metadata(),
+            &encoding_config,
+        )
+    })
+    .await
+    .expect("sliver recovery must not panic");
+    tracing::debug!("completing decoding, parsing result");
+
+    match result {
+        Ok(SliverOrInconsistencyProof::Sliver(sliver)) => {
+            tracing::debug!("successfully recovered sliver");
+            Some(Ok(sliver.into()))
         }
+        Ok(SliverOrInconsistencyProof::InconsistencyProof(proof)) => {
+            tracing::debug!("resulted in an inconsistency proof");
+            Some(Err(proof.into()))
+        }
+        Err(SliverRecoveryOrVerificationError::RecoveryError(err)) => match err {
+            encoding::SliverRecoveryError::BlobSizeTooLarge(_) => {
+                panic!("blob size from verified metadata should not be too large")
+            }
+            encoding::SliverRecoveryError::DecodingFailure => {
+                tracing::debug!("unable to decode with collected symbols");
+                None
+            }
+        },
+        Err(SliverRecoveryOrVerificationError::VerificationError(err)) => match err {
+            SliverVerificationError::IndexTooLarge => {
+                panic!("checked above by pre-condition")
+            }
+            SliverVerificationError::SliverSizeMismatch
+            | SliverVerificationError::SymbolSizeMismatch => {
+                panic!("should not occur since symbols were verified and sliver constructed here")
+            }
+            SliverVerificationError::MerkleRootMismatch => {
+                panic!("should have been converted to an inconsistency proof")
+            }
+        },
     }
 }
 
@@ -793,28 +849,6 @@ impl SymbolTracker {
     fn clear_in_progress(&mut self) {
         self.symbols_in_progress_count = 0;
     }
-
-    /// Convert the tracker into the collected symbols of the specified type.
-    ///
-    /// The stored symbols must be of the required typed.
-    // TODO(jsmith): Remove once inconsistency proofs are updated to use the new recovery symbol.
-    //
-    // Inconsistency proofs have not yet been updated, so for now, simply use only recovery symbols
-    // of a single type. This is ensured by the filter argument when requesting symbols as well as
-    // in the client when receiving the results.
-    fn into_symbols<A: EncodingAxis>(
-        self,
-    ) -> impl Iterator<Item = RecoverySymbolData<A, MerkleProof>>
-    where
-        RecoverySymbol<MerkleProof>: TryInto<RecoverySymbolData<A, MerkleProof>>,
-    {
-        self.collected.into_values().map(|symbol| {
-            let Ok(symbol) = RecoverySymbol::from(symbol).try_into() else {
-                panic!("symbols must be checked against filter in API call")
-            };
-            symbol
-        })
-    }
 }
 
 /// Track the remaining shards to be queried, grouped by storage node.
@@ -832,24 +866,28 @@ struct RemainingShards {
     shard_id_range_start: usize,
 }
 
+/// Returns the indices of the committee members in a random order, with the chance of a node
+/// appearing earlier being proportional to the number of shards that it has.
+fn weighted_node_order(committee: &Committee, rng: &mut StdRng) -> VecDeque<u16> {
+    let n_members = u16::try_from(committee.n_members()).expect("at most 65k members");
+
+    let node_indices: Vec<u16> = (0..n_members).collect();
+    node_indices
+        .choose_multiple_weighted(rng, committee.n_members(), |node_index| {
+            let n_shards = committee.members()[usize::from(*node_index)]
+                .shard_ids
+                .len();
+            u16::try_from(n_shards).expect("number of shards fits within u16")
+        })
+        .expect("u16 weights are valid")
+        .copied()
+        .collect()
+}
+
 impl RemainingShards {
     fn new(committee: &Committee, rng: &mut StdRng) -> Self {
-        let n_members = u16::try_from(committee.n_members()).expect("at most 65k members");
-
-        let node_indices: Vec<u16> = (0..n_members).collect();
-        let upcoming_nodes = node_indices
-            .choose_multiple_weighted(rng, committee.n_members(), |node_index| {
-                let n_shards = committee.members()[usize::from(*node_index)]
-                    .shard_ids
-                    .len();
-                u16::try_from(n_shards).expect("number of shards fits within u16")
-            })
-            .expect("u16 weights are valid")
-            .copied()
-            .collect();
-
         Self {
-            upcoming_nodes,
+            upcoming_nodes: weighted_node_order(committee, rng),
             shard_id_range_start: 0,
         }
     }
@@ -889,6 +927,615 @@ impl RemainingShards {
         }
 
         Some((usize::from(next_node_index), shards))
+    }
+}
+
+/// Recovers several slivers of the same type with batched recovery-symbol requests.
+///
+/// The symbols for all targets that still need them are requested from each peer in as few
+/// requests as the response-size bound allows. Targets are decoded once all of them have enough
+/// symbols; a target whose decoding fails is collected again while the others are kept.
+pub(super) struct RecoverSliversBatch<'a, T> {
+    metadata: Arc<VerifiedBlobMetadataWithId>,
+    target_sliver_type: SliverType,
+    epoch_certified: Epoch,
+    backoff: ExponentialBackoffState,
+    shared: &'a NodeCommitteeServiceInner<T>,
+    stats: RecoverSliverStats,
+    tracker: BatchSymbolTracker,
+    /// The maximum number of symbols to request from a peer in one request.
+    max_symbols_per_request: usize,
+}
+
+impl<'a, T> RecoverSliversBatch<'a, T>
+where
+    T: NodeService,
+{
+    pub fn new(
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        sliver_ids: Vec<SliverPairIndex>,
+        target_sliver_type: SliverType,
+        epoch_certified: Epoch,
+        shared: &'a NodeCommitteeServiceInner<T>,
+    ) -> Self {
+        let n_shards = metadata.n_shards();
+        let targets = sliver_ids
+            .into_iter()
+            .map(|pair_index| {
+                let target_index = match target_sliver_type {
+                    SliverType::Primary => pair_index.to_sliver_index::<Primary>(n_shards),
+                    SliverType::Secondary => pair_index.to_sliver_index::<Secondary>(n_shards),
+                };
+                (pair_index, target_index)
+            })
+            .collect();
+
+        let n_symbols_required = n_symbols_required(shared, &metadata, target_sliver_type);
+        let n_symbols_desired = cmp::min(
+            n_symbols_required
+                + shared
+                    .config
+                    .experimental_sliver_recovery_additional_symbols,
+            n_shards.get().into(),
+        );
+
+        let symbol_size = metadata
+            .metadata()
+            .symbol_size(&shared.encoding_config)
+            .expect("blob size from verified metadata should not be too large");
+        let max_symbols_per_request = max_symbols_per_request(
+            shared
+                .config
+                .experimental_batched_sliver_recovery_max_response_bytes,
+            symbol_size,
+            n_shards,
+        );
+
+        Self {
+            metadata,
+            target_sliver_type,
+            epoch_certified,
+            backoff: ExponentialBackoffState::new_infinite(
+                shared.config.retry_interval_min,
+                shared.config.retry_interval_max,
+            ),
+            shared,
+            stats: RecoverSliverStats::new(shared.metrics.clone()),
+            tracker: BatchSymbolTracker::new(
+                targets,
+                n_symbols_required,
+                n_symbols_desired,
+                target_sliver_type,
+            ),
+            max_symbols_per_request,
+        }
+    }
+
+    pub async fn run(mut self) -> Result<Vec<(SliverPairIndex, Sliver)>, InconsistencyProofEnum> {
+        tracing::trace!(
+            sliver_type = %self.target_sliver_type,
+            n_targets = self.tracker.n_targets(),
+            max_symbols_per_request = self.max_symbols_per_request,
+            "starting batched recovery for slivers"
+        );
+
+        let mut recovered = Vec::with_capacity(self.tracker.n_targets());
+
+        while !self.tracker.is_empty() {
+            self.collect_symbols().await;
+            self.stats.record_state(RecoveryStateLabel::BuildingSliver);
+
+            let ready_targets = self.tracker.take_ready_targets();
+            let decoded = join_all(ready_targets.into_iter().map(
+                |(pair_index, target_index, symbols)| {
+                    let decode = decode_sliver(
+                        symbols,
+                        target_index,
+                        self.target_sliver_type,
+                        self.metadata.clone(),
+                        self.shared.encoding_config.clone(),
+                    );
+                    async move { (pair_index, target_index, decode.await) }
+                },
+            ))
+            .await;
+
+            for (pair_index, target_index, result) in decoded {
+                match result {
+                    Some(Ok(sliver)) => recovered.push((pair_index, sliver)),
+                    Some(Err(proof)) => return Err(proof),
+                    None => {
+                        tracing::error!(
+                            %pair_index,
+                            "unable to recover sliver from sufficient number of symbols; retrying"
+                        );
+                        self.tracker.reset_target(pair_index, target_index);
+                    }
+                }
+            }
+        }
+
+        Ok(recovered)
+    }
+
+    /// Collects symbols until every remaining target has enough of them to be decoded.
+    #[tracing::instrument(skip(self))]
+    async fn collect_symbols(&mut self) {
+        let mut committee_listener = self.shared.subscribe_to_committee_changes();
+
+        loop {
+            let weak_committee = {
+                let committee_tracker = committee_listener.borrow_and_update();
+                Arc::downgrade(
+                    committee_tracker
+                        .committees()
+                        .read_committee(self.epoch_certified)
+                        .expect("epoch must not be in the future"),
+                )
+            };
+
+            let epoch_certified = self.epoch_certified;
+            let worker = CollectBatchRecoverySymbols::new(
+                self.metadata.clone(),
+                &mut self.tracker,
+                weak_committee.clone(),
+                self.shared,
+                &mut self.stats,
+                self.max_symbols_per_request,
+            );
+
+            tokio::select! {
+                result = worker.run() => {
+                    match result {
+                        Ok(()) => {
+                            tracing::trace!(
+                                "successfully collected the recovery symbols for all targets"
+                            );
+                            self.stats.metrics.recovery_future_backoffs
+                                .observe(self.stats.total_backoffs as f64);
+                            self.stats.metrics.recovery_future_failed_requests
+                                .observe(self.stats.total_failed_requests as f64);
+                            return;
+                        },
+                        Err(n_targets_remaining) => {
+                            tracing::trace!(
+                                %n_targets_remaining,
+                                "failed to collect sufficient recovery symbols for all targets"
+                            );
+                            self.stats.record_state(RecoveryStateLabel::Backoff);
+                            self.stats.metrics.recovery_future_backoff_total.inc();
+                            self.stats.total_backoffs += 1;
+
+                            wait_before_next_attempts(&mut self.backoff, &self.shared.rng).await;
+                        }
+                    }
+                }
+                () = wait_for_read_committee_change(
+                    epoch_certified,
+                    &mut committee_listener,
+                    &weak_committee,
+                    |lhs, rhs| lhs == rhs
+                ) => {
+                    tracing::debug!(
+                        "read committee has changed, recreating recovery symbol requests"
+                    );
+                }
+            };
+        }
+    }
+}
+
+/// Returns the number of symbols required to decode a sliver of the given type.
+fn n_symbols_required<T>(
+    shared: &NodeCommitteeServiceInner<T>,
+    metadata: &VerifiedBlobMetadataWithId,
+    target_sliver_type: SliverType,
+) -> usize {
+    let encoding_config = shared
+        .encoding_config
+        .get_for_type(metadata.metadata().encoding_type());
+    let RequiredCount::Exact(n_symbols_required) = if target_sliver_type == SliverType::Primary {
+        encoding_config.n_symbols_for_recovery::<Primary>()
+    } else {
+        encoding_config.n_symbols_for_recovery::<Secondary>()
+    };
+    n_symbols_required
+}
+
+/// Returns the number of recovery symbols that fit into a response of at most
+/// `max_response_bytes`.
+///
+/// Each symbol is returned with a Merkle proof of one hash per tree level, plus a few bytes for
+/// its indices and the encoding.
+fn max_symbols_per_request(
+    max_response_bytes: u64,
+    symbol_size: NonZero<u16>,
+    n_shards: NonZero<u16>,
+) -> usize {
+    const HASH_BYTES: u64 = 32;
+    const OVERHEAD_BYTES: u64 = 16;
+
+    let tree_depth = u64::from(n_shards.get().next_power_of_two().trailing_zeros());
+    let bytes_per_symbol = u64::from(symbol_size.get()) + HASH_BYTES * tree_depth + OVERHEAD_BYTES;
+
+    usize::try_from(max_response_bytes / bytes_per_symbol)
+        .unwrap_or(usize::MAX)
+        .max(1)
+}
+
+struct CollectBatchRecoverySymbols<'a, T> {
+    tracker: &'a mut BatchSymbolTracker,
+    metadata: Arc<VerifiedBlobMetadataWithId>,
+    committee: Weak<Committee>,
+    shared: &'a NodeCommitteeServiceInner<T>,
+    upcoming_nodes: VecDeque<u16>,
+    /// Pending requests, each resolving to the number of symbols requested per target and the
+    /// verified symbols that were returned.
+    pending_requests: FuturesUnordered<BoxFuture<'a, BatchRequestOutcome>>,
+    stats: &'a mut RecoverSliverStats,
+    max_symbols_per_request: usize,
+}
+
+type BatchRequestOutcome = (
+    Vec<(SliverPairIndex, usize)>,
+    Option<Vec<GeneralRecoverySymbol>>,
+);
+
+impl<'a, T: NodeService> CollectBatchRecoverySymbols<'a, T> {
+    fn new(
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        tracker: &'a mut BatchSymbolTracker,
+        committee: Weak<Committee>,
+        shared: &'a NodeCommitteeServiceInner<T>,
+        stats: &'a mut RecoverSliverStats,
+        max_symbols_per_request: usize,
+    ) -> Self {
+        // Clear counts of in-progress collections.
+        tracker.clear_in_progress();
+
+        let upcoming_nodes = if let Some(committee) = committee.upgrade() {
+            let mut rng_guard = shared.rng.lock().expect("mutex should not be poisoned");
+            weighted_node_order(&committee, &mut rng_guard)
+        } else {
+            // The committee has been dropped, so there are no nodes to query,
+            // this will likely be followed by a refresh of the committee.
+            VecDeque::new()
+        };
+
+        Self {
+            tracker,
+            metadata,
+            committee,
+            shared,
+            upcoming_nodes,
+            pending_requests: Default::default(),
+            stats,
+            max_symbols_per_request,
+        }
+    }
+
+    /// Runs until all targets have enough symbols, or until all nodes have been queried.
+    ///
+    /// Returns the number of targets that still lack symbols in the latter case.
+    async fn run(mut self) -> Result<(), usize> {
+        self.refill_pending_requests();
+
+        while let Some((requested, maybe_symbols)) = self.pending_requests.next().await {
+            self.tracker.decrease_pending(&requested);
+
+            if let Some(symbols) = maybe_symbols {
+                self.tracker.extend_collected(symbols);
+            } else {
+                // No symbols, which indicates a request failure.
+                self.stats.total_failed_requests += 1;
+            }
+
+            if self.tracker.all_done() {
+                break;
+            }
+
+            // The request returned some or all of the requested symbols, or it failed
+            // completely. In both cases, we need to replenish the requests as the number
+            // requested is potentially not equal to the number returned.
+            self.refill_pending_requests();
+        }
+
+        if self.tracker.all_done() {
+            Ok(())
+        } else {
+            Err(self.tracker.n_targets_not_done())
+        }
+    }
+
+    /// Sends requests to the next nodes until every target has enough symbols collected or in
+    /// progress, or until all nodes have been queried.
+    ///
+    /// Each node receives the targets that still need symbols from its shards, split into
+    /// requests that stay within the response-size bound.
+    fn refill_pending_requests(&mut self) {
+        let mut new_request_count = 0;
+        let Some(committee) = self.committee.upgrade() else {
+            tracing::trace!("committee has been dropped, skipping refill");
+            return;
+        };
+
+        while self.tracker.needs_more_requests() {
+            let Some(node_index) = self.upcoming_nodes.pop_front() else {
+                break;
+            };
+            let _span_guard =
+                tracing::trace_span!("refill_pending_requests", node_index = node_index).entered();
+
+            let node_info = &committee.members()[usize::from(node_index)];
+            let sources: Vec<SliverIndex> = node_info
+                .shard_ids
+                .iter()
+                .map(|shard_id| self.source_index_at_shard(*shard_id))
+                .collect();
+
+            let wanted = self.tracker.targets_wanting(&sources);
+            if wanted.is_empty() {
+                tracing::trace!("no target needs symbols from this node, skipping");
+                continue;
+            }
+
+            let targets_per_request = (self.max_symbols_per_request / sources.len().max(1)).max(1);
+
+            for chunk in wanted.chunks(targets_per_request) {
+                let Some(client) = self.shared.get_node_service_by_id(&node_info.public_key) else {
+                    tracing::trace!(
+                        "unable to get the client: creation failed or epoch is changing"
+                    );
+                    break;
+                };
+                let Some(client) = check_ready(client) else {
+                    tracing::trace!("skipping unready client");
+                    break;
+                };
+
+                let target_indexes: Vec<SliverIndex> = chunk
+                    .iter()
+                    .map(|(_, target_index, _)| *target_index)
+                    .collect();
+                let requested: Vec<(SliverPairIndex, usize)> = chunk
+                    .iter()
+                    .map(|(pair_index, _, n_symbols)| (*pair_index, *n_symbols))
+                    .collect();
+                tracing::trace!(
+                    ?target_indexes,
+                    n_sources = sources.len(),
+                    "selected node and targets to request symbols for"
+                );
+
+                self.tracker.increase_pending(&requested);
+
+                let request = Request::ListVerifiedBatchRecoverySymbols {
+                    metadata: self.metadata.clone(),
+                    target_indexes,
+                    target_type: self.tracker.target_sliver_type,
+                };
+                let request = time::timeout(
+                    self.shared.config.sliver_request_timeout,
+                    client
+                        .oneshot(request)
+                        .map_ok(|symbols| symbols.into_value()),
+                )
+                .map(log_and_discard_timeout_or_error)
+                .map(move |symbols| (requested, symbols))
+                .boxed();
+
+                self.pending_requests.push(request);
+                self.stats.metrics.recovery_batch_requests_total.inc();
+                self.stats
+                    .metrics
+                    .recovery_batch_request_targets
+                    .observe(chunk.len() as f64);
+                new_request_count += 1;
+            }
+        }
+
+        tracing::trace!(
+            new_request_count,
+            "completed refilling pending requests with additional futures"
+        );
+
+        match self.pending_requests.len() {
+            0 => (),
+            i @ 1..=5 => self.stats.record_state(RecoveryStateLabel::TailRequest(
+                NonZero::new(i.try_into().expect("the number of requests is at most 5"))
+                    .expect("zero is handled above"),
+            )),
+            _ => self
+                .stats
+                .record_state(RecoveryStateLabel::CollectingSymbols),
+        }
+    }
+
+    /// Returns the index of the source sliver stored at the shard, on the axis orthogonal to
+    /// the targets.
+    fn source_index_at_shard(&self, shard_id: ShardIndex) -> SliverIndex {
+        let n_shards = self.metadata.n_shards();
+        let pair_at_shard = shard_id.to_pair_index(n_shards, self.metadata.blob_id());
+        match self.tracker.target_sliver_type {
+            SliverType::Primary => pair_at_shard.to_sliver_index::<Secondary>(n_shards),
+            SliverType::Secondary => pair_at_shard.to_sliver_index::<Primary>(n_shards),
+        }
+    }
+}
+
+/// The symbols collected for one target sliver.
+#[derive(Debug, Default)]
+struct TargetSymbols {
+    /// The collected symbols, keyed by the index of the source sliver they were taken from.
+    collected: HashMap<SliverIndex, GeneralRecoverySymbol>,
+    /// The number of symbols requested and not yet returned.
+    in_progress: usize,
+}
+
+/// Tracks the collection of recovery symbols for several targets of the same type.
+#[derive(Debug)]
+struct BatchSymbolTracker {
+    target_sliver_type: SliverType,
+    /// The number of symbols required to decode each target.
+    symbols_required_to_decode_count: usize,
+    /// The number of symbols to have collected or in progress for each target before no
+    /// further requests are made for it. At least as large as the required count, with
+    /// additional symbols to account for potential errors in the symbols received.
+    symbols_desired_count: usize,
+    /// The targets still to be decoded, keyed by pair index.
+    targets: BTreeMap<SliverPairIndex, (SliverIndex, TargetSymbols)>,
+    /// Maps the sliver index of each target to its pair index.
+    pair_index_by_target_index: HashMap<SliverIndex, SliverPairIndex>,
+}
+
+impl BatchSymbolTracker {
+    fn new(
+        targets: Vec<(SliverPairIndex, SliverIndex)>,
+        n_symbols_required: usize,
+        n_symbols_desired: usize,
+        target_sliver_type: SliverType,
+    ) -> Self {
+        let mut this = Self {
+            target_sliver_type,
+            symbols_required_to_decode_count: n_symbols_required,
+            symbols_desired_count: n_symbols_desired,
+            targets: BTreeMap::new(),
+            pair_index_by_target_index: HashMap::new(),
+        };
+        for (pair_index, target_index) in targets {
+            this.reset_target(pair_index, target_index);
+        }
+        this
+    }
+
+    fn n_targets(&self) -> usize {
+        self.targets.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.targets.is_empty()
+    }
+
+    fn is_done(&self, symbols: &TargetSymbols) -> bool {
+        symbols.collected.len() >= self.symbols_required_to_decode_count
+    }
+
+    fn wants_more(&self, symbols: &TargetSymbols) -> bool {
+        symbols.collected.len() + symbols.in_progress < self.symbols_desired_count
+    }
+
+    /// Returns true if every remaining target has enough symbols to be decoded.
+    fn all_done(&self) -> bool {
+        self.targets
+            .values()
+            .all(|(_, symbols)| self.is_done(symbols))
+    }
+
+    fn n_targets_not_done(&self) -> usize {
+        self.targets
+            .values()
+            .filter(|(_, symbols)| !self.is_done(symbols))
+            .count()
+    }
+
+    /// Returns true if some target has fewer symbols collected or in progress than desired.
+    fn needs_more_requests(&self) -> bool {
+        self.targets
+            .values()
+            .any(|(_, symbols)| self.wants_more(symbols))
+    }
+
+    /// Returns the targets that want symbols from the given source slivers, together with the
+    /// number of those sources for which the target has no symbol yet.
+    fn targets_wanting(
+        &self,
+        sources: &[SliverIndex],
+    ) -> Vec<(SliverPairIndex, SliverIndex, usize)> {
+        self.targets
+            .iter()
+            .filter(|(_, (_, symbols))| self.wants_more(symbols))
+            .filter_map(|(pair_index, (target_index, symbols))| {
+                let n_missing = sources
+                    .iter()
+                    .filter(|source| !symbols.collected.contains_key(source))
+                    .count();
+                (n_missing > 0).then_some((*pair_index, *target_index, n_missing))
+            })
+            .collect()
+    }
+
+    fn increase_pending(&mut self, requested: &[(SliverPairIndex, usize)]) {
+        for (pair_index, n_symbols) in requested {
+            if let Some((_, symbols)) = self.targets.get_mut(pair_index) {
+                symbols.in_progress += n_symbols;
+            }
+        }
+    }
+
+    fn decrease_pending(&mut self, requested: &[(SliverPairIndex, usize)]) {
+        for (pair_index, n_symbols) in requested {
+            if let Some((_, symbols)) = self.targets.get_mut(pair_index) {
+                symbols.in_progress = symbols.in_progress.saturating_sub(*n_symbols);
+            }
+        }
+    }
+
+    fn clear_in_progress(&mut self) {
+        for (_, symbols) in self.targets.values_mut() {
+            symbols.in_progress = 0;
+        }
+    }
+
+    /// Stores the collected symbols with their targets.
+    ///
+    /// Symbols for unknown targets are ignored, and a symbol equivalent to an already collected
+    /// one replaces it.
+    fn extend_collected(&mut self, symbols: Vec<GeneralRecoverySymbol>) {
+        let source_axis = self.target_sliver_type.orthogonal();
+        for symbol in symbols {
+            let Some(pair_index) = self.pair_index_by_target_index.get(&symbol.target_index())
+            else {
+                continue;
+            };
+            let Some((_, target_symbols)) = self.targets.get_mut(pair_index) else {
+                continue;
+            };
+            let source_index = symbol.id().sliver_index(source_axis);
+            target_symbols.collected.insert(source_index, symbol);
+        }
+    }
+
+    /// Removes and returns the targets that have enough symbols to be decoded.
+    fn take_ready_targets(
+        &mut self,
+    ) -> Vec<(SliverPairIndex, SliverIndex, Vec<GeneralRecoverySymbol>)> {
+        let ready: Vec<SliverPairIndex> = self
+            .targets
+            .iter()
+            .filter(|(_, (_, symbols))| self.is_done(symbols))
+            .map(|(pair_index, _)| *pair_index)
+            .collect();
+
+        ready
+            .into_iter()
+            .filter_map(|pair_index| {
+                let (target_index, symbols) = self.targets.remove(&pair_index)?;
+                self.pair_index_by_target_index.remove(&target_index);
+                Some((
+                    pair_index,
+                    target_index,
+                    symbols.collected.into_values().collect(),
+                ))
+            })
+            .collect()
+    }
+
+    /// Registers the target with no collected symbols, replacing any existing state for it.
+    fn reset_target(&mut self, pair_index: SliverPairIndex, target_index: SliverIndex) {
+        self.targets
+            .insert(pair_index, (target_index, TargetSymbols::default()));
+        self.pair_index_by_target_index
+            .insert(target_index, pair_index);
     }
 }
 

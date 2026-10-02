@@ -87,6 +87,8 @@ pub const DELETABLE_BLOB_CONFIRMATION_ENDPOINT: &str =
     "/v1/blobs/{blob_id}/confirmation/deletable/{object_id}";
 /// The path to get multiple recovery symbols.
 pub const LIST_RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols";
+/// The path to get the recovery symbols for several target slivers of the same type.
+pub const LIST_BATCH_RECOVERY_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/recoverySymbols/batch";
 /// The path to get decoding symbols to decode target slivers.
 /// It is essentially recovery symbols without proof.
 pub const LIST_DECODING_SYMBOL_ENDPOINT: &str = "/v1/blobs/{blob_id}/decodingSymbols";
@@ -627,6 +629,49 @@ pub async fn list_recovery_symbols<S: SyncServiceState>(
     let symbols = state
         .service
         .retrieve_multiple_recovery_symbols(&blob_id, filter)
+        .await?;
+
+    Ok(Bcs(symbols))
+}
+
+/// Specifies the target slivers for which recovery symbols are requested in a batch.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, utoipa::IntoParams)]
+#[serde(rename_all = "camelCase")]
+#[into_params(style = Form, parameter_in = Query)]
+pub struct ListBatchRecoverySymbolsQuery {
+    /// The sliver indexes of the target slivers being recovered.
+    #[serde_as(as = "OneOrMany<DisplayFromStr>")]
+    target_slivers: Vec<SliverIndex>,
+    /// The type of the slivers being recovered.
+    target_type: SliverType,
+}
+
+/// Get the recovery symbols for several target slivers of the same type.
+///
+/// Returns the symbols held by this node for all of the requested targets. The response may be
+/// partial if some of the node's slivers cannot be served.
+#[tracing::instrument(skip_all, err(level = Level::DEBUG), fields(walrus.blob_id = %blob_id))]
+#[utoipa::path(
+    get,
+    path = LIST_BATCH_RECOVERY_SYMBOL_ENDPOINT,
+    params(("blob_id" = BlobId,), ListBatchRecoverySymbolsQuery),
+    responses(
+        (status = 200, description = "List of BCS-encoded recovery symbols", body = [u8]),
+        ListSymbolsError,
+    ),
+    tag = openapi::GROUP_RECOVERY
+)]
+pub async fn list_batch_recovery_symbols<S: SyncServiceState>(
+    State(state): State<RestApiState<S>>,
+    Path(BlobIdString(blob_id)): Path<BlobIdString>,
+    ExtraQuery(query): ExtraQuery<ListBatchRecoverySymbolsQuery>,
+) -> Result<Bcs<Vec<GeneralRecoverySymbol>>, ListSymbolsError> {
+    let _guard = limit_symbol_recovery_requests(state.recovery_symbols_limit.as_deref())?;
+
+    let symbols = state
+        .service
+        .retrieve_batch_recovery_symbols(&blob_id, query.target_type, query.target_slivers)
         .await?;
 
     Ok(Bcs(symbols))

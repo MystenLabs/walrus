@@ -17,6 +17,7 @@ use walrus_core::{
     EncodingType,
     Sliver,
     SliverId,
+    SliverIndex,
     SliverPairIndex,
     by_axis::{
         Axis,
@@ -52,6 +53,16 @@ walrus_utils::metrics::define_metric_set! {
 
         #[help = "The total number of cache misses in the `RecoverySymbolService`."]
         cache_miss_total: IntCounter[],
+
+        #[help = "The total number of batched requests (one per source sliver) made against the \
+        `RecoverySymbolService`."]
+        batch_requests_total: IntCounter[],
+
+        #[help = "The total number of recovery symbols produced by batched requests."]
+        batch_symbols_total: IntCounter[],
+
+        #[help = "The total number of sliver expansions performed for batched requests."]
+        batch_expansions_total: IntCounter[],
     }
 }
 
@@ -75,6 +86,22 @@ pub(crate) struct RecoverySymbolRequest {
     pub encoding_type: EncodingType,
     /// The index of the sliver on the orthogonal axis which is being recovered.
     pub target_pair_index: SliverPairIndex,
+}
+
+/// A request to construct the recovery symbols for several target slivers from one sliver.
+///
+/// All targets are on the axis orthogonal to the source sliver. The sliver is expanded at most
+/// once for the whole request and the Merkle tree over the expansion is shared by all proofs.
+#[derive(Debug, Clone)]
+pub(crate) struct BatchRecoverySymbolRequest {
+    /// The blob ID from which the sliver is taken.
+    pub blob_id: BlobId,
+    /// The source sliver from which the recovery symbols are taken.
+    pub source_sliver: Arc<Sliver>,
+    /// The encoding type of the source sliver.
+    pub encoding_type: EncodingType,
+    /// The indices of the slivers on the orthogonal axis which are being recovered.
+    pub target_indexes: Arc<[SliverIndex]>,
 }
 
 /// Service used to create recovery symbols from a sliver.
@@ -241,6 +268,152 @@ impl RecoverySymbolService {
     }
 }
 
+impl RecoverySymbolService {
+    fn handle_batch_request_and_cache(
+        &self,
+        req: BatchRecoverySymbolRequest,
+    ) -> Result<Vec<GeneralRecoverySymbol>, RecoverySymbolError> {
+        let config = self.encoding_config.get_for_type(req.encoding_type);
+
+        let cache_key = CacheKey {
+            blob_id: req.blob_id,
+            source_id: by_axis::map!(req.source_sliver.as_ref().as_ref(), |s| s.index),
+        };
+
+        self.metrics.batch_requests_total.inc();
+
+        match req.source_sliver.r#type() {
+            Axis::Primary => self.get_recovery_symbols_batch(
+                cache_key,
+                SharedSliverData::<Primary>::new(req.source_sliver),
+                &req.target_indexes,
+                &config,
+            ),
+            Axis::Secondary => self.get_recovery_symbols_batch(
+                cache_key,
+                SharedSliverData::<Secondary>::new(req.source_sliver),
+                &req.target_indexes,
+                &config,
+            ),
+        }
+    }
+
+    /// Creates the recovery symbols for all `target_indexes` from a single source sliver.
+    ///
+    /// The sliver is expanded at most once: the expansion is required to build the Merkle tree
+    /// on a cache miss, and to read the symbols of targets outside the source range of the
+    /// orthogonal encoding. Targets inside the source range are copied from the sliver directly.
+    fn get_recovery_symbols_batch<T: EncodingAxis>(
+        &self,
+        cache_key: CacheKey,
+        sliver: SharedSliverData<T>,
+        target_indexes: &[SliverIndex],
+        config: &EncodingConfigEnum,
+    ) -> Result<Vec<GeneralRecoverySymbol>, RecoverySymbolError>
+    where
+        DecodingSymbol<T::OrthogonalAxis>: Into<EitherDecodingSymbol>,
+        SharedSliverData<T>: AsRef<SliverData<T>>,
+    {
+        let sliver_ref = sliver.as_ref();
+        let n_shards = usize::from(config.n_shards().get());
+        if target_indexes
+            .iter()
+            .any(|target| target.as_usize() >= n_shards)
+        {
+            return Err(RecoverySymbolError::IndexTooLarge);
+        }
+
+        let n_source_symbols = sliver_ref.symbols.len();
+        let needs_expansion = target_indexes
+            .iter()
+            .any(|target| target.as_usize() >= n_source_symbols);
+
+        let mut expanded: Option<Symbols> = None;
+
+        let tree = if let Some(tree) = self.cache.get(&cache_key) {
+            tree
+        } else {
+            self.cache
+                .try_get_with::<_, RecoverySymbolError>(cache_key, || {
+                    self.metrics.cache_miss_total.inc();
+                    let symbols = sliver_ref.recovery_symbols(config)?;
+                    let tree = MerkleTree::<Blake2b256>::build(symbols.to_symbols());
+                    expanded = Some(symbols);
+                    Ok(Arc::new(tree))
+                })
+                .map_err(Arc::unwrap_or_clone)?
+        };
+
+        if needs_expansion && expanded.is_none() {
+            expanded = Some(sliver_ref.recovery_symbols(config)?);
+        }
+        if expanded.is_some() {
+            self.metrics.batch_expansions_total.inc();
+        }
+
+        let source_index = sliver_ref.index.get();
+        let mut output = Vec::with_capacity(target_indexes.len());
+
+        for &target_index in target_indexes {
+            let symbol_bytes = if target_index.as_usize() < n_source_symbols {
+                sliver_ref.symbols[target_index.as_usize()].to_vec()
+            } else {
+                expanded
+                    .as_ref()
+                    .expect("expanded above since a target is outside the source range")
+                    [target_index.as_usize()]
+                .to_vec()
+            };
+            let decoding_symbol =
+                DecodingSymbol::<T::OrthogonalAxis>::new(source_index, symbol_bytes);
+            let proof = tree
+                .get_proof(target_index.as_usize())
+                .expect("bound already checked above");
+
+            output.push(GeneralRecoverySymbol::from_recovery_symbol(
+                decoding_symbol.with_proof(proof),
+                target_index,
+            ));
+        }
+
+        self.metrics
+            .batch_symbols_total
+            .inc_by(u64::try_from(output.len()).expect("fits in u64"));
+
+        Ok(output)
+    }
+}
+
+impl Service<BatchRecoverySymbolRequest> for RecoverySymbolService {
+    type Response = Vec<GeneralRecoverySymbol>;
+    type Error = RecoverySymbolError;
+    type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        let result = task::ready!(<BoundedThreadPool as Service<fn()>>::poll_ready(
+            &mut self.thread_pool,
+            cx
+        ));
+
+        thread_pool::unwrap_or_resume_panic(result);
+
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, req: BatchRecoverySymbolRequest) -> Self::Future {
+        let mut this = utils::clone_ready_service::<_, BatchRecoverySymbolRequest>(self);
+        let mut thread_pool = utils::clone_ready_service::<_, fn()>(&mut this.thread_pool);
+
+        async move {
+            thread_pool
+                .call(move || this.handle_batch_request_and_cache(req))
+                .map(thread_pool::unwrap_or_resume_panic)
+                .await
+        }
+        .boxed()
+    }
+}
+
 impl Service<RecoverySymbolRequest> for RecoverySymbolService {
     type Response = GeneralRecoverySymbol;
     type Error = RecoverySymbolError;
@@ -258,7 +431,7 @@ impl Service<RecoverySymbolRequest> for RecoverySymbolService {
     }
 
     fn call(&mut self, req: RecoverySymbolRequest) -> Self::Future {
-        let mut this = utils::clone_ready_service(self);
+        let mut this = utils::clone_ready_service::<_, RecoverySymbolRequest>(self);
         let mut thread_pool = utils::clone_ready_service::<_, fn()>(&mut this.thread_pool);
 
         async move {
@@ -322,7 +495,7 @@ mod tests {
     use rayon::ThreadPoolBuilder as RayonThreadPoolBuilder;
     use thread_pool::{RayonThreadPool, ThreadPoolBuilder, TokioBlockingPool};
     use tokio_stream::StreamExt as _;
-    use tower::ServiceExt as _;
+    use tower::ServiceExt;
     use walrus_core::{
         SliverId,
         SliverIndex,
@@ -452,7 +625,9 @@ mod tests {
 
         let mut service = symbol_service(blob_info.config.clone(), pool_type);
 
-        let service = service.ready().now_or_never().unwrap()?;
+        let service = ServiceExt::<RecoverySymbolRequest>::ready(&mut service)
+            .now_or_never()
+            .unwrap()?;
         let response = service
             .call(RecoverySymbolRequest {
                 blob_id: *blob_info.metadata.blob_id(),
@@ -463,6 +638,184 @@ mod tests {
             .await?;
 
         assert_eq!(response, expected_recovery_symbol);
+
+        Ok(())
+    }
+
+    async_param_test! {
+        batch_result_matches_individual_symbols -> TestResult: [
+            #[cfg(not(msim))]
+            use_rayon: (ThreadPoolType::Rayon),
+            use_tokio: (ThreadPoolType::Tokio),
+        ]
+    }
+    async fn batch_result_matches_individual_symbols(pool_type: ThreadPoolType) -> TestResult {
+        let blob_info = TestBlobInfo::new();
+        let n_shards = blob_info.config.n_shards();
+        let config_enum = blob_info.config.get_for_type(blob_info.encoding_type());
+
+        let source_id = SliverId::Primary(SliverIndex(0));
+        let sliver = blob_info.primary_sliver(source_id.index());
+
+        // All secondary slivers as targets, which covers targets both inside and outside the
+        // source range of the secondary encoding.
+        let target_indexes: Vec<SliverIndex> = (0..n_shards.get()).map(SliverIndex).collect();
+        let expected: Vec<_> = target_indexes
+            .iter()
+            .map(|target| {
+                GeneralRecoverySymbol::from_recovery_symbol(
+                    sliver
+                        .recovery_symbol_for_sliver(
+                            target.to_pair_index::<Secondary>(n_shards),
+                            &config_enum,
+                        )
+                        .expect("valid target"),
+                    *target,
+                )
+            })
+            .collect();
+
+        let request = BatchRecoverySymbolRequest {
+            blob_id: *blob_info.metadata.blob_id(),
+            source_sliver: Arc::new(sliver.into()),
+            target_indexes: target_indexes.into(),
+            encoding_type: blob_info.encoding_type(),
+        };
+
+        let mut service = symbol_service(blob_info.config.clone(), pool_type);
+
+        // The first request builds the tree, the second one reuses it from the cache.
+        for _ in 0..2 {
+            let ready = ServiceExt::<BatchRecoverySymbolRequest>::ready(&mut service)
+                .now_or_never()
+                .unwrap()?;
+            let response = ready.call(request.clone()).await?;
+            assert_eq!(response, expected);
+        }
+
+        assert_eq!(service.metrics.batch_requests_total.get(), 2);
+        assert_eq!(service.metrics.cache_miss_total.get(), 1);
+        // Targets outside the source range require the expansion on every request.
+        assert_eq!(service.metrics.batch_expansions_total.get(), 2);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn batch_with_source_range_targets_only_expands_once() -> TestResult {
+        let blob_info = TestBlobInfo::new();
+        let config_enum = blob_info.config.get_for_type(blob_info.encoding_type());
+        let n_source_symbols = usize::from(config_enum.n_secondary_source_symbols().get());
+
+        let sliver = blob_info.primary_sliver(SliverIndex(1));
+        let target_indexes: Vec<SliverIndex> = (0..n_source_symbols)
+            .map(|index| SliverIndex(u16::try_from(index).expect("small index")))
+            .collect();
+
+        let request = BatchRecoverySymbolRequest {
+            blob_id: *blob_info.metadata.blob_id(),
+            source_sliver: Arc::new(sliver.into()),
+            target_indexes: target_indexes.into(),
+            encoding_type: blob_info.encoding_type(),
+        };
+
+        let mut service = symbol_service(blob_info.config.clone(), ThreadPoolType::Tokio);
+        for _ in 0..3 {
+            let ready = ServiceExt::<BatchRecoverySymbolRequest>::ready(&mut service)
+                .now_or_never()
+                .unwrap()?;
+            assert_eq!(ready.call(request.clone()).await?.len(), n_source_symbols);
+        }
+
+        // Only the first request, which builds the tree, expands the sliver.
+        assert_eq!(service.metrics.batch_expansions_total.get(), 1);
+        assert_eq!(
+            service.metrics.batch_symbols_total.get(),
+            3 * n_source_symbols as u64
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn batch_rejects_out_of_range_target() -> TestResult {
+        let blob_info = TestBlobInfo::new();
+        let n_shards = blob_info.config.n_shards();
+        let sliver = blob_info.primary_sliver(SliverIndex(0));
+
+        let request = BatchRecoverySymbolRequest {
+            blob_id: *blob_info.metadata.blob_id(),
+            source_sliver: Arc::new(sliver.into()),
+            target_indexes: vec![SliverIndex(0), SliverIndex(n_shards.get())].into(),
+            encoding_type: blob_info.encoding_type(),
+        };
+
+        let mut service = symbol_service(blob_info.config.clone(), ThreadPoolType::Tokio);
+        let ready = ServiceExt::<BatchRecoverySymbolRequest>::ready(&mut service)
+            .now_or_never()
+            .unwrap()?;
+        assert!(matches!(
+            ready.call(request).await,
+            Err(RecoverySymbolError::IndexTooLarge)
+        ));
+
+        Ok(())
+    }
+
+    /// Compares the cost of serving all targets of one source sliver individually against
+    /// serving them in one batch, for a system with 1000 shards.
+    #[tokio::test]
+    #[ignore = "benchmark; run manually with --run-ignored"]
+    async fn benchmark_batch_versus_individual_symbols() -> TestResult {
+        use std::{num::NonZeroU16, time::Instant};
+
+        let n_shards = NonZeroU16::new(1000).expect("non-zero");
+        let config = Arc::new(EncodingConfig::new(n_shards));
+        let config_enum = config.get_for_type(EncodingType::RS2);
+        let blob = walrus_test_utils::random_data(4 * 1024 * 1024);
+        let (pairs, metadata) = config_enum.encode_with_metadata(blob)?;
+        let sliver: Sliver = pairs[3].secondary.clone().into();
+        let source_sliver = Arc::new(sliver);
+        let target_indexes: Vec<SliverIndex> = (0..n_shards.get()).map(SliverIndex).collect();
+
+        let mut service = symbol_service(config.clone(), ThreadPoolType::Tokio);
+
+        let start = Instant::now();
+        for target in &target_indexes {
+            let ready = ServiceExt::<RecoverySymbolRequest>::ready(&mut service)
+                .now_or_never()
+                .unwrap()?;
+            ready
+                .call(RecoverySymbolRequest {
+                    blob_id: *metadata.blob_id(),
+                    source_sliver: source_sliver.clone(),
+                    target_pair_index: target.to_pair_index::<Primary>(n_shards),
+                    encoding_type: EncodingType::RS2,
+                })
+                .await?;
+        }
+        let individual = start.elapsed();
+
+        let mut service = symbol_service(config.clone(), ThreadPoolType::Tokio);
+        let start = Instant::now();
+        let ready = ServiceExt::<BatchRecoverySymbolRequest>::ready(&mut service)
+            .now_or_never()
+            .unwrap()?;
+        let symbols = ready
+            .call(BatchRecoverySymbolRequest {
+                blob_id: *metadata.blob_id(),
+                source_sliver: source_sliver.clone(),
+                target_indexes: target_indexes.into(),
+                encoding_type: EncodingType::RS2,
+            })
+            .await?;
+        let batched = start.elapsed();
+
+        assert_eq!(symbols.len(), usize::from(n_shards.get()));
+        println!(
+            "1000 targets from one source sliver of a 4 MiB blob: individual {individual:?}, \
+            batched {batched:?}"
+        );
 
         Ok(())
     }
