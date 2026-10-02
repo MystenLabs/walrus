@@ -30,7 +30,7 @@ exists. Thus deleting your own copy of a blob cannot guarantee that it is delete
 whole.
 
 - Find out how to
-  [upload and delete deletable blobs](/docs/walrus-client/storing-blobs#reclaiming-space-via-deletable-blobs)
+  [upload and delete deletable blobs](/docs/walrus-client/managing-blobs#delete-blobs)
   through the CLI.
 - Find out more about how [delete operations work](/docs/system-overview/operations#delete).
 
@@ -45,7 +45,7 @@ after their expiry epoch. The store command may be used to extend the expiry epo
 still available. This operation is efficient and only affects payments and metadata, and does not
 re-upload blob contents.
 
-- Find out the [current epoch](/docs/walrus-client/storing-blobs#walrus-system-information) through the CLI.
+- Find out the [current epoch](/docs/system-overview/view-system-info#walrus-info) through the CLI.
 - Find out how to store a blob for
   [multiple epochs](/docs/walrus-client/storing-blobs).
 
