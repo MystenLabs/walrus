@@ -6,6 +6,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Cursor,
+    num::NonZeroU16,
     path::{Path, PathBuf},
     thread::sleep,
     time::Duration,
@@ -36,8 +37,10 @@ use typed_store::{
 };
 use walrus_core::{
     BlobId,
+    DEFAULT_ENCODING,
     Epoch,
     ShardIndex,
+    encoding::{EncodingConfig, EncodingFactory as _},
     metadata::{BlobMetadata, BlobMetadataApi},
 };
 use walrus_utils::metrics::Registry;
@@ -385,6 +388,25 @@ pub enum DbToolCommands {
         input: PathBuf,
     },
 
+    /// Check that a blob info snapshot file has the given blob ID.
+    ///
+    /// Encodes the file the way a node does when it publishes its snapshot (default encoding, the
+    /// network's shard count) and compares the resulting blob ID with `--blob-id`, for example a
+    /// certified snapshot's blob ID from the System object. Fails on a mismatch. Run it before
+    /// loading a file that did not come from the read path, which already verifies the blob ID.
+    VerifyBlobInfoSnapshot {
+        /// Path to the snapshot file.
+        #[arg(long)]
+        input: PathBuf,
+        /// The expected blob ID, in URL-safe base64 format (no padding).
+        #[arg(long)]
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The number of shards of the network the snapshot was published on.
+        #[arg(long)]
+        n_shards: NonZeroU16,
+    },
+
     /// Replace a stopped node's blob info tables with the contents of a blob info snapshot.
     ///
     /// Clears and refills `per_object_blob_info`, `per_object_pooled_blob_info`, and
@@ -526,6 +548,11 @@ impl DbToolCommands {
                 EventProcessorCommands::ReadInitState => read_event_processor_init_state(db_path),
             },
             Self::DecodeBlobInfoSnapshot { input } => decode_blob_info_snapshot(input),
+            Self::VerifyBlobInfoSnapshot {
+                input,
+                blob_id,
+                n_shards,
+            } => verify_blob_info_snapshot(input, blob_id, n_shards),
             Self::LoadBlobInfoSnapshot { db_path, input } => {
                 load_blob_info_snapshot(db_path, input)
             }
@@ -2009,6 +2036,35 @@ fn decode_blob_info_snapshot(input: PathBuf) -> Result<()> {
             bytes.len()
         )
     }
+}
+
+/// Encodes a snapshot file as a node does when publishing it and compares the blob ID.
+fn verify_blob_info_snapshot(input: PathBuf, blob_id: BlobId, n_shards: NonZeroU16) -> Result<()> {
+    // With fewer than four shards no shard may be faulty, the encoding has no recovery symbols,
+    // and encoding panics.
+    if n_shards.get() < 4 {
+        bail!("the number of shards must be at least 4, got {n_shards}");
+    }
+    let bytes = std::fs::read(&input)
+        .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
+    let metadata = EncodingConfig::new(n_shards)
+        .get_for_type(DEFAULT_ENCODING)
+        .compute_metadata(&bytes)
+        .context("failed to encode the snapshot file")?;
+    let computed = *metadata.blob_id();
+
+    println!("Blob info snapshot ({})", input.display());
+    println!("  size:              {} bytes", bytes.len());
+    println!("  expected blob ID:  {blob_id}");
+    println!("  computed blob ID:  {computed} ({n_shards} shards)");
+    if computed != blob_id {
+        bail!(
+            "blob ID mismatch: the file does not have the expected blob ID (a wrong --n-shards \
+            also changes the computed blob ID)"
+        );
+    }
+    println!("  VERIFIED: the file has the expected blob ID");
+    Ok(())
 }
 
 /// Loads a blob info snapshot file into the database of a stopped node.
