@@ -518,26 +518,16 @@ pub(super) async fn report_last_certified_snapshot_epoch(node: &Arc<StorageNodeI
     }
 }
 
-/// Reconciles the publication of the previous epoch's snapshot at the boundary of
-/// `current_epoch`, before this epoch's snapshot is produced.
+/// Reconciles the previous epoch's snapshot publication at the boundary of `current_epoch`:
+/// stored data that no blob-info entry covers is deleted, since garbage collection would never
+/// find it.
 ///
-/// Whether the previous snapshot certified is decided locally: a certification during epoch E
-/// emits `BlobCertified` before `EpochChangeStart(E + 1)` in the checkpoint-ordered event
-/// stream, and the boundary handler drains all blob events before calling this, so the blob-info
-/// entry for the snapshot's blob ID is certified if and only if the snapshot certified. This
-/// relies on the contract's lower bound of two epochs on the snapshot lifetime: garbage
-/// collection phase 1 runs before this and expires blobs whose storage ends at `E + 1`, which a
-/// one-epoch snapshot certified in E would, so its entry would be gone before it is checked. A
-/// snapshot that did not certify never will (the contract only accepts the current epoch), and
-/// without a blob-info entry its metadata and slivers would never be found by garbage
-/// collection: they are deleted here. Why a snapshot did not certify (no quorum, or a divergence
-/// of this node's tables from the network's) is not classified here yet; fleet-wide detection
-/// comes from comparing the `blob_info_snapshot_blob_id` gauges across nodes (see
-/// `TODO(WAL-1341)` below).
-///
-/// Storage errors are returned to the caller, which fails the epoch change; the boundary is then
-/// replayed on restart and this function runs again. It is idempotent: the record is cleared only
-/// after the stored data is deleted, and deleting already-deleted data is a no-op.
+/// - The decision is local, from the blob-info entry of the published blob ID. A certified entry
+///   only means garbage collection owns the bytes; it does not prove the contract certified the
+///   snapshot (anyone can certify the same content as a regular blob). Read the on-chain history
+///   for that.
+/// - Storage errors fail the epoch change, and the boundary is replayed on restart, so this
+///   function is idempotent.
 pub(super) async fn reconcile_previous_publication(
     node: &Arc<StorageNodeInner>,
     current_epoch: Epoch,
