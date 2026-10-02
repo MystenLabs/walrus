@@ -310,14 +310,8 @@ impl StorageNode {
             });
         }
 
-        // Reconcile the previous epoch's snapshot publication first: it decides, from the local
-        // blob info, whether that snapshot certified, and cleans up the stored data otherwise.
-        // It only touches local storage, so an error is a storage
-        // error and fails the epoch change like any other: the node stops before this boundary
-        // is marked complete and replays it on restart, so the publication below never
-        // overwrites an unreconciled record (the reconciliation is idempotent). It runs whether
-        // or not snapshots are enabled, so that disabling them after a publication still cleans
-        // that publication up; without a publication record it does nothing.
+        // Reconcile the previous publication before this epoch's one overwrites its record. This
+        // runs even when snapshots are disabled, and a storage error fails the epoch change.
         if at_clean_boundary {
             blob_info_snapshot_writer::reconcile_previous_publication(&self.inner, event.epoch)
                 .await
@@ -325,10 +319,7 @@ impl StorageNode {
         }
 
         // Serialize after GC phase 1 has settled the tables and before `execute_epoch_change`
-        // spawns the finisher that marks the event complete (so a crash before completion replays
-        // and re-creates it). Errors are logged and counted, never failing epoch processing.
-        // Everything derived from the durable file (encoding, storing, attesting) happens below,
-        // after the epoch change has been applied locally.
+        // spawns the finisher, so that a crash before the event completes replays this step.
         let snapshot_serialized = should_serialize
             && match blob_info_snapshot_writer::serialize_snapshot_at_epoch_boundary(
                 &self.inner,
@@ -366,16 +357,10 @@ impl StorageNode {
             .latest_event_epoch_sender
             .send(Some(event.epoch))?;
 
-        // Publish the snapshot (encode; store and attest when configured) only now:
-        // `execute_epoch_change` has advanced the committee and created this node's shards for
-        // the new epoch, so the slivers are stored under the assignment the contract tallies by
-        // and readers route by. The encoding and the store run inline; the attestation
-        // transaction runs in a background task. The finisher may already have marked the event
-        // complete, so a crash from here on skips this epoch's publication (absorbed by the
-        // quorum; resume is TODO(WAL-1252)).
-        // A node that discovered inside `execute_epoch_change` that it is far behind enters
-        // catch-up there; its snapshot is then stale and its committee view has moved on, so
-        // the publication is skipped like the serialization would have been.
+        // Publish the snapshot now that the new committee and shards are in place. A crash from
+        // here on skips this epoch's publication, as the finisher may already have marked the
+        // event complete. A node that entered catch-up during the epoch change skips it too: its
+        // snapshot is stale.
         if snapshot_serialized && !self.inner.storage.node_status()?.is_catching_up() {
             blob_info_snapshot_writer::publish_snapshot_after_epoch_change(
                 &self.inner,

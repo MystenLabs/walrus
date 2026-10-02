@@ -182,22 +182,13 @@ pub(super) async fn serialize_snapshot_at_epoch_boundary(
 }
 
 /// Encodes the durable snapshot of `epoch` to report its blob ID and, when certification is
-/// enabled, stores this node's slivers and attests it on chain, reporting errors through the log
-/// and metrics without failing the epoch change.
+/// enabled, stores this node's slivers and starts the attestation in the background. Errors are
+/// logged and counted and never fail the epoch change.
 ///
-/// Must be called after `execute_epoch_change` has applied the epoch change locally, i.e., after
-/// the committee service has advanced to `epoch` and the storage holds this node's shards for
-/// that epoch. The contract tallies attestations by the new committee's shard weights and readers
-/// route the certified blob by the new committee's shard assignment, so the slivers must be stored
-/// under that assignment: storing them at the boundary, under the outgoing assignment, would leave
-/// them where the new epoch's shard sync deliberately does not look (it skips blobs certified in
-/// the epoch it is syncing, which are expected to have been written to their new owners
-/// directly). Runs whether the file was just written or already existed (a replayed boundary).
-/// The encoding and the store run inline, like the serialization; the attestation transaction
-/// runs in a background task.
+/// Must be called after `execute_epoch_change`: the contract tallies attestations by the new
+/// committee and readers route by its shard assignment, so the slivers must be stored under it.
 ///
-/// TODO(WAL-1252): resume an interrupted publication here once snapshots are published and
-/// certified.
+/// TODO(WAL-1252): resume a publication interrupted by a crash.
 pub(super) async fn publish_snapshot_after_epoch_change(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
@@ -311,18 +302,12 @@ async fn write_snapshot_file(
 const CERTIFY_RETRY_MIN_BACKOFF: Duration = Duration::from_secs(1);
 /// Maximum delay between retries of a `certify_snapshot_blob` transaction.
 const CERTIFY_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(60);
-/// Maximum number of retries of a `certify_snapshot_blob` transaction. This covers
-/// congestion on the shared system object (every node attests within seconds of the boundary)
-/// and short RPC trouble; a longer outage should show up in the metrics instead.
+/// Maximum number of retries of a `certify_snapshot_blob` transaction: enough for congestion on
+/// the system object at the boundary and short RPC trouble.
 const CERTIFY_RETRY_MAX_ATTEMPTS: u32 = 10;
 
-/// Certifies the snapshot on chain, reporting errors through the log and metrics without
-/// failing the epoch change.
-///
-/// Only the attestation transaction is retried (see [`spawn_snapshot_attestation`]). A failure
-/// to record or store the snapshot is not: the node skips this epoch's attestation, the next
-/// boundary's reconciliation cleans up what was stored, and the next epoch attests its own
-/// snapshot (the contract only accepts the snapshot of the current epoch).
+/// Stores and attests the snapshot. Only the attestation is retried; a failed store skips this
+/// epoch and is cleaned up by the next boundary's reconciliation.
 async fn certify_snapshot(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
@@ -339,24 +324,14 @@ async fn certify_snapshot(
     }
 }
 
-/// Stores this node's slivers and the blob metadata, then starts the attestation of the snapshot
-/// blob through the system contract in the background.
 async fn try_certify_snapshot(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
     sliver_pairs: &[SliverPair],
     verified_metadata: &VerifiedBlobMetadataWithId,
 ) -> Result<()> {
-    // Only committee members can certify (the contract enforces membership), so skip the
-    // storage work and the doomed transaction locally, mirroring the event blob writer. This
-    // runs after the epoch change has been applied locally, so the committee service reports
-    // the committee of `epoch`: a node joining the committee at `epoch` attests and stores
-    // its new shards' slivers, and a node leaving at `epoch` skips, matching what the contract
-    // would decide. Note that a node processing this boundary late (after the chain moved past
-    // `epoch`) cannot be detected locally, since the committee service tracks the node's own
-    // processed position; the contract rejects such an attestation with `EInvalidIdEpoch`, and
-    // the catching-up and reprocessing cases never reach this code (see `should_serialize` at
-    // the call site in `epoch_change.rs`).
+    // Only members of the committee of `epoch` can attest; the committee service already reports
+    // that committee, since the epoch change has been applied.
     if !node
         .committee_service
         .active_committees()
@@ -370,21 +345,15 @@ async fn try_certify_snapshot(
         return Ok(());
     }
 
-    // Record the publication before the first write, so that whatever gets stored is tracked
-    // and reconciled at the next epoch boundary even if the store or the attestation fails
-    // partway (see `reconcile_previous_publication`). This overwrites the single publication
-    // record, which is safe because the boundary handler reconciles the previous publication
-    // before publishing and fails the epoch change if that reconciliation errors.
+    // Record the publication before the first write: the stored bytes have no blob-info entry
+    // yet, so only the record lets the next boundary's reconciliation and the garbage-collection
+    // guard find them.
     let blob_id = *verified_metadata.blob_id();
     let record = SnapshotPublication::new(epoch, blob_id);
     node.storage()
         .set_snapshot_publication(&record)
         .context("failed to record the snapshot publication")?;
 
-    // Until the blob-info entry exists, these bytes are invisible to garbage collection, which
-    // iterates the blob-info table; should an expired entry for the same blob ID exist (a
-    // registration of the same content by someone else), the deletion path skips the blob ID
-    // named by the publication record (see `Storage::attempt_to_delete_blob_data_inner`).
     let store_start = Instant::now();
     node.storage()
         .put_verified_metadata_without_blob_info(verified_metadata)
@@ -412,17 +381,13 @@ async fn try_certify_snapshot(
 }
 
 /// Returns whether a failed `certify_snapshot_blob` transaction is worth retrying: anything but
-/// a contract abort, which does not change within the epoch (the node already attested, the
-/// epoch moved on, or the node is not a committee member).
+/// a contract abort, which cannot change within the epoch.
 fn is_transient_certify_error(error: &SuiClientError) -> bool {
     !matches!(error, SuiClientError::TransactionExecutionError(_))
 }
 
 /// Attests the stored snapshot of `epoch` in a background task, retrying a transient failure
-/// with a bounded backoff, so that the epoch-change handler neither waits for the transaction
-/// nor sleeps between attempts. The publication record already names the attempt, so a crash of
-/// the node loses only the attestation; the boundary reconciliation cleans up an attempt that
-/// never certifies.
+/// with a bounded backoff, so that the epoch-change handler never waits for the transaction.
 fn spawn_snapshot_attestation(
     node: Arc<StorageNodeInner>,
     epoch: Epoch,
@@ -629,12 +594,8 @@ pub(super) async fn reconcile_previous_publication(
     Ok(())
 }
 
-/// Stores the slivers of the shards assigned to this node in the current committee.
-///
-/// Only those sliver pairs are touched: the others belong to shards this node never looks up,
-/// including shards whose storage is being removed in the background at this boundary. A shard
-/// that is still being synced or recovered is written like any other; an assigned shard without
-/// local storage, or one locked to move, is skipped, as in the event blob writer.
+/// Stores the slivers of the shards assigned to this node in the current committee, and touches
+/// no other shard (some are being removed in the background at this boundary).
 async fn store_own_slivers(
     node: &Arc<StorageNodeInner>,
     verified_metadata: &VerifiedBlobMetadataWithId,
