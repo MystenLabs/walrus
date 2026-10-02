@@ -1434,6 +1434,50 @@ mod tests {
     }
 
     #[test]
+    fn test_encode_sliver_pairs_matches_full_encoding_for_all_shard_counts() {
+        // The split between systematic and recovery symbols on each axis depends on the shard
+        // count, so check several, including the deployed 1000 and the smallest valid 4, with
+        // a blob that spans more than one matrix and one that is a single byte.
+        for n_shards in [4u16, 5, 7, 10, 13, 102, 1000] {
+            let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(n_shards).unwrap());
+            let n_rows = usize::from(config.source_symbols_primary.get());
+            let n_columns = usize::from(config.source_symbols_secondary.get());
+            // At 1000 shards a matrix is large enough that one blob keeps the test fast.
+            let blob_sizes = if n_shards == 1000 {
+                vec![n_rows * n_columns + 7]
+            } else {
+                vec![1, n_rows * n_columns * 3 + 7]
+            };
+            for blob_size in blob_sizes {
+                let blob = random_data(blob_size);
+                let (expected_pairs, _) = config
+                    .get_blob_encoder(&blob)
+                    .unwrap()
+                    .encode_with_metadata();
+                let encoder = config.get_blob_encoder(&blob).unwrap();
+                let all_indices: Vec<_> = (0..n_shards).map(SliverPairIndex).collect();
+                // Every pair in one request.
+                let pairs = encoder.encode_sliver_pairs(&all_indices);
+                assert_eq!(
+                    pairs, expected_pairs,
+                    "n_shards {n_shards}, blob size {blob_size}"
+                );
+                // Each pair alone, so that the single-pair path is checked for every index
+                // (bounded to the small counts to keep the test fast).
+                if n_shards <= 13 {
+                    for index in &all_indices {
+                        assert_eq!(
+                            encoder.encode_sliver_pairs(&[*index]),
+                            [expected_pairs[index.as_usize()].clone()],
+                            "n_shards {n_shards}, blob size {blob_size}, pair {index:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     #[should_panic(expected = "out of range")]
     fn test_encode_sliver_pairs_rejects_out_of_range_index() {
         let config = ReedSolomonEncodingConfig::new(NonZeroU16::new(10).unwrap());
