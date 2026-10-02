@@ -245,9 +245,9 @@ walrus_utils::metrics::define_metric_set! {
         #[help = "The number of errors while certifying blob info snapshots."]
         blob_info_snapshot_certify_error_total: IntCounter[],
 
-        #[help = "The number of blob info snapshot publications found uncertified at the next \
-        epoch boundary and cleaned up (no quorum, divergence, or a failed publication)."]
-        blob_info_snapshot_uncertified_cleanup_total: IntCounter[],
+        #[help = "The number of blob info snapshot publications of this node found uncertified \
+        at the next epoch boundary (no quorum, divergence, or a failed publication)."]
+        blob_info_snapshot_uncertified_total: IntCounter[],
 
         #[help = "The epoch of the latest blob info snapshot certified on chain, as read by this \
         node at its last epoch boundary; 0 until a certification has been observed."]

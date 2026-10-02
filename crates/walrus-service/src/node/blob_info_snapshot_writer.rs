@@ -610,16 +610,14 @@ pub(super) async fn reconcile_previous_publication(
         }
     };
     if !certified {
-        node.metrics
-            .blob_info_snapshot_uncertified_cleanup_total
-            .inc();
+        node.metrics.blob_info_snapshot_uncertified_total.inc();
         // TODO(WAL-1341): classify why the snapshot did not certify (no quorum, or a divergence
         // from the snapshot the network certified) from the on-chain history, and expose it
         // through metrics; acting on a divergence is part of the recovery milestone (WAL-1252).
         tracing::warn!(
             walrus.epoch = epoch,
             walrus.blob_id = %blob_id,
-            "the blob info snapshot was not certified; its stored data is cleaned up"
+            "the blob info snapshot was not certified"
         );
     }
     node.storage()
