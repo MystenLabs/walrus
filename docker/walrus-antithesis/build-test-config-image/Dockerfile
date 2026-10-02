@@ -8,6 +8,7 @@ WORKDIR /
 # Walrus commit picked to run the stress test.
 ARG WALRUS_COMMIT_HASH
 ARG WALRUS_RUST_LOG
+ARG SLIVER_STORE_BACKEND=rocks-db
 
 # Set SUI_VERSION to the version.toml value
 COPY ./docker/walrus-antithesis/sui_version.toml .
@@ -16,6 +17,8 @@ RUN echo "WALRUS_RUST_LOG=$WALRUS_RUST_LOG" >> /.env && echo "WALRUS_RUST_LOG: $
 RUN echo "WALRUS_IMAGE_NAME=walrus-service:$WALRUS_COMMIT_HASH" >> /.env && \
     echo "WALRUS_IMAGE_NAME: walrus-service:$WALRUS_COMMIT_HASH"
 RUN echo "WALRUS_PLATFORM=linux/amd64" >> /.env && echo "WALRUS_PLATFORM: linux/amd64"
+RUN echo "SLIVER_STORE_BACKEND=$SLIVER_STORE_BACKEND" >> /.env && \
+    echo "SLIVER_STORE_BACKEND: $SLIVER_STORE_BACKEND"
 
 # Set SUI_VERSION to the version.toml value so that it can pull the correct sui image.
 # Note that we have to run all of these in one command to make sure that SUI_VERSION is set.
