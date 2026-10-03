@@ -3,21 +3,19 @@
 
 use std::{path::Path, time::Duration};
 
-use strata_index::{
+use strata::queue::{
+    BlobEdit,
+    BlobOperand,
+    BlobOperation,
+    EpochBarrier,
     Error,
+    PENDING_BLOBS_CF,
+    PendingBatch,
+    PendingBlobOps,
     Result,
-    port::{IndexDb, TypedMap, codec::encode_key},
-    queue::{
-        BlobEdit,
-        BlobOperand,
-        BlobOperation,
-        EpochBarrier,
-        PENDING_BLOBS_CF,
-        PendingBatch,
-        PendingBlobOps,
-        ShardGeneration,
-    },
+    ShardGeneration,
 };
+use strata_index::port::{IndexDb, TypedMap, codec::encode_key};
 use sui_types::digests::TransactionDigest;
 use tempfile::TempDir;
 use typed_store::{
@@ -65,8 +63,10 @@ fn stage_progress(batch: &mut PendingBatch, value: u64) -> Result<()> {
     batch.metadata().put(
         constants::event_index_cf_name(),
         &encode_key(&())?,
-        &bcs::to_bytes(&value).map_err(|error| Error::Serialization(error.to_string()))?,
-    )
+        &bcs::to_bytes(&value)
+            .map_err(|error| strata_index::Error::Serialization(error.to_string()))?,
+    )?;
+    Ok(())
 }
 
 fn source(event_index: u64) -> Vec<u8> {

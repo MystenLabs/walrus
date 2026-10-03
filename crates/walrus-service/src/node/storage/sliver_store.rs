@@ -118,20 +118,33 @@ impl SliverStore {
         }
     }
 
-    pub(crate) fn new_strata(
+    pub(super) fn new_strata(
         path: &Path,
         metrics_registry: &walrus_utils::metrics::Registry,
+        database: Arc<dyn strata_index::port::IndexDb>,
+        queue: super::strata_queue::StrataQueue,
+        blob_info: super::blob_info::BlobInfoTable,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             backend: Arc::new(SliverStoreBackend::Strata(StrataSliverStore::open(
                 path,
                 metrics_registry,
+                database,
+                queue,
+                blob_info,
             )?)),
         })
     }
 
     pub(crate) fn is_strata(&self) -> bool {
         matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
+    }
+
+    pub(crate) fn strata_worker(&self) -> Option<::strata::queue::QueueWorker> {
+        match self.backend.as_ref() {
+            SliverStoreBackend::Strata(store) => Some(store.worker()),
+            SliverStoreBackend::RocksDb(_) => None,
+        }
     }
 
     /// Reads Strata's shard registry to distinguish active, dropped, and interrupted creations.
@@ -314,6 +327,7 @@ struct RocksDbShardSliverStore {
 pub(crate) struct SliverSyncBatch {
     control_batch: DBBatch,
     strata: Option<(StrataShardSliverStore, Vec<(BlobId, Sliver)>)>,
+    epoch: walrus_core::Epoch,
 }
 
 impl SliverSyncBatch {
@@ -323,7 +337,9 @@ impl SliverSyncBatch {
 
     pub(crate) async fn write(self) -> Result<(), TypedStoreError> {
         if let Some((store, slivers)) = self.strata {
-            store.put_many(slivers).await?;
+            return store
+                .put_many(slivers, self.epoch, self.control_batch)
+                .await;
         }
         self.control_batch.write()
     }
@@ -361,10 +377,21 @@ impl ShardSliverStore {
     /// A backend that persists in the background must wait until the LSN corresponding to this
     /// write has been published durably before returning.
     pub(crate) async fn put(&self, blob_id: BlobId, sliver: Sliver) -> Result<(), TypedStoreError> {
+        self.put_with_registration(blob_id, sliver, None)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn put_with_registration(
+        &self,
+        blob_id: BlobId,
+        sliver: Sliver,
+        epoch: Option<walrus_core::Epoch>,
+    ) -> Result<bool, TypedStoreError> {
         let start = Instant::now();
         let sliver_type = sliver.r#type();
         let response = match &self.backend {
-            ShardSliverStoreBackend::RocksDb(store) => match sliver {
+            ShardSliverStoreBackend::RocksDb(store) => (match sliver {
                 Sliver::Primary(primary) => {
                     let table = store.primary_slivers.clone();
                     utils::unwrap_or_resume_unwind(
@@ -383,8 +410,9 @@ impl ShardSliverStore {
                         .await,
                     )
                 }
-            },
-            ShardSliverStoreBackend::Strata(store) => store.put(blob_id, sliver).await,
+            })
+            .map(|_| true),
+            ShardSliverStoreBackend::Strata(store) => store.put(blob_id, sliver, epoch).await,
         };
         self.metrics.observe_operation_duration(
             sliver_labels(
@@ -590,7 +618,11 @@ impl ShardSliverStore {
         Ok(output)
     }
 
-    pub(crate) fn sync_batch(&self, control_batch: DBBatch) -> SliverSyncBatch {
+    pub(crate) fn sync_batch(
+        &self,
+        control_batch: DBBatch,
+        epoch: walrus_core::Epoch,
+    ) -> SliverSyncBatch {
         let strata = match &self.backend {
             ShardSliverStoreBackend::RocksDb(_) => None,
             ShardSliverStoreBackend::Strata(store) => Some((store.clone(), Vec::new())),
@@ -598,6 +630,7 @@ impl ShardSliverStore {
         SliverSyncBatch {
             control_batch,
             strata,
+            epoch,
         }
     }
 

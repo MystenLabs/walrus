@@ -1054,6 +1054,10 @@ impl StorageNode {
         }
 
         select! {
+            result = self.inner.storage.run_strata_worker() => {
+                result?;
+                bail!("Strata lifecycle worker stopped unexpectedly");
+            },
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
             },
@@ -2552,6 +2556,34 @@ impl StorageNodeInner {
         sliver_pair_index: SliverPairIndex,
         sliver: Sliver,
     ) -> Result<bool, StoreSliverError> {
+        self.store_sliver_impl(
+            metadata,
+            sliver_pair_index,
+            sliver,
+            Some(self.current_committee_epoch()),
+        )
+        .await
+    }
+
+    /// Event blobs have no registration. They still participate in Strata blob/lifecycle locks
+    /// and wait for durability; only their registration precondition is bypassed.
+    pub(crate) async fn store_event_sliver_unchecked(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        sliver_pair_index: SliverPairIndex,
+        sliver: Sliver,
+    ) -> Result<bool, StoreSliverError> {
+        self.store_sliver_impl(metadata, sliver_pair_index, sliver, None)
+            .await
+    }
+
+    async fn store_sliver_impl(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        sliver_pair_index: SliverPairIndex,
+        sliver: Sliver,
+        registered_epoch: Option<Epoch>,
+    ) -> Result<bool, StoreSliverError> {
         let Some((shard_storage, verified_sliver)) = self
             .prepare_sliver_for_storage(metadata.clone(), sliver_pair_index, sliver)
             .await?
@@ -2561,10 +2593,18 @@ impl StorageNodeInner {
 
         let sliver_type = verified_sliver.r#type();
 
-        shard_storage
-            .put_sliver(*metadata.blob_id(), verified_sliver)
-            .await
-            .context("unable to store sliver")?;
+        if let Some(epoch) = registered_epoch {
+            let written = shard_storage
+                .put_registered_sliver(*metadata.blob_id(), verified_sliver, epoch)
+                .await
+                .context("unable to store sliver")?;
+            ensure!(written, StoreSliverError::NotCurrentlyRegistered);
+        } else {
+            shard_storage
+                .put_sliver(*metadata.blob_id(), verified_sliver)
+                .await
+                .context("unable to store event sliver")?;
+        }
 
         walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver_type).inc();
 
