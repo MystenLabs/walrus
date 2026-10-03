@@ -92,6 +92,7 @@ pub(super) struct BlobInfoTable {
     per_object_pooled_blob_info: DBMap<ObjectID, PerObjectPooledBlobInfo>,
     storage_pool_info: DBMap<ObjectID, StoragePoolInfo>,
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
+    strata_registrations: Option<super::strata_queue::StrataRegistrations>,
 }
 
 /// Returns the options for the aggregate blob info column family.
@@ -143,7 +144,7 @@ pub(crate) fn storage_pool_info_cf_options(
 }
 
 impl BlobInfoTable {
-    pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
+    pub fn reopen(database: &Arc<RocksDB>, strata: bool) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
             Some(constants::aggregate_blob_info_cf_name()),
@@ -181,10 +182,23 @@ impl BlobInfoTable {
             per_object_pooled_blob_info,
             storage_pool_info,
             latest_handled_event_index,
+            strata_registrations: strata
+                .then(|| super::strata_queue::StrataRegistrations::reopen(database))
+                .transpose()?,
         })
     }
 
     pub fn clear(&self) -> Result<(), TypedStoreError> {
+        // Resetting the event watermark while retaining lifecycle work could reuse event
+        // indexes. Bootstrap/reset of an existing Strata store needs a coordinated reset;
+        // until that is wired, only allow the empty-store bootstrap used here.
+        if let Some(registrations) = &self.strata_registrations
+            && !registrations.is_empty()?
+        {
+            return Err(TypedStoreError::TaskError(
+                "cannot reset initialized Strata lifecycle state; use a fresh store".into(),
+            ));
+        }
         self.aggregate_blob_info.schedule_delete_all()?;
         self.per_object_blob_info.schedule_delete_all()?;
         self.per_object_pooled_blob_info.schedule_delete_all()?;
@@ -255,8 +269,50 @@ impl BlobInfoTable {
         )?;
         self.update_per_object_blob_info(&mut batch, event)?;
 
+        // The replay watermark, references, registration identity, and cancellation must commit
+        // together. A worker cannot observe a cancellable delete after a successful registration.
+        if let Some(registrations) = &self.strata_registrations {
+            let registration = match event {
+                BlobEvent::Registered(e) => Some((e.end_epoch, e.event_id)),
+                BlobEvent::PooledBlobRegistered(e) => {
+                    let pool =
+                        self.storage_pool_info
+                            .get(&e.storage_pool_id)?
+                            .ok_or_else(|| {
+                                TypedStoreError::TaskError(
+                                    "pooled registration has no storage pool".into(),
+                                )
+                            })?;
+                    Some((pool.end_epoch(), e.event_id))
+                }
+                _ => None,
+            };
+            if let Some((end_epoch, event_id)) = registration {
+                registrations.register(
+                    &mut batch,
+                    event.blob_id(),
+                    super::strata_queue::StrataSourceEvent {
+                        event_index,
+                        event_id,
+                    },
+                    end_epoch,
+                )?;
+            }
+        }
+
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
         batch.write()
+    }
+
+    pub(super) fn strata_registration(
+        &self,
+        blob_id: &BlobId,
+    ) -> Result<Option<super::strata_queue::StrataRegistration>, TypedStoreError> {
+        self.strata_registrations
+            .as_ref()
+            .map(|r| r.get(blob_id))
+            .transpose()
+            .map(Option::flatten)
     }
 
     fn update_per_object_blob_info(

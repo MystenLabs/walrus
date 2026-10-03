@@ -368,7 +368,6 @@ pub struct Storage {
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
     pending_recover_blobs: PendingRecoverBlobsTable,
-    #[allow(dead_code)] // No production producers until the queue protocol is complete.
     pub(crate) strata_queue: StrataQueue,
     garbage_collector_table: DBMap<String, Epoch>,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
@@ -496,6 +495,20 @@ impl Storage {
         let garbage_collector_table_cf_name = garbage_collector_table_cf_name();
         let garbage_collector_table_options = db_table_opts_factory.garbage_collector();
 
+        let strata_config = strata::StrataStoreConfig::new(path, "slivers");
+        if sliver_backend == SliverStoreBackendKind::Strata
+            && strata_config.standalone_index_dir().exists()
+        {
+            anyhow::bail!(
+                "standalone Strata index found; create a fresh shared-index Strata store"
+            );
+        }
+        let strata_column_families = if sliver_backend == SliverStoreBackendKind::Strata {
+            strata_index::cf_options_for_prefix(&strata_config.index_cf_prefix())
+        } else {
+            Vec::new()
+        };
+        let mut strata_column_families = strata_column_families;
         let expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
             .map(|(name, opts)| (name.as_str(), std::mem::take(opts)))
@@ -512,6 +525,11 @@ impl Storage {
             ])
             .chain(blob_info_column_families)
             .chain(strata_queue::options(&db_table_opts_factory))
+            .chain(
+                strata_column_families
+                    .iter_mut()
+                    .map(|(name, opts)| (name.as_str(), std::mem::take(opts))),
+            )
             .collect::<Vec<_>>();
 
         let database = if db_config.use_optimistic_transaction_db() {
@@ -549,11 +567,21 @@ impl Storage {
             Some(_) => {}
         }
 
+        let strata_database = strata_queue::database(&database);
+        let strata_queue = StrataQueue::new(strata_database.clone());
+        let blob_info =
+            BlobInfoTable::reopen(&database, sliver_backend == SliverStoreBackendKind::Strata)?;
         let sliver_store = match sliver_backend {
             SliverStoreBackendKind::RocksDb => {
                 SliverStore::new_rocksdb(Arc::clone(&database), db_table_opts_factory.clone())
             }
-            SliverStoreBackendKind::Strata => SliverStore::new_strata(path, &metrics_registry)?,
+            SliverStoreBackendKind::Strata => SliverStore::new_strata(
+                path,
+                &metrics_registry,
+                strata_database,
+                strata_queue.clone(),
+                blob_info.clone(),
+            )?,
         };
         // Strata's shard registry is the authority for which control-table shards are active.
         // A crash may interrupt creation before registration or deletion after a durable drop.
@@ -636,8 +664,6 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
-        let strata_queue = strata_queue::reopen(&database);
-        let blob_info = BlobInfoTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -685,6 +711,18 @@ impl Storage {
     /// Returns a reference to the database.
     pub(crate) fn get_db(&self) -> Arc<RocksDB> {
         self.database.clone()
+    }
+
+    /// Supervised by the node event loop. Errors stop the node; puts also check the queue's
+    /// admission gate and can drive prerequisite work before this polling task starts.
+    pub(crate) async fn run_strata_worker(&self) -> anyhow::Result<()> {
+        let Some(worker) = self.sliver_store.strata_worker() else {
+            return std::future::pending().await;
+        };
+        let (shutdown, receiver) = tokio::sync::watch::channel(false);
+        let result = worker.run(receiver).await;
+        drop(shutdown);
+        result.map_err(Into::into)
     }
 
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
@@ -846,7 +884,11 @@ impl Storage {
                 shard_map_lock.shards_guard.remove(shard_index)
             };
             if let Some(shard_storage) = shard_storage {
-                shard_storage.delete_shard_storage()?;
+                // Strata may wait for foreground blob guards before retiring the generation.
+                // Keep that wait off the async executor so those writes can finish.
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || shard_storage.delete_shard_storage()).await,
+                )?;
             }
             tracing::info!(
                 walrus.shard_index = %shard_index,
@@ -1040,6 +1082,48 @@ impl Storage {
         } else {
             self.blob_info.update_blob_info(event_index, event)
         }
+    }
+
+    /// Serialize reference changes with Strata's final put check and lifecycle worker. Event
+    /// producers call this entry point; the synchronous helper is also used by RocksDB fixtures.
+    pub(crate) async fn update_blob_info_coordinated(
+        &self,
+        event_index: u64,
+        event: &BlobEvent,
+    ) -> Result<(), TypedStoreError> {
+        if !self.sliver_store.is_strata() {
+            return self.update_blob_info(event_index, event);
+        }
+        let storage = self.clone();
+        let event = event.clone();
+        // Complete a started metadata commit even if its awaiting task is cancelled.
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                let blob_id = event.blob_id();
+                let _guard = storage
+                    .strata_queue
+                    .lock_blobs(&[&blob_id.0])
+                    .await
+                    .map_err(strata_queue::queue_error)?;
+                let mut completion =
+                    strata_queue::HaltOnIncompleteWrite::new(storage.strata_queue.clone());
+                let queue = storage.strata_queue.clone();
+                let result = utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        storage.update_blob_info(event_index, &event)
+                    })
+                    .await,
+                );
+                if let Err(error) = &result {
+                    queue.halt(error.to_string());
+                }
+                if result.is_ok() {
+                    completion.complete();
+                }
+                result
+            })
+            .await,
+        )
     }
 
     /// Removes expired storage pool info entries.
@@ -1958,7 +2042,10 @@ pub(crate) mod tests {
         let primary = get_sliver(SliverType::Primary, 2);
         let secondary = get_sliver(SliverType::Secondary, 3);
         let slivers = shard.sliver_store();
-        let mut sync_batch = slivers.sync_batch(storage.metadata.batch());
+        storage
+            .update_blob_info_coordinated(0, &BlobRegistered::for_testing(BLOB_ID).into())
+            .await?;
+        let mut sync_batch = slivers.sync_batch(storage.metadata.batch(), 0);
         slivers.insert_in_batch(&mut sync_batch, &BLOB_ID, &primary)?;
         sync_batch.write().await?;
         shard.put_sliver(BLOB_ID, secondary.clone()).await?;

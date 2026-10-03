@@ -386,6 +386,17 @@ impl ShardStorage {
         self.slivers.put(blob_id, sliver).await
     }
 
+    pub(crate) async fn put_registered_sliver(
+        &self,
+        blob_id: BlobId,
+        sliver: Sliver,
+        epoch: Epoch,
+    ) -> Result<bool, TypedStoreError> {
+        self.slivers
+            .put_with_registration(blob_id, sliver, Some(epoch))
+            .await
+    }
+
     pub(crate) fn id(&self) -> ShardIndex {
         self.id
     }
@@ -803,7 +814,10 @@ impl ShardStorage {
                     epoch,
                     next_starting_blob_id,
                 );
-                let mut batch = self.slivers.sync_batch(self.shard_sync_progress.batch());
+                let mut batch = self.slivers.sync_batch(
+                    self.shard_sync_progress.batch(),
+                    node.current_committee_epoch(),
+                );
 
                 walrus_utils::with_label!(
                     node.metrics.sync_shard_sync_sliver_progress,
@@ -1528,7 +1542,9 @@ impl ShardStorage {
             &sliver_type.to_string()
         )
         .inc();
-        self.put_sliver(blob_id, sliver).await
+        self.put_registered_sliver(blob_id, sliver, node.current_committee_epoch())
+            .await
+            .map(|_| ())
     }
 
     /// Handles the inconsistency of a blob.

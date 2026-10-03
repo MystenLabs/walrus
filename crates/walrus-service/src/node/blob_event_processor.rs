@@ -476,7 +476,8 @@ impl BlobEventProcessor {
         // dependency between events.
         self.node
             .storage
-            .update_blob_info(event_handle.index(), &blob_event)?;
+            .update_blob_info_coordinated(event_handle.index(), &blob_event)
+            .await?;
 
         if matches!(
             blob_event,
