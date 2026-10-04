@@ -100,7 +100,7 @@ Consider a scenario in which a blob of data is encoded and stored across $N$ sha
 
 The RedStuff encoding and recovery process works as follows:
 
-- First, the data blob of size $S$ is divided into symbols and arranged in a rectangular message matrix of up to $N - 2f$ rows and $N - f$ columns of symbols. The number of rows ($n_R$) and columns ($n_C$) is fixed, and determines the symbol size $s$ as follows:
+- First, the data blob of size $S$ is divided into symbols and arranged in a rectangular message matrix of up to $N - 2f$ rows and $N - f$ columns of symbols. With a committee of $N = 3f + 1$ shards this row bound equals $f + 1$, so the blob can still be reconstructed from the $f + 1$ honest shards that remain when $2f$ nodes fail. The number of rows ($n_R$) and columns ($n_C$) is fixed, and determines the symbol size $s$ as follows:
 
 $$
 s = \left\lceil S / (n_R \cdot n_C) \right\rceil

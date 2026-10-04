@@ -81,7 +81,7 @@ rsync -avz --progress $OLD_USER@$OLD_HOST:/opt/walrus/ /opt/walrus
 
 ##### Step 1: Stop all services on the old host.
 
-Wait for each command to finish before proceeding.
+Wait for each stop command to finish before proceeding, so no writes are still in flight: running `rsync` against a database that is still being written to might result in a corrupted copy.
 
 ```sh
 sudo systemctl stop walrus-node.service
