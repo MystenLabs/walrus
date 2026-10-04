@@ -5,6 +5,7 @@
 //! Walrus supplies event indexes, filters replays, and completes fan-out before publishing
 //! barriers. Reference checks and shared blob coordination remain Walrus responsibilities.
 //! Registrations cancel ordinary pending deletes in the same batch as their Walrus metadata.
+//! Extensions update the lifetime without cancelling deletes or changing registration identity.
 
 use std::sync::Arc;
 
@@ -46,8 +47,8 @@ pub(super) fn database(database: &Arc<RocksDB>) -> Arc<dyn IndexDb> {
     Arc::new(database::Database(Arc::clone(database)))
 }
 
-/// The newest registration and a conservative lifetime across registrations. Deletion will
-/// eventually retire this state; a shorter registration must never shorten another live reference.
+/// The newest registration and a conservative lifetime across registrations and extensions.
+/// Deletion will retire this state; a shorter registration must not shorten another live reference.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct StrataRegistration {
     pub event_index: u64,
@@ -115,6 +116,36 @@ impl StrataRegistrations {
         blob_id: &BlobId,
     ) -> Result<Option<StrataRegistration>, TypedStoreError> {
         self.records.get(blob_id)
+    }
+
+    /// Extend an existing reference. Unlike registration, this neither cancels pending deletes
+    /// nor changes the registration event attached to foreground puts. Keep the maximum across
+    /// references so an extension of a shorter-lived reference cannot shorten the blob's lifetime.
+    pub(super) fn extend(
+        &self,
+        batch: &mut DBBatch,
+        blob_id: BlobId,
+        source: StrataSourceEvent,
+        end_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        let mut record = self.records.get(&blob_id)?.ok_or_else(|| {
+            TypedStoreError::TaskError("Strata extension has no registration identity".into())
+        })?;
+        record.end_epoch = record.end_epoch.max(end_epoch);
+        let operand = BlobOperand::V1(BlobEdit::Append(BlobCommand {
+            event_index: source.event_index,
+            source: bcs::to_bytes(&source)
+                .map_err(|e| TypedStoreError::SerializationError(e.to_string()))?,
+            operation: BlobOperation::SetLifetime {
+                end_epoch: u64::from(record.end_epoch),
+            },
+        }));
+        batch.insert_batch(&self.records, [(blob_id, record)])?;
+        batch.partial_merge_batch(
+            &self.pending,
+            [(blob_id.0.to_vec(), operand.encode().map_err(queue_error)?)],
+        )?;
+        Ok(())
     }
 
     pub(super) fn is_empty(&self) -> Result<bool, TypedStoreError> {
