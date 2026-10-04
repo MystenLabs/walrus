@@ -767,11 +767,6 @@
       "permanent": true
     },
     {
-      "source": "/docs/sites/linking/linking",
-      "destination": "/docs/sites/linking/linking",
-      "permanent": true
-    },
-    {
       "source": "/docs/stake",
       "destination": "/docs/operator-guide/stake",
       "permanent": true
@@ -883,7 +878,7 @@
     },
     {
       "source": "/docs/walrus-sites/builder-config",
-      "destination": "/docs/sites/getting-started/configuration-file-reference",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
       "permanent": true
     },
     {
@@ -913,7 +908,7 @@
     },
     {
       "source": "/docs/walrus-sites/linking",
-      "destination": "/docs/sites/linking",
+      "destination": "/docs/sites/linking/linking-from-walrus-sites",
       "permanent": true
     },
     {
@@ -998,7 +993,7 @@
     },
     {
       "source": "/sites/linking/linking",
-      "destination": "/docs/sites/linking/linking",
+      "destination": "/docs/sites/linking/linking-from-walrus-sites",
       "permanent": true
     },
     {
@@ -1113,7 +1108,7 @@
     },
     {
       "source": "/walrus-sites/builder-config",
-      "destination": "/docs/sites/getting-started/configuration-file-reference",
+      "destination": "/docs/sites/getting-started/using-the-site-builder",
       "permanent": true
     },
     {
@@ -1143,7 +1138,7 @@
     },
     {
       "source": "/walrus-sites/linking",
-      "destination": "/docs/sites/linking",
+      "destination": "/docs/sites/linking/linking-from-walrus-sites",
       "permanent": true
     },
     {
