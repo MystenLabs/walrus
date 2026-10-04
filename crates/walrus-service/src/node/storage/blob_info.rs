@@ -269,8 +269,8 @@ impl BlobInfoTable {
         )?;
         self.update_per_object_blob_info(&mut batch, event)?;
 
-        // The replay watermark, references, registration identity, and cancellation must commit
-        // together. A worker cannot observe a cancellable delete after a successful registration.
+        // The replay watermark, references, and lifetime queue edits must commit together.
+        // Only registration cancels ordinary deletes; extension preserves pending work.
         if let Some(registrations) = &self.strata_registrations {
             let registration = match event {
                 BlobEvent::Registered(e) => Some((e.end_epoch, e.event_id)),
@@ -296,6 +296,18 @@ impl BlobInfoTable {
                         event_id,
                     },
                     end_epoch,
+                )?;
+            } else if let BlobEvent::Certified(e) = event
+                && e.is_extension
+            {
+                registrations.extend(
+                    &mut batch,
+                    e.blob_id,
+                    super::strata_queue::StrataSourceEvent {
+                        event_index,
+                        event_id: e.event_id,
+                    },
+                    e.end_epoch,
                 )?;
             }
         }
@@ -481,6 +493,20 @@ impl BlobInfoTable {
 
         batch.partial_merge_batch(&self.aggregate_blob_info, aggregate_blob_operations)?;
         batch.partial_merge_batch(&self.per_object_blob_info, per_object_operations)?;
+        if let Some(registrations) = &self.strata_registrations {
+            // This recovery path reconstructs a missing reference, so it is a registration for
+            // queue purposes. Initialize its identity/lifetime and cancel ordinary deletes in
+            // the same batch as the reconstructed reference and replay watermark.
+            registrations.register(
+                &mut batch,
+                blob_id,
+                super::strata_queue::StrataSourceEvent {
+                    event_index,
+                    event_id: extension_event.event_id,
+                },
+                extension_event.end_epoch,
+            )?;
+        }
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
         batch.write()
     }
