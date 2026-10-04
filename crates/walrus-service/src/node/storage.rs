@@ -87,7 +87,7 @@ use pending_recover_blobs::PendingRecoverBlobsTable;
 mod shard;
 mod sliver_store;
 
-// Queue producers and the worker are connected in later milestones.
+// Lifecycle queue integration for the Strata sliver backend.
 #[allow(dead_code)]
 pub(crate) mod strata_queue;
 pub(crate) use shard::{ShardStatus, ShardStorage};
@@ -1043,12 +1043,51 @@ impl Storage {
     /// Updates the storage pool info based on a [`StoragePoolEvent`].
     ///
     /// The update is written atomically with `latest_handled_event_index` for crash-restart safety.
+    /// Strata extension producers use the coordinated entry point to fence the preceding fan-out.
     pub(crate) fn update_storage_pool_info(
         &self,
         event_index: u64,
         event: &StoragePoolEvent,
     ) -> Result<(), TypedStoreError> {
         self.blob_info.update_storage_pool_info(event_index, event)
+    }
+
+    /// Fence puts and lifecycle work while enqueueing a pool extension. Membership changes and
+    /// GC run on the sequential event path; this call must finish before dispatching later events.
+    pub(crate) async fn update_storage_pool_info_coordinated(
+        &self,
+        event_index: u64,
+        event: &StoragePoolEvent,
+    ) -> Result<(), TypedStoreError> {
+        if !self.sliver_store.is_strata()
+            || matches!(event, StoragePoolEvent::StoragePoolCreated(_))
+        {
+            return self.update_storage_pool_info(event_index, event);
+        }
+        let storage = self.clone();
+        let event = event.clone();
+        // Retain the fence if the awaiting request is cancelled. A failed or panicking fan-out
+        // closes admission before releasing it; recovery resumes the unfinished fan-out.
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                let _guard = storage
+                    .strata_queue
+                    .lock_lifecycle()
+                    .await
+                    .map_err(strata_queue::queue_error)?;
+                let mut completion =
+                    strata_queue::HaltOnIncompleteWrite::new(storage.strata_queue.clone());
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        storage.update_storage_pool_info(event_index, &event)
+                    })
+                    .await,
+                )?;
+                completion.complete();
+                Ok(())
+            })
+            .await,
+        )
     }
 
     /// Returns the current event cursor and the next event index.

@@ -27,6 +27,9 @@ use crate::node::storage::{DatabaseConfig, SliverStoreBackendKind, Storage, test
 #[path = "extension_tests.rs"]
 mod extensions;
 
+#[path = "pool_extension_tests.rs"]
+mod pool_extensions;
+
 const BLOB: BlobId = BlobId([71; 32]);
 const SHARD: ShardIndex = ShardIndex(7);
 

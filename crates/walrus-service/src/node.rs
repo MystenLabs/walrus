@@ -1696,7 +1696,7 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EventStreamElement::ContractEvent(ContractEvent::StoragePoolEvent(event)) => {
-                self.process_storage_pool_event(event_handle, event)?;
+                self.process_storage_pool_event(event_handle, event).await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::ProtocolEvent(event)) => {
                 panic!(
@@ -1759,7 +1759,7 @@ impl StorageNode {
     /// Processes storage pool events to manage the storage pool info table, tracking pool
     /// lifetimes (start and end epochs) for each storage pool.
     #[tracing::instrument(skip_all)]
-    fn process_storage_pool_event(
+    async fn process_storage_pool_event(
         &self,
         event_handle: EventHandle,
         event: StoragePoolEvent,
@@ -1769,7 +1769,8 @@ impl StorageNode {
         tracing::debug!(?event, "{} event received", event.name());
         self.inner
             .storage
-            .update_storage_pool_info(event_handle.index(), &event)
+            .update_storage_pool_info_coordinated(event_handle.index(), &event)
+            .await
             .context("failed to update storage pool info")?;
         event_handle.mark_as_complete();
         Ok(())

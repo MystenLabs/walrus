@@ -18,6 +18,7 @@ use std::{
 
 use anyhow::Context as _;
 use enum_dispatch::enum_dispatch;
+use itertools::Itertools;
 use rocksdb::{MergeOperands, Options, Transaction};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sui_types::{base_types::ObjectID, event::EventID};
@@ -84,6 +85,9 @@ pub type PerObjectPooledBlobInfoIterator<'a> = BlobInfoIter<
     PerObjectPooledBlobInfo,
     dyn Iterator<Item = Result<(ObjectID, PerObjectPooledBlobInfo), TypedStoreError>> + Send + 'a,
 >;
+
+/// Bound both the write batch and duplicate tracking while scanning pool membership.
+pub(super) const STRATA_POOL_EXTENSION_BATCH_SIZE: usize = 256;
 
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
@@ -676,8 +680,9 @@ impl BlobInfoTable {
 
     /// Updates the storage pool info based on a [`StoragePoolEvent`].
     ///
-    /// The storage pool info update and the `latest_handled_event_index` are written atomically
-    /// in a single batch, ensuring crash-restart safety.
+    /// For Strata, enqueue every member's lifetime before committing the pool info and replay
+    /// watermark. The caller holds the lifecycle guard throughout; later events and GC must not
+    /// overtake the fan-out. A partial fan-out can be resumed by replaying this event.
     pub fn update_storage_pool_info(
         &self,
         event_index: u64,
@@ -690,6 +695,63 @@ impl BlobInfoTable {
         if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
             tracing::debug!("skip updating storage pool info for already handled event");
             return Ok(());
+        }
+
+        if let Some(registrations) = &self.strata_registrations
+            && let StoragePoolEvent::StoragePoolExtended(extended) = event
+        {
+            let pool = self
+                .storage_pool_info
+                .get(&extended.storage_pool_id)?
+                .ok_or_else(|| {
+                    TypedStoreError::TaskError("Strata pool extension has no storage pool".into())
+                })?;
+            if extended.new_end_epoch > pool.end_epoch() {
+                // Do not publish the pool expiry or event watermark until the whole fan-out is
+                // enqueued. On crash, a durable prefix can only retain data longer; replay
+                // finishes the remaining members before any subsequent epoch event is processed.
+                for chunk in &self
+                    .per_object_pooled_blob_info
+                    .safe_iter()?
+                    .chunks(STRATA_POOL_EXTENSION_BATCH_SIZE)
+                {
+                    let mut batch = self.storage_pool_info.batch();
+                    let mut seen = HashSet::new();
+                    let mut queued = false;
+                    for row in chunk {
+                        let (_, PerObjectPooledBlobInfo::V1(info)) = row?;
+                        if info.storage_pool_id != extended.storage_pool_id
+                            || !seen.insert(info.blob_id)
+                        {
+                            continue;
+                        }
+                        let registration = registrations.get(&info.blob_id)?.ok_or_else(|| {
+                            TypedStoreError::TaskError(
+                                "Strata pool member has no registration identity".into(),
+                            )
+                        })?;
+                        // The maximum and its queue command commit together. This also skips
+                        // duplicates in earlier chunks and a prefix already completed before a
+                        // crash, even if the worker has since acknowledged that command.
+                        if registration.end_epoch >= extended.new_end_epoch {
+                            continue;
+                        }
+                        registrations.extend(
+                            &mut batch,
+                            info.blob_id,
+                            super::strata_queue::StrataSourceEvent {
+                                event_index,
+                                event_id: extended.event_id,
+                            },
+                            extended.new_end_epoch,
+                        )?;
+                        queued = true;
+                    }
+                    if queued {
+                        batch.write()?;
+                    }
+                }
+            }
         }
 
         let (storage_pool_id, operand) = match event {
