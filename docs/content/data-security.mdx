@@ -49,14 +49,14 @@ Walrus that you are not willing to make public.
 
 The encoding mechanisms applied by Walrus guarantee that blobs can be written and remain
 available as long as 2/3 of the shards are operated by storage nodes that act honestly.
-After data is written, reads are possible even if as few as 1/3 of the nodes are available.
+After data is written, reads are possible even if as few as 1/3 of the shards are available, because Walrus erasure-codes each blob into slivers that are distributed across all shards.
 
 Each blob has a point of availability (PoA) observable through an event on Sui. Before the
 PoA, you are responsible for ensuring blob availability and upload to Walrus. After the
 PoA, Walrus is responsible for maintaining blob availability for the full storage period.
 
 If a blob is incorrectly encoded, storage nodes can produce an inconsistency proof. Reads
-for blob IDs with inconsistency proofs return `None`. Correctly stored blobs cannot have
+for blob IDs with inconsistency proofs return `None`, so a client detects an inconsistently encoded blob when a read returns `None` instead of blob data. Correctly stored blobs cannot have
 inconsistency proofs generated for them.
 
 You can learn more in the [whitepaper](/walrus.pdf) and in the [Walrus fundamentals
@@ -96,7 +96,7 @@ Nautilus is a framework for secure and verifiable offchain computation on Sui. I
 you to delegate sensitive or resource-intensive tasks to a self-managed trusted execution
 environment (TEE) while using smart contract verification to preserve trust onchain.
 
-Use Nautilus for hybrid apps that require private data handling, complex computations, or
+Use Nautilus alongside Walrus for hybrid apps that require private data handling, complex computations, or
 integration with external Web2 systems. The framework makes computations
 tamper-resistant, isolated, and cryptographically verifiable.
 

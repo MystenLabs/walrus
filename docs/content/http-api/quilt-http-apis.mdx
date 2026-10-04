@@ -43,7 +43,7 @@ Walrus supports storing and retrieving multiple blobs as a single unit called a 
 
 ## Storing quilts
 
-All query parameters available for [storing regular blobs](#store) can also be used when storing quilts.
+All query parameters available for [storing regular blobs](#store), such as `epochs` (shown in the examples below), can also be used when storing quilts.
 
 The following example stores 2 files as a quilt with custom identifiers:
 
@@ -124,7 +124,7 @@ If successful, the response contains the blob object details and the stored quil
 
 ## Reading quilts
 
-You can retrieve blobs from a quilt through the aggregator APIs using their quilt patch ID or their quilt ID and unique identifier. Currently, only 1 blob can be retrieved per request. Bulk retrieval of multiple blobs from a quilt in a single request is not yet supported.
+You can retrieve blobs from a quilt through the aggregator APIs using their quilt patch ID or their quilt ID and unique identifier. Both of the retrieval endpoints documented below return exactly one blob per request, so retrieving several blobs from a quilt requires one request per blob.
 
 ### Retrieving by quilt patch ID
 

@@ -154,7 +154,7 @@ Finally, the encoding type tag (representing the RedStuff version or alternative
 Each storage node stores the full metadata for the blob. The metadata consists of:
 
 - A `32 B` Merkle root hash for each primary and secondary sliver.
-- The `32 B` blob ID, computed as above.
+- The `32 B` blob ID, computed by hashing together the encoding type tag, the length of the blob before encoding, and the Merkle root of the tree over the sliver hashes.
 - The erasure code type (`1 B`).
 - The length of the unencoded blob size (`8 B`).
 
