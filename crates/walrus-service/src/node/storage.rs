@@ -1043,7 +1043,7 @@ impl Storage {
     /// Updates the storage pool info based on a [`StoragePoolEvent`].
     ///
     /// The update is written atomically with `latest_handled_event_index` for crash-restart safety.
-    /// Strata extension producers use the coordinated entry point to fence the preceding fan-out.
+    /// Strata extension producers use the coordinated entry point to finish earlier pool jobs.
     pub(crate) fn update_storage_pool_info(
         &self,
         event_index: u64,
@@ -1052,24 +1052,22 @@ impl Storage {
         self.blob_info.update_storage_pool_info(event_index, event)
     }
 
-    /// Fence puts and lifecycle work while enqueueing a pool extension. Membership changes and
-    /// GC run on the sequential event path; this call must finish before dispatching later events.
+    /// Record a pool extension job without scanning membership. Finish an earlier job before
+    /// accepting this event; the worker expands the new job in the background.
     pub(crate) async fn update_storage_pool_info_coordinated(
         &self,
         event_index: u64,
         event: &StoragePoolEvent,
     ) -> Result<(), TypedStoreError> {
-        if !self.sliver_store.is_strata()
-            || matches!(event, StoragePoolEvent::StoragePoolCreated(_))
-        {
+        if !self.sliver_store.is_strata() {
             return self.update_storage_pool_info(event_index, event);
         }
         let storage = self.clone();
         let event = event.clone();
-        // Retain the fence if the awaiting request is cancelled. A failed or panicking fan-out
-        // closes admission before releasing it; recovery resumes the unfinished fan-out.
+        // Complete a started metadata commit even if the awaiting request is cancelled.
         utils::unwrap_or_resume_unwind(
             tokio::spawn(async move {
+                storage.finish_strata_pool_extensions().await?;
                 let _guard = storage
                     .strata_queue
                     .lock_lifecycle()
@@ -1088,6 +1086,14 @@ impl Storage {
             })
             .await,
         )
+    }
+
+    /// Finish pool expansion before later events or GC mutate membership or append commands.
+    /// This is also driven by the supervised worker when no subsequent events arrive.
+    pub(crate) async fn finish_strata_pool_extensions(&self) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .finish_strata_pool_extensions(&self.strata_queue)
+            .await
     }
 
     /// Returns the current event cursor and the next event index.
@@ -1138,6 +1144,7 @@ impl Storage {
         // Complete a started metadata commit even if its awaiting task is cancelled.
         utils::unwrap_or_resume_unwind(
             tokio::spawn(async move {
+                storage.finish_strata_pool_extensions().await?;
                 let blob_id = event.blob_id();
                 let _guard = storage
                     .strata_queue
@@ -1172,6 +1179,7 @@ impl Storage {
         node_metrics: &NodeMetricSet,
         batch_size: usize,
     ) -> anyhow::Result<()> {
+        self.finish_strata_pool_extensions().await?;
         self.blob_info
             .process_expired_storage_pools(current_epoch, node_metrics, batch_size)
             .await
@@ -1187,6 +1195,7 @@ impl Storage {
         node_metrics: &NodeMetricSet,
         batch_size: usize,
     ) -> anyhow::Result<()> {
+        self.finish_strata_pool_extensions().await?;
         self.blob_info
             .process_expired_blob_objects(current_epoch, node_metrics, batch_size)
             .await

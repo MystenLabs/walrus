@@ -1660,6 +1660,9 @@ impl StorageNode {
             stream_element.element.label()
         )
         .start_timer();
+        // Pool events persist work without scanning. Complete the previous event's expansion
+        // before any later event changes membership, appends blob work, or advances the epoch.
+        self.inner.storage.finish_strata_pool_extensions().await?;
         fail_point_async!("before-process-event-impl");
         let checkpoint_position = stream_element.checkpoint_event_position;
         match stream_element.element {
