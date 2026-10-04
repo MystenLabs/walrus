@@ -58,7 +58,7 @@ The Walrus architecture is built on the following key actors:
 
 Users [interact with Walrus](/docs/walrus-client/storing-blobs) through clients to store and read blobs, which are identified by their blob ID. Users engage with the system in 2 primary ways:
 
-- Storage: Users store new blobs and pay [required costs](/docs/system-overview/storage-costs) for [write](/docs/system-overview/operations#store) and [non-best-effort read](/docs/system-overview/operations#read) operations.
+- Storage: Users store new blobs and pay [required costs](/docs/system-overview/storage-costs) for [write](/docs/system-overview/operations#upload) and [non-best-effort read](/docs/system-overview/operations#read) operations.
 
 - Availability: Users can [prove a blob's availability to third parties](/docs/system-overview/operations#certify-availability) without the cost of transmitting the full blob.
 
@@ -104,7 +104,7 @@ Walrus defines a number of objects and smart contracts on Sui:
 
 Changes to these objects emit [Walrus-related events](#events).
 
-You can find the Walrus system object ID in the Walrus [`client_config.yaml` file](/docs/getting-started/advanced-setup#configuration). You can use any [Sui explorer](https://suivision.xyz/) to view its content.
+You can find the Walrus system object ID in the Walrus [`client_config.yaml` file](/docs/getting-started/advanced-setup#configure-walrus). You can use any [Sui explorer](https://suivision.xyz/) to view its content.
 
 #### Events
 

@@ -191,7 +191,7 @@ Each store operation in Walrus creates a `Blob` object on Sui. This blob object 
 
 When the publisher stores a blob on behalf of a client, the `Blob` object is initially owned by the sub-wallet that stored the blob. The following cases are then possible, depending on the configuration:
 
-- If the client specifies the `send_object_to` query parameter in the store request (see [the relevant section](/docs/http-api/storing-blobs#store) for examples), the `Blob` object is transferred to the specified address. This allows clients to receive the created object for their data.
+- If the client specifies the `send_object_to` query parameter in the store request (see [the relevant section](/docs/http-api/storing-blobs#sending-the-blob-object-to-another-address) for examples), the `Blob` object is transferred to the specified address. This allows clients to receive the created object for their data.
 - If the client does not specify the `send_object_to` query parameter, 2 outcomes are possible:
   - **Default behavior:** The sub-wallet transfers the newly created blob object to the main wallet, where all these objects are kept. You can change this behavior by setting the `--burn-after-store` flag, which causes the blob object to be immediately deleted.
   - **Interaction with `send_object_to`:** The `--burn-after-store` flag does not affect the `send_object_to` query parameter. Regardless of this flag, the publisher sends created objects to the address in `send_object_to` if it is specified in the PUT request.
