@@ -22,7 +22,7 @@ use walrus_utils::metrics::Registry;
 use super::{
     super::{
         blob_info::{BlobInfoApi, BlobInfoTable},
-        strata_queue::{HaltOnIncompleteWrite, StrataQueue, queue_error},
+        strata_queue::{HaltOnIncompleteWrite, StrataQueue, StrataWorker, queue_error},
     },
     PrimarySliverData,
     SecondarySliverData,
@@ -72,14 +72,15 @@ impl StrataSliverStore {
         })
     }
 
-    pub(super) fn worker(&self) -> QueueWorker {
-        QueueWorker::new(
+    pub(super) fn worker(&self) -> StrataWorker {
+        let worker = QueueWorker::new(
             self.queue.clone(),
             self.store.clone(),
             physical_keys,
             WorkerConfig::default(),
         )
-        .expect("the queue and Strata share one database handle")
+        .expect("the queue and Strata share one database handle");
+        StrataWorker::new(self.queue.clone(), self.blob_info.as_ref().clone(), worker)
     }
 
     /// Finish prerequisites outside the blob guard: the worker needs that same guard to apply
@@ -101,7 +102,7 @@ impl StrataSliverStore {
                 return Ok(guard);
             }
             drop(guard);
-            self.worker().process_batch().await.map_err(queue_error)?;
+            self.worker().process_batch().await?;
         }
     }
 

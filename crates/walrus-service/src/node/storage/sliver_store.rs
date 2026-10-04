@@ -140,7 +140,7 @@ impl SliverStore {
         matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
     }
 
-    pub(crate) fn strata_worker(&self) -> Option<::strata::queue::QueueWorker> {
+    pub(crate) fn strata_worker(&self) -> Option<super::strata_queue::StrataWorker> {
         match self.backend.as_ref() {
             SliverStoreBackend::Strata(store) => Some(store.worker()),
             SliverStoreBackend::RocksDb(_) => None,

@@ -8,6 +8,7 @@ mod blob_info_v2;
 mod per_object_pooled_blob_info;
 mod perm_blob_info;
 mod storage_pool_info;
+mod strata_pool_extensions;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -84,6 +85,9 @@ pub type PerObjectPooledBlobInfoIterator<'a> = BlobInfoIter<
     PerObjectPooledBlobInfo,
     dyn Iterator<Item = Result<(ObjectID, PerObjectPooledBlobInfo), TypedStoreError>> + Send + 'a,
 >;
+
+/// Bound the membership scan and generated commands in each background pass.
+pub(super) const STRATA_POOL_EXTENSION_BATCH_SIZE: usize = 256;
 
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
@@ -258,6 +262,7 @@ impl BlobInfoTable {
             return Ok(());
         }
 
+        self.ensure_pool_extensions_finished()?;
         let operation = BlobInfoMergeOperand::from(event);
         tracing::debug!(?operation, "updating blob info");
 
@@ -453,6 +458,8 @@ impl BlobInfoTable {
             tracing::info!("skip updating blob info for already handled event");
             return Ok(());
         }
+
+        self.ensure_pool_extensions_finished()?;
 
         tracing::info!(
             ?extension_event,
@@ -676,8 +683,8 @@ impl BlobInfoTable {
 
     /// Updates the storage pool info based on a [`StoragePoolEvent`].
     ///
-    /// The storage pool info update and the `latest_handled_event_index` are written atomically
-    /// in a single batch, ensuring crash-restart safety.
+    /// For Strata, persist a pool expansion job with the pool info and replay watermark.
+    /// The worker expands it before later events can change membership or append blob commands.
     pub fn update_storage_pool_info(
         &self,
         event_index: u64,
@@ -691,6 +698,8 @@ impl BlobInfoTable {
             tracing::debug!("skip updating storage pool info for already handled event");
             return Ok(());
         }
+
+        self.ensure_pool_extensions_finished()?;
 
         let (storage_pool_id, operand) = match event {
             StoragePoolEvent::StoragePoolCreated(created) => (
@@ -710,6 +719,30 @@ impl BlobInfoTable {
 
         let table = &self.storage_pool_info;
         let mut batch = table.batch();
+        if let Some(registrations) = &self.strata_registrations
+            && let StoragePoolEvent::StoragePoolExtended(extended) = event
+        {
+            let pool = table.get(storage_pool_id)?.ok_or_else(|| {
+                TypedStoreError::TaskError("Strata pool extension has no storage pool".into())
+            })?;
+            if extended.new_end_epoch > pool.end_epoch() {
+                batch.insert_batch(
+                    &registrations.pools,
+                    [(
+                        event_index,
+                        super::strata_queue::PendingPoolExtension {
+                            source: super::strata_queue::StrataSourceEvent {
+                                event_index,
+                                event_id: extended.event_id,
+                            },
+                            pool_id: *storage_pool_id,
+                            end_epoch: extended.new_end_epoch,
+                            after_object: None,
+                        },
+                    )],
+                )?;
+            }
+        }
         batch.partial_merge_batch(table, [(storage_pool_id, operand.to_bytes())])?;
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
         batch.write()?;

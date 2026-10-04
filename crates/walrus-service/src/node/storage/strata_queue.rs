@@ -20,7 +20,7 @@ use strata::queue::{
     PendingQueue,
 };
 use strata_index::port::IndexDb;
-use sui_types::event::EventID;
+use sui_types::{base_types::ObjectID, event::EventID};
 use typed_store::{
     Map,
     TypedStoreError,
@@ -31,15 +31,21 @@ use walrus_core::{BlobId, Epoch};
 use super::DatabaseTableOptionsFactory;
 
 mod database;
+mod worker;
+pub(crate) use worker::StrataWorker;
 
 pub(crate) type StrataQueue = PendingQueue;
 
 const REGISTRATIONS_CF: &str = "strata_registrations";
+const POOL_EXTENSIONS_CF: &str = "strata_pending_pool_extensions";
 
 pub(super) fn options(factory: &DatabaseTableOptionsFactory) -> Vec<(&'static str, Options)> {
     strata::queue::cf_options(factory.standard())
         .into_iter()
-        .chain([(REGISTRATIONS_CF, factory.standard())])
+        .chain([
+            (REGISTRATIONS_CF, factory.standard()),
+            (POOL_EXTENSIONS_CF, factory.standard()),
+        ])
         .collect()
 }
 
@@ -60,6 +66,18 @@ pub(super) struct StrataRegistrations {
     records: DBMap<BlobId, StrataRegistration>,
     // Used only to stage raw merge operands. Queue VALUES use Strata's codec, not DBMap's BCS.
     pending: DBMap<Vec<u8>, Vec<u8>>,
+    pub(super) pools: DBMap<u64, PendingPoolExtension>,
+    pub(super) pool_worker: Arc<tokio::sync::Mutex<()>>,
+}
+
+/// One pool event awaiting expansion. Later metadata events and GC wait for this job, keeping
+/// membership stable across batches and restarts. The cursor commits with the generated commands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct PendingPoolExtension {
+    pub source: StrataSourceEvent,
+    pub pool_id: ObjectID,
+    pub end_epoch: Epoch,
+    pub after_object: Option<ObjectID>,
 }
 
 impl StrataRegistrations {
@@ -77,6 +95,13 @@ impl StrataRegistrations {
                 &ReadWriteOptions::default(),
                 false,
             )?,
+            pools: DBMap::reopen(
+                database,
+                Some(POOL_EXTENSIONS_CF),
+                &ReadWriteOptions::default(),
+                false,
+            )?,
+            pool_worker: Arc::default(),
         })
     }
 
@@ -149,7 +174,8 @@ impl StrataRegistrations {
     }
 
     pub(super) fn is_empty(&self) -> Result<bool, TypedStoreError> {
-        Ok(self.records.safe_iter()?.next().transpose()?.is_none())
+        Ok(self.records.safe_iter()?.next().transpose()?.is_none()
+            && self.pools.safe_iter()?.next().transpose()?.is_none())
     }
 }
 

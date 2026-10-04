@@ -87,7 +87,7 @@ use pending_recover_blobs::PendingRecoverBlobsTable;
 mod shard;
 mod sliver_store;
 
-// Queue producers and the worker are connected in later milestones.
+// Lifecycle queue integration for the Strata sliver backend.
 #[allow(dead_code)]
 pub(crate) mod strata_queue;
 pub(crate) use shard::{ShardStatus, ShardStorage};
@@ -1043,12 +1043,57 @@ impl Storage {
     /// Updates the storage pool info based on a [`StoragePoolEvent`].
     ///
     /// The update is written atomically with `latest_handled_event_index` for crash-restart safety.
+    /// Strata extension producers use the coordinated entry point to finish earlier pool jobs.
     pub(crate) fn update_storage_pool_info(
         &self,
         event_index: u64,
         event: &StoragePoolEvent,
     ) -> Result<(), TypedStoreError> {
         self.blob_info.update_storage_pool_info(event_index, event)
+    }
+
+    /// Record a pool extension job without scanning membership. Finish an earlier job before
+    /// accepting this event; the worker expands the new job in the background.
+    pub(crate) async fn update_storage_pool_info_coordinated(
+        &self,
+        event_index: u64,
+        event: &StoragePoolEvent,
+    ) -> Result<(), TypedStoreError> {
+        if !self.sliver_store.is_strata() {
+            return self.update_storage_pool_info(event_index, event);
+        }
+        let storage = self.clone();
+        let event = event.clone();
+        // Complete a started metadata commit even if the awaiting request is cancelled.
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                storage.finish_strata_pool_extensions().await?;
+                let _guard = storage
+                    .strata_queue
+                    .lock_lifecycle()
+                    .await
+                    .map_err(strata_queue::queue_error)?;
+                let mut completion =
+                    strata_queue::HaltOnIncompleteWrite::new(storage.strata_queue.clone());
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        storage.update_storage_pool_info(event_index, &event)
+                    })
+                    .await,
+                )?;
+                completion.complete();
+                Ok(())
+            })
+            .await,
+        )
+    }
+
+    /// Finish pool expansion before later events or GC mutate membership or append commands.
+    /// This is also driven by the supervised worker when no subsequent events arrive.
+    pub(crate) async fn finish_strata_pool_extensions(&self) -> Result<(), TypedStoreError> {
+        self.blob_info
+            .finish_strata_pool_extensions(&self.strata_queue)
+            .await
     }
 
     /// Returns the current event cursor and the next event index.
@@ -1099,6 +1144,7 @@ impl Storage {
         // Complete a started metadata commit even if its awaiting task is cancelled.
         utils::unwrap_or_resume_unwind(
             tokio::spawn(async move {
+                storage.finish_strata_pool_extensions().await?;
                 let blob_id = event.blob_id();
                 let _guard = storage
                     .strata_queue
@@ -1133,6 +1179,7 @@ impl Storage {
         node_metrics: &NodeMetricSet,
         batch_size: usize,
     ) -> anyhow::Result<()> {
+        self.finish_strata_pool_extensions().await?;
         self.blob_info
             .process_expired_storage_pools(current_epoch, node_metrics, batch_size)
             .await
@@ -1148,6 +1195,7 @@ impl Storage {
         node_metrics: &NodeMetricSet,
         batch_size: usize,
     ) -> anyhow::Result<()> {
+        self.finish_strata_pool_extensions().await?;
         self.blob_info
             .process_expired_blob_objects(current_epoch, node_metrics, batch_size)
             .await
