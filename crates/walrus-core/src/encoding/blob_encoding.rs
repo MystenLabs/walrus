@@ -576,12 +576,18 @@ impl<'a> BlobEncoder<'a> {
             }
         }
 
+        // The positions of the requested pairs whose primary or secondary sliver is not
+        // systematic, so that the expansion loops below only visit those.
+        let non_systematic_primary: Vec<usize> = (0..sliver_pairs.len())
+            .filter(|&position| sliver_pairs[position].primary.index.as_usize() >= n_rows)
+            .collect();
+        let non_systematic_secondary: Vec<usize> = (0..sliver_pairs.len())
+            .filter(|&position| sliver_pairs[position].secondary.index.as_usize() >= n_columns)
+            .collect();
+
         // A non-systematic primary sliver holds, for each column of the message matrix, the
         // symbol at its own index in the expansion of that column.
-        if sliver_pairs
-            .iter()
-            .any(|pair| pair.primary.index.as_usize() >= n_rows)
-        {
+        if !non_systematic_primary.is_empty() {
             let mut primary_encoder = self.inner.get_encoder::<Primary>();
             let mut column_buffer = Symbols::zeros(n_rows, self.inner.symbol_size);
             for (column_index, column_symbols) in self.column_symbols().enumerate() {
@@ -592,22 +598,17 @@ impl<'a> BlobEncoder<'a> {
                 let expanded_column = primary_encoder
                     .encode_all_ref(column_buffer.data())
                     .expect("size has already been checked");
-                for pair in &mut sliver_pairs {
-                    let row_index = pair.primary.index.as_usize();
-                    if row_index >= n_rows {
-                        pair.primary
-                            .copy_symbol_to(column_index, &expanded_column[row_index]);
-                    }
+                for &position in &non_systematic_primary {
+                    let primary = &mut sliver_pairs[position].primary;
+                    let row_index = primary.index.as_usize();
+                    primary.copy_symbol_to(column_index, &expanded_column[row_index]);
                 }
             }
         }
 
         // A non-systematic secondary sliver holds, for each row of the message matrix, the
         // recovery symbol at its own index in the expansion of that row.
-        if sliver_pairs
-            .iter()
-            .any(|pair| pair.secondary.index.as_usize() >= n_columns)
-        {
+        if !non_systematic_secondary.is_empty() {
             let mut secondary_encoder = self.inner.get_encoder::<Secondary>();
             let mut row_buffer = Symbols::zeros(n_columns, self.inner.symbol_size);
             let row_length_bytes = n_columns * self.symbol_usize();
@@ -622,13 +623,12 @@ impl<'a> BlobEncoder<'a> {
                 let expanded_row = secondary_encoder
                     .encode(data)
                     .expect("size has already been checked");
-                for (recovery_index, symbol) in expanded_row.recovery_iter().enumerate() {
-                    let column_index = n_columns + recovery_index;
-                    for pair in &mut sliver_pairs {
-                        if pair.secondary.index.as_usize() == column_index {
-                            pair.secondary.copy_symbol_to(row_index, symbol);
-                        }
-                    }
+                for &position in &non_systematic_secondary {
+                    let secondary = &mut sliver_pairs[position].secondary;
+                    let symbol = expanded_row
+                        .recovery(secondary.index.as_usize() - n_columns)
+                        .expect("the index is below the number of shards");
+                    secondary.copy_symbol_to(row_index, symbol);
                 }
             }
         }
