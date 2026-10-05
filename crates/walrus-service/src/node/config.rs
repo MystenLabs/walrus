@@ -571,16 +571,12 @@ impl Default for StorageNodeConfig {
 impl walrus_utils::config::Config for StorageNodeConfig {
     fn validate(&self) -> anyhow::Result<()> {
         if self.sliver_store_backend == SliverStoreBackendKind::Strata
-            && self.garbage_collection.enable_data_deletion
-        {
-            anyhow::bail!("Strata requires garbage_collection.enable_data_deletion=false");
-        }
-        if self.sliver_store_backend == SliverStoreBackendKind::Strata
             && self.checkpoint_config.periodic_db_checkpoints
         {
             anyhow::bail!("RocksDB-only checkpoints are not supported with Strata sliver storage");
         }
-        if !self.db_config.use_optimistic_transaction_db()
+        if self.sliver_store_backend == SliverStoreBackendKind::RocksDb
+            && !self.db_config.use_optimistic_transaction_db()
             && self.garbage_collection.enable_data_deletion
         {
             anyhow::bail!(
@@ -1972,13 +1968,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strata_backend_rejects_unsupported_deletion_and_checkpoints() {
+    fn strata_backend_supports_deletion_but_rejects_rocksdb_checkpoints() {
         let mut config = StorageNodeConfig {
             sliver_store_backend: SliverStoreBackendKind::Strata,
             ..Default::default()
         };
-        assert!(config.validate().is_err());
-        config.garbage_collection.enable_data_deletion = false;
         assert!(config.validate().is_ok());
         config.checkpoint_config.periodic_db_checkpoints = true;
         assert!(config.validate().is_err());

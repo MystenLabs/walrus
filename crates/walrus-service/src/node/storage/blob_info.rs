@@ -8,7 +8,6 @@ mod blob_info_v2;
 mod per_object_pooled_blob_info;
 mod perm_blob_info;
 mod storage_pool_info;
-mod strata_pool_extensions;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -86,17 +85,14 @@ pub type PerObjectPooledBlobInfoIterator<'a> = BlobInfoIter<
     dyn Iterator<Item = Result<(ObjectID, PerObjectPooledBlobInfo), TypedStoreError>> + Send + 'a,
 >;
 
-/// Bound the membership scan and generated commands in each background pass.
-pub(super) const STRATA_POOL_EXTENSION_BATCH_SIZE: usize = 256;
-
 #[derive(Debug, Clone)]
 pub(super) struct BlobInfoTable {
     aggregate_blob_info: DBMap<BlobId, BlobInfo>,
     per_object_blob_info: DBMap<ObjectID, PerObjectBlobInfo>,
     per_object_pooled_blob_info: DBMap<ObjectID, PerObjectPooledBlobInfo>,
     storage_pool_info: DBMap<ObjectID, StoragePoolInfo>,
-    latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
-    strata_registrations: Option<super::strata_queue::StrataRegistrations>,
+    pub(super) latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
+    pub(super) strata_lifecycle: Option<Arc<super::strata_lifecycle::StrataLifecycle>>,
 }
 
 /// Returns the options for the aggregate blob info column family.
@@ -186,8 +182,8 @@ impl BlobInfoTable {
             per_object_pooled_blob_info,
             storage_pool_info,
             latest_handled_event_index,
-            strata_registrations: strata
-                .then(|| super::strata_queue::StrataRegistrations::reopen(database))
+            strata_lifecycle: strata
+                .then(|| super::strata_lifecycle::StrataLifecycle::reopen(database).map(Arc::new))
                 .transpose()?,
         })
     }
@@ -196,7 +192,7 @@ impl BlobInfoTable {
         // Resetting the event watermark while retaining lifecycle work could reuse event
         // indexes. Bootstrap/reset of an existing Strata store needs a coordinated reset;
         // until that is wired, only allow the empty-store bootstrap used here.
-        if let Some(registrations) = &self.strata_registrations
+        if let Some(registrations) = &self.strata_lifecycle
             && !registrations.is_empty()?
         {
             return Err(TypedStoreError::TaskError(
@@ -262,7 +258,6 @@ impl BlobInfoTable {
             return Ok(());
         }
 
-        self.ensure_pool_extensions_finished()?;
         let operation = BlobInfoMergeOperand::from(event);
         tracing::debug!(?operation, "updating blob info");
 
@@ -274,62 +269,44 @@ impl BlobInfoTable {
         )?;
         self.update_per_object_blob_info(&mut batch, event)?;
 
-        // The replay watermark, references, and lifetime queue edits must commit together.
-        // Only registration cancels ordinary deletes; extension preserves pending work.
-        if let Some(registrations) = &self.strata_registrations {
-            let registration = match event {
-                BlobEvent::Registered(e) => Some((e.end_epoch, e.event_id)),
-                BlobEvent::PooledBlobRegistered(e) => {
-                    let pool =
-                        self.storage_pool_info
-                            .get(&e.storage_pool_id)?
-                            .ok_or_else(|| {
-                                TypedStoreError::TaskError(
-                                    "pooled registration has no storage pool".into(),
-                                )
-                            })?;
-                    Some((pool.end_epoch(), e.event_id))
-                }
+        // Dirty IDs and the reference change commit together. Whether a delete removes the
+        // last reference is decided at reconciliation, not in the event handler.
+        if let Some(lifecycle) = &self.strata_lifecycle {
+            let end_epoch = match event {
+                BlobEvent::Registered(e) => Some(e.end_epoch),
+                BlobEvent::PooledBlobRegistered(e) => Some(
+                    self.storage_pool_info
+                        .get(&e.storage_pool_id)?
+                        .ok_or_else(|| {
+                            TypedStoreError::TaskError("pooled registration has no pool".into())
+                        })?
+                        .end_epoch(),
+                ),
+                BlobEvent::Certified(e) if e.is_extension => Some(e.end_epoch),
                 _ => None,
             };
-            if let Some((end_epoch, event_id)) = registration {
-                registrations.register(
+            let deletion = matches!(
+                event,
+                BlobEvent::Deleted(_) | BlobEvent::PooledBlobDeleted(_)
+            );
+            if end_epoch.is_some() || deletion {
+                let registration = matches!(
+                    event,
+                    BlobEvent::Registered(_) | BlobEvent::PooledBlobRegistered(_)
+                );
+                lifecycle.mark_blob(
                     &mut batch,
                     event.blob_id(),
-                    super::strata_queue::StrataSourceEvent {
-                        event_index,
-                        event_id,
-                    },
+                    event_index,
                     end_epoch,
-                )?;
-            } else if let BlobEvent::Certified(e) = event
-                && e.is_extension
-            {
-                registrations.extend(
-                    &mut batch,
-                    e.blob_id,
-                    super::strata_queue::StrataSourceEvent {
-                        event_index,
-                        event_id: e.event_id,
-                    },
-                    e.end_epoch,
+                    deletion,
+                    registration,
                 )?;
             }
         }
 
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
         batch.write()
-    }
-
-    pub(super) fn strata_registration(
-        &self,
-        blob_id: &BlobId,
-    ) -> Result<Option<super::strata_queue::StrataRegistration>, TypedStoreError> {
-        self.strata_registrations
-            .as_ref()
-            .map(|r| r.get(blob_id))
-            .transpose()
-            .map(Option::flatten)
     }
 
     fn update_per_object_blob_info(
@@ -459,8 +436,6 @@ impl BlobInfoTable {
             return Ok(());
         }
 
-        self.ensure_pool_extensions_finished()?;
-
         tracing::info!(
             ?extension_event,
             "handling blob extension during recovery with incomplete history"
@@ -500,18 +475,14 @@ impl BlobInfoTable {
 
         batch.partial_merge_batch(&self.aggregate_blob_info, aggregate_blob_operations)?;
         batch.partial_merge_batch(&self.per_object_blob_info, per_object_operations)?;
-        if let Some(registrations) = &self.strata_registrations {
-            // This recovery path reconstructs a missing reference, so it is a registration for
-            // queue purposes. Initialize its identity/lifetime and cancel ordinary deletes in
-            // the same batch as the reconstructed reference and replay watermark.
-            registrations.register(
+        if let Some(lifecycle) = &self.strata_lifecycle {
+            lifecycle.mark_blob(
                 &mut batch,
                 blob_id,
-                super::strata_queue::StrataSourceEvent {
-                    event_index,
-                    event_id: extension_event.event_id,
-                },
-                extension_event.end_epoch,
+                event_index,
+                Some(extension_event.end_epoch),
+                false,
+                true,
             )?;
         }
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
@@ -699,8 +670,6 @@ impl BlobInfoTable {
             return Ok(());
         }
 
-        self.ensure_pool_extensions_finished()?;
-
         let (storage_pool_id, operand) = match event {
             StoragePoolEvent::StoragePoolCreated(created) => (
                 &created.storage_pool_id,
@@ -719,34 +688,89 @@ impl BlobInfoTable {
 
         let table = &self.storage_pool_info;
         let mut batch = table.batch();
-        if let Some(registrations) = &self.strata_registrations
-            && let StoragePoolEvent::StoragePoolExtended(extended) = event
+        if let Some(lifecycle) = &self.strata_lifecycle
+            && matches!(event, StoragePoolEvent::StoragePoolExtended(_))
         {
-            let pool = table.get(storage_pool_id)?.ok_or_else(|| {
-                TypedStoreError::TaskError("Strata pool extension has no storage pool".into())
-            })?;
-            if extended.new_end_epoch > pool.end_epoch() {
-                batch.insert_batch(
-                    &registrations.pools,
-                    [(
-                        event_index,
-                        super::strata_queue::PendingPoolExtension {
-                            source: super::strata_queue::StrataSourceEvent {
-                                event_index,
-                                event_id: extended.event_id,
-                            },
-                            pool_id: *storage_pool_id,
-                            end_epoch: extended.new_end_epoch,
-                            after_object: None,
-                        },
-                    )],
-                )?;
-            }
+            batch.insert_batch(&lifecycle.pools, [(*storage_pool_id, event_index)])?;
         }
         batch.partial_merge_batch(table, [(storage_pool_id, operand.to_bytes())])?;
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
         batch.write()?;
         Ok(())
+    }
+
+    /// Snapshot first, sync second: only the selected metadata is guaranteed durable. The
+    /// snapshot selects candidates; the reconciler still checks live references under blob locks.
+    pub(super) fn strata_snapshot(
+        &self,
+    ) -> anyhow::Result<super::strata_lifecycle::ReconcileSnapshot> {
+        let lifecycle = self
+            .strata_lifecycle
+            .as_ref()
+            .expect("Strata tables are open");
+        let snapshot = self.aggregate_blob_info.rocksdb.snapshot();
+        lifecycle.db.flush_wal(true)?;
+        let mut dirty: HashMap<_, _> = lifecycle
+            .blobs
+            .safe_iter_with_snapshot(&snapshot)?
+            .map(|row| row.map(|(id, dirty)| (id, Some(dirty))))
+            .collect::<Result<_, _>>()?;
+        let pools: HashMap<_, _> = lifecycle
+            .pools
+            .safe_iter_with_snapshot(&snapshot)?
+            .collect::<Result<_, _>>()?;
+        if dirty.is_empty() && pools.is_empty() {
+            return Ok(super::strata_lifecycle::ReconcileSnapshot {
+                blobs: Vec::new(),
+                pools: Vec::new(),
+            });
+        }
+        let pool_ends: HashMap<_, _> = self
+            .storage_pool_info
+            .safe_iter_with_snapshot(&snapshot)?
+            .map(|row| row.map(|(id, pool)| (id, pool.end_epoch())))
+            .collect::<Result<_, _>>()?;
+        let mut lifetimes = HashMap::<BlobId, Epoch>::new();
+        // Gather all pool lifetimes, including other pools of a blob in a changed pool.
+        // There is no pool->members index; one membership scan serves every changed pool.
+        for row in self
+            .per_object_pooled_blob_info
+            .safe_iter_with_snapshot(&snapshot)?
+        {
+            let (_, PerObjectPooledBlobInfo::V1(info)) = row?;
+            if pools.contains_key(&info.storage_pool_id) {
+                dirty.entry(info.blob_id).or_insert(None);
+            }
+            if (!pools.is_empty() || dirty.contains_key(&info.blob_id))
+                && let Some(end_epoch) = pool_ends.get(&info.storage_pool_id)
+            {
+                let end = lifetimes.entry(info.blob_id).or_default();
+                *end = (*end).max(*end_epoch);
+            }
+        }
+        for row in self
+            .per_object_blob_info
+            .safe_iter_with_snapshot(&snapshot)?
+        {
+            let (_, PerObjectBlobInfo::V1(info)) = row?;
+            if !info.deleted && dirty.contains_key(&info.blob_id) {
+                let end = lifetimes.entry(info.blob_id).or_default();
+                *end = (*end).max(info.end_epoch);
+            }
+        }
+        let mut blobs: Vec<_> = dirty
+            .into_iter()
+            .map(|(id, dirty)| super::strata_lifecycle::ReconcileBlob {
+                id,
+                end_epoch: lifetimes.get(&id).copied().unwrap_or_default(),
+                dirty,
+            })
+            .collect();
+        blobs.sort_unstable_by_key(|blob| blob.id);
+        Ok(super::strata_lifecycle::ReconcileSnapshot {
+            blobs,
+            pools: pools.into_iter().collect(),
+        })
     }
 
     /// Returns the latest event index that has been handled by the node.
@@ -982,9 +1006,25 @@ impl BlobInfoTable {
         }
 
         let blob_id = per_object_blob_info.blob_id();
+        let _guard = self
+            .strata_lifecycle
+            .as_ref()
+            .map(|lifecycle| futures::executor::block_on(lifecycle.lock_blobs(&[&blob_id.0])))
+            .transpose()?;
         let was_certified = per_object_blob_info.initial_certified_epoch().is_some();
         let deletable = per_object_blob_info.is_deletable();
         let mut batch = self.per_object_blob_info.batch();
+        // Keep the ID after the reference row disappears, including natural expiry.
+        if let Some(lifecycle) = &self.strata_lifecycle {
+            lifecycle.mark_blob(
+                &mut batch,
+                blob_id,
+                self.get_latest_handled_event_index()?,
+                None,
+                true,
+                false,
+            )?;
+        }
         // Clean up all expired objects.
         batch.delete_batch(&self.per_object_blob_info, [object_id])?;
 
@@ -1089,12 +1129,35 @@ impl BlobInfoTable {
 
         let start_bound = last_processed_object_id.map_or(Unbounded, Bound::Excluded);
 
-        let mut batch = pooled_table.batch();
-
-        for result in pooled_table
+        let entries: Vec<_> = pooled_table
             .safe_range_iter((start_bound, Unbounded))?
             .take(batch_size)
-        {
+            .collect();
+        let blob_ids: Vec<_> = entries
+            .iter()
+            .filter_map(|row| {
+                row.as_ref()
+                    .ok()
+                    .map(|(_, PerObjectPooledBlobInfo::V1(info))| info.blob_id)
+            })
+            .collect();
+        let _guard = self
+            .strata_lifecycle
+            .as_ref()
+            .map(|lifecycle| {
+                futures::executor::block_on(
+                    lifecycle.lock_blobs(
+                        &blob_ids
+                            .iter()
+                            .map(|id| id.0.as_slice())
+                            .collect::<Vec<_>>(),
+                    ),
+                )
+            })
+            .transpose()?;
+        let mut batch = pooled_table.batch();
+
+        for result in entries {
             total_count += 1;
             let (object_id, pooled_info) = match result {
                 Ok(values) => values,
@@ -1178,6 +1241,16 @@ impl BlobInfoTable {
             "deleting expired pooled blob object"
         );
 
+        if let Some(lifecycle) = &self.strata_lifecycle {
+            lifecycle.mark_blob(
+                batch,
+                v1.blob_id,
+                self.get_latest_handled_event_index()?,
+                None,
+                true,
+                false,
+            )?;
+        }
         batch.delete_batch(pooled_table, [object_id])?;
         let operand = BlobInfoMergeOperand::PoolExpired {
             storage_pool_id: v1.storage_pool_id,

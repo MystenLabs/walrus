@@ -285,6 +285,19 @@ impl StorageNode {
         // (spawned by `execute_epoch_change` as part of the finisher task) cannot contend with
         // phase 1's disk traffic on the same RocksDB instance.
         self.start_garbage_collection_task(event.epoch).await?;
+        // Metadata events are sequential; sliver puts continue under per-blob locks while
+        // reconciliation scans the final reference state for this boundary.
+        self.inner
+            .storage
+            .reconcile_strata_epoch(
+                event.epoch,
+                self.inner.garbage_collection_config.enable_data_deletion
+                    && self
+                        .inner
+                        .garbage_collection_config
+                        .enable_blob_info_cleanup,
+            )
+            .await?;
 
         // Compute this before the handle is moved into `execute_epoch_change`, whose finisher marks
         // the event complete in the background: checking afterwards could misclassify first-time

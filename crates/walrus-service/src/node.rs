@@ -1044,6 +1044,17 @@ impl StorageNode {
             tracing::warn!(?error, "unable to schedule epoch calls on startup")
         };
 
+        self.inner
+            .storage
+            .resume_strata_reconciliation(
+                self.inner.garbage_collection_config.enable_data_deletion
+                    && self
+                        .inner
+                        .garbage_collection_config
+                        .enable_blob_info_cleanup,
+            )
+            .await?;
+
         // Startup GC retry is best-effort: unlike the live epoch-transition path, it cannot
         // guarantee the exact epoch-boundary blob-info snapshot semantics needed by recovery.
         if let Err(error) = self.check_and_start_garbage_collection_on_startup().await {
@@ -1054,10 +1065,6 @@ impl StorageNode {
         }
 
         select! {
-            result = self.inner.storage.run_strata_worker() => {
-                result?;
-                bail!("Strata lifecycle worker stopped unexpectedly");
-            },
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
             },
@@ -1660,9 +1667,6 @@ impl StorageNode {
             stream_element.element.label()
         )
         .start_timer();
-        // Pool events persist work without scanning. Complete the previous event's expansion
-        // before any later event changes membership, appends blob work, or advances the epoch.
-        self.inner.storage.finish_strata_pool_extensions().await?;
         fail_point_async!("before-process-event-impl");
         let checkpoint_position = stream_element.checkpoint_event_position;
         match stream_element.element {
