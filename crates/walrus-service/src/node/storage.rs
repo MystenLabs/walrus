@@ -712,6 +712,11 @@ impl Storage {
         self.database.clone()
     }
 
+    /// Whether slivers are stored in Strata.
+    pub(crate) fn is_strata(&self) -> bool {
+        self.sliver_store.is_strata()
+    }
+
     /// Resume an interrupted epoch before normal event processing. Puts use the same blob
     /// locks and may cancel old pending deletes while this runs.
     pub(crate) async fn resume_strata_reconciliation(
@@ -724,19 +729,25 @@ impl Storage {
                 | strata_lifecycle::EpochProgress::Advancing(epoch),
             ) = lifecycle.progress.get(&())?
         {
-            self.reconcile_strata_epoch(epoch, delete_data).await?;
+            // Persisted progress was admitted at a complete event boundary. Finish it even if
+            // the node is recovering or the committee has advanced since the crash.
+            self.sliver_store
+                .reconcile_epoch(epoch, delete_data)
+                .await?;
         }
         Ok(())
     }
 
+    /// Reconcile once event replay reaches the current on-chain epoch, before sliver recovery.
     pub(crate) async fn reconcile_strata_epoch(
         &self,
         epoch: Epoch,
+        current_epoch: Epoch,
         delete_data: bool,
     ) -> anyhow::Result<()> {
-        // Like ordinary data GC, do not reclaim from incomplete reference history. Dirty IDs
-        // remain pending and the next active epoch reconciles them before moving Strata's clock.
-        if self.sliver_store.is_strata() && !self.node_status()?.is_active() {
+        // Dirty IDs accumulate during catch-up. RecoveryInProgress and RecoverMetadata can
+        // reconcile at current boundaries; becoming Active is not a prerequisite.
+        if epoch != current_epoch {
             return Ok(());
         }
         self.sliver_store.reconcile_epoch(epoch, delete_data).await

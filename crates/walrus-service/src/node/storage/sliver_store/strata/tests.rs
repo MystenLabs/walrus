@@ -109,7 +109,7 @@ async fn explicit_delete_is_deferred_and_survives_restart() -> TestResult {
         strata(&storage).lifecycle.db.flush_wal(true)?;
         close(storage).await?;
         let storage = open(dir.path(), optimistic)?;
-        storage.reconcile_strata_epoch(2, true).await?;
+        storage.reconcile_strata_epoch(2, 2, true).await?;
         assert!(!stored(&storage, X)?);
         assert!(strata(&storage).lifecycle.blobs.get(&X)?.is_none());
         assert!(
@@ -154,10 +154,10 @@ async fn put_cancels_delete_but_preserves_lifetime_reconciliation() -> TestResul
         let pending = strata(&storage).lifecycle.blobs.get(&X)?.unwrap();
         assert!(!pending.delete);
         assert_eq!(pending.event_index, 2);
-        storage.reconcile_strata_epoch(2, true).await?;
+        storage.reconcile_strata_epoch(2, 2, true).await?;
         assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(30));
         assert!(stored(&storage, X)?);
-        storage.reconcile_strata_epoch(30, true).await?;
+        storage.reconcile_strata_epoch(30, 30, true).await?;
         assert!(!stored(&storage, X)?);
         close(storage).await?;
     }
@@ -201,7 +201,7 @@ async fn stale_snapshot_cannot_delete_a_new_registration_and_put() -> TestResult
                 .event_index,
             2
         );
-        storage.reconcile_strata_epoch(2, true).await?;
+        storage.reconcile_strata_epoch(2, 2, true).await?;
         assert!(stored(&storage, X)?);
         close(storage).await?;
     }
@@ -299,7 +299,7 @@ async fn pool_updates_coalesce_and_other_references_keep_their_lifetime() -> Tes
             .update_blob_info_coordinated(2, &registration(X, 80).into())
             .await?;
         put(&storage, X).await?;
-        storage.reconcile_strata_epoch(2, true).await?;
+        storage.reconcile_strata_epoch(2, 2, true).await?;
         storage
             .update_storage_pool_info_coordinated(
                 3,
@@ -314,11 +314,11 @@ async fn pool_updates_coalesce_and_other_references_keep_their_lifetime() -> Tes
             .await?;
         assert_eq!(strata(&storage).lifecycle.pools.safe_iter()?.count(), 1);
         assert!(strata(&storage).lifecycle.blobs.is_empty()); // No foreground member fan-out.
-        storage.reconcile_strata_epoch(20, true).await?;
+        storage.reconcile_strata_epoch(20, 20, true).await?;
         assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(80));
         assert!(stored(&storage, X)?);
         assert!(strata(&storage).lifecycle.pools.is_empty());
-        storage.reconcile_strata_epoch(80, true).await?;
+        storage.reconcile_strata_epoch(80, 80, true).await?;
         assert!(!stored(&storage, X)?);
         close(storage).await?;
     }
@@ -358,9 +358,9 @@ async fn extension_is_applied_before_the_old_expiry_and_restart() -> TestResult 
         strata(&storage).lifecycle.db.flush_wal(true)?;
         close(storage).await?;
         let storage = open(dir.path(), optimistic)?;
-        storage.reconcile_strata_epoch(3, true).await?;
+        storage.reconcile_strata_epoch(3, 3, true).await?;
         assert!(stored(&storage, X)?);
-        storage.reconcile_strata_epoch(20, true).await?;
+        storage.reconcile_strata_epoch(20, 20, true).await?;
         assert!(!stored(&storage, X)?);
         close(storage).await?;
     }
@@ -436,6 +436,7 @@ async fn restart_after_epoch_sync_does_not_advance_twice() -> TestResult {
     strata(&storage).store.sync()?;
     close(storage).await?;
     let storage = open(dir.path(), true)?;
+    storage.set_node_status(crate::node::storage::NodeStatus::RecoveryCatchUp)?;
     storage.resume_strata_reconciliation(true).await?;
     assert_eq!(strata(&storage).store.current_epoch()?, 11);
     assert_eq!(
@@ -466,10 +467,10 @@ async fn disabled_data_deletion_preserves_pending_deletes_and_expiry() -> TestRe
                 .into(),
         )
         .await?;
-    storage.reconcile_strata_epoch(3, false).await?;
+    storage.reconcile_strata_epoch(3, 3, false).await?;
     assert!(stored(&storage, X)?);
     assert!(strata(&storage).lifecycle.blobs.get(&X)?.unwrap().delete);
-    storage.reconcile_strata_epoch(4, true).await?;
+    storage.reconcile_strata_epoch(4, 4, true).await?;
     assert!(!stored(&storage, X)?);
     close(storage).await?;
     Ok(())
@@ -496,7 +497,7 @@ async fn put_after_restart_cannot_restore_a_stale_pool_lifetime() -> TestResult 
         )
         .await?;
     put(&storage, X).await?;
-    storage.reconcile_strata_epoch(2, true).await?;
+    storage.reconcile_strata_epoch(2, 2, true).await?;
     storage
         .update_storage_pool_info_coordinated(2, &StoragePoolEvent::extended_for_testing(POOL, 20))
         .await?;
@@ -515,40 +516,105 @@ async fn put_after_restart_cannot_restore_a_stale_pool_lifetime() -> TestResult 
     put(&storage, X).await?;
     storage.resume_strata_reconciliation(true).await?;
     assert!(stored(&storage, X)?);
-    storage.reconcile_strata_epoch(20, true).await?;
+    storage.reconcile_strata_epoch(20, 20, true).await?;
     assert!(!stored(&storage, X)?);
     close(storage).await?;
     Ok(())
 }
 
 #[tokio::test]
-async fn inactive_node_retains_pending_work_until_history_is_complete() -> TestResult {
-    let dir = TempDir::new()?;
-    let storage = open(dir.path(), true)?;
-    storage
-        .create_storage_for_shards_for_testing(&[SHARD])
-        .await?;
-    let registered = registration(X, 3);
-    storage
-        .update_blob_info_coordinated(0, &registered.clone().into())
-        .await?;
-    put(&storage, X).await?;
-    storage
-        .update_blob_info_coordinated(
-            1,
-            &registered
-                .into_corresponding_deleted_event_for_testing(false)
-                .into(),
-        )
-        .await?;
-    storage.set_node_status(crate::node::storage::NodeStatus::Standby)?;
-    storage.reconcile_strata_epoch(3, true).await?;
-    assert!(stored(&storage, X)?);
-    assert!(strata(&storage).lifecycle.blobs.get(&X)?.unwrap().delete);
-    storage.set_node_status(crate::node::storage::NodeStatus::Active)?;
-    storage.reconcile_strata_epoch(4, true).await?;
-    assert!(!stored(&storage, X)?);
-    close(storage).await?;
+async fn catch_up_reconciles_final_lifetimes_before_sliver_recovery() -> TestResult {
+    use crate::node::storage::NodeStatus;
+
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        storage.set_node_status(NodeStatus::RecoveryCatchUp)?;
+        storage
+            .update_storage_pool_info_coordinated(
+                0,
+                &StoragePoolEvent::created_for_testing(POOL, 1, 20),
+            )
+            .await?;
+        storage
+            .update_blob_info_coordinated(
+                1,
+                &walrus_sui::types::BlobEvent::PooledBlobRegistered(PooledBlobRegistered {
+                    storage_pool_id: POOL,
+                    ..PooledBlobRegistered::for_testing_with_random_object_id(X)
+                }),
+            )
+            .await?;
+        storage.reconcile_strata_epoch(10, 100, true).await?;
+        storage
+            .update_storage_pool_info_coordinated(
+                2,
+                &StoragePoolEvent::extended_for_testing(POOL, 60),
+            )
+            .await?;
+        storage.reconcile_strata_epoch(20, 100, true).await?;
+        storage
+            .update_storage_pool_info_coordinated(
+                3,
+                &StoragePoolEvent::extended_for_testing(POOL, 120),
+            )
+            .await?;
+        let retired = registration(Y, 120);
+        storage
+            .update_blob_info_coordinated(4, &retired.clone().into())
+            .await?;
+        storage
+            .update_blob_info_coordinated(
+                5,
+                &retired
+                    .into_corresponding_deleted_event_for_testing(false)
+                    .into(),
+            )
+            .await?;
+        storage.reconcile_strata_epoch(60, 100, true).await?;
+        assert_eq!(strata(&storage).store.current_epoch()?, 0);
+        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(20));
+        assert!(strata(&storage).lifecycle.blobs.get(&Y)?.unwrap().delete);
+        assert!(strata(&storage).lifecycle.progress.get(&())?.is_none());
+
+        // At the current boundary the status still says CatchUp and no shard exists yet.
+        // Install only the final pool lifetime, then let recovery start writing slivers.
+        storage.reconcile_strata_epoch(100, 100, true).await?;
+        assert_eq!(strata(&storage).store.current_epoch()?, 100);
+        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(120));
+        assert!(strata(&storage).lifecycle.lifetimes.get(&Y)?.is_none());
+        assert!(strata(&storage).lifecycle.blobs.is_empty());
+        assert!(strata(&storage).lifecycle.pools.is_empty());
+        storage.set_node_status(NodeStatus::RecoveryInProgress(100))?;
+        storage
+            .create_storage_for_shards_for_testing(&[SHARD])
+            .await?;
+        assert!(!stored(&storage, X)?);
+        let shard = storage.shard_storage(SHARD).await.unwrap();
+        for axis in [SliverType::Primary, SliverType::Secondary] {
+            assert!(
+                shard
+                    .put_registered_sliver(X, get_sliver(axis, 2), 100)
+                    .await?
+            );
+        }
+        drop(shard);
+        assert!(stored(&storage, X)?);
+
+        // Reference state keeps advancing while either kind of payload recovery is running.
+        for (epoch, status) in [
+            (101, NodeStatus::RecoveryInProgress(101)),
+            (102, NodeStatus::RecoverMetadata),
+        ] {
+            storage.set_node_status(status)?;
+            storage.reconcile_strata_epoch(epoch, epoch, true).await?;
+            assert_eq!(strata(&storage).store.current_epoch()?, u64::from(epoch));
+            assert!(stored(&storage, X)?);
+        }
+        storage.reconcile_strata_epoch(120, 120, true).await?;
+        assert!(!stored(&storage, X)?);
+        close(storage).await?;
+    }
     Ok(())
 }
 
@@ -580,7 +646,7 @@ async fn expiry_keeps_dirty_ids_after_reference_rows_are_removed() -> TestResult
             .await?;
         put(&storage, X).await?;
         put(&storage, Y).await?;
-        storage.reconcile_strata_epoch(2, true).await?;
+        storage.reconcile_strata_epoch(2, 2, true).await?;
         assert!(strata(&storage).lifecycle.blobs.is_empty());
         let metrics = crate::node::metrics::NodeMetricSet::new(&Registry::default());
         storage
@@ -595,7 +661,7 @@ async fn expiry_keeps_dirty_ids_after_reference_rows_are_removed() -> TestResult
         strata(&storage).lifecycle.db.flush_wal(true)?;
         close(storage).await?;
         let storage = open(dir.path(), optimistic)?;
-        storage.reconcile_strata_epoch(3, true).await?;
+        storage.reconcile_strata_epoch(3, 3, true).await?;
         for id in [X, Y] {
             assert!(!stored(&storage, id)?);
             assert!(strata(&storage).lifecycle.blobs.get(&id)?.is_none());
