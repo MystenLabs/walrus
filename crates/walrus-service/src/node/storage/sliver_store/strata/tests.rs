@@ -437,12 +437,21 @@ async fn restart_after_epoch_sync_does_not_advance_twice() -> TestResult {
     close(storage).await?;
     let storage = open(dir.path(), true)?;
     storage.set_node_status(crate::node::storage::NodeStatus::RecoveryCatchUp)?;
+    // A new boundary cannot replace the interrupted pass; startup must finish it first.
+    assert!(storage.reconcile_strata_epoch(12, 12, true).await.is_err());
+    assert_eq!(strata(&storage).store.current_epoch()?, 11);
+    assert_eq!(
+        strata(&storage).lifecycle.progress.get(&())?,
+        Some(EpochProgress::Advancing(11))
+    );
     storage.resume_strata_reconciliation(true).await?;
     assert_eq!(strata(&storage).store.current_epoch()?, 11);
     assert_eq!(
         strata(&storage).lifecycle.progress.get(&())?,
         Some(EpochProgress::Complete(11))
     );
+    storage.reconcile_strata_epoch(12, 12, true).await?;
+    assert_eq!(strata(&storage).store.current_epoch()?, 12);
     close(storage).await?;
     Ok(())
 }

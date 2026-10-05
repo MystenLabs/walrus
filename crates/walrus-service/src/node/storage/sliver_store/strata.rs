@@ -77,7 +77,7 @@ impl StrataSliverStore {
     /// use the lifecycle lock; the reference-table scan never takes it exclusively.
     pub(super) async fn reconcile_epoch(
         &self,
-        target: Epoch,
+        epoch: Epoch,
         delete_data: bool,
     ) -> anyhow::Result<()> {
         let this = self.clone();
@@ -85,95 +85,92 @@ impl StrataSliverStore {
         let task = tokio::spawn(async move {
             let _pass = this.lifecycle.pass.lock().await;
             this.lifecycle.check_running()?;
-            let mut targets = Vec::new();
-            if let Some(EpochProgress::Applying(epoch) | EpochProgress::Advancing(epoch)) =
-                this.lifecycle.progress.get(&())?
-            {
-                targets.push(epoch);
-            }
-            if targets.last() != Some(&target) {
-                targets.push(target);
-            }
-            for epoch in targets {
-                let progress = this.lifecycle.progress.get(&())?;
-                if matches!(progress, Some(EpochProgress::Complete(done)) if done >= epoch) {
-                    continue;
+            let progress = this.lifecycle.progress.get(&())?;
+            match progress {
+                Some(EpochProgress::Applying(pending) | EpochProgress::Advancing(pending)) => {
+                    // Startup resumes unfinished work before the event handler admits new epochs.
+                    anyhow::ensure!(
+                        pending == epoch,
+                        "cannot reconcile epoch {epoch} while epoch {pending} is unfinished"
+                    );
                 }
-                let mut completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
-                if progress != Some(EpochProgress::Advancing(epoch)) {
-                    let reader = this.clone();
-                    let scan = tokio::task::spawn_blocking(move || {
-                        let mut batch = reader.lifecycle.progress.batch();
-                        batch.insert_batch(
-                            &reader.lifecycle.progress,
-                            [((), EpochProgress::Applying(epoch))],
-                        )?;
-                        batch.write_with_sync(true)?;
-                        reader.blob_info.strata_snapshot()
-                    });
-                    let snapshot = utils::unwrap_or_resume_unwind(scan.await)?;
-                    for group in snapshot.blobs.chunks(256) {
-                        this.reconcile_blobs(epoch, group, delete_data).await?;
-                    }
-                    let writer = this.clone();
-                    let finish = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-                        // Pool events use this same metadata mutex. Preserve newer pool changes.
-                        let _metadata = writer
-                            .blob_info
-                            .latest_handled_event_index
-                            .lock()
-                            .expect("event mutex poisoned");
-                        let mut batch = writer.lifecycle.progress.batch();
-                        for (pool, event_index) in snapshot.pools {
-                            if writer.lifecycle.pools.get(&pool)? == Some(event_index) {
-                                batch.delete_batch(&writer.lifecycle.pools, [pool])?;
-                            }
-                        }
-                        batch.insert_batch(
-                            &writer.lifecycle.progress,
-                            [((), EpochProgress::Advancing(epoch))],
-                        )?;
-                        batch.write_with_sync(true)?;
-                        Ok(())
-                    });
-                    utils::unwrap_or_resume_unwind(finish.await)?;
-                }
-                // This short clock transition, unlike the scan, excludes in-flight puts so a
-                // put's lifetime check and submission cannot straddle the epoch advance.
-                let _guard = this.lifecycle.lock_lifecycle().await?;
-                let mut epoch_completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
-                let writer = this.clone();
-                let advance = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-                    if delete_data {
-                        let mut batch = writer.store.batch();
-                        batch.advance_epoch_to(u64::from(epoch));
-                        batch.write()?;
-                    }
-                    writer.store.sync()?;
-                    let prefix = [b"walrus-epoch/".as_slice(), &epoch.to_be_bytes()].concat();
-                    let bindings = writer.store.index().submitted_batch_lsns();
-                    let mut ack = writer.lifecycle.db.write_batch();
-                    for row in bindings.safe_iter()? {
-                        let (key, _) = row?;
-                        if key.starts_with(&prefix) {
-                            ack.delete(
-                                bindings.cf_name(),
-                                &strata_index::port::codec::encode_key(&key)?,
-                            )?;
-                        }
-                    }
-                    ack.put(
-                        super::super::strata_lifecycle::EPOCH_CF,
-                        &typed_store::rocks::be_fix_int_ser(&())?,
-                        &bcs::to_bytes(&EpochProgress::Complete(epoch))?,
+                Some(EpochProgress::Complete(done)) if done >= epoch => return Ok(()),
+                _ => {}
+            }
+            let mut completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
+            if progress != Some(EpochProgress::Advancing(epoch)) {
+                let reader = this.clone();
+                let scan = tokio::task::spawn_blocking(move || {
+                    let mut batch = reader.lifecycle.progress.batch();
+                    batch.insert_batch(
+                        &reader.lifecycle.progress,
+                        [((), EpochProgress::Applying(epoch))],
                     )?;
-                    ack.write(true)?;
+                    batch.write_with_sync(true)?;
+                    reader.blob_info.strata_snapshot()
+                });
+                let snapshot = utils::unwrap_or_resume_unwind(scan.await)?;
+                for group in snapshot.blobs.chunks(256) {
+                    this.reconcile_blobs(epoch, group, delete_data).await?;
+                }
+                let writer = this.clone();
+                let finish = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                    // Pool events use this same metadata mutex. Preserve newer pool changes.
+                    let _metadata = writer
+                        .blob_info
+                        .latest_handled_event_index
+                        .lock()
+                        .expect("event mutex poisoned");
+                    let mut batch = writer.lifecycle.progress.batch();
+                    for (pool, event_index) in snapshot.pools {
+                        if writer.lifecycle.pools.get(&pool)? == Some(event_index) {
+                            batch.delete_batch(&writer.lifecycle.pools, [pool])?;
+                        }
+                    }
+                    batch.insert_batch(
+                        &writer.lifecycle.progress,
+                        [((), EpochProgress::Advancing(epoch))],
+                    )?;
+                    batch.write_with_sync(true)?;
                     Ok(())
                 });
-                utils::unwrap_or_resume_unwind(advance.await)?;
-                epoch_completion.complete();
-                completion.complete();
+                utils::unwrap_or_resume_unwind(finish.await)?;
             }
+            // This short clock transition, unlike the scan, excludes in-flight puts so a
+            // put's lifetime check and submission cannot straddle the epoch advance.
+            let _guard = this.lifecycle.lock_lifecycle().await?;
+            let mut epoch_completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
+            let writer = this.clone();
+            let advance = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                if delete_data {
+                    let mut batch = writer.store.batch();
+                    batch.advance_epoch_to(u64::from(epoch));
+                    batch.write()?;
+                }
+                writer.store.sync()?;
+                let prefix = [b"walrus-epoch/".as_slice(), &epoch.to_be_bytes()].concat();
+                let bindings = writer.store.index().submitted_batch_lsns();
+                let mut ack = writer.lifecycle.db.write_batch();
+                for row in bindings.safe_iter()? {
+                    let (key, _) = row?;
+                    if key.starts_with(&prefix) {
+                        ack.delete(
+                            bindings.cf_name(),
+                            &strata_index::port::codec::encode_key(&key)?,
+                        )?;
+                    }
+                }
+                ack.put(
+                    super::super::strata_lifecycle::EPOCH_CF,
+                    &typed_store::rocks::be_fix_int_ser(&())?,
+                    &bcs::to_bytes(&EpochProgress::Complete(epoch))?,
+                )?;
+                ack.write(true)?;
+                Ok(())
+            });
+            utils::unwrap_or_resume_unwind(advance.await)?;
+            epoch_completion.complete();
+            completion.complete();
             Ok::<_, anyhow::Error>(())
         });
         utils::unwrap_or_resume_unwind(task.await)
