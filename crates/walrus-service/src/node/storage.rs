@@ -771,7 +771,9 @@ impl Storage {
                     let requested = reader.requested_epoch.get(&())?.unwrap_or_default();
                     let progress = reader.progress.get(&())?;
 
-                    // Finish an interrupted pass before considering newer requests.
+                    // Select which epoch to process; reconcile_epoch uses the same checkpoint
+                    // to decide which phase to resume. Finish an interrupted pass first, even
+                    // if requested_epoch has moved ahead (e.g. resume 100 before starting 102).
                     if let Some(EpochProgress::Applying(epoch) | EpochProgress::Advancing(epoch)) =
                         progress
                     {

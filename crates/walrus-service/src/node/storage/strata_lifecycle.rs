@@ -49,10 +49,22 @@ pub(super) struct ReconcileSnapshot {
     pub pools: Vec<(ObjectID, u64)>,
 }
 
+/// Crash-recovery checkpoint for the background reconciler, persisted in Walrus RocksDB.
+///
+/// A pass moves from `Applying(epoch)` to `Advancing(epoch)` to `Complete(epoch)`, syncing
+/// each checkpoint before proceeding. This tracks reconciliation, not Walrus's current epoch:
+/// events and puts can continue while the worker finishes an older pass.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub(super) enum EpochProgress {
+    /// Blob lifetime updates and deletes have started but may be incomplete.
+    /// Recovery rescans the metadata and resumes reconciliation for this epoch.
     Applying(Epoch),
+    /// The blob updates selected for this pass are durable. Recovery skips the scan and
+    /// finishes Strata's epoch advancement (when deletion is enabled), sync and bookkeeping
+    /// cleanup. The clock may already have advanced before a crash; this phase can be retried.
     Advancing(Epoch),
+    /// The pass, including Strata sync and bookkeeping cleanup, finished durably.
+    /// The worker waits unless a newer epoch has been requested.
     Complete(Epoch),
 }
 
@@ -65,7 +77,9 @@ pub(super) struct StrataLifecycle {
     // Blob/object -> pool, maintained with the authoritative reference rows. Puts can resolve
     // pool extensions without waiting for reconciliation or scanning unrelated references.
     pub pool_references: DBMap<(BlobId, ObjectID), ObjectID>,
+    // Checkpoint of the active or most recently completed reconciliation pass.
     pub progress: DBMap<(), EpochProgress>,
+    // Latest requested target; it can move ahead while an older pass is still running.
     pub requested_epoch: DBMap<(), Epoch>,
     pub wake: tokio::sync::Notify,
     pub db: Arc<dyn IndexDb>,

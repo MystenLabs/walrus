@@ -85,6 +85,8 @@ impl StrataSliverStore {
         let task = tokio::spawn(async move {
             let _pass = this.lifecycle.pass.lock().await;
             this.lifecycle.check_running()?;
+            // Recheck under the pass lock: refuse to replace unfinished work and skip a pass
+            // that already completed. The checkpoint also tells us which phase to resume.
             let progress = this.lifecycle.progress.get(&())?;
             match progress {
                 Some(EpochProgress::Applying(pending) | EpochProgress::Advancing(pending)) => {
@@ -98,6 +100,8 @@ impl StrataSliverStore {
                 _ => {}
             }
             let mut completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
+            // Advancing means this pass's blob updates are already durable. After a crash,
+            // resume the clock transition and cleanup below without repeating the scan.
             if progress != Some(EpochProgress::Advancing(epoch)) {
                 let reader = this.clone();
                 let scan = tokio::task::spawn_blocking(move || {
