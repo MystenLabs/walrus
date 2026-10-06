@@ -49,7 +49,9 @@ async fn run_until(storage: &Storage, epoch: Epoch, delete_data: bool) -> TestRe
             loop {
                 if matches!(strata(storage).lifecycle.progress.get(&())?,
                     Some(EpochProgress::Complete(done)) if done >= epoch) {
-                    let _pass = strata(storage).lifecycle.pass.lock().await;
+                    // Complete is visible just before the final clock transition releases
+                    // its guard. Wait for that transition before cancelling the worker.
+                    let _guard = strata(storage).lifecycle.lock_lifecycle().await?;
                     return Ok::<_, anyhow::Error>(());
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -68,7 +70,8 @@ async fn reconcile(
         .request_strata_reconciliation(epoch, current)
         .await?;
     if epoch == current {
-        run_until(storage, epoch, delete_data).await?;
+        // These tests drive passes directly; worker tests use run_until once per opened store.
+        strata(storage).reconcile_epoch(epoch, delete_data).await?;
     }
     Ok(())
 }
@@ -763,6 +766,76 @@ async fn blocked_worker_does_not_block_requests_events_or_unrelated_puts() -> Te
         worker.await??;
         assert_eq!(strata(&storage).store.current_epoch()?, 102);
         assert!(stored(&storage, Y)?);
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn only_one_worker_can_start_until_the_store_is_reopened() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        storage
+            .update_blob_info_coordinated(0, &registration(X, 200).into())
+            .await?;
+        let guard = strata(&storage).lifecycle.lock_blobs(&[&X.0]).await?;
+        storage.request_strata_reconciliation(100, 100).await?;
+        let worker_storage = storage.clone();
+        let worker =
+            tokio::spawn(async move { worker_storage.run_strata_reconciliation(true).await });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while strata(&storage).lifecycle.progress.get(&())?
+                != Some(EpochProgress::Applying(100))
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+
+        let duplicate = tokio::time::timeout(
+            Duration::from_secs(1),
+            storage.run_strata_reconciliation(true),
+        )
+        .await?
+        .expect_err("a second worker must be rejected, not wait for the first");
+        assert!(duplicate.to_string().contains("worker already started"));
+
+        // Cancelling the worker leaves its pass blocked on X. A replacement must not start.
+        worker.abort();
+        assert!(
+            worker
+                .await
+                .expect_err("worker should be cancelled")
+                .is_cancelled()
+        );
+        let duplicate = tokio::time::timeout(
+            Duration::from_secs(1),
+            storage.run_strata_reconciliation(true),
+        )
+        .await?
+        .expect_err("cancellation must not release the worker's claim");
+        assert!(duplicate.to_string().contains("worker already started"));
+        drop(guard);
+
+        // The detached pass can still finish safely after its worker is cancelled.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while strata(&storage).lifecycle.progress.get(&())?
+                != Some(EpochProgress::Complete(100))
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            let _guard = strata(&storage).lifecycle.lock_lifecycle().await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        close(storage).await?;
+
+        let storage = open(dir.path(), optimistic)?;
+        storage.request_strata_reconciliation(101, 101).await?;
+        run_until(&storage, 101, true).await?;
+        assert_eq!(strata(&storage).store.current_epoch()?, 101);
         close(storage).await?;
     }
     Ok(())

@@ -83,10 +83,9 @@ impl StrataSliverStore {
         let this = self.clone();
         // Cancellation of the worker must not abandon a submitted write and its locks.
         let task = tokio::spawn(async move {
-            let _pass = this.lifecycle.pass.lock().await;
             this.lifecycle.check_running()?;
-            // Recheck under the pass lock: refuse to replace unfinished work and skip a pass
-            // that already completed. The checkpoint also tells us which phase to resume.
+            // The sole worker awaits every pass. Refuse to replace unfinished work and skip
+            // a pass that already completed; the checkpoint tells us which phase to resume.
             let progress = this.lifecycle.progress.get(&())?;
             match progress {
                 Some(EpochProgress::Applying(pending) | EpochProgress::Advancing(pending)) => {

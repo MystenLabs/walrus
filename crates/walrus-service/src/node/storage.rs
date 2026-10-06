@@ -7,7 +7,7 @@ use std::{
     fmt::Debug,
     ops::Bound::{self, Excluded, Included},
     path::Path,
-    sync::Arc,
+    sync::{Arc, atomic::Ordering},
     time::Instant,
 };
 
@@ -759,6 +759,12 @@ impl Storage {
         let Some(lifecycle) = &self.blob_info.strata_lifecycle else {
             return std::future::pending().await;
         };
+        // Claim the worker before doing any work. It awaits every pass, so passes cannot
+        // overlap. Keep the claim even if this future is cancelled: its last pass may still run.
+        anyhow::ensure!(
+            !lifecycle.worker_started.swap(true, Ordering::Relaxed),
+            "Strata reconciliation worker already started; reopen the store to restart it"
+        );
         loop {
             let metadata = self.blob_info.latest_handled_event_index.clone();
             let reader = lifecycle.clone();
