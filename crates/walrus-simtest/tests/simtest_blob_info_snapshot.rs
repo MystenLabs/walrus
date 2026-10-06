@@ -10,15 +10,24 @@
 mod tests {
     use std::{
         collections::{HashMap, HashSet},
-        sync::Arc,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        },
         time::Duration,
     };
 
+    use sui_macros::{clear_fail_point, register_fail_point};
     use sui_types::base_types::ObjectID;
+    use tokio::sync::RwLock;
     use twox_hash::XxHash64;
-    use walrus_core::{BlobId, Epoch, encoding::Primary};
+    use walrus_core::{BlobId, Epoch, EpochCount, encoding::Primary};
     use walrus_proc_macros::walrus_simtest;
-    use walrus_service::test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster};
+    use walrus_service::{
+        event::event_processor::config::EventProcessorConfig,
+        node::config::StorageNodeConfig,
+        test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
+    };
     use walrus_simtest::test_utils::simtest_utils::{self, BlobInfoConsistencyCheck};
     use walrus_sui::client::ReadClient;
 
@@ -570,5 +579,127 @@ mod tests {
         workload_handle.abort();
 
         consistency_check.check_storage_node_consistency();
+    }
+
+    /// Checks that a brand-new node whose event history is incomplete (the first event blobs have
+    /// expired) bootstraps its blob info from the latest certified snapshot instead of entering
+    /// recovery with incomplete history, and then agrees with the other nodes.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_new_node_bootstraps_from_certified_snapshot() {
+        walrus_test_utils::init_tracing();
+        const MAX_EPOCHS_AHEAD: EpochCount = 3;
+        // The first event blob expires after `MAX_EPOCHS_AHEAD + 1` epochs, and it may only be
+        // certified some epochs after the start.
+        const TARGET_EPOCH: EpochCount = MAX_EPOCHS_AHEAD + 1 + 2;
+
+        let bootstrap_loaded = Arc::new(AtomicBool::new(false));
+        let incomplete_history_entered = Arc::new(AtomicBool::new(false));
+        {
+            let bootstrap_loaded = bootstrap_loaded.clone();
+            register_fail_point(
+                "fail_point_blob_info_snapshot_bootstrap_loaded",
+                move || {
+                    bootstrap_loaded.store(true, Ordering::SeqCst);
+                },
+            );
+            let incomplete_history_entered = incomplete_history_entered.clone();
+            register_fail_point("fail_point_recovery_with_incomplete_history", move || {
+                incomplete_history_entered.store(true, Ordering::SeqCst);
+            });
+        }
+
+        // The sixth node has no weight and is only started once the first event blobs expired.
+        let (_sui_cluster, mut walrus_cluster, client, _, _) =
+            test_cluster::E2eTestSetupBuilder::new()
+                .with_epoch_duration(EPOCH_DURATION)
+                .with_max_epochs_ahead(MAX_EPOCHS_AHEAD)
+                .with_test_nodes_config(
+                    TestNodesConfig::builder()
+                        .with_node_weights(&[1, 2, 3, 3, 4, 0])
+                        .with_blob_info_snapshot_certify(&[true; 6])
+                        .with_enable_event_blob_writer()
+                        .build(),
+                )
+                // Event blobs, so that the first ones can expire before the new node starts and its
+                // event history then starts after the first event.
+                .with_num_checkpoints_per_blob(20)
+                .build_generic::<SimStorageNodeHandle>()
+                .await
+                .unwrap();
+        assert!(walrus_cluster.nodes[5].node_id.is_none());
+
+        let consistency_check = BlobInfoConsistencyCheck::new();
+        let client = Arc::new(client);
+        let workload_handle = simtest_utils::start_background_workload(
+            client.clone(),
+            false,
+            None,
+            Some(MAX_EPOCHS_AHEAD),
+        );
+
+        tokio::time::sleep(EPOCH_DURATION * TARGET_EPOCH).await;
+        simtest_utils::wait_for_nodes_to_reach_epoch(
+            &walrus_cluster.nodes[..5],
+            TARGET_EPOCH,
+            2 * EPOCH_DURATION,
+        )
+        .await;
+
+        // Start the new node with event-blob catch-up forced, so that its event history starts
+        // after the expired event blobs.
+        let new_node = &mut walrus_cluster.nodes[5];
+        let storage_node_config = new_node.storage_node_config.clone();
+        let new_node_id = SimStorageNodeHandle::spawn_node(
+            Arc::new(RwLock::new(StorageNodeConfig {
+                event_processor_config: EventProcessorConfig {
+                    event_stream_catchup_min_checkpoint_lag: 0,
+                    ..storage_node_config.event_processor_config
+                },
+                ..storage_node_config
+            })),
+            None,
+            new_node.cancel_token.clone(),
+        )
+        .await
+        .id();
+        new_node.node_id = Some(new_node_id);
+        let new_node_starting_epoch =
+            simtest_utils::get_current_epoch_from_node(&walrus_cluster.nodes[5])
+                .await
+                .max(TARGET_EPOCH);
+
+        client
+            .as_ref()
+            .as_ref()
+            .stake_with_node_pool(
+                walrus_cluster.nodes[5]
+                    .storage_node_capability
+                    .as_ref()
+                    .unwrap()
+                    .node_id,
+                test_cluster::FROST_PER_NODE_WEIGHT * 3,
+            )
+            .await
+            .expect("stake with node pool should not fail");
+
+        workload_handle.abort();
+        tokio::time::sleep(Duration::from_secs(150)).await;
+
+        assert!(
+            bootstrap_loaded.load(Ordering::SeqCst),
+            "the new node should bootstrap from the certified snapshot"
+        );
+        assert!(
+            !incomplete_history_entered.load(Ordering::SeqCst),
+            "the new node must not enter recovery with incomplete history"
+        );
+
+        let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
+        assert_eq!(node_health_info[5].node_status, "Active");
+        consistency_check.check_storage_node_consistency_from_epoch(new_node_starting_epoch);
+
+        clear_fail_point("fail_point_blob_info_snapshot_bootstrap_loaded");
+        clear_fail_point("fail_point_recovery_with_incomplete_history");
     }
 }

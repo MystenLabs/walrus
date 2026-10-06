@@ -157,6 +157,8 @@ pub(super) async fn bootstrap_from_snapshot_if_needed(
     }
 
     let aggregate_count = storage.load_blob_info_snapshot(&header, &per_object, &pooled, &pools)?;
+    #[cfg(msim)]
+    sui_macros::fail_point!("fail_point_blob_info_snapshot_bootstrap_loaded");
     tracing::info!(
         snapshot_epoch = snapshot.epoch,
         blob_id = %snapshot.blob_id,
