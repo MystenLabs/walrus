@@ -757,7 +757,7 @@ impl BlobInfoTable {
 
     /// Snapshot first, sync second: only the selected metadata is guaranteed durable. The
     /// snapshot selects candidates; the reconciler still checks live references under blob locks.
-    pub(super) fn strata_snapshot(
+    pub(super) fn reconciliation_candidates(
         &self,
     ) -> anyhow::Result<super::strata_lifecycle::ReconcileSnapshot> {
         let lifecycle = self

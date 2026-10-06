@@ -9,6 +9,7 @@ use std::{
     time::Instant,
 };
 
+#[cfg(not(msim))]
 use futures::{StreamExt, stream::FuturesUnordered};
 use rocksdb::Transaction;
 use serde::{Deserialize, Serialize};
@@ -246,7 +247,7 @@ impl SliverStore {
             }
             SliverStoreBackend::Strata(store) => {
                 let shard_ids = shards.iter().map(|(shard, _)| *shard).collect::<Vec<_>>();
-                store.contains_pairs_in_all(*blob_id, &shard_ids)
+                store.contains_sliver_pairs_in_all(*blob_id, &shard_ids)
             }
         }
     }

@@ -216,7 +216,7 @@ async fn stale_snapshot_cannot_delete_a_new_registration_and_put() -> TestResult
                     .into(),
             )
             .await?;
-        let snapshot = storage.blob_info.strata_snapshot()?.blobs;
+        let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
         // Registration and payload both happen after the worker's snapshot.
         storage
             .update_blob_info_coordinated(2, &registration(X, 40).into())
@@ -288,7 +288,7 @@ async fn a_blocked_blob_does_not_block_an_unrelated_put() -> TestResult {
     storage
         .update_blob_info_coordinated(1, &registration(Y, 30).into())
         .await?;
-    let snapshot = storage.blob_info.strata_snapshot()?.blobs;
+    let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
     let only_x: Vec<_> = snapshot.into_iter().filter(|blob| blob.id == X).collect();
     let guard = strata(&storage).lifecycle.lock_blobs(&[&X.0]).await?;
     let worker = tokio::spawn({
@@ -425,7 +425,7 @@ async fn restart_after_durable_delete_does_not_repeat_it_after_a_new_put() -> Te
         [((), EpochProgress::Applying(2))],
     )?;
     start.write_with_sync(true)?;
-    let snapshot = storage.blob_info.strata_snapshot()?.blobs;
+    let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
     strata(&storage).reconcile_blobs(2, &snapshot, true).await?;
     assert!(!stored(&storage, X)?);
     // Model a crash after Strata sync but before dirty-marker acknowledgement.
@@ -546,7 +546,7 @@ async fn put_after_restart_cannot_restore_a_stale_pool_lifetime() -> TestResult 
         [((), EpochProgress::Applying(3))],
     )?;
     start.write_with_sync(true)?;
-    let snapshot = storage.blob_info.strata_snapshot()?.blobs;
+    let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
     strata(&storage).reconcile_blobs(3, &snapshot, true).await?;
     // The pool remains dirty, so recovery will discover the same extension and its saved LSN.
     assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(20));
@@ -697,7 +697,7 @@ async fn expiry_keeps_dirty_ids_after_reference_rows_are_removed() -> TestResult
         storage
             .process_expired_blob_objects(3, &metrics, 100)
             .await?;
-        let snapshot = storage.blob_info.strata_snapshot()?;
+        let snapshot = storage.blob_info.reconciliation_candidates()?;
         assert_eq!(snapshot.blobs.len(), 2);
         assert!(snapshot.blobs.iter().all(|blob| blob.end_epoch == 0));
         assert!(strata(&storage).lifecycle.pool_references.is_empty());
@@ -792,7 +792,7 @@ async fn put_and_stale_scan_resolve_a_pending_pool_extension() -> TestResult {
                 &walrus_sui::types::BlobEvent::PooledBlobRegistered(registered.clone()),
             )
             .await?;
-        let old_snapshot = storage.blob_info.strata_snapshot()?.blobs;
+        let old_snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
         storage
             .update_storage_pool_info_coordinated(
                 2,
@@ -877,7 +877,7 @@ async fn later_delete_in_the_same_pass_does_not_reuse_an_old_binding() -> TestRe
                     .into(),
             )
             .await?;
-        let snapshot = storage.blob_info.strata_snapshot()?.blobs;
+        let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
         strata(&storage).reconcile_blobs(2, &snapshot, true).await?;
         assert!(!stored(&storage, X)?);
     }

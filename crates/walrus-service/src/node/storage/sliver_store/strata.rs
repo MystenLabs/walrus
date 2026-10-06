@@ -111,7 +111,7 @@ impl StrataSliverStore {
                         [((), EpochProgress::Applying(epoch))],
                     )?;
                     batch.write_with_sync(true)?;
-                    reader.blob_info.strata_snapshot()
+                    reader.blob_info.reconciliation_candidates()
                 });
                 let snapshot = utils::unwrap_or_resume_unwind(scan.await)?;
                 for group in snapshot.blobs.chunks(256) {
