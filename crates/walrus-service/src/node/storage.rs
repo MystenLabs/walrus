@@ -60,6 +60,7 @@ use self::{
     },
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
+    strata_lifecycle::EpochProgress,
 };
 use super::{
     errors::{ShardNotAssigned, SyncShardServiceError},
@@ -761,30 +762,35 @@ impl Storage {
         loop {
             let metadata = self.blob_info.latest_handled_event_index.clone();
             let reader = lifecycle.clone();
-            let epoch = utils::unwrap_or_resume_unwind(
-                tokio::task::spawn_blocking(move || {
+            let read_next_epoch =
+                tokio::task::spawn_blocking(move || -> anyhow::Result<Option<Epoch>> {
                     // A requested epoch is visible in RocksDB before its fsync returns. Wait for
                     // the requesting task to finish (or halt admission) before consuming it.
                     let _metadata = metadata.lock().expect("event mutex poisoned");
                     reader.check_running()?;
                     let requested = reader.requested_epoch.get(&())?.unwrap_or_default();
-                    Ok::<_, anyhow::Error>(match reader.progress.get(&())? {
-                        Some(
-                            strata_lifecycle::EpochProgress::Applying(epoch)
-                            | strata_lifecycle::EpochProgress::Advancing(epoch),
-                        ) => Some(epoch),
-                        Some(strata_lifecycle::EpochProgress::Complete(done))
-                            if done >= requested =>
-                        {
-                            None
-                        }
-                        _ if requested == 0 => None,
-                        _ => Some(requested),
-                    })
-                })
-                .await,
-            )?;
-            if let Some(epoch) = epoch {
+                    let progress = reader.progress.get(&())?;
+
+                    // Finish an interrupted pass before considering newer requests.
+                    if let Some(EpochProgress::Applying(epoch) | EpochProgress::Advancing(epoch)) =
+                        progress
+                    {
+                        return Ok(Some(epoch));
+                    }
+
+                    if requested == GENESIS_EPOCH {
+                        return Ok(None);
+                    }
+                    if let Some(EpochProgress::Complete(completed)) = progress
+                        && completed >= requested
+                    {
+                        return Ok(None);
+                    }
+
+                    Ok(Some(requested))
+                });
+            let next_epoch = utils::unwrap_or_resume_unwind(read_next_epoch.await)?;
+            if let Some(epoch) = next_epoch {
                 tracing::info!(walrus.epoch = epoch, "starting Strata reconciliation");
                 self.sliver_store
                     .reconcile_epoch(epoch, delete_data)
