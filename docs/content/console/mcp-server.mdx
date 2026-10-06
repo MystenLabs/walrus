@@ -4,11 +4,12 @@ description: Install the Walrus Console MCP server, register it with Claude Code
 keywords: [walrus console, mcp server, claude code, codex, cursor, api key, agent, tools, folders]
 questions:
   - How do I connect Walrus Console to Claude Code?
+  - How do I connect Walrus Console to Claude Desktop?
   - How do I install the Walrus Console MCP server?
   - What tools does the Walrus Console MCP server expose?
-  - How do I let an agent mint its own Console API key?
+  - How do I let an agent mint its own Walrus Console API key?
 answer: >-
-  Install the Walrus Console MCP server with `npx -y @mysten-incubation/walrus-console-mcp@beta install`,. The installer asks for the
+  Install the Walrus Console MCP server with `npx -y @mysten-incubation/walrus-console-mcp install`. The installer asks for the
   credential bundle Console shows when you mint a key, or for the `hbr_` API key and the
   `suiprivkey1` service private key one at a time, stores them outside your client configuration,
   and registers the server with the agents it detects. Call `ping_console` to confirm. The server
@@ -18,7 +19,7 @@ answer: >-
 
 The Walrus Console MCP server gives an AI client the same file and folder operations you get in the web app. Your agent creates folders, uploads and downloads files, and checks storage usage, while encryption and signing stay on your machine.
 
-The package is `@mysten-incubation/walrus-console-mcp`, licensed MIT.
+The package is `@mysten-incubation/walrus-console-mcp`, licensed MIT. The [server source](https://github.com/MystenLabs/ts-sdks-incubation/tree/main/packages/walrus-console-mcp) is public.
 
 
 ## Prerequisites
@@ -29,12 +30,26 @@ The package is `@mysten-incubation/walrus-console-mcp`, licensed MIT.
 
 The API key authorizes calls to Console. The service private key signs onchain access grants and unwraps [Seal](/docs/data-security) keys locally, which is why the server needs both. The two addresses in the bundle are your Console account address and the address of the space's Management API key signer, if any. `create_bucket` checks the transaction it signs against them and refuses to run without the account address.
 
+## Connect from the Walrus Console web app
+
+In **Integrations**, choose **Connect MCP**. Console creates an API key for your agent, shows the two secrets and the `CONSOLE_CREDENTIAL_BUNDLE` once, then asks which agent you use. You can open the same steps later for an existing key from the key's row.
+
+Claude Desktop uses a downloadable extension. Every other agent uses the interactive installer, `npx -y @mysten-incubation/walrus-console-mcp install`. See [Install](#install) for what the installer asks and where it stores your credentials.
+
+Follow the steps for your agent:
+
+- **Claude Desktop** (desktop extension, no terminal). Download the extension from the **Download walrus-console-mcp.mcpb** button, open it, and in the Claude Desktop window that opens choose **Install** and set the switch to **Enabled**. Then fill in the setup form: paste the **Console API key** and **Service Private Key** you saved, copy the **Web Account Address** that Console shows, and pick the folder Walrus Console can read from and upload to under **Allowed Directories**. The **Key-Admin** fields are optional and only apply if you also hold a Management API key. To check the connection, click **+** in the Claude Desktop chat box, then **Connectors**: Walrus Console should be listed. Ask Claude to run `ping_console`.
+- **Cursor**. Run the installer in a terminal, paste the `CONSOLE_CREDENTIAL_BUNDLE` when it asks, choose the folders the server can use, make sure Cursor is ticked at the Register step, then quit and reopen Cursor. In **Cursor Settings**, **MCP**, Walrus Console should be listed and switched on. Ask the agent to run `ping_console`.
+- **Other agents** (Claude Code, Codex, Gemini CLI, Antigravity, and the Cursor CLI). One installer run registers all of them: run it in a terminal, paste the `CONSOLE_CREDENTIAL_BUNDLE` when it asks, choose the folders the server can use, tick every agent you want to register, then restart those agents and ask one to run `ping_console`. It should answer from Walrus Console.
+
+If you did not save the bundle, create a new key. Console cannot show it again.
+
 ## Install
 
 Run the interactive installer from a fresh directory:
 
 ```sh
-$ npx -y @mysten-incubation/walrus-console-mcp@beta install
+$ npx -y @mysten-incubation/walrus-console-mcp install
 ```
 
 The installer:
@@ -42,7 +57,7 @@ The installer:
 1. Asks for the credential bundle, or for the API key and service private key one at a time followed by the two addresses.
 2. Validates the API key against the Console API, shows the addresses it is about to pin, and saves nothing until you confirm.
 3. Asks which folders `upload_file` and `download_file` can use when your client does not share workspace folders.
-4. Installs the server into its own directory and registers it with the agents you tick: Claude Desktop, Claude Code, Cursor, Codex, and Gemini CLI.
+4. Installs the server into its own directory and registers it with the agents you tick: Claude Code, Cursor, Codex, Gemini CLI, and Antigravity. Claude Desktop uses the extension instead. See [Connect from the Console web app](#connect-from-the-walrus-console-web-app).
 
 It writes the credentials to `~/.config/walrus-console-mcp/config.json`, or `%APPDATA%\walrus-console-mcp\config.json` on Windows, with user-only permissions. Your MCP client configuration never holds the keys. It only launches the server.
 
@@ -52,9 +67,9 @@ Environment variables override the saved file, so `CONSOLE_API_KEY` and `CONSOLE
 
 | **Client** | **Command** |
 | --- | --- |
-| Claude Code | `claude mcp add --scope user walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp@beta` |
-| Codex | `codex mcp add walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp@beta` |
-| Claude Desktop | The installer configures it for you |
+| Claude Code | `claude mcp add --scope user walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp` |
+| Codex | `codex mcp add walrus-console-mcp -- npx -y @mysten-incubation/walrus-console-mcp` |
+| Claude Desktop | Install the Walrus Console extension from the Connect MCP step in Console |
 
 `--scope user` makes the server available in every project. Use `--scope local` to limit it to the current one.
 
@@ -65,7 +80,7 @@ For Cursor, Gemini CLI, or any hand-written configuration, add a stdio server th
   "mcpServers": {
     "walrus-console-mcp": {
       "command": "npx",
-      "args": ["-y", "@mysten-incubation/walrus-console-mcp@beta"]
+      "args": ["-y", "@mysten-incubation/walrus-console-mcp"]
     }
   }
 }
@@ -78,6 +93,8 @@ Restart the client, run `/mcp`, and approve `walrus-console-mcp` when prompted.
 ## Verify
 
 Ask the agent to call `ping_console`. It confirms which credentials the server loaded and reports `has_api_key`, `has_service_key`, `has_admin_key`, and `has_admin_signer` as booleans, plus the `network` the server resolved. It never echoes the values themselves.
+
+If `ping_console` reports that the key was rotated or revoked, open Console, create or rotate a key, and run `npx @mysten-incubation/walrus-console-mcp config` to paste the new bundle.
 
 ## Available tools
 
