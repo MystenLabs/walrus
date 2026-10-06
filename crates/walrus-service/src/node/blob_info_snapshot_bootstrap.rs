@@ -55,9 +55,12 @@ pub(super) async fn bootstrap_from_snapshot_if_needed(
         return Ok(());
     }
 
+    // Event-blob catch-up that reaches back to the first event also records an init state, at
+    // index 0; the replay is then covered as well.
     let Some(init_state) = event_manager
         .init_state(EventStreamCursor::new(None, 0))
         .await?
+        .filter(|init_state| init_state.event_cursor.element_index > 0)
     else {
         tracing::info!(
             "brand-new node with complete event history; replaying from the first event"
