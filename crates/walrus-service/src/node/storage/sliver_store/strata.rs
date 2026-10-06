@@ -72,7 +72,7 @@ impl StrataSliverStore {
         })
     }
 
-    /// The event handler serializes epoch passes, but puts keep running. Only each batch's
+    /// The worker serializes epoch passes, but events and puts keep running. Only each batch's
     /// blob locks are held through submission, sync and acknowledgement. Shard/clock changes
     /// use the lifecycle lock; the reference-table scan never takes it exclusively.
     pub(super) async fn reconcile_epoch(
@@ -81,14 +81,14 @@ impl StrataSliverStore {
         delete_data: bool,
     ) -> anyhow::Result<()> {
         let this = self.clone();
-        // Cancellation of the event handler must not abandon a submitted write and its locks.
+        // Cancellation of the worker must not abandon a submitted write and its locks.
         let task = tokio::spawn(async move {
             let _pass = this.lifecycle.pass.lock().await;
             this.lifecycle.check_running()?;
             let progress = this.lifecycle.progress.get(&())?;
             match progress {
                 Some(EpochProgress::Applying(pending) | EpochProgress::Advancing(pending)) => {
-                    // Startup resumes unfinished work before the event handler admits new epochs.
+                    // The worker finishes interrupted work before starting a newer request.
                     anyhow::ensure!(
                         pending == epoch,
                         "cannot reconcile epoch {epoch} while epoch {pending} is unfinished"
@@ -214,7 +214,8 @@ impl StrataSliverStore {
                         snapshot_end
                     } else {
                         snapshot_end.max(writer.lifecycle.lifetimes.get(&id)?.unwrap_or_default())
-                    };
+                    }
+                    .max(writer.blob_info.strata_pool_end_epoch(id)?);
                     let delete = delete_data && !registered && live.is_some_and(|row| row.delete);
                     if registered && end > epoch {
                         // Persist the lifetime hint before Strata. Otherwise a put after a crash
@@ -222,7 +223,14 @@ impl StrataSliverStore {
                         // the tracked LSN incorrectly tells recovery that extension is complete.
                         inputs.insert_batch(&writer.lifecycle.lifetimes, [(id, end)])?;
                     }
-                    work.push((id, end, unchanged, delete, registered));
+                    work.push((
+                        id,
+                        end,
+                        unchanged,
+                        delete,
+                        registered,
+                        live.map(|row| row.event_index),
+                    ));
                 }
                 inputs.write_with_sync(true)?;
                 let mut ack = writer.lifecycle.db.write_batch();
@@ -234,7 +242,7 @@ impl StrataSliverStore {
                     .safe_iter()?
                     .collect::<Result<Vec<_>, _>>()?;
                 let mut submitted = false;
-                for (id, end, unchanged, delete, registered) in &work {
+                for (id, end, unchanged, delete, registered, event_index) in &work {
                     let mut batch = writer.store.batch();
                     for axis in [SliverType::Primary, SliverType::Secondary] {
                         let key = sliver_key(id, axis);
@@ -251,7 +259,13 @@ impl StrataSliverStore {
                     // Identity describes the actual operation, not its scan position.
                     // Keep bindings until the epoch is complete: a pool scan may be
                     // repeated after a crash even after individual dirty IDs were acked.
-                    let lsn_key = [prefix.as_slice(), &bcs::to_bytes(&(id, end, delete))?].concat();
+                    // A later registration/delete can occur while this pass is running. It
+                    // must not reuse an earlier delete's binding after writing a new payload.
+                    let lsn_key = [
+                        prefix.as_slice(),
+                        &bcs::to_bytes(&(id, end, delete, event_index))?,
+                    ]
+                    .concat();
                     if (*delete && shards.iter().any(|(_, info)| info.is_active()))
                         || (*registered && u64::from(*end) > writer.store.current_epoch()?)
                     {
@@ -444,7 +458,10 @@ impl StrataShardSliverStore {
                     tokio::task::spawn_blocking(move || {
                         prepare.check_generation()?;
                         let mut payloads = Vec::new();
+                        let mut admission = prepare.node.lifecycle.lifetimes.batch();
+                        let mut changed = false;
                         for (blob_id, sliver) in slivers {
+                            let mut lifetime = None;
                             if let Some(epoch) = epoch {
                                 // Persisted metadata is not evidence of a current reference.
                                 // Re-read under the registration/delete lock at the final write.
@@ -456,12 +473,22 @@ impl StrataShardSliverStore {
                                 {
                                     continue;
                                 }
-                                let end_epoch = prepare
+                                let cached_end = prepare
                                     .node
                                     .lifecycle
                                     .lifetimes
                                     .get(&blob_id)?
                                     .ok_or_else(|| error("registered blob has no lifetime"))?;
+                                let end_epoch = cached_end
+                                    .max(prepare.node.blob_info.strata_pool_end_epoch(blob_id)?);
+                                lifetime = Some(end_epoch);
+                                if end_epoch > cached_end {
+                                    admission.insert_batch(
+                                        &prepare.node.lifecycle.lifetimes,
+                                        [(blob_id, end_epoch)],
+                                    )?;
+                                    changed = true;
+                                }
                                 if u64::from(end_epoch)
                                     <= prepare.node.store.current_epoch().map_err(store_error)?
                                 {
@@ -475,23 +502,23 @@ impl StrataShardSliverStore {
                                     && dirty.delete
                                 {
                                     dirty.delete = false;
-                                    let mut batch = prepare.node.lifecycle.blobs.batch();
-                                    batch.insert_batch(
+                                    admission.insert_batch(
                                         &prepare.node.lifecycle.blobs,
                                         [(blob_id, dirty)],
                                     )?;
-                                    batch.write_with_sync(true)?;
+                                    changed = true;
                                 }
                             }
                             payloads.push((
                                 sliver_key(&blob_id, sliver.r#type()),
                                 serialize_sliver(&sliver)?,
-                                if epoch.is_some() {
-                                    prepare.node.lifecycle.lifetimes.get(&blob_id)?
-                                } else {
-                                    None
-                                },
+                                lifetime,
                             ));
+                        }
+                        if changed {
+                            // Keep the refreshed lifetime and deletion cancellation durable
+                            // before a put can outlive them in Strata.
+                            admission.write_with_sync(true)?;
                         }
                         Ok::<_, TypedStoreError>(payloads)
                     })

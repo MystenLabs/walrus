@@ -717,40 +717,83 @@ impl Storage {
         self.sliver_store.is_strata()
     }
 
-    /// Resume an interrupted epoch before normal event processing. Puts use the same blob
-    /// locks and may cancel old pending deletes while this runs.
-    pub(crate) async fn resume_strata_reconciliation(
-        &self,
-        delete_data: bool,
-    ) -> anyhow::Result<()> {
-        if let Some(lifecycle) = &self.blob_info.strata_lifecycle
-            && let Some(
-                strata_lifecycle::EpochProgress::Applying(epoch)
-                | strata_lifecycle::EpochProgress::Advancing(epoch),
-            ) = lifecycle.progress.get(&())?
-        {
-            // Persisted progress was admitted at a complete event boundary. Finish it even if
-            // the node is recovering or the committee has advanced since the crash.
-            self.sliver_store
-                .reconcile_epoch(epoch, delete_data)
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// Reconcile once event replay reaches the current on-chain epoch, before sliver recovery.
-    pub(crate) async fn reconcile_strata_epoch(
+    /// Durably request reconciliation after the current epoch's metadata boundary. The worker
+    /// owns the scan and clock advance; the event handler waits only for this small commit.
+    pub(crate) async fn request_strata_reconciliation(
         &self,
         epoch: Epoch,
         current_epoch: Epoch,
-        delete_data: bool,
     ) -> anyhow::Result<()> {
-        // Dirty IDs accumulate during catch-up. RecoveryInProgress and RecoverMetadata can
-        // reconcile at current boundaries; becoming Active is not a prerequisite.
+        let Some(lifecycle) = self.blob_info.strata_lifecycle.clone() else {
+            return Ok(());
+        };
         if epoch != current_epoch {
             return Ok(());
         }
-        self.sliver_store.reconcile_epoch(epoch, delete_data).await
+        let metadata = self.blob_info.latest_handled_event_index.clone();
+        utils::unwrap_or_resume_unwind(
+            tokio::task::spawn_blocking(move || {
+                let _metadata = metadata.lock().expect("event mutex poisoned");
+                lifecycle.check_running()?;
+                let mut completion =
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone());
+                let requested = lifecycle.requested_epoch.get(&())?.unwrap_or_default();
+                if epoch > requested {
+                    let mut batch = lifecycle.requested_epoch.batch();
+                    batch.insert_batch(&lifecycle.requested_epoch, [((), epoch)])?;
+                    batch.write_with_sync(true)?;
+                }
+                completion.complete();
+                // Notify inside the task: cancellation of the caller must not lose the wakeup.
+                lifecycle.wake.notify_one();
+                Ok::<_, anyhow::Error>(())
+            })
+            .await,
+        )
+    }
+
+    /// One worker finishes an interrupted pass first, then coalesces requests to the latest
+    /// durable target. Keeping the target separate means completion cannot erase newer work.
+    pub(crate) async fn run_strata_reconciliation(&self, delete_data: bool) -> anyhow::Result<()> {
+        let Some(lifecycle) = &self.blob_info.strata_lifecycle else {
+            return std::future::pending().await;
+        };
+        loop {
+            let metadata = self.blob_info.latest_handled_event_index.clone();
+            let reader = lifecycle.clone();
+            let epoch = utils::unwrap_or_resume_unwind(
+                tokio::task::spawn_blocking(move || {
+                    // A requested epoch is visible in RocksDB before its fsync returns. Wait for
+                    // the requesting task to finish (or halt admission) before consuming it.
+                    let _metadata = metadata.lock().expect("event mutex poisoned");
+                    reader.check_running()?;
+                    let requested = reader.requested_epoch.get(&())?.unwrap_or_default();
+                    Ok::<_, anyhow::Error>(match reader.progress.get(&())? {
+                        Some(
+                            strata_lifecycle::EpochProgress::Applying(epoch)
+                            | strata_lifecycle::EpochProgress::Advancing(epoch),
+                        ) => Some(epoch),
+                        Some(strata_lifecycle::EpochProgress::Complete(done))
+                            if done >= requested =>
+                        {
+                            None
+                        }
+                        _ if requested == 0 => None,
+                        _ => Some(requested),
+                    })
+                })
+                .await,
+            )?;
+            if let Some(epoch) = epoch {
+                tracing::info!(walrus.epoch = epoch, "starting Strata reconciliation");
+                self.sliver_store
+                    .reconcile_epoch(epoch, delete_data)
+                    .await?;
+                tracing::info!(walrus.epoch = epoch, "completed Strata reconciliation");
+            } else {
+                lifecycle.wake.notified().await;
+            }
+        }
     }
 
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {

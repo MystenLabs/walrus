@@ -286,22 +286,12 @@ impl StorageNode {
         // phase 1's disk traffic on the same RocksDB instance.
         self.start_garbage_collection_task(event.epoch).await?;
         if self.inner.storage.is_strata() {
-            // Skip historical boundaries during catch-up. At the current boundary, install
-            // final lifetimes before the transition starts sliver recovery. Read the chain
-            // epoch here because the local committee may still be on the previous epoch.
-            // Puts continue under per-blob locks; no shard-map lock is held during the scan.
+            // Historical boundaries only accumulate dirty IDs. Persist the current target
+            // before this event can complete, then let the worker scan while Walrus transitions.
             let (current_epoch, _) = self.inner.contract_service.get_epoch_and_state().await?;
             self.inner
                 .storage
-                .reconcile_strata_epoch(
-                    event.epoch,
-                    current_epoch,
-                    self.inner.garbage_collection_config.enable_data_deletion
-                        && self
-                            .inner
-                            .garbage_collection_config
-                            .enable_blob_info_cleanup,
-                )
+                .request_strata_reconciliation(event.epoch, current_epoch)
                 .await?;
         }
 

@@ -1044,17 +1044,6 @@ impl StorageNode {
             tracing::warn!(?error, "unable to schedule epoch calls on startup")
         };
 
-        self.inner
-            .storage
-            .resume_strata_reconciliation(
-                self.inner.garbage_collection_config.enable_data_deletion
-                    && self
-                        .inner
-                        .garbage_collection_config
-                        .enable_blob_info_cleanup,
-            )
-            .await?;
-
         // Startup GC retry is best-effort: unlike the live epoch-transition path, it cannot
         // guarantee the exact epoch-boundary blob-info snapshot semantics needed by recovery.
         if let Err(error) = self.check_and_start_garbage_collection_on_startup().await {
@@ -1065,6 +1054,14 @@ impl StorageNode {
         }
 
         select! {
+            result = self.inner.storage.run_strata_reconciliation(
+                self.inner.garbage_collection_config.enable_data_deletion
+                    && self.inner.garbage_collection_config.enable_blob_info_cleanup,
+            ) => {
+                // A failed worker must stop the node, not silently leave reclamation stalled.
+                result.context("Strata reconciliation worker stopped")?;
+                unreachable!("Strata reconciliation worker never completes");
+            },
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
             },

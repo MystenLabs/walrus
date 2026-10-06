@@ -176,7 +176,7 @@ impl BlobInfoTable {
             false,
         )?));
 
-        Ok(Self {
+        let table = Self {
             aggregate_blob_info,
             per_object_blob_info,
             per_object_pooled_blob_info,
@@ -185,7 +185,28 @@ impl BlobInfoTable {
             strata_lifecycle: strata
                 .then(|| super::strata_lifecycle::StrataLifecycle::reopen(database).map(Arc::new))
                 .transpose()?,
-        })
+        };
+        if let Some(lifecycle) = &table.strata_lifecycle
+            && lifecycle.requested_epoch.get(&())?.is_none()
+        {
+            // Build the blob->pool lookup once for existing stores, before admitting writes.
+            // The initial requested epoch is committed last, so an interrupted build retries.
+            let mut batch = lifecycle.pool_references.batch();
+            for (i, row) in table.per_object_pooled_blob_info.safe_iter()?.enumerate() {
+                let (object_id, PerObjectPooledBlobInfo::V1(info)) = row?;
+                batch.insert_batch(
+                    &lifecycle.pool_references,
+                    [((info.blob_id, object_id), info.storage_pool_id)],
+                )?;
+                if (i + 1) % 1024 == 0 {
+                    batch.write()?;
+                    batch = lifecycle.pool_references.batch();
+                }
+            }
+            batch.insert_batch(&lifecycle.requested_epoch, [((), 0)])?;
+            batch.write_with_sync(true)?;
+        }
+        Ok(table)
     }
 
     pub fn clear(&self) -> Result<(), TypedStoreError> {
@@ -285,6 +306,18 @@ impl BlobInfoTable {
                 BlobEvent::Certified(e) if e.is_extension => Some(e.end_epoch),
                 _ => None,
             };
+            match event {
+                BlobEvent::PooledBlobRegistered(e) => {
+                    batch.insert_batch(
+                        &lifecycle.pool_references,
+                        [((e.blob_id, e.object_id), e.storage_pool_id)],
+                    )?;
+                }
+                BlobEvent::PooledBlobDeleted(e) => {
+                    batch.delete_batch(&lifecycle.pool_references, [(e.blob_id, e.object_id)])?;
+                }
+                _ => {}
+            }
             let deletion = matches!(
                 event,
                 BlobEvent::Deleted(_) | BlobEvent::PooledBlobDeleted(_)
@@ -654,8 +687,8 @@ impl BlobInfoTable {
 
     /// Updates the storage pool info based on a [`StoragePoolEvent`].
     ///
-    /// For Strata, persist a pool expansion job with the pool info and replay watermark.
-    /// The worker expands it before later events can change membership or append blob commands.
+    /// Strata marks the pool dirty in the same batch. Puts resolve its live expiry through
+    /// the blob->pool lookup; the worker expands membership at the next reconciliation.
     pub fn update_storage_pool_info(
         &self,
         event_index: u64,
@@ -697,6 +730,29 @@ impl BlobInfoTable {
         batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
         batch.write()?;
         Ok(())
+    }
+
+    /// Resolve current pool extensions for one blob. The caller holds its blob lock, so
+    /// reference membership cannot change while reading. Pool lifetimes only extend.
+    pub(super) fn strata_pool_end_epoch(&self, blob_id: BlobId) -> Result<Epoch, TypedStoreError> {
+        let lifecycle = self
+            .strata_lifecycle
+            .as_ref()
+            .expect("Strata tables are open");
+        let mut end = 0;
+        for row in lifecycle
+            .pool_references
+            .safe_range_iter((Bound::Included((blob_id, ObjectID::ZERO)), Unbounded))?
+        {
+            let ((id, _), pool_id) = row?;
+            if id != blob_id {
+                break;
+            }
+            if let Some(pool) = self.storage_pool_info.get(&pool_id)? {
+                end = end.max(pool.end_epoch());
+            }
+        }
+        Ok(end)
     }
 
     /// Snapshot first, sync second: only the selected metadata is guaranteed durable. The
@@ -1242,6 +1298,7 @@ impl BlobInfoTable {
         );
 
         if let Some(lifecycle) = &self.strata_lifecycle {
+            batch.delete_batch(&lifecycle.pool_references, [(v1.blob_id, object_id)])?;
             lifecycle.mark_blob(
                 batch,
                 v1.blob_id,

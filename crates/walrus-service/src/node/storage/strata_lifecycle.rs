@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Epoch reconciliation bookkeeping. Events mark IDs; the epoch handler computes final lifetimes.
+//! Epoch reconciliation bookkeeping. Events mark IDs; a worker computes final lifetimes.
 //! All tables share the Walrus RocksDB, so dirty markers commit with reference metadata.
 
 use std::sync::Arc;
@@ -26,6 +26,8 @@ pub(super) const DIRTY_BLOBS_CF: &str = "strata_dirty_blobs";
 pub(super) const DIRTY_POOLS_CF: &str = "strata_dirty_pools";
 pub(super) const LIFETIMES_CF: &str = "strata_lifetimes";
 pub(super) const EPOCH_CF: &str = "strata_reconcile_epoch";
+pub(super) const REQUESTED_EPOCH_CF: &str = "strata_requested_epoch";
+pub(super) const POOL_REFERENCES_CF: &str = "strata_pool_references";
 
 /// Presence means lifetime reconciliation is pending. A put clears only `delete`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -60,17 +62,29 @@ pub(super) struct StrataLifecycle {
     pub pools: DBMap<ObjectID, u64>,
     // A conservative lifetime used by puts; reconciliation refreshes it from all live references.
     pub lifetimes: DBMap<BlobId, Epoch>,
+    // Blob/object -> pool, maintained with the authoritative reference rows. Puts can resolve
+    // pool extensions without waiting for reconciliation or scanning unrelated references.
+    pub pool_references: DBMap<(BlobId, ObjectID), ObjectID>,
     pub progress: DBMap<(), EpochProgress>,
+    pub requested_epoch: DBMap<(), Epoch>,
+    pub wake: tokio::sync::Notify,
     pub db: Arc<dyn IndexDb>,
     pub pass: Arc<tokio::sync::Mutex<()>>,
     coordination: Arc<coordination::Coordination>,
 }
 
 pub(super) fn options(factory: &DatabaseTableOptionsFactory) -> Vec<(&'static str, Options)> {
-    [DIRTY_BLOBS_CF, DIRTY_POOLS_CF, LIFETIMES_CF, EPOCH_CF]
-        .into_iter()
-        .map(|name| (name, factory.standard()))
-        .collect()
+    [
+        DIRTY_BLOBS_CF,
+        DIRTY_POOLS_CF,
+        LIFETIMES_CF,
+        POOL_REFERENCES_CF,
+        EPOCH_CF,
+        REQUESTED_EPOCH_CF,
+    ]
+    .into_iter()
+    .map(|name| (name, factory.standard()))
+    .collect()
 }
 
 pub(super) fn database(database: &Arc<RocksDB>) -> Arc<dyn IndexDb> {
@@ -104,6 +118,19 @@ impl StrataLifecycle {
                 &ReadWriteOptions::default(),
                 false,
             )?,
+            pool_references: DBMap::reopen(
+                database,
+                Some(POOL_REFERENCES_CF),
+                &ReadWriteOptions::default(),
+                false,
+            )?,
+            requested_epoch: DBMap::reopen(
+                database,
+                Some(REQUESTED_EPOCH_CF),
+                &ReadWriteOptions::default(),
+                false,
+            )?,
+            wake: tokio::sync::Notify::new(),
             db: self::database(database),
             pass: Arc::default(),
             coordination: Arc::default(),
@@ -140,7 +167,13 @@ impl StrataLifecycle {
     pub fn is_empty(&self) -> Result<bool, TypedStoreError> {
         Ok(self.blobs.safe_iter()?.next().transpose()?.is_none()
             && self.pools.safe_iter()?.next().transpose()?.is_none()
-            && self.lifetimes.safe_iter()?.next().transpose()?.is_none())
+            && self.lifetimes.safe_iter()?.next().transpose()?.is_none()
+            && self
+                .pool_references
+                .safe_iter()?
+                .next()
+                .transpose()?
+                .is_none())
     }
 }
 
