@@ -13,6 +13,8 @@
 //! collection, and the REST API). A node that is not brand-new, or whose replay is covered, is left
 //! untouched.
 
+use std::time::Duration;
+
 use anyhow::{Context as _, bail};
 use walrus_core::encoding::{ConsistencyCheckType, Primary};
 
@@ -25,6 +27,12 @@ use crate::{
     common::{config::SuiConfig, utils::create_walrus_client_with_refresher},
     event::events::EventStreamCursor,
 };
+
+/// How often, and how many times, reading the certified snapshot is attempted. A snapshot certified
+/// moments before the node starts may not be readable yet: the storage nodes report it only once
+/// they have processed its certification.
+const READ_RETRY_DELAY: Duration = Duration::from_secs(10);
+const READ_ATTEMPTS: u32 = 30;
 
 /// Loads the latest certified blob info snapshot into a brand-new node whose event replay is not
 /// covered by its local event store.
@@ -98,18 +106,37 @@ pub(super) async fn bootstrap_from_snapshot_if_needed(
         first_available_event_index,
         "bootstrapping a brand-new node from the latest certified blob info snapshot"
     );
-    let bytes = walrus_client
-        .read_blob_with_consistency_check_type::<Primary>(
-            &snapshot.blob_id,
-            ConsistencyCheckType::Strict,
-        )
-        .await
-        .with_context(|| {
-            format!(
-                "failed to read the certified blob info snapshot {}",
-                snapshot.blob_id
+    let mut attempt = 1;
+    let bytes = loop {
+        match walrus_client
+            .read_blob_with_consistency_check_type::<Primary>(
+                &snapshot.blob_id,
+                ConsistencyCheckType::Strict,
             )
-        })?;
+            .await
+        {
+            Ok(bytes) => break bytes,
+            Err(error) if attempt < READ_ATTEMPTS => {
+                tracing::warn!(
+                    ?error,
+                    attempt,
+                    blob_id = %snapshot.blob_id,
+                    "failed to read the certified blob info snapshot; retrying"
+                );
+                attempt += 1;
+                tokio::time::sleep(READ_RETRY_DELAY).await;
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to read the certified blob info snapshot {} after {attempt} \
+                        attempts",
+                        snapshot.blob_id
+                    )
+                });
+            }
+        }
+    };
 
     let (header, per_object, pooled, pools) = blob_info_snapshot::read_snapshot(&bytes)
         .context("failed to decode the certified blob info snapshot")?;
