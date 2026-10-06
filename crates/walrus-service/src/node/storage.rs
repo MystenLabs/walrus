@@ -674,11 +674,11 @@ impl Storage {
     /// Replaces the blob info tables with the contents of a blob info snapshot, repositions the
     /// event cursor, and sets the node status to `RecoveryCatchUp`, all in one atomic write.
     ///
-    /// Only for a database that no node is running on: the event cursor and the node status take
-    /// effect when the storage is next opened. The cursor is placed on the snapshot's boundary
-    /// `EpochChangeStart` event rather than after it, so the node processes that event once more;
-    /// for a snapshot of the current epoch this lets the node leave catch-up right away instead of
-    /// at the next epoch change.
+    /// Only while no component that reads or writes the blob info tables or processes events is
+    /// running: offline, or while the node is being constructed. The cursor is placed on the
+    /// snapshot's boundary `EpochChangeStart` event rather than after it, so the node processes
+    /// that event once more; for a snapshot of the current epoch this lets the node leave catch-up
+    /// right away instead of at the next epoch change.
     ///
     /// Returns the number of rebuilt aggregate blob info entries.
     pub(crate) fn load_blob_info_snapshot(
@@ -711,6 +711,11 @@ impl Storage {
         )?;
         batch.insert_batch(&self.node_status, [(&(), &NodeStatus::RecoveryCatchUp)])?;
         batch.write()?;
+
+        // The batch does not update the in-memory event sequencer; bring it to the new position so
+        // that this storage can process events right away, as during the startup bootstrap.
+        self.event_cursor
+            .reposition_event_cursor(header.event_cursor.event_id(), boundary_event_index)?;
 
         Ok(aggregate_count)
     }
