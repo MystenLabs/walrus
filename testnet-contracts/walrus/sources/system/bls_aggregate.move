@@ -209,10 +209,10 @@ fun verify_certificate_and_weight(
     // Use the signers_bitmap to construct the key and the weights.
 
     let mut non_signer_aggregate_weight = 0;
-    let mut non_signer_public_keys: vector<Element<UncompressedG1>> = vector::empty();
+    let mut non_signer_public_keys: vector<Element<UncompressedG1>> = vector[];
     let mut offset: u64 = 0;
     let n_members = self.n_members();
-    let max_bitmap_len_bytes = n_members.divide_and_round_up(8);
+    let max_bitmap_len_bytes = n_members.div_ceil(8);
 
     // The signers bitmap must not be longer than necessary to hold all members.
     // It may be shorter, in which case the excluded members are treated as non-signers.
