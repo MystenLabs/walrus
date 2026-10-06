@@ -1255,12 +1255,17 @@ impl StorageNode {
             return Ok(());
         }
         if next_event_index != 0 {
-            // TODO(WAL-894): Implement recovery with incomplete event history for nodes that are
-            // not new.
-            unimplemented!(
-                "the node is too far behind for normal recovery and recovery with incomplete event \
-                history is only implemented for fresh nodes; \
-                please wipe the DB and restart the node"
+            // A node that has processed events before is not rebuilt automatically: replacing its
+            // blob info tables is the operator's decision. Wiping the database makes it a
+            // brand-new node, which loads the latest certified blob info snapshot at startup.
+            // TODO(WAL-894): Recover such nodes automatically, first on testnet, where a node is
+            // more likely to be down longer than the event-blob retention; on mainnet only once
+            // there is a real need.
+            bail!(
+                "the node is too far behind to catch up: its next event is {next_event_index}, but \
+                the first event still available is {first_available_event_index}; stop the node, \
+                delete the contents of its storage path, and start it again, so that it loads \
+                the latest certified blob info snapshot"
             );
         }
 
