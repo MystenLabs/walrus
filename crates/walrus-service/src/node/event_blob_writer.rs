@@ -1681,6 +1681,13 @@ impl EventBlobWriter {
             .update_blob_info_with_metadata(&blob_id)
             .context("unable to update metadata")?;
 
+        tracing::info!(
+            walrus.blob_id = %blob_id,
+            walrus.epoch = metadata.epoch,
+            first_event_index = metadata.event_cursor.element_index,
+            "an event blob this node attested was certified on chain"
+        );
+
         self.metrics
             .latest_certified_event_index
             .set(element_index.try_into()?);
