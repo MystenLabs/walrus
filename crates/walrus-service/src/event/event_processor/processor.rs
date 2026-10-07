@@ -86,6 +86,9 @@ pub struct EventProcessor {
     pub recovery_path: std::path::PathBuf,
     /// Metrics registry for creating new metric instances.
     pub metrics_registry: Registry,
+    /// Cancelled once [`Self::start`] has returned, so that waits on the event store can end
+    /// instead of polling forever when the processor has stopped.
+    pub stopped: CancellationToken,
 }
 
 impl fmt::Debug for EventProcessor {
@@ -162,6 +165,7 @@ impl EventProcessor {
             system_config: system_config.clone(),
             recovery_path: runtime_config.db_path.join("recovery"),
             metrics_registry: metrics_registry.clone(),
+            stopped: CancellationToken::new(),
         };
 
         if event_processor.stores.checkpoint_store.is_empty() {
@@ -241,7 +245,19 @@ impl EventProcessor {
     }
 
     /// Starts the event processor. This method will run until the cancellation token is cancelled.
+    ///
+    /// Whether it returns normally or with an error, it marks the processor as stopped first, so
+    /// that a wait on the event store (see [`SystemEventProvider::init_state`]) ends instead of
+    /// polling forever.
+    ///
+    /// [`SystemEventProvider::init_state`]: crate::node::system_events::SystemEventProvider::init_state
     pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
+        let result = self.run(cancellation_token).await;
+        self.stopped.cancel();
+        result
+    }
+
+    async fn run(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
         if self.config.enable_runtime_catchup {
             tracing::info!("starting event processor with runtime catchup enabled");
         } else {
