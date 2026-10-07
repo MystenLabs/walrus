@@ -53,6 +53,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
+        blob_info_snapshot_writer::snapshot_base_dir,
         event_blob_writer::{
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
@@ -253,6 +254,20 @@ pub enum DbToolCommands {
         /// Column families to drop.
         #[arg(num_args = 1..)]
         column_family_names: Vec<String>,
+    },
+
+    /// Wipe a stopped node's state except its blob data, so that it starts as a brand-new node
+    /// that loads the latest certified blob info snapshot while keeping its metadata and slivers.
+    ///
+    /// Drops every column family except `metadata` and the per-shard ones (`shard-*`), and moves
+    /// the event processor's database (`events/`), the event blob writer's state
+    /// (`event_blob_writer/`), and the local snapshot files (`blob_info_snapshots/`) out of the
+    /// storage path to `<storage_path>.wiped-<timestamp>/`, to be deleted once the node is back
+    /// in service. This can only be called when the storage node is stopped.
+    WipeNodeState {
+        /// Path to the node's storage directory (`storage_path` in its configuration).
+        #[arg(long)]
+        db_path: PathBuf,
     },
 
     /// Replace column families in a Walrus RocksDB database by copying them from another RocksDB
@@ -500,6 +515,7 @@ impl DbToolCommands {
                 db_path,
                 column_family_names,
             } => drop_column_families(db_path, column_family_names),
+            Self::WipeNodeState { db_path } => wipe_node_state(db_path),
             Self::RestoreColumnFamilies {
                 db_path,
                 input_db_path,
@@ -993,6 +1009,63 @@ fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> R
         }
     }
 
+    Ok(())
+}
+
+/// Whether a column family holds blob data that [`wipe_node_state`] keeps: the metadata table
+/// and the per-shard tables, which `ShardStorage` names `shard-<index>/...`.
+fn holds_blob_data(column_family_name: &str) -> bool {
+    column_family_name == metadata_cf_name() || column_family_name.starts_with("shard-")
+}
+
+/// Wipes a stopped node's state except its blob data; see the command's documentation.
+fn wipe_node_state(db_path: PathBuf) -> Result<()> {
+    let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)
+        .context("failed to list the column families; is this the node's storage path?")?;
+    let (kept, dropped): (Vec<_>, Vec<_>) = column_families
+        .into_iter()
+        .filter(|name| name != "default")
+        .partition(|name| holds_blob_data(name));
+    println!("Keeping column families: {kept:?}");
+    drop_column_families(db_path.clone(), dropped)?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("system time is before the Unix epoch")?
+        .as_secs();
+    let mut aside_name = db_path
+        .file_name()
+        .context("the storage path has no final component")?
+        .to_os_string();
+    aside_name.push(format!(".wiped-{timestamp}"));
+    let aside_dir = db_path.with_file_name(aside_name);
+
+    // The event processor's database (`EventProcessorRuntime`), the event blob writer's state
+    // (`EventBlobWriterFactory`), and the local snapshot files.
+    let subdirectories = [
+        db_path.join("events"),
+        db_path.join("event_blob_writer"),
+        snapshot_base_dir(&db_path),
+    ];
+    for directory in subdirectories.iter().filter(|directory| directory.exists()) {
+        std::fs::create_dir_all(&aside_dir)?;
+        let target = aside_dir.join(
+            directory
+                .file_name()
+                .context("the subdirectory has no final component")?,
+        );
+        std::fs::rename(directory, &target).with_context(|| {
+            format!("failed to move {} to {}", directory.display(), target.display())
+        })?;
+        println!("Moved {} to {}", directory.display(), target.display());
+    }
+
+    println!(
+        "Done. On its next start the node loads the latest certified blob info snapshot, replays \
+        events from the snapshot's epoch boundary, and recovers any blob data it does not hold. \
+        Delete {} once the node is back in service.",
+        aside_dir.display()
+    );
     Ok(())
 }
 
