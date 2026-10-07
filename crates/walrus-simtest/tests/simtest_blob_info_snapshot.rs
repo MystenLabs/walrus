@@ -12,12 +12,13 @@ mod tests {
         collections::{HashMap, HashSet},
         sync::{
             Arc,
+            Mutex,
             atomic::{AtomicBool, Ordering},
         },
         time::Duration,
     };
 
-    use sui_macros::{clear_fail_point, register_fail_point};
+    use sui_macros::{clear_fail_point, register_fail_point, register_fail_point_arg};
     use sui_types::base_types::ObjectID;
     use tokio::sync::RwLock;
     use twox_hash::XxHash64;
@@ -592,10 +593,23 @@ mod tests {
         // The first event blob expires after `MAX_EPOCHS_AHEAD + 1` epochs, and it may only be
         // certified some epochs after the start.
         const TARGET_EPOCH: EpochCount = MAX_EPOCHS_AHEAD + 1 + 2;
+        // Event blobs, so that the first ones can expire before the new node starts and its event
+        // history then starts after the first event. The new node gets the same value, so that
+        // its writer cuts blobs during the test.
+        const NUM_CHECKPOINTS_PER_BLOB: u32 = 20;
 
         let bootstrap_loaded = Arc::new(AtomicBool::new(false));
         let incomplete_history_entered = Arc::new(AtomicBool::new(false));
+        // Per node, the IDs of the event blobs it attested that were then certified on chain.
+        let certified_event_blobs = Arc::new(Mutex::new(HashMap::<ObjectID, Vec<BlobId>>::new()));
         {
+            let certified_event_blobs = certified_event_blobs.clone();
+            register_fail_point_arg(
+                "event_blob_writer_certified_own_blob",
+                move || -> Option<Arc<Mutex<HashMap<ObjectID, Vec<BlobId>>>>> {
+                    Some(certified_event_blobs.clone())
+                },
+            );
             let bootstrap_loaded = bootstrap_loaded.clone();
             register_fail_point(
                 "fail_point_blob_info_snapshot_bootstrap_loaded",
@@ -621,9 +635,7 @@ mod tests {
                         .with_enable_event_blob_writer()
                         .build(),
                 )
-                // Event blobs, so that the first ones can expire before the new node starts and its
-                // event history then starts after the first event.
-                .with_num_checkpoints_per_blob(20)
+                .with_num_checkpoints_per_blob(NUM_CHECKPOINTS_PER_BLOB)
                 .build_generic::<SimStorageNodeHandle>()
                 .await
                 .unwrap();
@@ -658,7 +670,7 @@ mod tests {
                 },
                 ..storage_node_config
             })),
-            None,
+            Some(NUM_CHECKPOINTS_PER_BLOB),
             new_node.cancel_token.clone(),
         )
         .await
@@ -699,7 +711,27 @@ mod tests {
         assert_eq!(node_health_info[5].node_status, "Active");
         consistency_check.check_storage_node_consistency_from_epoch(new_node_starting_epoch);
 
+        // The new node's writer started right after the latest certified event blob. Its blobs
+        // are certified only if their IDs equal the committee's, so a non-empty list shows that
+        // it resumed at the right blob boundary.
+        let new_node_capability = walrus_cluster.nodes[5]
+            .storage_node_capability
+            .as_ref()
+            .unwrap()
+            .id;
+        let certified_by_new_node = certified_event_blobs
+            .lock()
+            .unwrap()
+            .get(&new_node_capability)
+            .cloned()
+            .unwrap_or_default();
+        assert!(
+            !certified_by_new_node.is_empty(),
+            "the new node's event blobs should be certified on chain"
+        );
+
         clear_fail_point("fail_point_blob_info_snapshot_bootstrap_loaded");
         clear_fail_point("fail_point_recovery_with_incomplete_history");
+        clear_fail_point("event_blob_writer_certified_own_blob");
     }
 }
