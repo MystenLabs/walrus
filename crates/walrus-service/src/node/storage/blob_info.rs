@@ -18,6 +18,7 @@ use std::{
 
 use anyhow::Context as _;
 use enum_dispatch::enum_dispatch;
+use itertools::Itertools as _;
 use rocksdb::{MergeOperands, Options, Transaction};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sui_types::{base_types::ObjectID, event::EventID};
@@ -189,22 +190,51 @@ impl BlobInfoTable {
         if let Some(lifecycle) = &table.strata_lifecycle
             && lifecycle.requested_epoch.get(&())?.is_none()
         {
-            // Build the blob->pool lookup once for existing stores, before admitting writes.
-            // The initial requested epoch is committed last, so an interrupted build retries.
-            let mut batch = lifecycle.pool_references.batch();
-            for (i, row) in table.per_object_pooled_blob_info.safe_iter()?.enumerate() {
-                let (object_id, PerObjectPooledBlobInfo::V1(info)) = row?;
-                batch.insert_batch(
-                    &lifecycle.pool_references,
-                    [((info.blob_id, object_id), info.storage_pool_id)],
-                )?;
-                if (i + 1) % 1024 == 0 {
-                    batch.write()?;
-                    batch = lifecycle.pool_references.batch();
+            // Initialize existing reference metadata before admitting Strata puts. Registration
+            // events from before Strata was enabled will not be replayed to populate lifetimes.
+            // Bound memory by batching; include persisted values when taking the maximum so
+            // multiple references across batches and retries cannot shorten a blob's lifetime.
+            tracing::info!("initializing Strata lifetimes and blob-to-pool lookup");
+            for rows in &table.per_object_blob_info.safe_iter()?.chunks(1024) {
+                let mut lifetimes = HashMap::new();
+                for row in rows {
+                    let (_, PerObjectBlobInfo::V1(info)) = row?;
+                    if !info.deleted {
+                        let end = lifetimes
+                            .entry(info.blob_id)
+                            .or_insert(lifecycle.lifetimes.get(&info.blob_id)?.unwrap_or_default());
+                        *end = (*end).max(info.end_epoch);
+                    }
                 }
+                let mut batch = lifecycle.lifetimes.batch();
+                batch.insert_batch(&lifecycle.lifetimes, lifetimes)?;
+                batch.write()?;
             }
+            for rows in &table.per_object_pooled_blob_info.safe_iter()?.chunks(1024) {
+                let mut batch = lifecycle.pool_references.batch();
+                let mut lifetimes = HashMap::new();
+                for row in rows {
+                    let (object_id, PerObjectPooledBlobInfo::V1(info)) = row?;
+                    batch.insert_batch(
+                        &lifecycle.pool_references,
+                        [((info.blob_id, object_id), info.storage_pool_id)],
+                    )?;
+                    if let Some(pool) = table.storage_pool_info.get(&info.storage_pool_id)? {
+                        let end = lifetimes
+                            .entry(info.blob_id)
+                            .or_insert(lifecycle.lifetimes.get(&info.blob_id)?.unwrap_or_default());
+                        *end = (*end).max(pool.end_epoch());
+                    }
+                }
+                batch.insert_batch(&lifecycle.lifetimes, lifetimes)?;
+                batch.write()?;
+            }
+            // The initial requested epoch is the completion marker. Sync it only after both
+            // tables are populated; a crash before it is durable safely retries initialization.
+            let mut batch = lifecycle.requested_epoch.batch();
             batch.insert_batch(&lifecycle.requested_epoch, [((), 0)])?;
             batch.write_with_sync(true)?;
+            tracing::info!("initialized Strata lifetimes and blob-to-pool lookup");
         }
         Ok(table)
     }

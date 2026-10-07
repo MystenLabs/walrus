@@ -118,6 +118,113 @@ fn stored(storage: &Storage, id: BlobId) -> anyhow::Result<bool> {
 }
 
 #[tokio::test]
+async fn existing_references_initialize_lifetimes_before_strata_puts() -> TestResult {
+    let pooled = BlobId([73; 32]);
+    let mixed = BlobId([74; 32]);
+    for optimistic in [false, true] {
+        for interrupted in [false, true] {
+            let dir = TempDir::new()?;
+            let storage = open(dir.path(), optimistic)?;
+            // Model metadata written before Strata was enabled: no lifetime or dirty entries.
+            let mut legacy = storage.blob_info.clone();
+            legacy.strata_lifecycle = None;
+            legacy
+                .update_storage_pool_info(0, &StoragePoolEvent::created_for_testing(POOL, 1, 20))?;
+            // Repeated references cross the 1024-row backfill boundary. Later, shorter
+            // references must not overwrite the maximum, within a batch or across batches.
+            for i in 0_u64..1026 {
+                let mut object_id = [0; 32];
+                object_id[24..].copy_from_slice(&i.to_be_bytes());
+                let mut event = registration(X, if i == 0 { 120 } else { 20 });
+                event.object_id = ObjectID::from_bytes(object_id)?;
+                legacy.update_blob_info(i + 1, &event.into())?;
+            }
+            let mut permanent = registration(Y, 80);
+            permanent.deletable = false;
+            legacy.update_blob_info(1027, &permanent.into())?;
+            legacy.update_blob_info(1028, &registration(mixed, 150).into())?;
+            let pooled_reference = PooledBlobRegistered {
+                storage_pool_id: POOL,
+                ..PooledBlobRegistered::for_testing_with_random_object_id(pooled)
+            };
+            legacy.update_blob_info(
+                1029,
+                &walrus_sui::types::BlobEvent::PooledBlobRegistered(pooled_reference.clone()),
+            )?;
+            legacy.update_blob_info(
+                1030,
+                &walrus_sui::types::BlobEvent::PooledBlobRegistered(PooledBlobRegistered {
+                    storage_pool_id: POOL,
+                    ..PooledBlobRegistered::for_testing_with_random_object_id(mixed)
+                }),
+            )?;
+            legacy.update_storage_pool_info(
+                1031,
+                &StoragePoolEvent::extended_for_testing(POOL, 110),
+            )?;
+            let deleted = registration(X, 500);
+            legacy.update_blob_info(1032, &deleted.clone().into())?;
+            legacy.update_blob_info(
+                1033,
+                &walrus_sui::types::BlobDeleted {
+                    epoch: 1,
+                    blob_id: X,
+                    object_id: deleted.object_id,
+                    end_epoch: 500,
+                    was_certified: false,
+                    event_id: deleted.event_id,
+                }
+                .into(),
+            )?;
+            drop(legacy);
+            let lifecycle = &strata(&storage).lifecycle;
+            assert!(lifecycle.lifetimes.is_empty());
+            assert!(lifecycle.pool_references.is_empty());
+            let mut batch = lifecycle.requested_epoch.batch();
+            batch.delete_batch(&lifecycle.requested_epoch, [()])?;
+            if interrupted {
+                // Model an earlier backfill that persisted its first batch but not completion.
+                batch.insert_batch(&lifecycle.lifetimes, [(X, 120)])?;
+            }
+            batch.write_with_sync(true)?;
+            close(storage).await?;
+
+            let storage = open(dir.path(), optimistic)?;
+            let lifecycle = &strata(&storage).lifecycle;
+            for (id, end) in [(X, 120), (Y, 80), (pooled, 110), (mixed, 150)] {
+                assert_eq!(lifecycle.lifetimes.get(&id)?, Some(end));
+            }
+            assert_eq!(
+                lifecycle
+                    .pool_references
+                    .get(&(pooled, pooled_reference.object_id))?,
+                Some(POOL)
+            );
+            assert_eq!(lifecycle.requested_epoch.get(&())?, Some(0));
+            assert!(lifecycle.blobs.is_empty());
+            assert!(lifecycle.pools.is_empty());
+            storage
+                .create_storage_for_shards_for_testing(&[SHARD])
+                .await?;
+            for id in [X, Y, pooled, mixed] {
+                put(&storage, id).await?;
+                assert!(stored(&storage, id)?);
+            }
+            close(storage).await?;
+
+            // The initialized lifetimes and completion marker survive another open.
+            let storage = open(dir.path(), optimistic)?;
+            for (id, end) in [(X, 120), (Y, 80), (pooled, 110), (mixed, 150)] {
+                assert_eq!(strata(&storage).lifecycle.lifetimes.get(&id)?, Some(end));
+                assert!(stored(&storage, id)?);
+            }
+            close(storage).await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn explicit_delete_is_deferred_and_survives_restart() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;
