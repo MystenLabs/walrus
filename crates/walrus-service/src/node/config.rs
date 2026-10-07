@@ -288,6 +288,11 @@ pub struct StorageNodeConfig {
     /// Disable the event-blob writer
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub disable_event_blob_writer: bool,
+    /// The number of checkpoints each event blob covers. Must be the same on every node, as
+    /// nodes only certify event blobs they agree on; the default is used when unset. Intended
+    /// for testbeds, where the default would take too long to produce an event blob.
+    #[serde(default, skip_serializing_if = "defaults::is_none")]
+    pub num_checkpoints_per_blob: Option<u32>,
     /// The commission rate of the storage node, in basis points.
     #[serde(default = "defaults::commission_rate")]
     pub commission_rate: u16,
@@ -531,6 +536,7 @@ impl Default for StorageNodeConfig {
                 max_checkpoint_lag: 1500,
             },
             disable_event_blob_writer: Default::default(),
+            num_checkpoints_per_blob: None,
             commission_rate: defaults::commission_rate(),
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {
