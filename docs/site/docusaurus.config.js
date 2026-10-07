@@ -364,9 +364,9 @@ const config = {
         defaultMode: "dark",
         respectPrefersColorScheme: true,
       },
-      image: "img/walrus-card.jpg",
+      image: "img/walrus-docs-og.jpg",
       metadata: [
-      { property: 'og:image', content: 'https://docs.wal.app/img/walrus-card.jpg' },
+      { property: 'og:image', content: 'https://docs.wal.app/img/walrus-docs-og.jpg' },
     ],
       navbar: {
         logo: { alt: "Walrus", src: "img/Walrus_Docs.svg" },
