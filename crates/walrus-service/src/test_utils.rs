@@ -3414,6 +3414,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             event_processor_config: Default::default(),
             pending_sliver_cache: Default::default(),
             disable_event_blob_writer: false,
+            num_checkpoints_per_blob: None,
             commission_rate: 0,
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {

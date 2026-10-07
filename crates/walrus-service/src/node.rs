@@ -477,7 +477,6 @@ impl StorageNodeBuilder {
     }
 
     /// Sets the number of checkpoints to use per event blob.
-    #[cfg(any(test, feature = "test-utils"))]
     pub fn with_num_checkpoints_per_blob(mut self, num_checkpoints_per_blob: u32) -> Self {
         self.num_checkpoints_per_blob = Some(num_checkpoints_per_blob);
         self

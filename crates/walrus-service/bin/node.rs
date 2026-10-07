@@ -1427,13 +1427,14 @@ impl StorageNodeRuntime {
             .expect("walrus-node runtime creation must succeed");
         let _guard = runtime.enter();
         let tracing_handle = WalrusTracingHandle(metrics_runtime.tracing_handle.clone());
+        let mut builder = StorageNode::builder()
+            .with_system_event_manager(event_manager)
+            .with_config_loader(config_loader);
+        if let Some(num_checkpoints_per_blob) = node_config.num_checkpoints_per_blob {
+            builder = builder.with_num_checkpoints_per_blob(num_checkpoints_per_blob);
+        }
         let walrus_node = Arc::new(
-            runtime.block_on(
-                StorageNode::builder()
-                    .with_system_event_manager(event_manager)
-                    .with_config_loader(config_loader)
-                    .build(node_config, metrics_runtime.registry.clone()),
-            )?,
+            runtime.block_on(builder.build(node_config, metrics_runtime.registry.clone()))?,
         );
 
         let walrus_node_clone = walrus_node.clone();
