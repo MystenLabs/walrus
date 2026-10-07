@@ -800,23 +800,37 @@ impl SuiContractClient {
         .await?)
     }
 
-    /// Returns the digest of the package at `package_path` for the active network identified by
-    /// the enclosed wallet.
+    /// Compiles the package at `package_path` as an upgrade of its published package, for the
+    /// active network identified by the enclosed wallet.
     ///
-    /// This is used to vote on upgrade proposals, so the digest must match the bytecode the
-    /// upgrade transaction will publish: root modules at `0x0` (the upgrade transaction itself
-    /// substitutes them with the new package id), even when the package's `Published.toml`
-    /// already records a previous publication. `sui_package_management`'s `upgrade_command`
-    /// sets the same `root_as_zero = true` flag on the build config for the same reason.
-    pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
+    /// The root modules are compiled at `0x0`, even when the package's `Published.toml` already
+    /// records a previous publication: the upgrade transaction substitutes `0x0` with the
+    /// package's original id (the runtime id shared by all its versions), while the new version
+    /// gets a fresh storage id. `sui_package_management`'s `upgrade_command` sets the same
+    /// `root_as_zero = true` flag on the build config for the same reason.
+    pub async fn compile_package_for_upgrade(
+        &self,
+        package_path: PathBuf,
+    ) -> SuiClientResult<CompiledPackage> {
         let build_config = MoveBuildConfig {
             root_as_zero: true,
             ..Default::default()
         };
         let (compiled_package, _build_config, _root_package) =
             self.compile_package(package_path, build_config).await?;
+        Ok(compiled_package)
+    }
 
-        Ok(compiled_package.get_package_digest(false))
+    /// Returns the digest of the package at `package_path` for the active network identified by
+    /// the enclosed wallet.
+    ///
+    /// This is used to vote on upgrade proposals, so the digest must match the bytecode the
+    /// upgrade transaction will publish (see [`Self::compile_package_for_upgrade`]).
+    pub async fn compute_package_digest(&self, package_path: PathBuf) -> SuiClientResult<[u8; 32]> {
+        Ok(self
+            .compile_package_for_upgrade(package_path)
+            .await?
+            .get_package_digest(false))
     }
 
     /// Vote as node `node_id` for upgrading the walrus package to the package at
@@ -1504,8 +1518,9 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<ObjectID> {
         // Compile the package with root modules at `0x0` (rather than the package's previously
         // published address from `Published.toml`): Sui's upgrade transaction substitutes those
-        // 0x0 placeholders with the new package id when it runs. `sui_package_management`'s
-        // `upgrade_command` sets the same flag for the same reason.
+        // 0x0 placeholders with the package's original id when it runs, and the new version gets a
+        // fresh storage id. `sui_package_management`'s `upgrade_command` sets the same flag for
+        // the same reason.
         //
         // Propagate a chain-id fetch failure rather than swallowing it into `None`: a missing chain
         // id makes `select_environment` fall back to `testnet`, which on mainnet would compile the
