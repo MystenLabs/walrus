@@ -268,6 +268,11 @@ pub enum DbToolCommands {
         /// Path to the node's storage directory (`storage_path` in its configuration).
         #[arg(long)]
         db_path: PathBuf,
+        /// Keep the event processor's database (`events/`). The node still starts as a brand-new
+        /// node and loads the snapshot, but does not download event blobs or tail the checkpoints
+        /// since the latest certified event blob again, so it is back in service much sooner.
+        #[arg(long)]
+        keep_event_store: bool,
     },
 
     /// Replace column families in a Walrus RocksDB database by copying them from another RocksDB
@@ -515,7 +520,10 @@ impl DbToolCommands {
                 db_path,
                 column_family_names,
             } => drop_column_families(db_path, column_family_names),
-            Self::WipeNodeState { db_path } => wipe_node_state(db_path),
+            Self::WipeNodeState {
+                db_path,
+                keep_event_store,
+            } => wipe_node_state(db_path, keep_event_store),
             Self::RestoreColumnFamilies {
                 db_path,
                 input_db_path,
@@ -1019,7 +1027,7 @@ fn holds_blob_data(column_family_name: &str) -> bool {
 }
 
 /// Wipes a stopped node's state except its blob data; see the command's documentation.
-fn wipe_node_state(db_path: PathBuf) -> Result<()> {
+fn wipe_node_state(db_path: PathBuf, keep_event_store: bool) -> Result<()> {
     let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)
         .context("failed to list the column families; is this the node's storage path?")?;
     let (kept, dropped): (Vec<_>, Vec<_>) = column_families
@@ -1042,11 +1050,12 @@ fn wipe_node_state(db_path: PathBuf) -> Result<()> {
 
     // The event processor's database (`EventProcessorRuntime`), the event blob writer's state
     // (`EventBlobWriterFactory`), and the local snapshot files.
-    let subdirectories = [
-        db_path.join("events"),
-        db_path.join("event_blob_writer"),
-        snapshot_base_dir(&db_path),
-    ];
+    let mut subdirectories = vec![db_path.join("event_blob_writer"), snapshot_base_dir(&db_path)];
+    if keep_event_store {
+        println!("Keeping the event processor's database: {}", db_path.join("events").display());
+    } else {
+        subdirectories.push(db_path.join("events"));
+    }
     for directory in subdirectories.iter().filter(|directory| directory.exists()) {
         std::fs::create_dir_all(&aside_dir)?;
         let target = aside_dir.join(
