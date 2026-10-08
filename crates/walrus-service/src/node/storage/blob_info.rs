@@ -92,7 +92,9 @@ pub(super) struct BlobInfoTable {
     per_object_blob_info: DBMap<ObjectID, PerObjectBlobInfo>,
     per_object_pooled_blob_info: DBMap<ObjectID, PerObjectPooledBlobInfo>,
     storage_pool_info: DBMap<ObjectID, StoragePoolInfo>,
-    pub(super) latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
+    // Event metadata is applied sequentially by the event processor. Persist this watermark
+    // with each update for replay safety; reconciliation never writes it.
+    latest_handled_event_index: DBMap<(), u64>,
     pub(super) strata_lifecycle: Option<Arc<super::strata_lifecycle::StrataLifecycle>>,
 }
 
@@ -170,12 +172,12 @@ impl BlobInfoTable {
             &ReadWriteOptions::default(),
             false,
         )?;
-        let latest_handled_event_index = Arc::new(Mutex::new(DBMap::reopen(
+        let latest_handled_event_index = DBMap::reopen(
             database,
             Some(constants::event_index_cf_name()),
             &ReadWriteOptions::default(),
             false,
-        )?));
+        )?;
 
         let table = Self {
             aggregate_blob_info,
@@ -254,10 +256,7 @@ impl BlobInfoTable {
         self.per_object_blob_info.schedule_delete_all()?;
         self.per_object_pooled_blob_info.schedule_delete_all()?;
         self.storage_pool_info.schedule_delete_all()?;
-        self.latest_handled_event_index
-            .lock()
-            .expect("mutex should not be poisoned")
-            .schedule_delete_all()?;
+        self.latest_handled_event_index.schedule_delete_all()?;
 
         Ok(())
     }
@@ -294,16 +293,14 @@ impl BlobInfoTable {
     /// Updates the blob info for a blob based on the [`BlobEvent`].
     ///
     /// Only updates the info if the provided `event_index` hasn't been processed yet.
+    /// Callers must apply metadata events sequentially in event-index order.
     #[tracing::instrument(skip(self))]
     pub fn update_blob_info(
         &self,
         event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
-        let latest_handled_event_index = self
-            .latest_handled_event_index
-            .lock()
-            .expect("mutex should not be poisoned");
+        let latest_handled_event_index = &self.latest_handled_event_index;
         if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
             tracing::debug!("skip updating blob info for already handled event");
             return Ok(());
@@ -368,7 +365,7 @@ impl BlobInfoTable {
             }
         }
 
-        batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
+        batch.insert_batch(latest_handled_event_index, [(&(), event_index)])?;
         batch.write()
     }
 
@@ -490,10 +487,7 @@ impl BlobInfoTable {
             return self.update_blob_info(event_index, event);
         }
 
-        let latest_handled_event_index = self
-            .latest_handled_event_index
-            .lock()
-            .expect("mutex should not be poisoned");
+        let latest_handled_event_index = &self.latest_handled_event_index;
         if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
             tracing::info!("skip updating blob info for already handled event");
             return Ok(());
@@ -548,7 +542,7 @@ impl BlobInfoTable {
                 true,
             )?;
         }
-        batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
+        batch.insert_batch(latest_handled_event_index, [(&(), event_index)])?;
         batch.write()
     }
 
@@ -719,15 +713,13 @@ impl BlobInfoTable {
     ///
     /// Strata marks the pool dirty in the same batch. Puts resolve its live expiry through
     /// the blob->pool lookup; the worker expands membership at the next reconciliation.
+    /// Callers apply metadata events sequentially and hold the pool lock when Strata is enabled.
     pub fn update_storage_pool_info(
         &self,
         event_index: u64,
         event: &StoragePoolEvent,
     ) -> Result<(), TypedStoreError> {
-        let latest_handled_event_index = self
-            .latest_handled_event_index
-            .lock()
-            .expect("mutex should not be poisoned");
+        let latest_handled_event_index = &self.latest_handled_event_index;
         if Self::has_event_been_handled(latest_handled_event_index.get(&())?, event_index) {
             tracing::debug!("skip updating storage pool info for already handled event");
             return Ok(());
@@ -757,7 +749,7 @@ impl BlobInfoTable {
             batch.insert_batch(&lifecycle.pools, [(*storage_pool_id, event_index)])?;
         }
         batch.partial_merge_batch(table, [(storage_pool_id, operand.to_bytes())])?;
-        batch.insert_batch(&latest_handled_event_index, [(&(), event_index)])?;
+        batch.insert_batch(latest_handled_event_index, [(&(), event_index)])?;
         batch.write()?;
         Ok(())
     }
@@ -861,12 +853,7 @@ impl BlobInfoTable {
 
     /// Returns the latest event index that has been handled by the node.
     pub(crate) fn get_latest_handled_event_index(&self) -> Result<u64, TypedStoreError> {
-        Ok(self
-            .latest_handled_event_index
-            .lock()
-            .expect("acquire latest_handled_event_index lock should not fail")
-            .get(&())?
-            .unwrap_or(0))
+        Ok(self.latest_handled_event_index.get(&())?.unwrap_or(0))
     }
 
     /// Removes storage pool info entries whose end epoch has passed.

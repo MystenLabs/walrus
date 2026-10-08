@@ -879,6 +879,156 @@ async fn blocked_worker_does_not_block_requests_events_or_unrelated_puts() -> Te
 }
 
 #[tokio::test]
+async fn pool_cleanup_only_blocks_updates_to_the_locked_pools() -> TestResult {
+    let other_pool = ObjectID::from_single_byte(92);
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        for (index, pool) in [(0, POOL), (1, other_pool)] {
+            storage
+                .update_storage_pool_info_coordinated(
+                    index,
+                    &StoragePoolEvent::created_for_testing(pool, 1, 20),
+                )
+                .await?;
+        }
+        storage
+            .update_blob_info_coordinated(
+                2,
+                &walrus_sui::types::BlobEvent::PooledBlobRegistered(PooledBlobRegistered {
+                    storage_pool_id: POOL,
+                    ..PooledBlobRegistered::for_testing_with_random_object_id(X)
+                }),
+            )
+            .await?;
+        storage
+            .update_storage_pool_info_coordinated(
+                3,
+                &StoragePoolEvent::extended_for_testing(POOL, 30),
+            )
+            .await?;
+        let lifecycle = &strata(&storage).lifecycle;
+        let guard = lifecycle.lock_pools(&[POOL]).await?;
+        storage.request_strata_reconciliation(2, 2).await?;
+        let worker_storage = storage.clone();
+        let mut worker = tokio::spawn(async move { run_until(&worker_storage, 2, true).await });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            // Blob work finishes, but clearing POOL's pending extension must wait for its lock.
+            while lifecycle.blobs.get(&X)?.is_some() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut worker)
+                .await
+                .is_err()
+        );
+
+        tokio::time::timeout(Duration::from_secs(5), async {
+            // A pool and blob with identical bytes must still have independent locks.
+            let blob_guard = lifecycle.lock_blobs(&[POOL.as_ref()]).await?;
+            drop(blob_guard);
+            storage
+                .update_blob_info_coordinated(4, &registration(Y, 100).into())
+                .await?;
+            storage
+                .update_storage_pool_info_coordinated(
+                    5,
+                    &StoragePoolEvent::extended_for_testing(other_pool, 40),
+                )
+                .await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        // Keep metadata events sequential. Only after 4 and 5 finish do we start event 6.
+        let event_storage = storage.clone();
+        let mut extension = tokio::spawn(async move {
+            event_storage
+                .update_storage_pool_info_coordinated(
+                    6,
+                    &StoragePoolEvent::extended_for_testing(POOL, 40),
+                )
+                .await
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut extension)
+                .await
+                .is_err()
+        );
+        assert_eq!(lifecycle.pools.get(&POOL)?, Some(3));
+        assert_eq!(storage.get_latest_handled_event_index()?, 5);
+        drop(guard);
+        extension.await??;
+        worker.await??;
+        // Whether cleanup or extension got the lock first, the new pending work must survive.
+        assert_eq!(lifecycle.pools.get(&POOL)?, Some(6));
+        assert_eq!(lifecycle.pools.get(&other_pool)?, Some(5));
+        reconcile(&storage, 3, 3, true).await?;
+        assert!(lifecycle.pools.is_empty());
+        assert_eq!(lifecycle.lifetimes.get(&X)?, Some(40));
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn epoch_request_sync_blocks_the_worker_but_not_metadata_events() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let lifecycle = strata(&storage).lifecycle.clone();
+        let (visible_tx, visible_rx) = tokio::sync::oneshot::channel();
+        let (sync_tx, sync_rx) = std::sync::mpsc::channel();
+        let publisher = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let _request = lifecycle
+                .epoch_request
+                .lock()
+                .expect("epoch request mutex poisoned");
+            // Model the interval in which a request is visible in RocksDB but not yet synced.
+            let mut batch = lifecycle.requested_epoch.batch();
+            batch.insert_batch(&lifecycle.requested_epoch, [((), 2)])?;
+            batch.write()?;
+            visible_tx
+                .send(())
+                .expect("test is waiting for the request");
+            sync_rx.recv()?;
+            lifecycle.db.flush_wal(true)?;
+            Ok(())
+        });
+        visible_rx.await?;
+        let worker_storage = storage.clone();
+        let mut worker = tokio::spawn(async move { run_until(&worker_storage, 2, true).await });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            storage
+                .update_blob_info_coordinated(0, &registration(X, 20).into())
+                .await?;
+            storage
+                .update_storage_pool_info_coordinated(
+                    1,
+                    &StoragePoolEvent::created_for_testing(POOL, 1, 20),
+                )
+                .await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), &mut worker)
+                .await
+                .is_err()
+        );
+        assert!(strata(&storage).lifecycle.progress.get(&())?.is_none());
+        sync_tx.send(())?;
+        publisher.await??;
+        worker.await??;
+        assert_eq!(strata(&storage).store.current_epoch()?, 2);
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn only_one_worker_can_start_until_the_store_is_reopened() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;

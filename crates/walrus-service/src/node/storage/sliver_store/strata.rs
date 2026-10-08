@@ -116,20 +116,33 @@ impl StrataSliverStore {
                 for group in snapshot.blobs.chunks(256) {
                     this.reconcile_blobs(epoch, group, delete_data).await?;
                 }
+                // Extension event 100 marked P dirty. Clear it only if no event 101 has
+                // replaced that marker. Hold P's lock from the check through the synced delete;
+                // otherwise event 101 could arrive between them and lose its pending work.
+                for group in snapshot.pools.chunks(256) {
+                    let pools: Vec<_> = group.iter().map(|(pool, _)| *pool).collect();
+                    let _guard = this.lifecycle.lock_pools(&pools).await?;
+                    let mut cleanup = HaltOnIncompleteWrite::new(this.lifecycle.clone());
+                    let writer = this.clone();
+                    let group = group.to_vec();
+                    utils::unwrap_or_resume_unwind(
+                        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                            let mut batch = writer.lifecycle.pools.batch();
+                            for (pool, event_index) in group {
+                                if writer.lifecycle.pools.get(&pool)? == Some(event_index) {
+                                    batch.delete_batch(&writer.lifecycle.pools, [pool])?;
+                                }
+                            }
+                            batch.write_with_sync(true)?;
+                            Ok(())
+                        })
+                        .await,
+                    )?;
+                    cleanup.complete();
+                }
                 let writer = this.clone();
                 let finish = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-                    // Pool events use this same metadata mutex. Preserve newer pool changes.
-                    let _metadata = writer
-                        .blob_info
-                        .latest_handled_event_index
-                        .lock()
-                        .expect("event mutex poisoned");
                     let mut batch = writer.lifecycle.progress.batch();
-                    for (pool, event_index) in snapshot.pools {
-                        if writer.lifecycle.pools.get(&pool)? == Some(event_index) {
-                            batch.delete_batch(&writer.lifecycle.pools, [pool])?;
-                        }
-                    }
                     batch.insert_batch(
                         &writer.lifecycle.progress,
                         [((), EpochProgress::Advancing(epoch))],

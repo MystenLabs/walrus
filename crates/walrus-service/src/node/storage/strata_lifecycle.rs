@@ -4,7 +4,7 @@
 //! Epoch reconciliation bookkeeping. Events mark IDs; a worker computes final lifetimes.
 //! All tables share the Walrus RocksDB, so dirty markers commit with reference metadata.
 
-use std::sync::{Arc, atomic::AtomicBool};
+use std::sync::{Arc, Mutex, atomic::AtomicBool};
 
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
@@ -81,6 +81,9 @@ pub(super) struct StrataLifecycle {
     pub progress: DBMap<(), EpochProgress>,
     // Latest requested target; it can move ahead while an older pass is still running.
     pub requested_epoch: DBMap<(), Epoch>,
+    // Held while publishing an epoch request through fsync, and while the worker reads it.
+    // RocksDB makes writes visible before fsync returns. Blob/pool events never take this lock.
+    pub epoch_request: Mutex<()>,
     pub wake: tokio::sync::Notify,
     pub db: Arc<dyn IndexDb>,
     // Claimed once per opened store. Never reset on cancellation: a detached pass may still
@@ -146,6 +149,7 @@ impl StrataLifecycle {
                 &ReadWriteOptions::default(),
                 false,
             )?,
+            epoch_request: Mutex::new(()),
             wake: tokio::sync::Notify::new(),
             db: self::database(database),
             worker_started: AtomicBool::new(false),

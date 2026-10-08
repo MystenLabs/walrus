@@ -8,6 +8,7 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 
+use sui_types::base_types::ObjectID;
 use tokio::sync::{
     Mutex as AsyncMutex,
     OwnedMutexGuard,
@@ -23,27 +24,33 @@ type Result<T> = std::result::Result<T, TypedStoreError>;
 #[derive(Debug, Default)]
 pub(super) struct Coordination {
     lifecycle: Arc<RwLock<()>>,
-    blobs: Mutex<HashMap<Vec<u8>, Weak<BlobLock>>>,
+    keys: Mutex<HashMap<LockKey, Weak<KeyLock>>>,
     halt_reason: Mutex<Option<String>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum LockKey {
+    Blob(Vec<u8>),
+    Pool(ObjectID),
+}
+
 #[derive(Debug)]
-struct BlobLock {
-    key: Vec<u8>,
+struct KeyLock {
+    key: LockKey,
     mutex: Arc<AsyncMutex<()>>,
     owner: Weak<Coordination>,
 }
 
-impl Drop for BlobLock {
+impl Drop for KeyLock {
     fn drop(&mut self) {
         if let Some(owner) = self.owner.upgrade() {
-            let mut blobs = owner.blobs.lock().expect("blob lock registry poisoned");
+            let mut keys = owner.keys.lock().expect("key lock registry poisoned");
             // A new acquisition may already have replaced our expired weak entry.
-            if blobs
+            if keys
                 .get(&self.key)
                 .is_some_and(|entry| std::ptr::eq(entry.as_ptr(), self))
             {
-                blobs.remove(&self.key);
+                keys.remove(&self.key);
             }
         }
     }
@@ -52,75 +59,89 @@ impl Drop for BlobLock {
 #[derive(Debug)]
 #[must_use = "hold this guard through the protected blob work and durable acknowledgement"]
 pub struct LockedBlobs {
-    // Drop mutex guards before releasing their registry entries, and the lifecycle guard last.
-    _guards: Vec<OwnedMutexGuard<()>>,
-    _entries: Vec<Arc<BlobLock>>,
-    _coordination: Arc<Coordination>,
+    // Release the per-blob locks before allowing a shard or epoch change.
+    _keys: LockedKeys,
     _lifecycle: OwnedRwLockReadGuard<()>,
+}
+
+#[derive(Debug)]
+#[must_use = "hold this guard through the protected updates and acknowledgement"]
+pub struct LockedKeys {
+    // Keep entries alive while waiting/holding their mutexes so the weak registry reuses them.
+    // Drop mutex guards before releasing the entries.
+    _guards: Vec<OwnedMutexGuard<()>>,
+    _entries: Vec<Arc<KeyLock>>,
 }
 
 #[derive(Debug)]
 #[must_use = "hold this guard through the shard or epoch change and its durability"]
 pub struct LifecycleGuard {
-    _coordination: Arc<Coordination>,
     _guard: OwnedRwLockWriteGuard<()>,
 }
 
 impl StrataLifecycle {
     pub async fn lock_blobs(&self, keys: &[&[u8]]) -> Result<LockedBlobs> {
         self.check_running()?;
-        // Blob locks alone cannot exclude shard recreation or epoch changes: those affect many
-        // blobs and take the lifecycle lock exclusively. For example, a delete could validate
-        // shard 7 generation 0, then a drop/recreate could make its tombstone target generation 1.
-        // Take the shared lifecycle guard first and retain it in LockedBlobs through Strata
-        // durability and RocksDB acknowledgement. This also makes epoch advancement wait for
-        // an in-flight lifetime extension to finish. Shared mode allows unrelated blobs to run
-        // concurrently; exclusive mode would serialize all blob work. Reconciliation must finish
-        // the boundary's lifetime updates before advancing the epoch.
+        // Example: a put checks shard 7's generation, then submits its data. A shard drop/recreate
+        // must not happen between those steps. Likewise, advancing Strata's epoch must wait for
+        // an in-flight lifetime update to finish. Shared mode still lets other blobs make progress.
         let lifecycle = self.coordination.lifecycle.clone().read_owned().await;
-        let mut keys: Vec<_> = keys.iter().map(|key| key.to_vec()).collect();
+        let keys = self
+            .lock_keys(keys.iter().map(|key| LockKey::Blob(key.to_vec())).collect())
+            .await?;
+        Ok(LockedBlobs {
+            _keys: keys,
+            _lifecycle: lifecycle,
+        })
+    }
+
+    pub async fn lock_pools(&self, pools: &[ObjectID]) -> Result<LockedKeys> {
+        // Pool metadata and dirty-marker cleanup do not mutate Strata's shards or clock.
+        self.lock_keys(pools.iter().copied().map(LockKey::Pool).collect())
+            .await
+    }
+
+    async fn lock_keys(&self, mut keys: Vec<LockKey>) -> Result<LockedKeys> {
+        self.check_running()?;
         keys.sort_unstable();
         keys.dedup();
         let entries: Vec<_> = {
-            let mut blobs = self
+            let mut registry = self
                 .coordination
-                .blobs
+                .keys
                 .lock()
-                .expect("blob lock registry poisoned");
+                .expect("key lock registry poisoned");
             keys.into_iter()
                 .map(|key| {
-                    if let Some(entry) = blobs.get(&key).and_then(Weak::upgrade) {
+                    if let Some(entry) = registry.get(&key).and_then(Weak::upgrade) {
                         return entry;
                     }
-                    let entry = Arc::new(BlobLock {
+                    let entry = Arc::new(KeyLock {
                         key: key.clone(),
                         mutex: Arc::default(),
                         owner: Arc::downgrade(&self.coordination),
                     });
-                    blobs.insert(key, Arc::downgrade(&entry));
+                    registry.insert(key, Arc::downgrade(&entry));
                     entry
                 })
                 .collect()
         };
         // Reservations stay alive while waiting. Cancelling an acquisition releases both the
-        // already-acquired guards and the registry entries; there is no permanent per-blob map.
+        // already-acquired guards and the registry entries; idle keys do not accumulate.
         let mut guards = Vec::with_capacity(entries.len());
         for entry in &entries {
             guards.push(entry.mutex.clone().lock_owned().await);
         }
         self.check_running()?;
-        Ok(LockedBlobs {
+        Ok(LockedKeys {
             _guards: guards,
             _entries: entries,
-            _coordination: self.coordination.clone(),
-            _lifecycle: lifecycle,
         })
     }
 
     pub async fn lock_lifecycle(&self) -> Result<LifecycleGuard> {
         self.check_running()?;
         let guard = LifecycleGuard {
-            _coordination: self.coordination.clone(),
             _guard: self.coordination.lifecycle.clone().write_owned().await,
         };
         self.check_running()?;

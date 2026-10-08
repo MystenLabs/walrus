@@ -731,10 +731,12 @@ impl Storage {
         if epoch != current_epoch {
             return Ok(());
         }
-        let metadata = self.blob_info.latest_handled_event_index.clone();
         utils::unwrap_or_resume_unwind(
             tokio::task::spawn_blocking(move || {
-                let _metadata = metadata.lock().expect("event mutex poisoned");
+                let _request = lifecycle
+                    .epoch_request
+                    .lock()
+                    .expect("epoch request mutex poisoned");
                 lifecycle.check_running()?;
                 let mut completion =
                     strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone());
@@ -766,13 +768,15 @@ impl Storage {
             "Strata reconciliation worker already started; reopen the store to restart it"
         );
         loop {
-            let metadata = self.blob_info.latest_handled_event_index.clone();
             let reader = lifecycle.clone();
             let read_next_epoch =
                 tokio::task::spawn_blocking(move || -> anyhow::Result<Option<Epoch>> {
                     // A requested epoch is visible in RocksDB before its fsync returns. Wait for
                     // the requesting task to finish (or halt admission) before consuming it.
-                    let _metadata = metadata.lock().expect("event mutex poisoned");
+                    let _request = reader
+                        .epoch_request
+                        .lock()
+                        .expect("epoch request mutex poisoned");
                     reader.check_running()?;
                     let requested = reader.requested_epoch.get(&())?.unwrap_or_default();
                     let progress = reader.progress.get(&())?;
@@ -1148,16 +1152,21 @@ impl Storage {
         let storage = self.clone();
         let event = event.clone();
         utils::unwrap_or_resume_unwind(
-            tokio::task::spawn_blocking(move || {
+            tokio::spawn(async move {
                 let lifecycle = storage
                     .blob_info
                     .strata_lifecycle
-                    .as_ref()
+                    .clone()
                     .expect("Strata tables are open");
-                lifecycle.check_running()?;
+                let _guard = lifecycle.lock_pools(&[event.storage_pool_id()]).await?;
                 let mut completion =
                     strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone());
-                storage.update_storage_pool_info(event_index, &event)?;
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        storage.update_storage_pool_info(event_index, &event)
+                    })
+                    .await,
+                )?;
                 completion.complete();
                 Ok(())
             })
