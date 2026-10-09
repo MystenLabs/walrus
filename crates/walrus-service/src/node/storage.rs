@@ -7,7 +7,7 @@ use std::{
     fmt::Debug,
     ops::Bound::{self, Excluded, Included},
     path::Path,
-    sync::Arc,
+    sync::{Arc, atomic::Ordering},
     time::Instant,
 };
 
@@ -60,6 +60,7 @@ use self::{
     },
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
+    strata_lifecycle::EpochProgress,
 };
 use super::{
     errors::{ShardNotAssigned, SyncShardServiceError},
@@ -89,11 +90,10 @@ mod sliver_store;
 
 // Lifecycle queue integration for the Strata sliver backend.
 #[allow(dead_code)]
-pub(crate) mod strata_queue;
+pub(crate) mod strata_lifecycle;
 pub(crate) use shard::{ShardStatus, ShardStorage};
 use sliver_store::SliverStore;
 pub(crate) use sliver_store::{PrimarySliverData, SecondarySliverData};
-use strata_queue::StrataQueue;
 
 pub(super) const SLIVER_STORE_BACKEND_CF: &str = "sliver_store_backend";
 
@@ -368,7 +368,6 @@ pub struct Storage {
     blob_info: BlobInfoTable,
     event_cursor: EventCursorTable,
     pending_recover_blobs: PendingRecoverBlobsTable,
-    pub(crate) strata_queue: StrataQueue,
     garbage_collector_table: DBMap<String, Epoch>,
     shards: Arc<RwLock<HashMap<ShardIndex, Arc<ShardStorage>>>>,
     db_table_opts_factory: DatabaseTableOptionsFactory,
@@ -524,7 +523,7 @@ impl Storage {
                 ),
             ])
             .chain(blob_info_column_families)
-            .chain(strata_queue::options(&db_table_opts_factory))
+            .chain(strata_lifecycle::options(&db_table_opts_factory))
             .chain(
                 strata_column_families
                     .iter_mut()
@@ -567,8 +566,7 @@ impl Storage {
             Some(_) => {}
         }
 
-        let strata_database = strata_queue::database(&database);
-        let strata_queue = StrataQueue::new(strata_database.clone());
+        let strata_database = strata_lifecycle::database(&database);
         let blob_info =
             BlobInfoTable::reopen(&database, sliver_backend == SliverStoreBackendKind::Strata)?;
         let sliver_store = match sliver_backend {
@@ -579,7 +577,10 @@ impl Storage {
                 path,
                 &metrics_registry,
                 strata_database,
-                strata_queue.clone(),
+                blob_info
+                    .strata_lifecycle
+                    .clone()
+                    .expect("Strata lifecycle tables are open"),
                 blob_info.clone(),
             )?,
         };
@@ -694,7 +695,6 @@ impl Storage {
             blob_info,
             event_cursor,
             pending_recover_blobs,
-            strata_queue,
             garbage_collector_table,
             shards,
             db_table_opts_factory,
@@ -713,16 +713,105 @@ impl Storage {
         self.database.clone()
     }
 
-    /// Supervised by the node event loop. Errors stop the node; puts also check the queue's
-    /// admission gate and can drive prerequisite work before this polling task starts.
-    pub(crate) async fn run_strata_worker(&self) -> anyhow::Result<()> {
-        let Some(worker) = self.sliver_store.strata_worker() else {
+    /// Whether slivers are stored in Strata.
+    pub(crate) fn is_strata(&self) -> bool {
+        self.sliver_store.is_strata()
+    }
+
+    /// Durably request reconciliation after the current epoch's metadata boundary. The worker
+    /// owns the scan and clock advance; the event handler waits only for this small commit.
+    pub(crate) async fn request_strata_reconciliation(
+        &self,
+        epoch: Epoch,
+        current_epoch: Epoch,
+    ) -> anyhow::Result<()> {
+        let Some(lifecycle) = self.blob_info.strata_lifecycle.clone() else {
+            return Ok(());
+        };
+        if epoch != current_epoch {
+            return Ok(());
+        }
+        utils::unwrap_or_resume_unwind(
+            tokio::task::spawn_blocking(move || {
+                let _request = lifecycle
+                    .epoch_request
+                    .lock()
+                    .expect("epoch request mutex poisoned");
+                lifecycle.check_running()?;
+                let mut completion =
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone());
+                let requested = lifecycle.requested_epoch.get(&())?.unwrap_or_default();
+                if epoch > requested {
+                    let mut batch = lifecycle.requested_epoch.batch();
+                    batch.insert_batch(&lifecycle.requested_epoch, [((), epoch)])?;
+                    batch.write_with_sync(true)?;
+                }
+                completion.complete();
+                // Notify inside the task: cancellation of the caller must not lose the wakeup.
+                lifecycle.wake.notify_one();
+                Ok::<_, anyhow::Error>(())
+            })
+            .await,
+        )
+    }
+
+    /// One worker finishes an interrupted pass first, then coalesces requests to the latest
+    /// durable target. Keeping the target separate means completion cannot erase newer work.
+    pub(crate) async fn run_strata_reconciliation(&self, delete_data: bool) -> anyhow::Result<()> {
+        let Some(lifecycle) = &self.blob_info.strata_lifecycle else {
             return std::future::pending().await;
         };
-        let (shutdown, receiver) = tokio::sync::watch::channel(false);
-        let result = worker.run(receiver).await;
-        drop(shutdown);
-        result.map_err(Into::into)
+        // Claim the worker before doing any work. It awaits every pass, so passes cannot
+        // overlap. Keep the claim even if this future is cancelled: its last pass may still run.
+        anyhow::ensure!(
+            !lifecycle.worker_started.swap(true, Ordering::Relaxed),
+            "Strata reconciliation worker already started; reopen the store to restart it"
+        );
+        loop {
+            let reader = lifecycle.clone();
+            let read_next_epoch =
+                tokio::task::spawn_blocking(move || -> anyhow::Result<Option<Epoch>> {
+                    // A requested epoch is visible in RocksDB before its fsync returns. Wait for
+                    // the requesting task to finish (or halt admission) before consuming it.
+                    let _request = reader
+                        .epoch_request
+                        .lock()
+                        .expect("epoch request mutex poisoned");
+                    reader.check_running()?;
+                    let requested = reader.requested_epoch.get(&())?.unwrap_or_default();
+                    let progress = reader.progress.get(&())?;
+
+                    // Select which epoch to process; reconcile_epoch uses the same checkpoint
+                    // to decide which phase to resume. Finish an interrupted pass first, even
+                    // if requested_epoch has moved ahead (e.g. resume 100 before starting 102).
+                    if let Some(EpochProgress::Applying(epoch) | EpochProgress::Advancing(epoch)) =
+                        progress
+                    {
+                        return Ok(Some(epoch));
+                    }
+
+                    if requested == GENESIS_EPOCH {
+                        return Ok(None);
+                    }
+                    if let Some(EpochProgress::Complete(completed)) = progress
+                        && completed >= requested
+                    {
+                        return Ok(None);
+                    }
+
+                    Ok(Some(requested))
+                });
+            let next_epoch = utils::unwrap_or_resume_unwind(read_next_epoch.await)?;
+            if let Some(epoch) = next_epoch {
+                tracing::info!(walrus.epoch = epoch, "starting Strata reconciliation");
+                self.sliver_store
+                    .reconcile_epoch(epoch, delete_data)
+                    .await?;
+                tracing::info!(walrus.epoch = epoch, "completed Strata reconciliation");
+            } else {
+                lifecycle.wake.notified().await;
+            }
+        }
     }
 
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
@@ -1043,7 +1132,6 @@ impl Storage {
     /// Updates the storage pool info based on a [`StoragePoolEvent`].
     ///
     /// The update is written atomically with `latest_handled_event_index` for crash-restart safety.
-    /// Strata extension producers use the coordinated entry point to finish earlier pool jobs.
     pub(crate) fn update_storage_pool_info(
         &self,
         event_index: u64,
@@ -1052,8 +1140,7 @@ impl Storage {
         self.blob_info.update_storage_pool_info(event_index, event)
     }
 
-    /// Record a pool extension job without scanning membership. Finish an earlier job before
-    /// accepting this event; the worker expands the new job in the background.
+    /// Pool events only mark their ID. Membership is scanned once at the epoch boundary.
     pub(crate) async fn update_storage_pool_info_coordinated(
         &self,
         event_index: u64,
@@ -1064,17 +1151,16 @@ impl Storage {
         }
         let storage = self.clone();
         let event = event.clone();
-        // Complete a started metadata commit even if the awaiting request is cancelled.
         utils::unwrap_or_resume_unwind(
             tokio::spawn(async move {
-                storage.finish_strata_pool_extensions().await?;
-                let _guard = storage
-                    .strata_queue
-                    .lock_lifecycle()
-                    .await
-                    .map_err(strata_queue::queue_error)?;
+                let lifecycle = storage
+                    .blob_info
+                    .strata_lifecycle
+                    .clone()
+                    .expect("Strata tables are open");
+                let _guard = lifecycle.lock_pools(&[event.storage_pool_id()]).await?;
                 let mut completion =
-                    strata_queue::HaltOnIncompleteWrite::new(storage.strata_queue.clone());
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone());
                 utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
                         storage.update_storage_pool_info(event_index, &event)
@@ -1086,14 +1172,6 @@ impl Storage {
             })
             .await,
         )
-    }
-
-    /// Finish pool expansion before later events or GC mutate membership or append commands.
-    /// This is also driven by the supervised worker when no subsequent events arrive.
-    pub(crate) async fn finish_strata_pool_extensions(&self) -> Result<(), TypedStoreError> {
-        self.blob_info
-            .finish_strata_pool_extensions(&self.strata_queue)
-            .await
     }
 
     /// Returns the current event cursor and the next event index.
@@ -1129,7 +1207,7 @@ impl Storage {
         }
     }
 
-    /// Serialize reference changes with Strata's final put check and lifecycle worker. Event
+    /// Serialize reference changes with Strata's final put check and epoch reconciliation. Event
     /// producers call this entry point; the synchronous helper is also used by RocksDB fixtures.
     pub(crate) async fn update_blob_info_coordinated(
         &self,
@@ -1144,29 +1222,23 @@ impl Storage {
         // Complete a started metadata commit even if its awaiting task is cancelled.
         utils::unwrap_or_resume_unwind(
             tokio::spawn(async move {
-                storage.finish_strata_pool_extensions().await?;
                 let blob_id = event.blob_id();
-                let _guard = storage
-                    .strata_queue
-                    .lock_blobs(&[&blob_id.0])
-                    .await
-                    .map_err(strata_queue::queue_error)?;
+                let lifecycle = storage
+                    .blob_info
+                    .strata_lifecycle
+                    .clone()
+                    .expect("Strata tables are open");
+                let _guard = lifecycle.lock_blobs(&[&blob_id.0]).await?;
                 let mut completion =
-                    strata_queue::HaltOnIncompleteWrite::new(storage.strata_queue.clone());
-                let queue = storage.strata_queue.clone();
-                let result = utils::unwrap_or_resume_unwind(
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone());
+                utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
                         storage.update_blob_info(event_index, &event)
                     })
                     .await,
-                );
-                if let Err(error) = &result {
-                    queue.halt(error.to_string());
-                }
-                if result.is_ok() {
-                    completion.complete();
-                }
-                result
+                )?;
+                completion.complete();
+                Ok(())
             })
             .await,
         )
@@ -1179,7 +1251,6 @@ impl Storage {
         node_metrics: &NodeMetricSet,
         batch_size: usize,
     ) -> anyhow::Result<()> {
-        self.finish_strata_pool_extensions().await?;
         self.blob_info
             .process_expired_storage_pools(current_epoch, node_metrics, batch_size)
             .await
@@ -1195,7 +1266,6 @@ impl Storage {
         node_metrics: &NodeMetricSet,
         batch_size: usize,
     ) -> anyhow::Result<()> {
-        self.finish_strata_pool_extensions().await?;
         self.blob_info
             .process_expired_blob_objects(current_epoch, node_metrics, batch_size)
             .await
@@ -1584,8 +1654,12 @@ impl Storage {
             &self.metadata.cf().expect("metadata CF must always exist"),
             blob_id,
         )?;
-        for shard in shards {
-            shard.delete_sliver_pair_in_transaction(transaction, blob_id)?;
+        // Strata handles slivers at the epoch boundary. This transaction can still reclaim
+        // Walrus metadata; the independently persisted dirty ID survives this cleanup.
+        if !self.sliver_store.is_strata() {
+            for shard in shards {
+                shard.delete_sliver_pair_in_transaction(transaction, blob_id)?;
+            }
         }
         Ok(())
     }

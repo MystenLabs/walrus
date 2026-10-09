@@ -9,6 +9,7 @@ use std::{
     time::Instant,
 };
 
+#[cfg(not(msim))]
 use futures::{StreamExt, stream::FuturesUnordered};
 use rocksdb::Transaction;
 use serde::{Deserialize, Serialize};
@@ -122,7 +123,7 @@ impl SliverStore {
         path: &Path,
         metrics_registry: &walrus_utils::metrics::Registry,
         database: Arc<dyn strata_index::port::IndexDb>,
-        queue: super::strata_queue::StrataQueue,
+        lifecycle: Arc<super::strata_lifecycle::StrataLifecycle>,
         blob_info: super::blob_info::BlobInfoTable,
     ) -> anyhow::Result<Self> {
         Ok(Self {
@@ -130,7 +131,7 @@ impl SliverStore {
                 path,
                 metrics_registry,
                 database,
-                queue,
+                lifecycle,
                 blob_info,
             )?)),
         })
@@ -140,10 +141,14 @@ impl SliverStore {
         matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
     }
 
-    pub(crate) fn strata_worker(&self) -> Option<super::strata_queue::StrataWorker> {
+    pub(super) async fn reconcile_epoch(
+        &self,
+        epoch: walrus_core::Epoch,
+        delete_data: bool,
+    ) -> anyhow::Result<()> {
         match self.backend.as_ref() {
-            SliverStoreBackend::Strata(store) => Some(store.worker()),
-            SliverStoreBackend::RocksDb(_) => None,
+            SliverStoreBackend::Strata(store) => store.reconcile_epoch(epoch, delete_data).await,
+            SliverStoreBackend::RocksDb(_) => Ok(()),
         }
     }
 
@@ -242,7 +247,7 @@ impl SliverStore {
             }
             SliverStoreBackend::Strata(store) => {
                 let shard_ids = shards.iter().map(|(shard, _)| *shard).collect::<Vec<_>>();
-                store.contains_pairs_in_all(*blob_id, &shard_ids)
+                store.contains_sliver_pairs_in_all(*blob_id, &shard_ids)
             }
         }
     }
