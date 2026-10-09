@@ -381,7 +381,7 @@ public(package) fun certify(
 /// Emit `PooledBlobDeleted` event for the current epoch.
 /// Also removes any metadata associated with the blob.
 public(package) fun delete_blob_object(mut pooled_blob: PooledBlob, epoch: u32) {
-    dynamic_field::remove_if_exists<_, Metadata>(&mut pooled_blob.id, METADATA_DF);
+    dynamic_field::remove_opt<_, Metadata>(&mut pooled_blob.id, METADATA_DF);
     let PooledBlob {
         id,
         deletable,
@@ -407,7 +407,7 @@ public(package) fun delete_blob_object(mut pooled_blob: PooledBlob, epoch: u32) 
 /// No event is emitted because the server-side blob info entry may already be garbage collected.
 /// Also removes any metadata associated with the blob.
 public(package) fun burn_blob_object(mut pooled_blob: PooledBlob) {
-    dynamic_field::remove_if_exists<_, Metadata>(&mut pooled_blob.id, METADATA_DF);
+    dynamic_field::remove_opt<_, Metadata>(&mut pooled_blob.id, METADATA_DF);
     let PooledBlob { id, .. } = pooled_blob;
     id.delete();
 }
@@ -426,7 +426,7 @@ public(package) fun is_certified(self: &PooledBlob): bool {
 ///
 /// Aborts if the metadata is already present.
 fun add_metadata(self: &mut PooledBlob, metadata: Metadata) {
-    assert!(!dynamic_field::exists_(&self.id, METADATA_DF), EDuplicateMetadata);
+    assert!(!dynamic_field::exists(&self.id, METADATA_DF), EDuplicateMetadata);
     dynamic_field::add(&mut self.id, METADATA_DF, metadata)
 }
 
@@ -435,7 +435,7 @@ fun add_metadata(self: &mut PooledBlob, metadata: Metadata) {
 ///
 /// Returns the replaced metadata if present.
 fun add_or_replace_metadata(self: &mut PooledBlob, metadata: Metadata): option::Option<Metadata> {
-    let old_metadata = if (dynamic_field::exists_(&self.id, METADATA_DF)) {
+    let old_metadata = if (dynamic_field::exists(&self.id, METADATA_DF)) {
         option::some(self.take_metadata())
     } else {
         option::none()
@@ -448,7 +448,7 @@ fun add_or_replace_metadata(self: &mut PooledBlob, metadata: Metadata): option::
 ///
 /// Aborts if the metadata does not exist.
 fun take_metadata(self: &mut PooledBlob): Metadata {
-    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
+    assert!(dynamic_field::exists(&self.id, METADATA_DF), EMissingMetadata);
     dynamic_field::remove(&mut self.id, METADATA_DF)
 }
 
@@ -456,7 +456,7 @@ fun take_metadata(self: &mut PooledBlob): Metadata {
 ///
 /// Aborts if the metadata does not exist.
 fun metadata(self: &mut PooledBlob): &mut Metadata {
-    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
+    assert!(dynamic_field::exists(&self.id, METADATA_DF), EMissingMetadata);
     dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
 }
 
@@ -464,7 +464,7 @@ fun metadata(self: &mut PooledBlob): &mut Metadata {
 ///
 /// Creates new metadata if it does not exist.
 fun metadata_or_create(self: &mut PooledBlob): &mut Metadata {
-    if (!dynamic_field::exists_(&self.id, METADATA_DF)) {
+    if (!dynamic_field::exists(&self.id, METADATA_DF)) {
         self.add_metadata(metadata::new());
     };
     dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
@@ -487,7 +487,7 @@ fun remove_metadata_pair(self: &mut PooledBlob, key: &String): (String, String) 
 
 /// Removes and returns the metadata associated with the given key, if it exists.
 fun remove_metadata_pair_if_exists(self: &mut PooledBlob, key: &String): option::Option<String> {
-    if (!dynamic_field::exists_(&self.id, METADATA_DF)) {
+    if (!dynamic_field::exists(&self.id, METADATA_DF)) {
         option::none()
     } else {
         self.metadata().remove_if_exists(key)

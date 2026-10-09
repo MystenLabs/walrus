@@ -60,6 +60,23 @@ public(package) fun value_at(self: &PendingValues, epoch: u32): u64 {
     })
 }
 
+/// Returns the value of the pending entry with the largest epoch that is
+/// less than or equal to `to_epoch`, or `none` if no such entry exists.
+/// Useful for "override" semantics (unlike `value_at`, which sums entries).
+public(package) fun latest_value_at(self: &PendingValues, to_epoch: u32): Option<u64> {
+    let mut latest_epoch: Option<u32> = option::none();
+    self.0.keys().do!(|epoch| if (epoch <= to_epoch) {
+        if (latest_epoch.is_none() || *latest_epoch.borrow() < epoch) {
+            latest_epoch = option::some(epoch);
+        }
+    });
+    if (latest_epoch.is_some()) {
+        option::some(self.0[latest_epoch.borrow()])
+    } else {
+        option::none()
+    }
+}
+
 /// Reduce the pending values to the given epoch. This method removes all the
 /// values that are pending for epochs less than or equal to the given epoch.
 public(package) fun flush(self: &mut PendingValues, to_epoch: u32): u64 {

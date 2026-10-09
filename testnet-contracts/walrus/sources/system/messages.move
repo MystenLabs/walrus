@@ -196,9 +196,9 @@ public(package) fun certify_blob_message(message: CertifiedMessage): CertifiedBl
     CertifiedBlobMessage { blob_id, blob_persistence_type }
 }
 
-/// Constructs the certified blob message, note this is only
-/// used for event blobs
-public(package) fun certified_event_blob_message(blob_id: u256): CertifiedBlobMessage {
+/// Constructs the certified blob message for a system blob (an event blob or a blob info
+/// snapshot blob), which is certified by the system contract itself, without a signed message.
+public(package) fun certified_system_blob_message(blob_id: u256): CertifiedBlobMessage {
     CertifiedBlobMessage { blob_id, blob_persistence_type: BlobPersistenceType::Permanent }
 }
 

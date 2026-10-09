@@ -1448,7 +1448,7 @@ mod tests {
         assert_eq!(end_upgrade_epoch, upgrade_epoch);
         tracing::info!(upgrade_epoch, "upgraded contract");
 
-        // Migrate the objects (v4 migration does not require set_migration_epoch or epoch wait)
+        // Migrate the objects (the migration does not require set_migration_epoch or epoch wait)
         client
             .as_ref()
             .inner
