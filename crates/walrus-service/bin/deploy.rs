@@ -636,9 +636,8 @@ mod commands {
         )
         .await?;
         if serialize_unsigned {
-            // Compile package
-            let (compiled_package, _build_config, _root_package) = contract_client
-                .compile_package(contract_dir, Default::default())
+            let compiled_package = contract_client
+                .compile_package_for_upgrade(contract_dir)
                 .await?;
 
             let sender = sender.unwrap_or(contract_client.address());
