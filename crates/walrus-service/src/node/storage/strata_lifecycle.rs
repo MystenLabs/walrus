@@ -74,8 +74,8 @@ pub(super) struct StrataLifecycle {
     pub pools: DBMap<ObjectID, u64>,
     // A conservative lifetime used by puts; reconciliation refreshes it from all live references.
     pub lifetimes: DBMap<BlobId, Epoch>,
-    // Blob/object -> pool, maintained with the authoritative reference rows. Puts can resolve
-    // pool extensions without waiting for reconciliation or scanning unrelated references.
+    // Blob/object -> pool, maintained with the authoritative reference rows. Reconciliation
+    // uses this lookup to recheck live pool expiries before applying lifetime updates.
     pub pool_references: DBMap<(BlobId, ObjectID), ObjectID>,
     // Checkpoint of the active or most recently completed reconciliation pass.
     pub progress: DBMap<(), EpochProgress>,

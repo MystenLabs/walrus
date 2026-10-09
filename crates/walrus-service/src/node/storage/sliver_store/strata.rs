@@ -474,7 +474,7 @@ impl StrataShardSliverStore {
                     tokio::task::spawn_blocking(move || {
                         prepare.check_generation()?;
                         let mut payloads = Vec::new();
-                        let mut admission = prepare.node.lifecycle.lifetimes.batch();
+                        let mut admission = prepare.node.lifecycle.blobs.batch();
                         let mut changed = false;
                         for (blob_id, sliver) in slivers {
                             let mut lifetime = None;
@@ -489,22 +489,15 @@ impl StrataShardSliverStore {
                                 {
                                     continue;
                                 }
-                                let cached_end = prepare
+                                // Reconciliation refreshes pool lifetimes before advancing
+                                // Strata's epoch. Until then, the cached expiry remains valid.
+                                let end_epoch = prepare
                                     .node
                                     .lifecycle
                                     .lifetimes
                                     .get(&blob_id)?
                                     .ok_or_else(|| error("registered blob has no lifetime"))?;
-                                let end_epoch = cached_end
-                                    .max(prepare.node.blob_info.strata_pool_end_epoch(blob_id)?);
                                 lifetime = Some(end_epoch);
-                                if end_epoch > cached_end {
-                                    admission.insert_batch(
-                                        &prepare.node.lifecycle.lifetimes,
-                                        [(blob_id, end_epoch)],
-                                    )?;
-                                    changed = true;
-                                }
                                 if u64::from(end_epoch)
                                     <= prepare.node.store.current_epoch().map_err(store_error)?
                                 {
@@ -532,8 +525,7 @@ impl StrataShardSliverStore {
                             ));
                         }
                         if changed {
-                            // Keep the refreshed lifetime and deletion cancellation durable
-                            // before a put can outlive them in Strata.
+                            // Keep deletion cancellation durable before the put reaches Strata.
                             admission.write_with_sync(true)?;
                         }
                         Ok::<_, TypedStoreError>(payloads)

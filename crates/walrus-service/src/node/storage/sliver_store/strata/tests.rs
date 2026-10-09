@@ -745,9 +745,10 @@ async fn catch_up_allows_recovery_puts_before_reconciliation() -> TestResult {
         drop(shard);
         assert!(stored(&storage, X)?);
         assert_eq!(strata(&storage).store.current_epoch()?, 0);
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(120));
+        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(20));
         run_until(&storage, 100, true).await?;
         assert_eq!(strata(&storage).store.current_epoch()?, 100);
+        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(120));
         assert!(stored(&storage, X)?);
         assert!(strata(&storage).lifecycle.lifetimes.get(&Y)?.is_none());
         assert!(strata(&storage).lifecycle.blobs.is_empty());
@@ -1099,7 +1100,7 @@ async fn only_one_worker_can_start_until_the_store_is_reopened() -> TestResult {
 }
 
 #[tokio::test]
-async fn put_and_stale_scan_resolve_a_pending_pool_extension() -> TestResult {
+async fn puts_use_cached_pool_lifetime_until_reconciliation() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;
         let storage = open(dir.path(), optimistic)?;
@@ -1123,6 +1124,8 @@ async fn put_and_stale_scan_resolve_a_pending_pool_extension() -> TestResult {
             )
             .await?;
         let old_snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
+        put(&storage, X).await?;
+        reconcile(&storage, 2, 2, true).await?;
         storage
             .update_storage_pool_info_coordinated(
                 2,
@@ -1130,15 +1133,22 @@ async fn put_and_stale_scan_resolve_a_pending_pool_extension() -> TestResult {
             )
             .await?;
         assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(3));
-        // Puts must not wait for the worker to expand this pool's membership.
+        // The old expiry (3) is still safe while Strata remains at epoch 2. A put
+        // uses it without expanding the pending pool extension to expiry 20.
         put(&storage, X).await?;
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(20));
+        assert_eq!(strata(&storage).store.current_epoch()?, 2);
+        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(3));
+        assert!(stored(&storage, X)?);
         strata(&storage)
             .reconcile_blobs(3, &old_snapshot, true)
             .await?;
         assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(20));
         assert_eq!(strata(&storage).lifecycle.pools.get(&POOL)?, Some(2));
+        // A put between the lifetime update and clock advance must use the refreshed cache.
+        put(&storage, X).await?;
         reconcile(&storage, 3, 3, true).await?;
+        assert_eq!(strata(&storage).store.current_epoch()?, 3);
+        put(&storage, X).await?;
         assert!(stored(&storage, X)?);
         // Simulate opening an older store without the lookup. Initialization backfills it.
         let lifecycle = &strata(&storage).lifecycle;
