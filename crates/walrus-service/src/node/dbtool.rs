@@ -259,11 +259,13 @@ pub enum DbToolCommands {
     /// Wipe a stopped node's state except its blob data, so that it starts as a brand-new node
     /// that loads the latest certified blob info snapshot while keeping its metadata and slivers.
     ///
-    /// Drops every column family except `metadata` and the per-shard ones (`shard-*`), and moves
-    /// the event processor's database (`events/`), the event blob writer's state
-    /// (`event_blob_writer/`), and the local snapshot files (`blob_info_snapshots/`) out of the
-    /// storage path to `<storage_path>.wiped-<timestamp>/`, to be deleted once the node is back
-    /// in service. This can only be called when the storage node is stopped.
+    /// Moves the event processor's database (`events/`), the event blob writer's state
+    /// (`event_blob_writer/`), and the local snapshot files (`blob_info_snapshots/`) into
+    /// `<storage_path>/wiped-<timestamp>/` (inside the storage path, so that the move stays on
+    /// one filesystem when the storage path is a mount point; the node ignores the directory),
+    /// then drops every column family except `metadata` and the per-shard ones (`shard-*`).
+    /// Delete the `wiped-*` directory once the node is back in service. This can only be called
+    /// when the storage node is stopped.
     WipeNodeState {
         /// Path to the node's storage directory (`storage_path` in its configuration).
         #[arg(long)]
@@ -997,6 +999,11 @@ fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> R
     let mut db_opts = RocksdbOptions::default();
     db_opts.set_max_open_files(512_000);
 
+    println!(
+        "Opening the database; replaying its write-ahead log flushes every column family and can \
+        take minutes on a node with many shards (progress in {}/LOG)",
+        db_path.display()
+    );
     let db = DB::open_cf_with_opts(
         &db_opts,
         &db_path,
@@ -1034,25 +1041,28 @@ fn wipe_node_state(db_path: PathBuf, keep_event_store: bool) -> Result<()> {
         .into_iter()
         .filter(|name| name != "default")
         .partition(|name| holds_blob_data(name));
-    println!("Keeping column families: {kept:?}");
-    drop_column_families(db_path.clone(), dropped)?;
 
+    // The aside directory lives inside the storage path: a rename never crosses a filesystem
+    // boundary when the storage path is a mount point, and RocksDB ignores the extra directory.
     let timestamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .context("system time is before the Unix epoch")?
         .as_secs();
-    let mut aside_name = db_path
-        .file_name()
-        .context("the storage path has no final component")?
-        .to_os_string();
-    aside_name.push(format!(".wiped-{timestamp}"));
-    let aside_dir = db_path.with_file_name(aside_name);
+    let aside_dir = db_path.join(format!("wiped-{timestamp}"));
 
+    // Move the directories before dropping the column families, so that a failed move leaves
+    // the node untouched.
     // The event processor's database (`EventProcessorRuntime`), the event blob writer's state
     // (`EventBlobWriterFactory`), and the local snapshot files.
-    let mut subdirectories = vec![db_path.join("event_blob_writer"), snapshot_base_dir(&db_path)];
+    let mut subdirectories = vec![
+        db_path.join("event_blob_writer"),
+        snapshot_base_dir(&db_path),
+    ];
     if keep_event_store {
-        println!("Keeping the event processor's database: {}", db_path.join("events").display());
+        println!(
+            "Keeping the event processor's database: {}",
+            db_path.join("events").display()
+        );
     } else {
         subdirectories.push(db_path.join("events"));
     }
@@ -1064,10 +1074,17 @@ fn wipe_node_state(db_path: PathBuf, keep_event_store: bool) -> Result<()> {
                 .context("the subdirectory has no final component")?,
         );
         std::fs::rename(directory, &target).with_context(|| {
-            format!("failed to move {} to {}", directory.display(), target.display())
+            format!(
+                "failed to move {} to {}",
+                directory.display(),
+                target.display()
+            )
         })?;
         println!("Moved {} to {}", directory.display(), target.display());
     }
+
+    println!("Keeping column families: {kept:?}");
+    drop_column_families(db_path.clone(), dropped)?;
 
     println!(
         "Done. On its next start the node loads the latest certified blob info snapshot, replays \
