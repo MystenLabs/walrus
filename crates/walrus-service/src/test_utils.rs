@@ -674,11 +674,11 @@ impl SimStorageNodeHandle {
                                 // Do not put any code after this point, as it won't be executed.
                                 // kill_current_node is implemented using a panic.
                             } else {
-                                tracing::error!("node stopped with error: {e}");
+                                tracing::error!("node stopped with error: {e:#}");
 
                                 // In simtest, we don't expect node to exit with an error. Panic
                                 // the test process to fail the test early.
-                                panic!("node stopped with error: {e}");
+                                panic!("node stopped with error: {e:#}");
                             }
                         }
                         Ok(()) => {
@@ -3414,6 +3414,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             event_processor_config: Default::default(),
             pending_sliver_cache: Default::default(),
             disable_event_blob_writer: false,
+            num_checkpoints_per_blob: None,
             commission_rate: 0,
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {

@@ -72,6 +72,12 @@ pub struct BlobInfoSnapshotWriterConfig {
     /// snapshot blob through the system contract from a background task. Has no effect if
     /// `enabled` is false.
     pub certify: bool,
+    /// Whether a brand-new node whose event replay is not covered by its local event store loads
+    /// the latest certified snapshot at startup.
+    ///
+    /// Defaults to `true`. When disabled, such a node starts with incomplete event history
+    /// instead, which misses pooled blobs registered before its first available event.
+    pub bootstrap: bool,
 }
 
 impl Default for BlobInfoSnapshotWriterConfig {
@@ -79,6 +85,7 @@ impl Default for BlobInfoSnapshotWriterConfig {
         Self {
             enabled: true,
             certify: false,
+            bootstrap: true,
         }
     }
 }

@@ -44,6 +44,7 @@ use self::{
         PerObjectBlobInfoIterator,
         PerObjectPooledBlobInfo,
         PerObjectPooledBlobInfoIterator,
+        StoragePoolInfo,
     },
     blob_info_snapshot::{SnapshotError, SnapshotHeader, SnapshotStats},
     constants::{
@@ -668,6 +669,55 @@ impl Storage {
         writer: W,
     ) -> Result<SnapshotStats, SnapshotError> {
         self.blob_info.write_snapshot(header, writer)
+    }
+
+    /// Replaces the blob info tables with the contents of a blob info snapshot, repositions the
+    /// event cursor, and sets the node status to `RecoveryCatchUp`, all in one atomic write.
+    ///
+    /// Only while no component that reads or writes the blob info tables or processes events is
+    /// running: offline, or while the node is being constructed. The cursor is placed on the
+    /// snapshot's boundary `EpochChangeStart` event rather than after it, so the node processes
+    /// that event once more; for a snapshot of the current epoch this lets the node leave catch-up
+    /// right away instead of at the next epoch change.
+    ///
+    /// Returns the number of rebuilt aggregate blob info entries.
+    pub(crate) fn load_blob_info_snapshot(
+        &self,
+        header: &SnapshotHeader,
+        per_object: &[(ObjectID, PerObjectBlobInfo)],
+        per_object_pooled: &[(ObjectID, PerObjectPooledBlobInfo)],
+        storage_pools: &[(ObjectID, StoragePoolInfo)],
+    ) -> anyhow::Result<usize> {
+        let boundary_event_index = header
+            .event_cursor
+            .next_event_index()
+            .checked_sub(1)
+            .context("the snapshot cursor must be after the boundary event")?;
+
+        let mut batch = self.node_status.batch();
+        let aggregate_count = self.blob_info.schedule_snapshot_load(
+            &mut batch,
+            header.epoch,
+            boundary_event_index,
+            per_object,
+            per_object_pooled,
+            storage_pools,
+            |blob_id| self.metadata.contains_key(blob_id),
+        )?;
+        self.event_cursor.schedule_reposition_event_cursor(
+            &mut batch,
+            header.event_cursor.event_id(),
+            boundary_event_index,
+        )?;
+        batch.insert_batch(&self.node_status, [(&(), &NodeStatus::RecoveryCatchUp)])?;
+        batch.write()?;
+
+        // The batch does not update the in-memory event sequencer; bring it to the new position so
+        // that this storage can process events right away, as during the startup bootstrap.
+        self.event_cursor
+            .reposition_event_cursor(header.event_cursor.event_id(), boundary_event_index)?;
+
+        Ok(aggregate_count)
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
@@ -3051,5 +3101,430 @@ pub(crate) mod tests {
         );
 
         Ok(())
+    }
+
+    /// A node that loads the blob info snapshot of an epoch boundary and then processes the events
+    /// after it must end up with the same blob info as a node that processed every event.
+    mod blob_info_snapshot_load {
+        use std::io::Cursor;
+
+        use walrus_core::{DEFAULT_ENCODING, test_utils::blob_id_from_u64};
+        use walrus_storage_node_client::api::BlobStatus;
+        use walrus_sui::{
+            test_utils::fixed_event_id_for_testing,
+            types::{BlobDeleted, PooledBlobDeleted},
+        };
+
+        use super::*;
+        use crate::node::storage::{blob_info::CertifiedBlobInfoApi, blob_info_snapshot};
+
+        /// An event of a test scenario, applied the way the node applies it.
+        #[derive(Clone)]
+        enum Step {
+            Blob(BlobEvent),
+            Pool(StoragePoolEvent),
+            /// The change to the given epoch, with its garbage-collection phase 1.
+            EpochChange(Epoch),
+        }
+
+        fn object_id(object: u8) -> ObjectID {
+            ObjectID::from_single_byte(object)
+        }
+
+        fn pool_id(pool: u8) -> ObjectID {
+            ObjectID::from_single_byte(pool.wrapping_add(100))
+        }
+
+        fn epoch_change(epoch: Epoch) -> Step {
+            Step::EpochChange(epoch)
+        }
+
+        fn register(
+            epoch: Epoch,
+            blob: u64,
+            object: u8,
+            end_epoch: Epoch,
+            deletable: bool,
+        ) -> Step {
+            Step::Blob(BlobEvent::Registered(BlobRegistered {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                size: 1024,
+                encoding_type: DEFAULT_ENCODING,
+                end_epoch,
+                deletable,
+                object_id: object_id(object),
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn certify(epoch: Epoch, blob: u64, object: u8, end_epoch: Epoch, deletable: bool) -> Step {
+            certified(epoch, blob, object, end_epoch, deletable, false)
+        }
+
+        fn extend(epoch: Epoch, blob: u64, object: u8, end_epoch: Epoch, deletable: bool) -> Step {
+            certified(epoch, blob, object, end_epoch, deletable, true)
+        }
+
+        fn certified(
+            epoch: Epoch,
+            blob: u64,
+            object: u8,
+            end_epoch: Epoch,
+            deletable: bool,
+            is_extension: bool,
+        ) -> Step {
+            Step::Blob(BlobEvent::Certified(BlobCertified {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                end_epoch,
+                deletable,
+                object_id: object_id(object),
+                is_extension,
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn delete(
+            epoch: Epoch,
+            blob: u64,
+            object: u8,
+            end_epoch: Epoch,
+            was_certified: bool,
+        ) -> Step {
+            Step::Blob(BlobEvent::Deleted(BlobDeleted {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                end_epoch,
+                object_id: object_id(object),
+                was_certified,
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn pool_create(pool: u8, start_epoch: Epoch, end_epoch: Epoch) -> Step {
+            Step::Pool(StoragePoolEvent::created_for_testing(
+                pool_id(pool),
+                start_epoch,
+                end_epoch,
+            ))
+        }
+
+        fn pool_extend(pool: u8, end_epoch: Epoch) -> Step {
+            Step::Pool(StoragePoolEvent::extended_for_testing(
+                pool_id(pool),
+                end_epoch,
+            ))
+        }
+
+        fn pooled_register(epoch: Epoch, blob: u64, object: u8, pool: u8) -> Step {
+            Step::Blob(BlobEvent::PooledBlobRegistered(PooledBlobRegistered {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                unencoded_size: 1024,
+                encoding_type: DEFAULT_ENCODING,
+                deletable: true,
+                object_id: object_id(object),
+                storage_pool_id: pool_id(pool),
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn pooled_certify(epoch: Epoch, blob: u64, object: u8, pool: u8) -> Step {
+            Step::Blob(BlobEvent::PooledBlobCertified(PooledBlobCertified {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                deletable: true,
+                object_id: object_id(object),
+                storage_pool_id: pool_id(pool),
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn pooled_delete(
+            epoch: Epoch,
+            blob: u64,
+            object: u8,
+            pool: u8,
+            was_certified: bool,
+        ) -> Step {
+            Step::Blob(BlobEvent::PooledBlobDeleted(PooledBlobDeleted {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                object_id: object_id(object),
+                was_certified,
+                storage_pool_id: pool_id(pool),
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        /// Permanent and deletable objects, sharing blob IDs, extended, deleted, expiring at
+        /// several boundaries, and certified after some of them.
+        fn permanent_and_deletable() -> Vec<Step> {
+            let mut steps = vec![
+                epoch_change(1),
+                register(1, 1, 1, 10, false),
+                certify(1, 1, 1, 10, false),
+                register(1, 2, 2, 6, true),
+                certify(1, 2, 2, 6, true),
+                register(1, 2, 3, 8, true),
+                epoch_change(2),
+                extend(2, 1, 1, 15, false),
+                register(2, 3, 4, 4, true),
+                certify(2, 3, 4, 4, true),
+                delete(2, 2, 3, 8, false),
+                register(2, 1, 5, 12, true),
+                certify(2, 1, 5, 12, true),
+                epoch_change(3),
+                register(3, 4, 6, 9, false),
+                epoch_change(4),
+                epoch_change(5),
+                certify(5, 4, 6, 9, false),
+                epoch_change(6),
+                delete(6, 1, 5, 12, true),
+            ];
+            steps.extend((7..=16).map(epoch_change));
+            steps
+        }
+
+        /// The first certified object of a blob expires before the boundary while a later one
+        /// stays, so the loaded node only knows the later certification epoch.
+        fn expired_first_certification() -> Vec<Step> {
+            let mut steps = vec![
+                epoch_change(1),
+                register(1, 1, 1, 4, false),
+                certify(1, 1, 1, 4, false),
+                register(1, 2, 3, 4, true),
+                certify(1, 2, 3, 4, true),
+                epoch_change(2),
+                register(2, 1, 2, 10, false),
+                register(2, 2, 4, 9, true),
+                epoch_change(3),
+                certify(3, 1, 2, 10, false),
+                certify(3, 2, 4, 9, true),
+            ];
+            steps.extend((4..=11).map(epoch_change));
+            steps
+        }
+
+        /// Pooled blobs alone and next to regular objects, a pool extended, pools expiring before
+        /// and after the boundary, and a blob whose only pooled reference is deleted.
+        fn pools() -> Vec<Step> {
+            let mut steps = vec![
+                pool_create(1, 1, 5),
+                pool_create(2, 1, 10),
+                pool_create(3, 1, 3),
+                epoch_change(1),
+                pooled_register(1, 1, 1, 1),
+                pooled_certify(1, 1, 1, 1),
+                pooled_register(1, 2, 2, 2),
+                pooled_certify(1, 2, 2, 2),
+                register(1, 2, 3, 8, false),
+                certify(1, 2, 3, 8, false),
+                register(1, 3, 5, 9, true),
+                certify(1, 3, 5, 9, true),
+                pooled_register(1, 3, 4, 2),
+                pooled_register(1, 4, 6, 3),
+                pooled_certify(1, 4, 6, 3),
+                epoch_change(2),
+                pooled_delete(2, 3, 4, 2, false),
+                pool_extend(1, 6),
+                epoch_change(3),
+                pooled_register(3, 5, 7, 2),
+                epoch_change(4),
+                pooled_certify(4, 5, 7, 2),
+            ];
+            steps.extend((5..=11).map(epoch_change));
+            steps
+        }
+
+        async fn apply(
+            storage: &Storage,
+            index: u64,
+            step: &Step,
+            metrics: &NodeMetricSet,
+        ) -> TestResult {
+            match step {
+                Step::Blob(event) => storage.update_blob_info(index, event)?,
+                Step::Pool(event) => storage.update_storage_pool_info(index, event)?,
+                Step::EpochChange(epoch) => {
+                    storage
+                        .process_expired_storage_pools(*epoch, metrics, 100)
+                        .await?;
+                    storage
+                        .process_expired_blob_objects(*epoch, metrics, 100)
+                        .await?;
+                }
+            }
+            Ok(())
+        }
+
+        fn snapshot_bytes(storage: &Storage, header: &SnapshotHeader) -> TestResult<Vec<u8>> {
+            let mut buffer = Cursor::new(Vec::new());
+            storage.write_blob_info_snapshot(header, &mut buffer)?;
+            Ok(buffer.into_inner())
+        }
+
+        /// What the node reads from the aggregate entry of `blob_id` at `epoch`.
+        ///
+        /// A loaded node keeps two fields only as best knowledge, so they are normalized: the
+        /// status event, and the first certification epoch, which the node only ever compares
+        /// with the current epoch (both values are at most the snapshot epoch). An entry that
+        /// only waits for removal counts as absent.
+        fn observed(
+            storage: &Storage,
+            blob_id: &BlobId,
+            epoch: Epoch,
+        ) -> TestResult<(BlobStatus, bool, bool)> {
+            let Some(blob_info) = storage
+                .get_blob_info(blob_id)?
+                .filter(|blob_info| !blob_info.can_blob_info_be_deleted(epoch))
+            else {
+                return Ok((BlobStatus::Nonexistent, false, false));
+            };
+            let certified_by =
+                |first: Option<Epoch>| first.map(|first| Epoch::from(first <= epoch));
+            let status = match blob_info.to_blob_status(epoch) {
+                BlobStatus::Permanent {
+                    end_epoch,
+                    is_certified,
+                    deletable_counts,
+                    initial_certified_epoch,
+                    ..
+                } => BlobStatus::Permanent {
+                    end_epoch,
+                    is_certified,
+                    status_event: fixed_event_id_for_testing(0),
+                    deletable_counts,
+                    initial_certified_epoch: certified_by(initial_certified_epoch),
+                },
+                BlobStatus::Deletable {
+                    initial_certified_epoch,
+                    deletable_counts,
+                } => BlobStatus::Deletable {
+                    initial_certified_epoch: certified_by(initial_certified_epoch),
+                    deletable_counts,
+                },
+                status => status,
+            };
+            Ok((
+                status,
+                blob_info.is_certified(epoch),
+                blob_info.is_registered(epoch),
+            ))
+        }
+
+        fn certified_before(storage: &Storage, epoch: Epoch) -> TestResult<Vec<BlobId>> {
+            Ok(storage
+                .certified_blob_info_iter_before_epoch(epoch)
+                .map(|entry| entry.map(|(blob_id, _)| blob_id))
+                .collect::<Result<_, _>>()?)
+        }
+
+        fn assert_equivalent(replayed: &Storage, loaded: &Storage, epoch: Epoch) -> TestResult {
+            let header = SnapshotHeader::new(epoch, fixed_event_id_for_testing(0), 0);
+            assert!(
+                snapshot_bytes(replayed, &header)? == snapshot_bytes(loaded, &header)?,
+                "the per-object tables differ at epoch {epoch}"
+            );
+            for blob in 1..=10 {
+                let blob_id = blob_id_from_u64(blob);
+                assert_eq!(
+                    observed(replayed, &blob_id, epoch)?,
+                    observed(loaded, &blob_id, epoch)?,
+                    "blob {blob_id} differs at epoch {epoch}"
+                );
+            }
+            assert_eq!(
+                certified_before(replayed, epoch)?,
+                certified_before(loaded, epoch)?,
+                "the certified blobs differ at epoch {epoch}"
+            );
+            Ok(())
+        }
+
+        async_param_test! {
+            snapshot_load_matches_replay -> TestResult: [
+                permanent_and_deletable_at_2: (permanent_and_deletable(), 2),
+                permanent_and_deletable_at_4: (permanent_and_deletable(), 4),
+                permanent_and_deletable_at_6: (permanent_and_deletable(), 6),
+                expired_first_certification_at_5: (expired_first_certification(), 5),
+                pools_at_2: (pools(), 2),
+                pools_at_4: (pools(), 4),
+                pools_at_6: (pools(), 6),
+            ]
+        }
+        async fn snapshot_load_matches_replay(
+            steps: Vec<Step>,
+            snapshot_epoch: Epoch,
+        ) -> TestResult {
+            let metrics = NodeMetricSet::new(&Registry::default());
+            let replayed = empty_storage().await;
+            let replayed = replayed.as_ref();
+            let loaded = empty_storage().await;
+            let loaded = loaded.as_ref();
+
+            let boundary = steps
+                .iter()
+                .position(
+                    |step| matches!(step, Step::EpochChange(epoch) if *epoch == snapshot_epoch),
+                )
+                .expect("the scenario contains the snapshot boundary");
+            let boundary_index = u64::try_from(boundary)?;
+            for (index, step) in steps[..=boundary].iter().enumerate() {
+                apply(replayed, u64::try_from(index)?, step, &metrics).await?;
+            }
+
+            let header = SnapshotHeader::new(
+                snapshot_epoch,
+                fixed_event_id_for_testing(boundary_index),
+                boundary_index + 1,
+            );
+            let bytes = snapshot_bytes(replayed, &header)?;
+            let (decoded_header, per_object, pooled, pools) =
+                blob_info_snapshot::read_snapshot(&bytes)?;
+            assert_eq!(decoded_header, header);
+
+            // The load must replace whatever the tables held before: here the scenario's final
+            // state plus long-lived blobs (9 and 10) that the scenario never has.
+            let divergent = [
+                register(1, 9, 90, 100, false),
+                certify(1, 9, 90, 100, false),
+                register(1, 10, 91, 100, true),
+                certify(1, 10, 91, 100, true),
+                pooled_register(1, 10, 92, 9),
+            ];
+            let prefill = std::iter::once(pool_create(9, 1, 100))
+                .chain(steps.iter().map(Step::clone))
+                .chain(divergent);
+            for (index, step) in prefill.enumerate() {
+                apply(loaded, u64::try_from(index)?, &step, &metrics).await?;
+            }
+            loaded.load_blob_info_snapshot(&header, &per_object, &pooled, &pools)?;
+
+            assert_eq!(loaded.node_status()?, NodeStatus::RecoveryCatchUp);
+            assert_eq!(
+                loaded
+                    .get_event_cursor_and_next_index()?
+                    .map(|cursor| cursor.next_event_index()),
+                Some(boundary_index)
+            );
+
+            // The loaded node processes the boundary event once more.
+            apply(loaded, boundary_index, &steps[boundary], &metrics).await?;
+            assert_equivalent(replayed, loaded, snapshot_epoch)?;
+
+            let mut epoch = snapshot_epoch;
+            for (index, step) in steps.iter().enumerate().skip(boundary + 1) {
+                let index = u64::try_from(index)?;
+                apply(replayed, index, step, &metrics).await?;
+                apply(loaded, index, step, &metrics).await?;
+                if let Step::EpochChange(new_epoch) = step {
+                    epoch = *new_epoch;
+                    assert_equivalent(replayed, loaded, epoch)?;
+                }
+            }
+            assert_equivalent(replayed, loaded, epoch)
+        }
     }
 }

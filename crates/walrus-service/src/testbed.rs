@@ -738,6 +738,7 @@ pub async fn create_storage_node_configs(
             pending_sliver_cache: Default::default(),
             pending_metadata_cache: Default::default(),
             disable_event_blob_writer,
+            num_checkpoints_per_blob: None,
             commission_rate: node.commission_rate,
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {

@@ -3,6 +3,8 @@
 
 //! Event blob writer.
 
+#[cfg(msim)]
+use std::{collections::HashMap, sync::Mutex};
 use std::{
     ffi::OsStr,
     fs::{self, File, OpenOptions},
@@ -18,6 +20,8 @@ use prometheus::{IntGauge, register_int_gauge_with_registry};
 use rand::{Rng, thread_rng};
 use rocksdb::Options;
 use serde::{Deserialize, Serialize};
+#[cfg(msim)]
+use sui_types::base_types::ObjectID;
 use sui_types::{event::EventID, messages_checkpoint::CheckpointSequenceNumber};
 use typed_store::{
     Map,
@@ -1658,10 +1662,31 @@ impl EventBlobWriter {
             return Ok(());
         };
 
+        // No-op outside of simtest. A blob only gets here when the certified blob ID equals the
+        // one this node attested, so tests can check that this node's blobs match the committee's.
+        sui_macros::fail_point_arg!(
+            "event_blob_writer_certified_own_blob",
+            |certified_map: Arc<Mutex<HashMap<ObjectID, Vec<BlobId>>>>| {
+                certified_map
+                    .lock()
+                    .expect("failed to lock the certified event blob map")
+                    .entry(self.node.node_capability())
+                    .or_default()
+                    .push(blob_id);
+            }
+        );
+
         self.node
             .storage()
             .update_blob_info_with_metadata(&blob_id)
             .context("unable to update metadata")?;
+
+        tracing::info!(
+            walrus.blob_id = %blob_id,
+            walrus.epoch = metadata.epoch,
+            first_event_index = metadata.event_cursor.element_index,
+            "an event blob this node attested was certified on chain"
+        );
 
         self.metrics
             .latest_certified_event_index

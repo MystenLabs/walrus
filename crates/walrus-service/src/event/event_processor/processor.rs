@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 use typed_store::{Map, TypedStoreError};
 use walrus_core::ensure;
 use walrus_utils::{
+    backoff::{BackoffStrategy, ExponentialBackoff},
     metrics::{Registry, monitored_scope},
     tracing_sampled,
 };
@@ -52,6 +53,9 @@ const STARTUP_CATCHUP_TIMEOUT_SECS: u64 = 5 * 60;
 /// Runtime catchup processing timeout (seconds) used during runtime catchup in
 /// EventProcessor::start_runtime_catchup_monitoring
 const RUNTIME_CATCHUP_PROCESSING_TIMEOUT_SECS: u64 = 5 * 60 * 60;
+/// Backoff before restarting the checkpoint tailing task after it stopped on its own.
+const TAILING_RESTART_MIN_BACKOFF: Duration = Duration::from_secs(1);
+const TAILING_RESTART_MAX_BACKOFF: Duration = Duration::from_secs(60);
 
 /// The event processor.
 #[derive(Clone)]
@@ -86,6 +90,9 @@ pub struct EventProcessor {
     pub recovery_path: std::path::PathBuf,
     /// Metrics registry for creating new metric instances.
     pub metrics_registry: Registry,
+    /// Cancelled once [`Self::start`] has returned, so that waits on the event store can end
+    /// instead of polling forever when the processor has stopped.
+    pub stopped: CancellationToken,
 }
 
 impl fmt::Debug for EventProcessor {
@@ -162,6 +169,7 @@ impl EventProcessor {
             system_config: system_config.clone(),
             recovery_path: runtime_config.db_path.join("recovery"),
             metrics_registry: metrics_registry.clone(),
+            stopped: CancellationToken::new(),
         };
 
         if event_processor.stores.checkpoint_store.is_empty() {
@@ -241,7 +249,19 @@ impl EventProcessor {
     }
 
     /// Starts the event processor. This method will run until the cancellation token is cancelled.
+    ///
+    /// Whether it returns normally or with an error, it marks the processor as stopped first, so
+    /// that a wait on the event store (see [`SystemEventProvider::init_state`]) ends instead of
+    /// polling forever.
+    ///
+    /// [`SystemEventProvider::init_state`]: crate::node::system_events::SystemEventProvider::init_state
     pub async fn start(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
+        let result = self.run(cancellation_token).await;
+        self.stopped.cancel();
+        result
+    }
+
+    async fn run(&self, cancellation_token: CancellationToken) -> Result<(), anyhow::Error> {
         if self.config.enable_runtime_catchup {
             tracing::info!("starting event processor with runtime catchup enabled");
         } else {
@@ -431,7 +451,11 @@ impl EventProcessor {
         })
     }
 
-    /// Checkpoint tailing with message-based coordination for catchup
+    /// Checkpoint tailing with message-based coordination for catchup.
+    ///
+    /// The tailing task only returns when it is cancelled or when it fails. A failure (for example,
+    /// a package fetch that the full node refused) must not leave the node without event
+    /// processing, so a task that stops on its own is restarted after a backoff.
     async fn start_tailing_checkpoints_with_restart_support(
         &self,
         cancel_token: CancellationToken,
@@ -439,11 +463,38 @@ impl EventProcessor {
         mut coordination_rx: mpsc::UnboundedReceiver<CoordinationMessage>,
     ) -> Result<()> {
         let mut child_cancel_token = cancel_token.child_token();
+        let mut restart_backoff = ExponentialBackoff::new_with_seed(
+            TAILING_RESTART_MIN_BACKOFF,
+            TAILING_RESTART_MAX_BACKOFF,
+            None,
+            0,
+        );
 
         let mut tailing_task: Option<JoinHandle<Result<()>>> =
             Some(self.start_tailing_task(child_cancel_token.clone(), coordination_state.clone()));
         loop {
             tokio::select! {
+                // The task stopped without a stop request: restart it.
+                exit = async {
+                    match tailing_task.as_mut() {
+                        Some(handle) => handle.await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    match exit {
+                        Ok(Ok(())) => tracing::warn!("tailing task stopped without being cancelled"),
+                        Ok(Err(error)) => tracing::error!(?error, "tailing task failed"),
+                        Err(error) => tracing::error!(?error, "tailing task panicked"),
+                    }
+                    let delay = restart_backoff
+                        .next_delay()
+                        .unwrap_or(TAILING_RESTART_MAX_BACKOFF);
+                    tracing::warn!(?delay, "restarting checkpoint tailing after it stopped");
+                    tokio::time::sleep(delay).await;
+                    child_cancel_token = cancel_token.child_token();
+                    tailing_task = Some(self.start_tailing_task(
+                        child_cancel_token.clone(), coordination_state.clone()));
+                }
                 msg = coordination_rx.recv() => {
                     match msg {
                         Some(CoordinationMessage::StopCheckpointTailing) => {
