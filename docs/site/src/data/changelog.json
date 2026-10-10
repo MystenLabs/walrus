@@ -1,5 +1,410 @@
 [
   {
+    "id": "memwal-@mysten-incubation/oc-memwal@0.0.7",
+    "date": "2026-10-02T04:18:09Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory SDK v0.0.7",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.7",
+    "changes": []
+  },
+  {
+    "id": "walrus-mainnet-v1.57.0",
+    "date": "2026-09-30T18:02:56Z",
+    "category": "walrus",
+    "title": "Walrus v1.57.0",
+    "description": null,
+    "badge": "Mainnet",
+    "githubUrl": "https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.57.0",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal-mcp@0.0.14",
+    "date": "2026-09-22T12:25:58Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory MCP v0.0.14",
+    "description": "Unreleased. The plugin's launcher installs `@mysten-incubation/memwal-mcp@0.0.14-dev.0`, named by `mcpPackageVersion` in `plugin/plugin.json`, until `0.0.14` is on npm; drop that key in that release.",
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.14",
+    "changes": [
+      {
+        "text": "The cold-start tool list no longer advertises a tool the relayer may not serve. The bridge ships on npm and updates itself while a relayer ships per environment, so 0.0.14-dev.0 dialled prod and staging still on 0.0.13: cold start named `memwal_remember_status`, which neither registers, and the pending-write wording sent the agent to go call it — one live run spent 90.67s there before erroring. Cold start is now a floor rather than a forecast (`BASELINE_RELAYER_TOOLS`): it carries only what the oldest supported relayer serves and its descriptions name nothing outside it, while newer tools still reach the client a beat later on the relayer's own `tools/list`. Initialize `instructions` use the same floor (they used to name `memwal_remember_status` before any `tools/list`). And a call for a tool outside that floor — including during the cold-start window, before any upstream `tools/list` has been seen — is now answered locally and at once — naming the tools that do exist and saying plainly that nothing ran — instead of being forwarded into a wait that only ends at the orphan deadline.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/928"
+      }
+    ]
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal@0.1.8",
+    "date": "2026-09-22T12:25:37Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory TypeScript SDK v0.1.8",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.1.8",
+    "changes": []
+  },
+  {
+    "id": "memwal-memwal-python@0.1.11",
+    "date": "2026-09-22T12:25:29Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory python v0.1.11",
+    "description": "Release memwal Python SDK v0.1.11",
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.11",
+    "changes": []
+  },
+  {
+    "id": "walrus-testnet-v1.56.1",
+    "date": "2026-09-17T06:44:36Z",
+    "category": "walrus",
+    "title": "Walrus v1.56.1",
+    "description": null,
+    "badge": "Testnet",
+    "githubUrl": "https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.56.1",
+    "changes": []
+  },
+  {
+    "id": "walrus-mainnet-v1.56.0",
+    "date": "2026-09-16T17:31:26Z",
+    "category": "walrus",
+    "title": "Walrus v1.56.0",
+    "description": null,
+    "badge": "Mainnet",
+    "githubUrl": "https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.56.0",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal-mcp@0.0.13",
+    "date": "2026-09-15T08:47:47Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory MCP v0.0.13",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.13",
+    "changes": [
+      {
+        "text": "Unrecognised options now warn on stderr and in the structured log (`cli.unrecognised_arg`) instead of being dropped in silence, so a typo'd `--namesapce work` no longer writes to the default namespace with nothing to say it had. The warning names the option key only, keeping a mistyped value-taking flag (`--tokenn=hunter2`) from putting the secret on stderr, and it warns rather than exits so an option from a newer config cannot brick the server.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/630"
+      },
+      {
+        "text": "`--help` now lists the network presets (`--prod`, `--dev`, `--staging`, `--local`) with the relayer and web URLs each resolves to, rendered from the preset table rather than retyped so a new preset cannot ship undocumented the way `--prod` did. The `--label` default is corrected to \"MCP Client\", which is what the code actually falls back to.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/630"
+      },
+      {
+        "text": "`memwal_health` reports `relayer=<url>`, naming the origin this process dialled, so a client bound to the wrong network finds out there instead of by noticing its memories are missing. The URL is captured when the call is sent rather than when the reply lands, so a reconnect mid-flight cannot label the answer with a relayer it did not come from.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/630"
+      },
+      {
+        "text": "Keep reading stdin after an in-session `memwal_login`. The auth-required stub hands off to the bridge by pausing stdin, and a stream paused that way does not resume when a new `data` listener attaches, so the bridge served only the request replayed from the hand-off and then went deaf. Signing in appeared to work, the retry succeeded, and every call after it hung until the client timed it out.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/633"
+      },
+      {
+        "text": "Confirm a completed sign-in instead of only writing it to the log file. The failure path already reported itself twice (a notification and a notice on the next tool call) while success reported nothing, so a user who approved in the browser could not tell whether credentials had landed, the bridge had adopted them, or a retry was worth trying. Success now sends the matching notification and prefixes a one-shot banner naming the account, the delegate, and the resolved credentials path onto the next tool result.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/633"
+      },
+      {
+        "text": "Stop the `memwal_login` prompt claiming you are already signed in when you are not. The bridge assumed it only ever runs with credentials on disk, but `memwal_logout` deletes them and login is intercepted before the signed-out guard, so a login after a logout in the same session announced that a stored delegate key would be replaced, reading as though the logout had not taken. Both prompts now read the credentials file instead of assuming the mode.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/633"
+      },
+      {
+        "text": "Write the credentials file by creating a new `0600` file and renaming it into place, instead of writing the delegate private key to the existing path and tightening the permission afterwards. `writeFileSync`'s `mode` only applies when it creates the file, so a `credentials.json` left world-readable by anything outside the CLI (a manual `chmod`, a restored backup, another tool) received the new key under the old permission until the following `chmod` landed. The CLI now writes the backup it takes when signing in as a different account the same way; that backup holds the same plaintext key, and the CLI previously created it under the process umask. On Windows, where `rename` cannot replace a destination another process holds open and POSIX mode bits are not enforced at all, the CLI retries briefly and then writes in place rather than failing the sign-in.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/520"
+      }
+    ]
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal@0.1.7",
+    "date": "2026-09-15T08:47:32Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory TypeScript SDK v0.1.7",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.1.7",
+    "changes": []
+  },
+  {
+    "id": "memwal-memwal-python@0.1.10",
+    "date": "2026-09-15T08:47:25Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory python v0.1.10",
+    "description": "Release memwal Python SDK v0.1.10",
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.10",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal@0.1.6",
+    "date": "2026-09-09T01:20:04Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory TypeScript SDK v0.1.6",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.1.6",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal-mcp@0.0.12",
+    "date": "2026-09-09T01:19:45Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory MCP v0.0.12",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.12",
+    "changes": [
+      {
+        "text": "Optional `maxDistance` on `memwal_recall`: cosine-distance cutoff (low = similar, must be >= 0). Hits with `distance >= maxDistance` are dropped. Result lines now include both `score` (`1 − cosine distance`) and `distance`.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/373"
+      },
+      {
+        "text": "Resolve the credential directory on every access instead of freezing it at module load, and let `MEMWAL_CREDS_DIR` override it. The login test sandboxed the home directory with `HOME` alone, which `os.homedir()` ignores on Windows, so running the package's test suite there wrote fixture credentials over the developer's real `~/.memwal/credentials.json` and destroyed the delegate key stored in it.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/705"
+      }
+    ]
+  },
+  {
+    "id": "memwal-memwal-python@0.1.9",
+    "date": "2026-09-09T01:19:37Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory python v0.1.9",
+    "description": "Release memwal Python SDK v0.1.9",
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.9",
+    "changes": []
+  },
+  {
+    "id": "walrus-mainnet-v1.55.2",
+    "date": "2026-09-02T17:34:39Z",
+    "category": "walrus",
+    "title": "Walrus v1.55.2",
+    "description": null,
+    "badge": "Mainnet",
+    "githubUrl": "https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.55.2",
+    "changes": [
+      {
+        "text": "Adds a `node_recovery_baseline_invalidations_total` metric counting sync-and-recovery info publications that invalidate the node-recovery baseline and supersede in-flight node-recovery runs.",
+        "url": "https://github.com/MystenLabs/walrus/pull/3643"
+      }
+    ]
+  },
+  {
+    "id": "walrus-testnet-v1.55.1",
+    "date": "2026-08-28T05:23:21Z",
+    "category": "walrus",
+    "title": "Walrus v1.55.1",
+    "description": null,
+    "badge": "Testnet",
+    "githubUrl": "https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.55.1",
+    "changes": [
+      {
+        "text": "Adds a `node_recovery_baseline_invalidations_total` metric counting sync-and-recovery info publications that invalidate the node-recovery baseline and supersede in-flight node-recovery runs.",
+        "url": "https://github.com/MystenLabs/walrus/pull/3643"
+      }
+    ]
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal@0.1.5",
+    "date": "2026-08-26T12:59:20Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory TypeScript SDK v0.1.5",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.1.5",
+    "changes": []
+  },
+  {
+    "id": "memwal-memwal-python@0.1.8",
+    "date": "2026-08-26T12:59:19Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory python v0.1.8",
+    "description": "Release memwal Python SDK v0.1.8",
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.8",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal-mcp@0.0.11",
+    "date": "2026-08-24T07:56:29Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory MCP v0.0.11",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.11",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal@0.1.4",
+    "date": "2026-08-24T07:56:12Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory TypeScript SDK v0.1.4",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.1.4",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal-mcp@0.0.10",
+    "date": "2026-08-20T09:21:38Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory MCP v0.0.10",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.10",
+    "changes": [
+      {
+        "text": "Answer orphaned tool calls whose upstream response never arrives with a retryable error instead of hanging indefinitely. The bridge now tracks in-flight request start times and sweeps expired calls through a per-request deadline (`MEMWAL_MCP_CALL_TIMEOUT_MS`, default 240s), reuses the existing late-reply drop so an expired call cannot get a second response, and enriches reconnect logs with pending request IDs and methods.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/690"
+      },
+      {
+        "text": "Inject the configured default namespace (`--namespace` / `MEMWAL_NAMESPACE`) into `memwal_remember_bulk` calls that omit one, so bulk facts land in the project namespace instead of the relayer fallback `default`.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/667"
+      },
+      {
+        "text": "Send proactive-usage instructions in the MCP `initialize` handshake, so the model knows when to save and recall without being asked. Clients moved to lazy tool loading, which keeps tool descriptions out of the model's context until a tool is explicitly loaded; the guidance lived only in those descriptions, so the model stopped using memory on its own and would offer its built-in memory or deny the tool existed. `instructions` travels with `initialize`, before any `tools/list`, so lazy loading cannot strip it.",
+        "url": "https://github.com/MystenLabs/MemWal/pull/681"
+      }
+    ]
+  },
+  {
+    "id": "memwal-@mysten-incubation/oc-memwal@0.0.6",
+    "date": "2026-08-20T09:21:19Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory SDK v0.0.6",
+    "description": "and `serverUrl` as required in `configSchema`, so OpenClaw rejected the config entry the",
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/oc-memwal%400.0.6",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal@0.1.3",
+    "date": "2026-08-20T09:21:13Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory TypeScript SDK v0.1.3",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.1.3",
+    "changes": []
+  },
+  {
+    "id": "walrus-mainnet-v1.54.0",
+    "date": "2026-08-19T19:20:43Z",
+    "category": "walrus",
+    "title": "Walrus v1.54.0",
+    "description": null,
+    "badge": "Mainnet",
+    "githubUrl": "https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.54.0",
+    "changes": [
+      {
+        "text": "Requests for quilt patches of expired or nonexistent quilts now return 404 `BLOB_NOT_FOUND` within about a second, instead of 503 `BLOB_UNAVAILABLE` after a 10-20 second fan-out.",
+        "url": "https://github.com/MystenLabs/walrus/pull/3604"
+      },
+      {
+        "text": "`walrus read-quilt` fails immediately with \"the blob ID does not exist\" for expired or never-certified quilts, instead of timing out against the storage nodes.",
+        "url": "https://github.com/MystenLabs/walrus/pull/3604"
+      }
+    ]
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal-mcp@0.0.8",
+    "date": "2026-08-14T17:02:24Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory MCP v0.0.8",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.8",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal-mcp@0.0.7",
+    "date": "2026-08-14T08:13:59Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory MCP v0.0.7",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.7",
+    "changes": []
+  },
+  {
+    "id": "memwal-memwal-python@0.1.7",
+    "date": "2026-08-14T08:13:53Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory python v0.1.7",
+    "description": "Release memwal Python SDK v0.1.7",
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.7",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal@0.1.2",
+    "date": "2026-08-14T08:13:41Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory TypeScript SDK v0.1.2",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.1.2",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal@0.1.1",
+    "date": "2026-08-07T07:15:09Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory TypeScript SDK v0.1.1",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.1.1",
+    "changes": []
+  },
+  {
+    "id": "memwal-memwal-python@0.1.6",
+    "date": "2026-08-07T07:14:58Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory python v0.1.6",
+    "description": "Release memwal Python SDK v0.1.6",
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.6",
+    "changes": []
+  },
+  {
+    "id": "walrus-mainnet-v1.53.0",
+    "date": "2026-08-05T17:52:16Z",
+    "category": "walrus",
+    "title": "Walrus v1.53.0",
+    "description": null,
+    "badge": "Mainnet",
+    "githubUrl": "https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.53.0",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal@0.1.0",
+    "date": "2026-07-31T13:57:21Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory TypeScript SDK v0.1.0",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal%400.1.0",
+    "changes": []
+  },
+  {
+    "id": "memwal-@mysten-incubation/memwal-mcp@0.0.6",
+    "date": "2026-07-31T13:57:14Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory MCP v0.0.6",
+    "description": null,
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/%40mysten-incubation/memwal-mcp%400.0.6",
+    "changes": []
+  },
+  {
+    "id": "memwal-memwal-python@0.1.5",
+    "date": "2026-07-31T13:57:09Z",
+    "category": "walrus-memory",
+    "title": "Walrus Memory python v0.1.5",
+    "description": "Release memwal Python SDK v0.1.5",
+    "badge": null,
+    "githubUrl": "https://github.com/MystenLabs/MemWal/releases/tag/memwal-python%400.1.5",
+    "changes": []
+  },
+  {
     "id": "walrus-mainnet-v1.52.1",
     "date": "2026-07-22T17:24:03Z",
     "category": "walrus",
@@ -24,7 +429,7 @@
     "date": "2026-07-10T10:59:27Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.12.0",
-    "description": "The portal gains a glob-based route/redirect matcher behind a flag (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client methods ahead of the JSON-RPC deprecation.",
+    "description": "First step of the routing migration: a glob-based route and redirect matcher behind a flag, with a\npattern cap. The site-builder also migrates off JSON-RPC-only client methods ahead of the JSON-RPC\ndeprecation.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.12.0",
     "changes": [
@@ -81,7 +486,7 @@
     "date": "2026-07-06T13:44:46Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.11.0",
-    "description": "The portal now talks to Sui over gRPC instead of JSON-RPC, in preparation for the JSON-RPC deprecation.",
+    "description": "The portal reads Sui over gRPC instead of JSON-RPC, ahead of the JSON-RPC deprecation.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.11.0",
     "changes": [
@@ -140,7 +545,7 @@
     "date": "2026-06-04T15:35:28Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.10.0",
-    "description": "Portal aggregator timing rework: a per-attempt fetch timeout plus a Bun `idleTimeout` sized from the worst-case retry budget close the gap where a slow aggregator could trip the inbound connection mid-flight and surface a generic upstream proxy error instead of the portal's own `aggregatorFail()` page. Sui and Walrus deps bumped to their current testnet releases. No Move contract changes.\r\n\r\n> ℹ️ **Portal operators**: each aggregator attempt is now bounded at 10s and fails over to the next URL; Bun's `idleTimeout` is sized from the full retry chain so the portal can return its own response. Tune via `AGGREGATOR_REQUEST_TIMEOUT_MS` (default `10000`) and `PORTAL_IDLE_TIMEOUT_MAX_S` (default `100`); resolved values logged at startup.",
+    "description": "Aggregator timing rework: each attempt is bounded by a 10-second fetch timeout\n(`AGGREGATOR_REQUEST_TIMEOUT_MS`) and fails over to the next URL, and Bun's `idleTimeout` is sized\nfrom the full retry budget, so a slow aggregator now surfaces the portal's own failure page\ninstead of tripping the inbound connection and returning a generic proxy error.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.10.0",
     "changes": [
@@ -279,7 +684,7 @@
     "date": "2026-05-21T14:47:20Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.9.2",
-    "description": "Patch release with a portal SuiNS resolution fix and a site-builder dependency bump. No new features, no breaking changes, and no Move contract changes.",
+    "description": "Patch: the portal stops counting SuiNS lookups that resolve to not-exists as full-node failures,\nshort-circuiting retries and unwrapping to `null`. No Move contract changes.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.9.2",
     "changes": [
@@ -348,7 +753,7 @@
     "date": "2026-05-07T15:58:00Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.9.1",
-    "description": "Patch release with portal observability and configuration fixes, plus dependency bumps and CI hardening. No new features, no breaking changes, and no Move contract changes.\r\n\r\n> ℹ️ **walrus-upgrade**: drop `walrus_package` from your `sites-config.yaml` (to auto-resolve), or update it to the latest package id from the Walrus `staking_object` in `~/.config/walrus/client_config.yaml`.",
+    "description": "Observability patch: every request is counted in `ws_num_requests_made_counter`, and\n`walrus_package` can now be dropped from `sites-config.yaml` (or updated), since it is\nauto-resolved from the Walrus staking object. No Move contract changes.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.9.1",
     "changes": [
@@ -418,7 +823,7 @@
     "date": "2026-04-23T12:03:13Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.9.0",
-    "description": "Site builder performance and reliability improvements: resource dynamic field fetching now uses a single batched `multi_get` call instead of chunked per-resource queries with inter-batch delays, and the `sitemap` subcommand correctly respects the active wallet environment instead of whichever env happened to be listed first in the config.",
+    "description": "Performance release: resource dynamic-field fetching collapses into a single batched `multi_get`\ncall instead of chunked queries with inter-batch delays, and `sitemap` uses the active wallet\nenvironment rather than whichever env was listed first.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.9.0",
     "changes": [
@@ -491,7 +896,7 @@
     "date": "2026-04-02T13:02:07Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.8.0",
-    "description": "This release adds server-side redirect support to Walrus Sites. Redirect rules are stored as dynamic fields on the on-chain `Site` object, configurable via `ws-resources.json` with glob pattern matching. The portal evaluates redirects before resource fetching and serves 3xx response.\r\n\r\n**This release includes a Move contract upgrade** — the `walrus_site` package is upgraded to add redirect storage on-chain. To use the new redirects feature, update the `package_id` in your `sites-config.yaml` to point to the latest package ID, or remove the `package_id` field entirely so that MVR can resolve it automatically.\r\n\r\n**Portal config change:** `site_package` has been renamed to `original_package_id` as this is what actually matters of it.\r\n\r\nThe portal has also been updated to Mysten SDK v2.",
+    "description": "Server-side redirects arrive: rules are stored as dynamic fields on the on-chain `Site` object,\nconfigured in `ws-resources.json` with glob matching, and evaluated by the portal before fetching\na resource, serving 3xx responses. Includes a Move contract upgrade, so point `package_id` in\n`sites-config.yaml` at the new package or drop it for MVR resolution. Portal config key\n`site_package` becomes `original_package_id`, and the portal moved to Mysten SDK v2.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.8.0",
     "changes": [
@@ -630,7 +1035,7 @@
     "date": "2026-03-12T14:38:34Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.7.0",
-    "description": "Site builder reliability improvements: large sites (500+ routes/resources) no longer fail with `InsufficientGas` errors due to PTB byte-size overflow, and Site deploying is more resilient to transient Sui object version conflicts with automatic retry and exponential backoff.",
+    "description": "Reliability release: large sites (500 or more routes/resources) no longer fail with\n`InsufficientGas` from PTB byte-size overflow, and deploys retry transient Sui object-version\nconflicts with exponential backoff.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.7.0",
     "changes": [
@@ -683,7 +1088,7 @@
     "date": "2026-02-26T22:14:34Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.6.0",
-    "description": "The portal configuration is now loaded from a YAML file instead of environment variables. Env vars can still be used as overrides. This simplifies deployment (single ConfigMap vs many env vars) and enables structured configuration (URL arrays with priority/retries are native YAML lists instead of pipe-delimited strings).",
+    "description": "Portal configuration now loads from a YAML file (`portal-config.yaml` by default, `PORTAL_CONFIG`\nto override the path) instead of a spray of environment variables, which still work as overrides;\npriority/retry URL lists are native YAML instead of pipe-delimited strings. This release also\ncarries v2.5.0's priority-based executor for RPC and aggregator URLs, replacing `Promise.any()`\nracing, with `AGGREGATOR_URL` renamed to `AGGREGATOR_URL_LIST`.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.6.0",
     "changes": [
@@ -760,7 +1165,7 @@
     "date": "2026-02-09T12:19:47Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.4.0",
-    "description": null,
+    "description": "Portal quality-of-life release: aggregator 403 and 404 errors come with clear messaging instead of\ngeneric failures, and errors print correctly in the logger with their cause included.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.4.0",
     "changes": [
@@ -810,7 +1215,7 @@
     "date": "2026-01-29T14:51:30Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.3.1",
-    "description": "Requires Walrus CLI v1.37.0 or later",
+    "description": "Hotfix: child-process uploads are disabled until further notice because they broke JSON parsing\nagainst the Walrus CLI. Requires Walrus CLI v1.37.0 or later.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.3.1",
     "changes": [
@@ -848,7 +1253,7 @@
     "date": "2026-01-26T15:38:44Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.3.0",
-    "description": null,
+    "description": "`deploy --dry-run` output was refined with Sui gas estimates, resources are grouped by size, and\nthe missing-site-fields error gained context. Updating a site with expired blobs now works, and\nthe portal no longer trips serializing unexpected exceptions.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.3.0",
     "changes": [
@@ -898,7 +1303,7 @@
     "date": "2026-01-14T14:46:23Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.2.1",
-    "description": "This release introduces an optimization for site updates: files that remain unchanged during an update are no longer re-uploaded into new Quilts. Only new and modified files are uploaded.",
+    "description": "The redundant-upload problem from v2.0.0 is fixed: unchanged files are no longer re-uploaded into\nnew quilts, only new and modified ones. Blob extension now uses the correct Walrus package ID from\nthe staking object, error output includes the config path, and the portal dropped its Amplitude\nintegration.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.2.1",
     "changes": [
@@ -943,7 +1348,7 @@
     "date": "2025-12-16T10:46:56Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.1.2",
-    "description": null,
+    "description": "Destroying sites with more than 1000 resources works again. Adds a script for generating synthetic\nsites for testing and a GitHub Action to build the service worker.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.1.2",
     "changes": []
@@ -973,7 +1378,7 @@
     "date": "2025-12-04T11:09:07Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.1.1",
-    "description": "This is a bugfix release for the Portal component and does not impact Site Builder.",
+    "description": "Portal-only bugfix: aggregator responses are treated as failures only on 5xx. Site builder is\nunaffected.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.1.1",
     "changes": [
@@ -998,7 +1403,7 @@
     "date": "2025-12-01T14:28:29Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.1.0",
-    "description": null,
+    "description": "Quilt follow-ups: files larger than `--max-quilt-size` can now be published, updating a site with\nmore than 1000 resources no longer aborts, and the portal answers 503 and 500 responses for\nservice unavailability instead of failing opaquely.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.1.0",
     "changes": [
@@ -1051,7 +1456,7 @@
     "date": "2025-11-17T16:55:56Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v2.0.0",
-    "description": "This major release transitions the `site-builder` CLI to exclusively use **Quilts** for site data",
+    "description": "Major release: `site-builder` moves exclusively to quilts, cutting publishing cost and time,\nespecially for larger sites. Updates re-upload all site data at this stage (redundant uploads were\nremoved in v2.2.1), so operators were pointed at dry-running updates on Testnet or republishing in the meantime.\n`update-resource` was redesigned and renamed to `update-resources`, taking multiple resources in\none operation, and four blob-era flags are gone. Requires Walrus CLI v1.35.0 or later.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.0.0",
     "changes": [
@@ -1088,7 +1493,7 @@
     "date": "2025-11-03T09:18:38Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v1.3.1",
-    "description": "Work for feature flag `quilts-experimental`. Mainly testing and bug-fixes.",
+    "description": "Hardening the `quilts-experimental` path ahead of stabilization: a `deploy-quilts` command, the\nlarge-files limit is respected for quilts, route insertion waits until all resources exist, and\nquilt lifecycle tests land.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.3.1",
     "changes": []
@@ -1118,7 +1523,7 @@
     "date": "2025-10-21T09:37:11Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v1.3.0",
-    "description": null,
+    "description": "Quilt work: `--list-directory` is supported when deploying with quilts, the blob backing a moved\nresource is no longer deleted, and the epoch argument propagates through the quilt path.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.3.0",
     "changes": [
@@ -1181,7 +1586,7 @@
     "date": "2025-10-07T11:40:43Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v1.2.1",
-    "description": null,
+    "description": "Bugfix release for quilt publishing: move commands are split into PTBs dynamically, `--dry-run` no\nlonger errors on `publish-quilts`, and the portal logger passes its arguments through.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.2.1",
     "changes": [
@@ -1247,7 +1652,7 @@
     "date": "2025-09-22T18:56:36Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v1.2.0",
-    "description": "Further support of quilts under the `quilts-experimental` feature.\r\n\r\n> **Note**  \r\n> Header and ignore-file matching in ws-resources.json, now uses **glob patterns** (e.g. `*.md`, `docs/**`) instead of regular expressions.  \r\n> Regex support was never intentional, so if you were using advanced regex, please update your configs to glob style.([#556](https://github.com/MystenLabs/walrus-sites/pull/556)).",
+    "description": "More experimental quilt work: `update-quilts` re-creates all resources, and quilt patch IDs\nsurface in publish and update output and in the sitemap. Header and ignore-file matching in\n`ws-resources.json` now uses glob patterns instead of regular expressions, and the GitHub deploy\naction accepts exported wallet keys.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.2.0",
     "changes": [
@@ -1343,7 +1748,7 @@
     "date": "2025-09-08T14:23:00Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v1.1.0",
-    "description": "This release introduces a new publishing and deployment method for Walrus Sites using [quilts](https://docs.wal.app/usage/quilt.html) instead of blobs. Multiple resources are now bundled as quilt patches on Walrus, significantly reducing the cost of site publishing.\r\n\r\nYou can use this feature with: `site-builder publish-quilts --epochs=<EPOCHS> <YOUR-BUILD-DIR>`.\r\n\r\n> ⚠️ **Important note**: This feature is only available when building `site-builder` from source with `cargo build --features quilts-experimental`.",
+    "description": "First quilt support. Behind the `quilts-experimental` feature flag, `site-builder publish-quilts`\nbundles multiple resources as quilt patches instead of individual blobs, significantly reducing\npublishing cost, and the portal derives `quiltpatchid` values to retrieve quilt-based resources.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.1.0",
     "changes": [
@@ -1566,7 +1971,7 @@
     "date": "2025-07-15T15:53:25Z",
     "category": "walrus-sites",
     "title": "Walrus Sites v1.0.2",
-    "description": null,
+    "description": "Maintenance release: points `Move.lock` at the latest Testnet package ID, pins CI actions to\nspecific commits, and attaches site-builder binaries to every release.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.0.2",
     "changes": []
@@ -1610,8 +2015,8 @@
     "id": "sites-walrus_sites_v0.1.0_1751313026_mainnet_ci",
     "date": "2025-06-30T19:56:23Z",
     "category": "walrus-sites",
-    "title": "Walrus Sites walrus_sites_v0.1.0_1751313026_mainnet_ci",
-    "description": null,
+    "title": "Walrus Sites v0.1.0",
+    "description": "An early tagged cut of the site-builder tooling: end-to-end integration tests for publishing, and\na GitHub Action that builds a pnpm site and deploys it as a Walrus Site.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/walrus_sites_v0.1.0_1751313026_mainnet_ci",
     "changes": [
@@ -1645,8 +2050,8 @@
     "id": "sites-walrus_sites_v0.1.0_1750076111_mainnet_ci",
     "date": "2025-06-16T12:28:03Z",
     "category": "walrus-sites",
-    "title": "Walrus Sites walrus_sites_v0.1.0_1750076111_mainnet_ci",
-    "description": "🚀 Welcome to the very first official release of Walrus Sites! This marks the production-ready milestone for the project.\r\n\r\nStarting with this release, each version will include all the necessary components for deploying (via the site-builder) and accessing (via the portals) your Walrus Sites.\r\n\r\nWe are committed to following [semantic versioning](https://semver.org/) conventions for all future releases, ensuring clarity and consistency in version updates.",
+    "title": "Walrus Sites v0.1.0",
+    "description": "An early tagged cut of the site-builder tooling: end-to-end integration tests for publishing, and\na GitHub Action that builds a pnpm site and deploys it as a Walrus Site.",
     "badge": null,
     "githubUrl": "https://github.com/MystenLabs/walrus-sites/releases/tag/walrus_sites_v0.1.0_1750076111_mainnet_ci",
     "changes": [
