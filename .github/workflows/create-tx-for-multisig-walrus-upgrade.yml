@@ -1,0 +1,88 @@
+name: Build TX for Multisig Walrus Contract Upgrade
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Network whose Walrus contract is upgraded (built from mainnet-contracts/ or testnet-contracts/)"
+        type: choice
+        options:
+          - mainnet
+          - testnet
+      commit:
+        description: "Commit hash of the walrus repo with the upgraded contract; walrus-deploy is built from it too"
+        required: true
+        type: string
+      sender:
+        description: "Transaction sender, the owner of the EmergencyUpgradeCap (defaults to the network's cap owner)"
+        required: false
+        type: string
+
+jobs:
+  create-tx:
+    name: Create emergency upgrade TX for multisig
+    runs-on: ubuntu-ghcloud
+    env:
+      NETWORK: ${{ inputs.network }}
+      SENDER: ${{ inputs.sender }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
+        with:
+          fetch-depth: 1
+          ref: ${{ inputs.commit }}
+
+      - uses: ./.github/actions/sccache
+        with:
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev pkg-config zlib1g-dev libpq-dev build-essential cmake
+
+      - name: Install Homebrew
+        run: |
+          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+          echo "/home/linuxbrew/.linuxbrew/bin" >> $GITHUB_PATH
+
+      - name: Install Sui using Homebrew
+        run: brew install sui
+
+      - name: Setup sui client config
+        run: |
+          # Hide the output: on a fresh runner this creates a throwaway key and prints its recovery
+          # phrase.
+          sui client switch --env "$NETWORK" > /dev/null
+
+      - name: Build walrus and walrus-deploy
+        run: cargo build --release -p walrus-service --features client,deploy --bin walrus --bin walrus-deploy
+
+      - name: Show package digest (to compare with the announced digest)
+        run: |
+          ./target/release/walrus node-admin package-digest \
+            --config setup/client_config.yaml \
+            --context "$NETWORK" \
+            --package-path "$NETWORK-contracts/walrus"
+
+      - name: Create unsigned transaction for multisig
+        run: |
+          mkdir -p artifacts
+          ./scripts/create_multisig_walrus_upgrade_tx.sh \
+            -n "$NETWORK" \
+            -s "$SENDER" \
+            >artifacts/tx-data.txt
+
+      - name: Show Transaction Data (To sign)
+        run: |
+          cat artifacts/tx-data.txt
+
+      - name: Show decoded transaction
+        run: |
+          sui keytool decode-or-verify-tx --tx-bytes "$(cat artifacts/tx-data.txt)"
+
+      - name: Upload Transaction Artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@v7.0.1
+        with:
+          name: transaction-data
+          path: artifacts/tx-data.txt
