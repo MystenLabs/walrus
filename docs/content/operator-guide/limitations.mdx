@@ -107,7 +107,7 @@ http {
 }
 ```
 
-##### Step 3: Create a site configuration.
+##### Step 3: Create a site configuration. The server block below listens on port 443 only, so plain HTTP requests on port 80 are not served by this site.
 
 Create a file at `/etc/nginx/sites-available/YOUR_HOSTNAME`:
 
