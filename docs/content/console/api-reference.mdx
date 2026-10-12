@@ -1,14 +1,14 @@
 ---
 title: API Reference
-description: The Console developer API surface for spaces, folders, files, search, signed downloads, and Seal sponsorship, including authentication, conventions, rate limits, and error codes.
+description: The Walrus Console developer API surface for spaces, folders, files, search, signed downloads, and Seal sponsorship, including authentication, conventions, rate limits, and error codes.
 keywords: [walrus console, api reference, spaces, folders, files, search, seal, api keys]
 ---
 
-The Console developer API covers the endpoints third-party developers use to manage spaces, folders, and files, plus the [Seal](/docs/data-security) endpoints that back private-folder access control.
+The Walrus Console developer API covers the endpoints third-party developers use to manage spaces, folders, and files, plus the [Seal](/docs/data-security) endpoints that back private-folder access control.
 
 :::info
 
-The Console developer API is in beta at `https://api.console.walrus.xyz`. Endpoint shapes might change before GA. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
+The Console developer API is at `https://api.console.walrus.xyz`. For a guided walkthrough of the full encrypted flow, start with the [Quick Start](./quickstart). For the product model behind these endpoints, see the [concepts and overview](./overview).
 
 :::
 
@@ -66,6 +66,8 @@ Common error codes include:
 | --- | --- | --- |
 | `401` | `unauthorized` | Missing or invalid API key. |
 | `401` | `api_key_registering` / `api_key_revoking` / `api_key_revoked` | The key is not currently usable. |
+| `401` | `api_key_rotation_incomplete` | The key was revoked by a rotation that did not finish. Create a new key in Console. |
+| `401` | `api_key_replaced` | The key was rotated and a new key replaces it. Use the new API key and service private key shown in Console. |
 | `403` | `read_only_api_key` | A write was attempted with a read-only key. |
 | `403` | `insufficient_scope` | The key's scope does not cover the endpoint. |
 | `403` | `bucket_not_in_scope` | The key cannot access the target folder, or the space in the path is not the key's space. |
@@ -80,6 +82,8 @@ Common error codes include:
 | `423` | `file_deleting` | The file is being deleted. |
 | `429` | `TooManyRequestsError` | The rate limit was exceeded. Read `Retry-After`. |
 | `400` | `bad_request` | The request failed validation on a file or search route. |
+
+Rotating revokes the old key before the new one is shown, so there is no window in which both work.
 
 Requests that exceed a limit return `422` with a distinct shape:
 
@@ -137,7 +141,7 @@ Returns `200` with `buckets` and `next_cursor`. Each folder has the fields liste
 
 `POST /api/v1/spaces/{id}/buckets`
 
-Reserves a private folder. This is the first step of the reserve, sign, and finalize handshake. In beta, `scope` accepts `private` only.
+Reserves a private folder. This is the first step of the reserve, sign, and finalize handshake. `scope` accepts `private` only.
 
 Body:
 

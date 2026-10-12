@@ -69,7 +69,8 @@ impl WalPriceFetcher for CoinGeckoPriceFetcher {
                 .get(COINGECKO_API_URL)
                 .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
                 .send()
-                .await?;
+                .await?
+                .error_for_status()?;
 
             let json_response: serde_json::Value = response.json().await?;
 
@@ -120,7 +121,8 @@ impl WalPriceFetcher for CoinbasePriceFetcher {
                 .get(COINBASE_API_URL)
                 .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
                 .send()
-                .await?;
+                .await?
+                .error_for_status()?;
 
             let json_response: serde_json::Value = response.json().await?;
 
@@ -172,7 +174,8 @@ impl WalPriceFetcher for BinancePriceFetcher {
                 .get(BINANCE_API_URL)
                 .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
                 .send()
-                .await?;
+                .await?
+                .error_for_status()?;
 
             let json_response: serde_json::Value = response.json().await?;
 
@@ -223,7 +226,8 @@ impl WalPriceFetcher for PythHermesPriceFetcher {
                 .get(PYTH_HERMES_API_URL)
                 .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
                 .send()
-                .await?;
+                .await?
+                .error_for_status()?;
 
             let json_response: serde_json::Value = response.json().await?;
 
@@ -284,7 +288,8 @@ impl WalPriceFetcher for CoinMarketCapPriceFetcher {
                 .get(COINMARKETCAP_API_URL)
                 .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
                 .send()
-                .await?;
+                .await?
+                .error_for_status()?;
 
             let json_response: serde_json::Value = response.json().await?;
 

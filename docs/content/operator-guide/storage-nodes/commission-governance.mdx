@@ -117,7 +117,7 @@ To vote for an upgrade, complete the following steps.
 
 ### Compute the upgrade digest
 
-You should compute the package digest of the package to upgrade. You must use the same compiler version and specify the correct Sui network. If you use a standard [Walrus configuration](/docs/getting-started/advanced-setup#configuration), the Sui network is selected automatically when you specify the Walrus network using the `--context` flag. Using the up-to-date `walrus` version ensures that the compiler version is consistent across all voters.
+You should compute the package digest of the package to upgrade. You must use the same compiler version and specify the correct Sui network. If you use a standard [Walrus configuration](/docs/getting-started/advanced-setup#configure-walrus), the Sui network is selected automatically when you specify the Walrus network using the `--context` flag. Using the up-to-date `walrus` version ensures that the compiler version is consistent across all voters.
 
 To compute the digest of a proposed upgrade, use the `walrus node-admin` command. Assuming that your current working directory is the root of the Walrus repository and you have checked out the correct commit, use the following command for Testnet upgrades:
 

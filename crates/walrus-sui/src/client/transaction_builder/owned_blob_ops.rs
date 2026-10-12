@@ -225,6 +225,27 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
+    /// Adds a call to `certify_snapshot_blob` to the `pt_builder`.
+    pub async fn certify_snapshot_blob(
+        &mut self,
+        blob_metadata: BlobObjectMetadata,
+        storage_node_cap: ArgumentOrOwnedObject,
+        snapshot_epoch: u32,
+    ) -> SuiClientResult<()> {
+        let arguments = vec![
+            self.system_arg(SharedObjectMutability::Mutable)?,
+            self.argument_from_arg_or_obj(storage_node_cap).await?,
+            self.pt_builder.pure(blob_metadata.blob_id)?,
+            self.pt_builder.pure(blob_metadata.root_hash.bytes())?,
+            self.pt_builder.pure(blob_metadata.unencoded_size)?,
+            self.pt_builder
+                .pure(u8::from(blob_metadata.encoding_type))?,
+            self.pt_builder.pure(snapshot_epoch)?,
+        ];
+        self.walrus_move_call(contracts::system::certify_snapshot_blob, arguments)?;
+        Ok(())
+    }
+
     /// Adds a call to `delete_blob` to the `pt_builder` and returns the result [`Argument`].
     pub async fn delete_blob(
         &mut self,

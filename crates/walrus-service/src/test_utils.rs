@@ -72,7 +72,7 @@ use walrus_sui::{
         NodeRegistrationParams,
         StorageNode as SuiStorageNode,
         StorageNodeCap,
-        move_structs::{EpochState, EventBlob, NodeMetadata},
+        move_structs::{EpochState, EventBlob, NodeMetadata, SnapshotBlob},
     },
 };
 use walrus_test_utils::WithTempDir;
@@ -96,6 +96,7 @@ use crate::{
         GarbageCollectionConfig,
         Storage,
         StorageNode,
+        blob_info_snapshot_writer::BlobInfoSnapshotWriterConfig,
         committee::{
             BeginCommitteeChangeError,
             CommitteeLookupService,
@@ -225,6 +226,7 @@ pub struct TestNodesConfig {
     blocklist_dir: Option<PathBuf>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    blob_info_snapshot_certify: Vec<bool>,
 }
 
 impl TestNodesConfig {
@@ -253,6 +255,13 @@ impl TestNodesConfig {
         self.node_recovery_config.as_ref()
     }
 
+    /// Returns, per node, whether the node certifies blob info snapshots on chain.
+    ///
+    /// Empty if no node certifies.
+    pub fn blob_info_snapshot_certify(&self) -> &[bool] {
+        &self.blob_info_snapshot_certify
+    }
+
     /// Creates a new builder for `TestNodesConfig`.
     pub fn builder() -> TestNodesConfigBuilder {
         TestNodesConfigBuilder::new()
@@ -273,6 +282,7 @@ pub struct TestNodesConfigBuilder {
     blocklist_dir: Option<PathBuf>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
+    blob_info_snapshot_certify: Vec<bool>,
 }
 
 impl Default for TestNodesConfigBuilder {
@@ -294,6 +304,7 @@ impl TestNodesConfigBuilder {
             blocklist_dir: None,
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
+            blob_info_snapshot_certify: vec![],
         }
     }
 
@@ -336,6 +347,14 @@ impl TestNodesConfigBuilder {
         self
     }
 
+    /// Sets, per node, whether the node certifies blob info snapshots on chain.
+    ///
+    /// The slice must have one entry per node weight.
+    pub fn with_blob_info_snapshot_certify(mut self, certify: &[bool]) -> Self {
+        self.blob_info_snapshot_certify = certify.to_vec();
+        self
+    }
+
     /// Builds the [`TestNodesConfig`], validating constraints.
     ///
     /// # Panics
@@ -353,12 +372,22 @@ impl TestNodesConfigBuilder {
             );
         }
 
+        assert!(
+            self.blob_info_snapshot_certify.is_empty()
+                || self.blob_info_snapshot_certify.len() == self.node_weights.len(),
+            "TestNodesConfig: blob_info_snapshot_certify must have one entry per node, but \
+            {:?} was given for node_weights {:?}.",
+            self.blob_info_snapshot_certify,
+            self.node_weights
+        );
+
         TestNodesConfig {
             node_weights: self.node_weights,
             disable_event_blob_writer: self.disable_event_blob_writer,
             blocklist_dir: self.blocklist_dir,
             enable_node_config_synchronizer: self.enable_node_config_synchronizer,
             node_recovery_config: self.node_recovery_config,
+            blob_info_snapshot_certify: self.blob_info_snapshot_certify,
         }
     }
 }
@@ -872,6 +901,7 @@ pub struct StorageNodeHandleBuilder {
     garbage_collection_config: Option<GarbageCollectionConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<u32>,
+    blob_info_snapshot_certify: bool,
 }
 
 impl StorageNodeHandleBuilder {
@@ -949,6 +979,12 @@ impl StorageNodeHandleBuilder {
     /// Enable or disable event blob writer on the node.
     pub fn with_disabled_event_blob_writer(mut self, disable: bool) -> Self {
         self.disable_event_blob_writer = disable;
+        self
+    }
+
+    /// Enable or disable certifying blob info snapshots on chain.
+    pub fn with_blob_info_snapshot_certify(mut self, certify: bool) -> Self {
+        self.blob_info_snapshot_certify = certify;
         self
     }
 
@@ -1114,6 +1150,10 @@ impl StorageNodeHandleBuilder {
             blocklist_path: self.blocklist_path,
             shard_sync_config: self.shard_sync_config.unwrap_or_default(),
             disable_event_blob_writer: self.disable_event_blob_writer,
+            blob_info_snapshot: BlobInfoSnapshotWriterConfig {
+                certify: self.blob_info_snapshot_certify,
+                ..Default::default()
+            },
             config_synchronizer: ConfigSynchronizerConfig {
                 interval: Duration::from_secs(5),
                 enabled: self.enable_node_config_synchronizer,
@@ -1295,6 +1335,10 @@ impl StorageNodeHandleBuilder {
             },
             pending_sliver_cache: Default::default(),
             disable_event_blob_writer,
+            blob_info_snapshot: BlobInfoSnapshotWriterConfig {
+                certify: self.blob_info_snapshot_certify,
+                ..Default::default()
+            },
             sui: Some(SuiConfig {
                 rpc: sui_rpc_urls.remove(0),
                 contract_config: ContractConfig::new(
@@ -1407,6 +1451,7 @@ impl Default for StorageNodeHandleBuilder {
             garbage_collection_config: None,
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
+            blob_info_snapshot_certify: false,
         }
     }
 }
@@ -1855,6 +1900,19 @@ impl SystemContractService for StubContractService {
         Ok(None)
     }
 
+    async fn certify_snapshot_blob(
+        &self,
+        _blob_metadata: BlobObjectMetadata,
+        _snapshot_epoch: u32,
+        _node_capability_object_id: ObjectID,
+    ) -> Result<(), SuiClientError> {
+        Ok(())
+    }
+
+    async fn last_certified_snapshot_blob(&self) -> Result<Option<SnapshotBlob>, SuiClientError> {
+        Ok(None)
+    }
+
     fn is_subsidies_object_configured(&self) -> bool {
         false
     }
@@ -2056,6 +2114,7 @@ pub struct TestClusterBuilder {
     num_checkpoints_per_blob: Option<u32>,
     blocklist_files: Vec<Option<PathBuf>>,
     disable_event_blob_writer: Vec<bool>,
+    blob_info_snapshot_certify: Vec<bool>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
@@ -2114,6 +2173,7 @@ impl TestClusterBuilder {
         self.committee_services = configs.iter().map(|_| None).collect();
         self.storage_capabilities = configs.iter().map(|_| None).collect();
         self.node_wallet_dirs = configs.iter().map(|_| None).collect();
+        self.blob_info_snapshot_certify = configs.iter().map(|_| false).collect();
         self.storage_node_configs = configs;
 
         self.n_shards = assignment
@@ -2238,6 +2298,14 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Specifies, per node, whether the node certifies blob info snapshots on chain.
+    ///
+    /// Should be called after the storage nodes have been specified.
+    pub fn with_blob_info_snapshot_certify(mut self, certify: Vec<bool>) -> Self {
+        self.blob_info_snapshot_certify = certify;
+        self
+    }
+
     /// Sets the sui wallet config directory for each storage node.
     pub fn with_blocklist_files(mut self, blocklist_files: Vec<PathBuf>) -> Self {
         self.blocklist_files = blocklist_files.into_iter().map(Some).collect();
@@ -2290,6 +2358,7 @@ impl TestClusterBuilder {
             start_node_from_beginning: bool,
             blocklist_file: Option<PathBuf>,
             disable_event_blob_writer: bool,
+            blob_info_snapshot_certify: bool,
         }
 
         let node_setups = izip!(
@@ -2301,7 +2370,8 @@ impl TestClusterBuilder {
             self.node_wallet_dirs.into_iter(),
             self.start_node_from_beginning.into_iter(),
             self.blocklist_files.into_iter(),
-            self.disable_event_blob_writer.into_iter()
+            self.disable_event_blob_writer.into_iter(),
+            self.blob_info_snapshot_certify.into_iter()
         )
         .map(
             |(
@@ -2314,6 +2384,7 @@ impl TestClusterBuilder {
                 start_node_from_beginning,
                 blocklist_file,
                 disable_event_blob_writer,
+                blob_info_snapshot_certify,
             )| NodeSetup {
                 storage_node_config,
                 event_provider,
@@ -2324,6 +2395,7 @@ impl TestClusterBuilder {
                 start_node_from_beginning,
                 blocklist_file,
                 disable_event_blob_writer,
+                blob_info_snapshot_certify,
             },
         )
         .collect::<Vec<_>>();
@@ -2341,6 +2413,7 @@ impl TestClusterBuilder {
                 .with_blocklist_file(node_setup.blocklist_file)
                 .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
                 .with_disabled_event_blob_writer(node_setup.disable_event_blob_writer)
+                .with_blob_info_snapshot_certify(node_setup.blob_info_snapshot_certify)
                 .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer)
                 .with_node_recovery_config(self.node_recovery_config.clone().unwrap_or_default())
                 .with_event_stream_catchup_min_checkpoint_lag(
@@ -2552,6 +2625,7 @@ impl Default for TestClusterBuilder {
             start_node_from_beginning: shard_assignment.iter().map(|_| true).collect(),
             blocklist_files: shard_assignment.iter().map(|_| None).collect(),
             disable_event_blob_writer: shard_assignment.iter().map(|_| false).collect(),
+            blob_info_snapshot_certify: shard_assignment.iter().map(|_| false).collect(),
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(|shards| StorageNodeTestConfig::new(shards, false))
@@ -2655,6 +2729,22 @@ where
 
     async fn last_certified_event_blob(&self) -> Result<Option<EventBlob>, SuiClientError> {
         self.as_ref().inner.last_certified_event_blob().await
+    }
+
+    async fn certify_snapshot_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        snapshot_epoch: u32,
+        node_capability_object_id: ObjectID,
+    ) -> Result<(), SuiClientError> {
+        self.as_ref()
+            .inner
+            .certify_snapshot_blob(blob_metadata, snapshot_epoch, node_capability_object_id)
+            .await
+    }
+
+    async fn last_certified_snapshot_blob(&self) -> Result<Option<SnapshotBlob>, SuiClientError> {
+        self.as_ref().inner.last_certified_snapshot_blob().await
     }
 
     fn is_subsidies_object_configured(&self) -> bool {
@@ -2914,6 +3004,7 @@ pub mod test_cluster {
             let mut node_wallet_dirs = Vec::with_capacity(n_nodes);
             let mut blocklist_files = Vec::with_capacity(n_nodes);
             let mut disable_event_blob_writers = Vec::with_capacity(n_nodes);
+            let mut blob_info_snapshot_certify = Vec::with_capacity(n_nodes);
 
             for (i, wallet) in
                 test_utils::create_and_fund_wallets_on_cluster(sui_cluster.clone(), n_nodes)
@@ -2941,6 +3032,13 @@ pub mod test_cluster {
                 let blocklist_dir = test_nodes_config.blocklist_dir.clone().unwrap_or(temp_dir);
                 blocklist_files.push(blocklist_dir.join(format!("blocklist-{i}.yaml")));
                 disable_event_blob_writers.push(test_nodes_config.disable_event_blob_writer);
+                blob_info_snapshot_certify.push(
+                    test_nodes_config
+                        .blob_info_snapshot_certify
+                        .get(i)
+                        .copied()
+                        .unwrap_or(false),
+                );
                 // In simtest, storage nodes load the Sui wallet config from the `temp_dir`. We
                 // need to keep the directory alive throughout the test.
                 #[cfg(msim)]
@@ -3042,6 +3140,7 @@ pub mod test_cluster {
                         .collect(),
                 )
                 .with_disable_event_blob_writer(disable_event_blob_writers)
+                .with_blob_info_snapshot_certify(blob_info_snapshot_certify)
                 .with_blocklist_files(blocklist_files)
                 .with_enable_node_config_synchronizer(
                     test_nodes_config.enable_node_config_synchronizer,

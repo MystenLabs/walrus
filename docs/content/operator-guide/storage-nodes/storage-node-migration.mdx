@@ -91,7 +91,7 @@ sudo systemctl stop walrus-publisher.service     # if applicable
 
 :::caution
 
-Stopping the node cleanly is critical. Running `rsync` against a database that is still being written to might result in a corrupted copy.
+Stopping the node cleanly is critical. Wait for each stop command to finish before proceeding, so no writes are still in flight: running `rsync` against a database that is still being written to might result in a corrupted copy.
 
 :::
 
@@ -100,7 +100,7 @@ Stopping the node cleanly is critical. Running `rsync` against a database that i
 Use `--delete` to synchronize any changes made after the first transfer:
 
 ```sh
-rsync -avz --delete --progress $OLD_USER@$OLD_HOST:/opt/walrus/ /opt/walrus
+rsync -avz --deletable --progress $OLD_USER@$OLD_HOST:/opt/walrus/ /opt/walrus
 ```
 
 ##### Step 3: Update DNS records.

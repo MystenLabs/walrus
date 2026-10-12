@@ -1,0 +1,123 @@
+// Copyright (c) Walrus Foundation
+// SPDX-License-Identifier: Apache-2.0
+
+//! The record of the blob info snapshot this node is publishing (storing and attesting).
+//!
+//! A snapshot that is not certified during its epoch is never certified: the contract rejects
+//! attestations for any epoch but the current one, and the next epoch produces a different blob
+//! ID. Metadata and slivers stored for such a snapshot have no blob-info entry and are therefore
+//! invisible to garbage collection, so the node tracks every publication attempt durably, from
+//! before the first write, and reconciles it at the next epoch boundary (see
+//! `blob_info_snapshot_writer::reconcile_previous_publication`).
+
+use std::sync::Arc;
+
+use rocksdb::{Options, Transaction};
+use serde::{Deserialize, Serialize};
+use typed_store::{
+    Map,
+    TypedStoreError,
+    rocks::{DBMap, ReadWriteOptions, RocksDB, be_fix_int_ser},
+};
+use walrus_core::{BlobId, Epoch};
+
+use super::{DatabaseTableOptionsFactory, constants::blob_info_snapshot_publication_cf_name};
+
+/// A versioned snapshot publication record: the epoch and blob ID of the snapshot this node
+/// attempted to publish, which is all the boundary reconciliation needs to find and, if the
+/// snapshot did not certify, delete whatever was stored for it.
+#[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
+pub(crate) enum SnapshotPublication {
+    V1(SnapshotPublicationV1),
+}
+
+/// Version 1 of the snapshot publication record.
+#[derive(Eq, PartialEq, Debug, Clone, Deserialize, Serialize)]
+pub(crate) struct SnapshotPublicationV1 {
+    epoch: Epoch,
+    blob_id: BlobId,
+}
+
+impl SnapshotPublication {
+    /// Creates the publication record for the snapshot of `epoch` with the given blob ID.
+    pub fn new(epoch: Epoch, blob_id: BlobId) -> Self {
+        Self::V1(SnapshotPublicationV1 { epoch, blob_id })
+    }
+
+    /// Returns the epoch of the snapshot.
+    pub fn epoch(&self) -> Epoch {
+        match self {
+            Self::V1(v1) => v1.epoch,
+        }
+    }
+
+    /// Returns the blob ID of the snapshot.
+    pub fn blob_id(&self) -> BlobId {
+        match self {
+            Self::V1(v1) => v1.blob_id,
+        }
+    }
+}
+
+/// The table holding the single current snapshot publication record.
+#[derive(Debug, Clone)]
+pub(super) struct SnapshotPublicationTable {
+    inner: DBMap<(), SnapshotPublication>,
+}
+
+impl SnapshotPublicationTable {
+    pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
+        let inner = DBMap::reopen(
+            database,
+            Some(blob_info_snapshot_publication_cf_name()),
+            &ReadWriteOptions::default(),
+            false,
+        )?;
+        Ok(Self { inner })
+    }
+
+    pub fn options(db_table_opts_factory: &DatabaseTableOptionsFactory) -> (&'static str, Options) {
+        (
+            blob_info_snapshot_publication_cf_name(),
+            db_table_opts_factory.blob_info_snapshot_publication(),
+        )
+    }
+
+    /// Returns the current publication record, if any.
+    pub fn get(&self) -> Result<Option<SnapshotPublication>, TypedStoreError> {
+        self.inner.get(&())
+    }
+
+    /// Reads the record inside `transaction`, so that a record written while the transaction is
+    /// open conflicts with it instead of racing it.
+    pub fn get_for_update_in_transaction(
+        &self,
+        transaction: &Transaction<'_, rocksdb::OptimisticTransactionDB>,
+    ) -> Result<Option<SnapshotPublication>, TypedStoreError> {
+        let cf = self.inner.cf()?;
+        // The value of the `exclusive` parameter does not matter for optimistic transactions.
+        transaction
+            .get_for_update_cf_opt(
+                &cf,
+                be_fix_int_ser(&())?,
+                false,
+                &self.inner.opts.readopts(),
+            )
+            .map_err(|error| TypedStoreError::RocksDBError(error.to_string()))?
+            .map(|data| {
+                bcs::from_bytes(&data)
+                    .map_err(|error| TypedStoreError::SerializationError(error.to_string()))
+            })
+            .transpose()
+    }
+
+    /// Sets the current publication record, replacing any previous one.
+    pub fn set(&self, record: &SnapshotPublication) -> Result<(), TypedStoreError> {
+        self.inner.insert(&(), record)
+    }
+
+    /// Removes the current publication record.
+    pub fn clear(&self) -> Result<(), TypedStoreError> {
+        self.inner.remove(&())
+    }
+}

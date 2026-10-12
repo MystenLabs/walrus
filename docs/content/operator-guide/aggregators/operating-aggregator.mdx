@@ -1,6 +1,6 @@
 ---
 title: Operate an Aggregator
-description: Detailed guide for operating Walrus aggregators.
+description: How to run a Walrus aggregator daemon, download client configuration, configure a systemd service, and serve large files using the blob concatenation endpoint.
 keywords:
   - walrus
   - aggregator
@@ -52,13 +52,13 @@ Run a local Walrus daemon through the `walrus` binary using one of the following
 
 :::tip
 
-If you run the aggregator without a reverse proxy, open **port 9000** on your firewall. With a reverse proxy (such as the [nginx caching setup](#nginx-caching)), only **port 443** needs to be open.
+If you run the aggregator without a reverse proxy, open **port 9000** on your firewall. With a reverse proxy (such as the [nginx caching setup](/docs/operator-guide/limitations#nginx-caching)), only **port 443** needs to be open.
 
 :::
 
 ## Download the client configuration {#client-config}
 
-The aggregator requires a client configuration file. If you run the aggregator on the same host as a [storage node](/docs/operator-guide/storage-nodes/storage-node-setup#binaries), the configuration is already available at `/opt/walrus/config/client_config.yaml`. Otherwise, download it:
+The aggregator requires a client configuration file. If you run the aggregator on the same host as a [storage node](/docs/operator-guide/storage-nodes/storage-node-setup#binaries), the configuration is already available at `/opt/walrus/config/client_config.yaml`. Otherwise, download it (the `/opt/walrus/` paths used throughout this guide are a convention; adjust them to match your own deployment layout):
 
 <div className="outlined-tabs">
 

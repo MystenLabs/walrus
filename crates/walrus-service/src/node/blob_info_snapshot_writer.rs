@@ -6,7 +6,9 @@
 //! When enabled, this module serializes the three blob-info column families in-process at the
 //! post-GC-phase-1 epoch boundary and removes the previous epoch's snapshot, keeping at most one.
 //! The size and content digest are reported through metrics and a log line for cross-node
-//! comparison.
+//! comparison. Once the node's shard ownership has moved to the new epoch, the snapshot is
+//! encoded to report its blob ID and, when certification is enabled, stored and attested on chain
+//! (see [`publish_snapshot_after_epoch_change`]).
 
 #[cfg(msim)]
 use std::{collections::HashMap, sync::Mutex};
@@ -16,19 +18,37 @@ use std::{
     io::{BufWriter, Read as _, Write as _},
     path::{Path, PathBuf},
     sync::Arc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
+use futures::future::try_join_all;
+use rand::Rng as _;
 use serde::{Deserialize, Serialize};
 #[cfg(msim)]
 use sui_types::base_types::ObjectID;
 use twox_hash::XxHash64;
-use walrus_core::{DEFAULT_ENCODING, Epoch, encoding::EncodingFactory as _};
+#[cfg(msim)]
+use walrus_core::BlobId;
+use walrus_core::{
+    DEFAULT_ENCODING,
+    Epoch,
+    Sliver,
+    SliverPairIndex,
+    encoding::{EncodingFactory as _, SliverPair},
+    metadata::VerifiedBlobMetadataWithId,
+};
+use walrus_sui::client::{BlobObjectMetadata, SuiClientError};
+use walrus_utils::backoff::{BackoffStrategy, ExponentialBackoff};
 
 use super::{
     StorageNodeInner,
-    storage::blob_info_snapshot::{SnapshotHeader, SnapshotStats},
+    errors::StoreSliverError,
+    storage::{
+        SnapshotPublication,
+        blob_info::CertifiedBlobInfoApi as _,
+        blob_info_snapshot::{SnapshotHeader, SnapshotStats},
+    },
 };
 use crate::event::events::EventStreamCursor;
 
@@ -44,13 +64,29 @@ pub struct BlobInfoSnapshotWriterConfig {
     /// encodes the snapshot to report its blob ID. Note that disabling this flag leaves the
     /// last snapshot file on disk until it is removed manually.
     pub enabled: bool,
+    /// Whether to certify the serialized snapshot on chain.
+    ///
+    /// The snapshot is encoded at every epoch boundary regardless, to report its blob ID.
+    /// When this is enabled (together with `enabled`), the node additionally stores its own
+    /// shards' slivers once the epoch change has been applied locally, and then attests the
+    /// snapshot blob through the system contract from a background task. Has no effect if
+    /// `enabled` is false.
+    pub certify: bool,
 }
 
 impl Default for BlobInfoSnapshotWriterConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            certify: false,
+        }
     }
 }
+
+/// Bound on the background chain read that reports the epoch of the latest certified snapshot.
+/// The read is best-effort and runs off the epoch-change path; the bound keeps a stuck full node
+/// from holding the task open indefinitely.
+const CHAIN_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Number of epoch buckets used as the label of `blob_info_snapshot_blob_id`.
 ///
@@ -118,13 +154,16 @@ fn hash_file(path: &Path) -> std::io::Result<u64> {
 }
 
 /// Serializes the three blob info column families in-process at the epoch boundary, reports the
-/// duration, size, and digest, and removes older snapshot files. Then encodes the durable
-/// snapshot to report its blob ID.
+/// duration, size, and digest, and removes older snapshot files.
 ///
-/// Must be called at the post-GC-phase-1 point while event processing is blocked. `event_cursor`
-/// is the position of the `EpochChangeStart` being processed.
+/// Must be called at the post-GC-phase-1 point while event processing is blocked, and before
+/// `execute_epoch_change` spawns the finisher that marks the event complete: the durable file
+/// must exist before the boundary can stop being replayed, so a crash never skips a snapshot.
+/// `event_cursor` is the position of the `EpochChangeStart` being processed. Everything derived
+/// from the file (encoding, storing, attesting) happens in
+/// [`publish_snapshot_after_epoch_change`].
 pub(super) async fn serialize_snapshot_at_epoch_boundary(
-    node: Arc<StorageNodeInner>,
+    node: &Arc<StorageNodeInner>,
     epoch: Epoch,
     event_cursor: EventStreamCursor,
 ) -> Result<()> {
@@ -137,14 +176,31 @@ pub(super) async fn serialize_snapshot_at_epoch_boundary(
         // restart. Still drop any older snapshots so that at most one remains.
         tracing::debug!(walrus.epoch = epoch, "blob info snapshot already exists");
         remove_snapshot_files_matching(&base_dir, |snapshot_epoch| snapshot_epoch != epoch);
-    } else {
-        write_snapshot_file(&node, epoch, event_cursor, &base_dir, &final_path).await?;
+        return Ok(());
     }
+    write_snapshot_file(node, epoch, event_cursor, &base_dir, &final_path).await
+}
 
-    // TODO(WAL-1252): resume an interrupted publication here once snapshots are published and
-    // certified.
-    encode_snapshot(&node, epoch, &final_path).await;
-    Ok(())
+/// Encodes the durable snapshot of `epoch` to report its blob ID and, when certification is
+/// enabled, stores this node's slivers and starts the attestation in the background. Errors are
+/// logged and counted and never fail the epoch change.
+///
+/// Must be called after `execute_epoch_change`: the contract tallies attestations by the new
+/// committee and readers route by its shard assignment, so the slivers must be stored under it.
+///
+/// TODO(WAL-1252): resume a publication interrupted by a crash.
+pub(super) async fn publish_snapshot_after_epoch_change(
+    node: &Arc<StorageNodeInner>,
+    epoch: Epoch,
+) {
+    let final_path = snapshot_file_path(&node.blob_info_snapshot_dir, epoch);
+    let Some((sliver_pairs, verified_metadata)) = encode_snapshot(node, epoch, &final_path).await
+    else {
+        return;
+    };
+    if node.blob_info_snapshot_config.certify {
+        certify_snapshot(node, epoch, &sliver_pairs, &verified_metadata).await;
+    }
 }
 
 /// Serializes the snapshot to `final_path` durably (write, fsync, rename, fsync dir), removes
@@ -242,26 +298,374 @@ async fn write_snapshot_file(
     Ok(())
 }
 
-/// Encodes the snapshot into a Walrus blob to report its blob ID, logging errors and counting
-/// them in metrics without failing the epoch change.
-async fn encode_snapshot(node: &Arc<StorageNodeInner>, epoch: Epoch, snapshot_path: &Path) {
-    if let Err(error) = try_encode_snapshot(node, epoch, snapshot_path).await {
-        node.metrics.blob_info_snapshot_encode_error_total.inc();
+/// Minimum delay before the first retry of a `certify_snapshot_blob` transaction.
+const CERTIFY_RETRY_MIN_BACKOFF: Duration = Duration::from_secs(1);
+/// Maximum delay between retries of a `certify_snapshot_blob` transaction.
+const CERTIFY_RETRY_MAX_BACKOFF: Duration = Duration::from_secs(60);
+/// Maximum number of retries of a `certify_snapshot_blob` transaction: enough for congestion on
+/// the system object at the boundary and short RPC trouble.
+const CERTIFY_RETRY_MAX_ATTEMPTS: u32 = 10;
+
+/// Stores and attests the snapshot. Only the attestation is retried; a failed store skips this
+/// epoch and is cleaned up by the next boundary's reconciliation.
+async fn certify_snapshot(
+    node: &Arc<StorageNodeInner>,
+    epoch: Epoch,
+    sliver_pairs: &[SliverPair],
+    verified_metadata: &VerifiedBlobMetadataWithId,
+) {
+    if let Err(error) = try_certify_snapshot(node, epoch, sliver_pairs, verified_metadata).await {
+        node.metrics.blob_info_snapshot_certify_error_total.inc();
         tracing::warn!(
             ?error,
             walrus.epoch = epoch,
-            "failed to encode the blob info snapshot"
+            "failed to store the blob info snapshot for certification"
         );
     }
 }
 
-/// Computes the blob ID of the snapshot file and reports it for cross-node comparison; nothing
-/// is stored.
+async fn try_certify_snapshot(
+    node: &Arc<StorageNodeInner>,
+    epoch: Epoch,
+    sliver_pairs: &[SliverPair],
+    verified_metadata: &VerifiedBlobMetadataWithId,
+) -> Result<()> {
+    // Only members of the committee of `epoch` can attest; the committee service already reports
+    // that committee, since the epoch change has been applied.
+    if !node
+        .committee_service
+        .active_committees()
+        .current_committee()
+        .contains(node.public_key())
+    {
+        tracing::debug!(
+            walrus.epoch = epoch,
+            "node is not in the committee; skipping blob info snapshot certification"
+        );
+        return Ok(());
+    }
+
+    // Record the publication before the first write: the stored bytes have no blob-info entry
+    // yet, so only the record lets the next boundary's reconciliation and the garbage-collection
+    // guard find them.
+    let blob_id = *verified_metadata.blob_id();
+    let record = SnapshotPublication::new(epoch, blob_id);
+    node.storage()
+        .set_snapshot_publication(&record)
+        .context("failed to record the snapshot publication")?;
+
+    let store_start = Instant::now();
+    node.storage()
+        .put_verified_metadata_without_blob_info(verified_metadata)
+        .context("failed to store the snapshot blob metadata")?;
+    store_own_slivers(node, verified_metadata, sliver_pairs).await?;
+    let store_elapsed = store_start.elapsed();
+    // No-op outside of simtest.
+    sui_macros::fail_point_arg!(
+        "storage_node_blob_info_snapshot_stored",
+        |stored_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, BlobId>>>>| {
+            stored_map
+                .lock()
+                .expect("failed to lock the stored map")
+                .entry(epoch)
+                .or_default()
+                .insert(node.node_capability, blob_id);
+        }
+    );
+
+    let blob_metadata: BlobObjectMetadata = verified_metadata
+        .try_into()
+        .context("failed to convert the snapshot blob metadata")?;
+    spawn_snapshot_attestation(node.clone(), epoch, blob_metadata, store_elapsed);
+    Ok(())
+}
+
+/// Returns whether a failed `certify_snapshot_blob` transaction is worth retrying: anything but
+/// a contract abort, which cannot change within the epoch.
+fn is_transient_certify_error(error: &SuiClientError) -> bool {
+    !matches!(error, SuiClientError::TransactionExecutionError(_))
+}
+
+/// Attests the stored snapshot of `epoch` in a background task, retrying a transient failure
+/// with a bounded backoff, so that the epoch-change handler never waits for the transaction.
+fn spawn_snapshot_attestation(
+    node: Arc<StorageNodeInner>,
+    epoch: Epoch,
+    blob_metadata: BlobObjectMetadata,
+    store_elapsed: Duration,
+) {
+    tokio::spawn(async move {
+        let blob_id = blob_metadata.blob_id;
+        let mut backoff = ExponentialBackoff::new_with_seed(
+            CERTIFY_RETRY_MIN_BACKOFF,
+            CERTIFY_RETRY_MAX_BACKOFF,
+            Some(CERTIFY_RETRY_MAX_ATTEMPTS),
+            rand::thread_rng().r#gen(),
+        );
+        loop {
+            let certify_start = Instant::now();
+            let error = match node
+                .contract_service
+                .certify_snapshot_blob(blob_metadata.clone(), epoch, node.node_capability())
+                .await
+            {
+                Ok(()) => {
+                    let certify_elapsed = certify_start.elapsed();
+                    node.metrics
+                        .blob_info_snapshot_certify_duration_seconds
+                        .set(certify_elapsed.as_secs_f64());
+                    tracing::info!(
+                        walrus.epoch = epoch,
+                        walrus.blob_id = %blob_id,
+                        ?store_elapsed,
+                        ?certify_elapsed,
+                        "attested blob info snapshot on chain"
+                    );
+                    return;
+                }
+                Err(error) => error,
+            };
+            if is_transient_certify_error(&error)
+                && let Some(delay) = backoff.next_delay()
+            {
+                tracing::warn!(
+                    ?error,
+                    ?delay,
+                    walrus.epoch = epoch,
+                    walrus.blob_id = %blob_id,
+                    "failed to attest the blob info snapshot; retrying"
+                );
+                tokio::time::sleep(delay).await;
+                continue;
+            }
+            // TODO(WAL-1342): benign contract aborts (a late attestation, a committee change, a
+            // replayed boundary) are counted as errors here; classify them as the event blob
+            // writer does.
+            node.metrics.blob_info_snapshot_certify_error_total.inc();
+            tracing::warn!(
+                ?error,
+                walrus.epoch = epoch,
+                walrus.blob_id = %blob_id,
+                "failed to attest the blob info snapshot"
+            );
+            return;
+        }
+    });
+}
+
+/// Reports the epoch of the latest blob info snapshot certified on chain through the
+/// `blob_info_snapshot_last_certified_epoch` gauge, so that an alert can detect a network that
+/// stops certifying (the distance to the current epoch grows). Every node reports it, whether or
+/// not it certifies, since it is a property of the network rather than of the node. A failed read
+/// is logged and the gauge keeps its previous value; a contract that predates certification
+/// reads as no certification. Runs in a background task at the epoch boundary, since only the
+/// gauge depends on the result.
+pub(super) async fn report_last_certified_snapshot_epoch(node: &Arc<StorageNodeInner>) {
+    match tokio::time::timeout(
+        CHAIN_READ_TIMEOUT,
+        node.contract_service.last_certified_snapshot_blob(),
+    )
+    .await
+    {
+        Ok(Ok(Some(certified))) => node
+            .metrics
+            .blob_info_snapshot_last_certified_epoch
+            .set(i64::from(certified.epoch)),
+        Ok(Ok(None)) => {}
+        Ok(Err(error)) => tracing::warn!(
+            ?error,
+            "failed to read the latest certified blob info snapshot"
+        ),
+        Err(_) => tracing::warn!(
+            timeout = ?CHAIN_READ_TIMEOUT,
+            "timed out reading the latest certified blob info snapshot"
+        ),
+    }
+}
+
+/// Reconciles the previous epoch's snapshot publication at the boundary of `current_epoch`:
+/// stored data that no blob-info entry covers is deleted, since garbage collection would never
+/// find it.
+///
+/// - The decision is local, from the blob-info entry of the published blob ID. A certified entry
+///   only means garbage collection owns the bytes; it does not prove the contract certified the
+///   snapshot (anyone can certify the same content as a regular blob). Read the on-chain history
+///   for that.
+/// - Storage errors fail the epoch change, and the boundary is replayed on restart, so this
+///   function is idempotent.
+pub(super) async fn reconcile_previous_publication(
+    node: &Arc<StorageNodeInner>,
+    current_epoch: Epoch,
+) -> Result<()> {
+    let Some(record) = node
+        .storage()
+        .snapshot_publication()
+        .context("failed to read the snapshot publication record")?
+    else {
+        return Ok(());
+    };
+    let epoch = record.epoch();
+    if epoch >= current_epoch {
+        // The current epoch's publication (a replayed boundary) or, defensively, a newer one.
+        return Ok(());
+    }
+    let blob_id = record.blob_id();
+    // Lets a simtest crash the node here, where a storage error in the lookup below would stop
+    // it, to exercise the replay of this boundary. No-op outside of simtest.
+    sui_macros::fail_point_async!("storage_node_blob_info_snapshot_reconcile");
+    let blob_info = node
+        .storage()
+        .get_blob_info(&blob_id)
+        .context("failed to read the snapshot blob info")?;
+    let certified = match blob_info {
+        Some(blob_info) if blob_info.is_certified(node.current_committee_epoch()) => {
+            // Certified: from here on the blob is ordinary certified data owned by garbage
+            // collection. The metadata was stored before the blob had a blob-info entry, so
+            // mark it stored now, as for event blobs, provided it is still there; the node's
+            // own slivers were stored the same way and are found by the regular existence
+            // checks.
+            if node
+                .storage()
+                .get_metadata(&blob_id)
+                .context("failed to read the snapshot blob metadata")?
+                .is_some()
+            {
+                node.storage()
+                    .update_blob_info_with_metadata(&blob_id)
+                    .context("failed to mark the certified snapshot's metadata as stored")?;
+            } else {
+                // Rare: this node attested the snapshot but does not hold its metadata, so its
+                // own store at the previous boundary was interrupted (a crash after the record
+                // was written) or failed. Nothing is fetched here: the slivers are missing too
+                // (they are stored after the metadata), so the certified event already started
+                // a blob sync for this blob, which stores the metadata and sets the flag itself.
+                tracing::warn!(
+                    walrus.epoch = epoch,
+                    walrus.blob_id = %blob_id,
+                    "the certified blob info snapshot's metadata is not stored on this node; \
+                    left to the blob sync"
+                );
+            }
+            true
+        }
+        Some(_) => {
+            // Never certified as a snapshot, but the same content was registered by someone
+            // else: the regular lifecycle owns the bytes (garbage collection deletes them once
+            // nothing registers the blob), so nothing is deleted here.
+            false
+        }
+        None => {
+            // Never certified as a snapshot and nothing references the blob ID: no blob-info
+            // entry will ever cover the stored metadata and slivers, so garbage collection
+            // would never find them. Delete them here.
+            node.storage
+                .delete_blob_data(&blob_id)
+                .await
+                .context("failed to delete the uncertified snapshot blob data")?;
+            false
+        }
+    };
+    if !certified {
+        node.metrics.blob_info_snapshot_uncertified_total.inc();
+        // TODO(WAL-1341): classify why the snapshot did not certify (no quorum, or a divergence
+        // from the snapshot the network certified) from the on-chain history, and expose it
+        // through metrics; acting on a divergence is part of the recovery milestone (WAL-1252).
+        tracing::warn!(
+            walrus.epoch = epoch,
+            walrus.blob_id = %blob_id,
+            "the blob info snapshot was not certified"
+        );
+    }
+    node.storage()
+        .clear_snapshot_publication()
+        .context("failed to clear the snapshot publication record")?;
+    // No-op outside of simtest.
+    sui_macros::fail_point_arg!(
+        "storage_node_blob_info_snapshot_reconciled",
+        |reconciled_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, bool>>>>| {
+            reconciled_map
+                .lock()
+                .expect("failed to lock the reconciled map")
+                .entry(epoch)
+                .or_default()
+                .insert(node.node_capability, certified);
+        }
+    );
+    Ok(())
+}
+
+/// Stores `sliver_pairs`, which are exactly the pairs of this node's shards (see
+/// [`try_encode_snapshot`]), so no other shard is touched.
+async fn store_own_slivers(
+    node: &Arc<StorageNodeInner>,
+    verified_metadata: &VerifiedBlobMetadataWithId,
+    sliver_pairs: &[SliverPair],
+) -> Result<()> {
+    let metadata = Arc::new(verified_metadata.clone());
+    store_slivers_of_type(node, &metadata, sliver_pairs, |pair| {
+        Sliver::Primary(pair.primary.clone())
+    })
+    .await?;
+    store_slivers_of_type(node, &metadata, sliver_pairs, |pair| {
+        Sliver::Secondary(pair.secondary.clone())
+    })
+    .await
+}
+
+async fn store_slivers_of_type(
+    node: &Arc<StorageNodeInner>,
+    metadata: &Arc<VerifiedBlobMetadataWithId>,
+    sliver_pairs: &[SliverPair],
+    sliver_of_pair: impl Fn(&SliverPair) -> Sliver,
+) -> Result<()> {
+    try_join_all(sliver_pairs.iter().map(|sliver_pair| {
+        let metadata = metadata.clone();
+        let sliver = sliver_of_pair(sliver_pair);
+        let index: SliverPairIndex = sliver_pair.index();
+        async move {
+            match node.store_sliver_unchecked(metadata, index, sliver).await {
+                Err(StoreSliverError::ShardNotAssigned(_)) | Ok(_) => Ok(()),
+                Err(error) => Err(error),
+            }
+        }
+    }))
+    .await
+    .context("failed to store the snapshot blob slivers")?;
+    Ok(())
+}
+
+/// Encodes the snapshot into a Walrus blob and reports its blob ID, logging errors and counting
+/// them in metrics without failing the epoch change.
+///
+/// Returns `None` when the encoding failed, in which case certification cannot proceed either.
+async fn encode_snapshot(
+    node: &Arc<StorageNodeInner>,
+    epoch: Epoch,
+    snapshot_path: &Path,
+) -> Option<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
+    match try_encode_snapshot(node, epoch, snapshot_path).await {
+        Ok(encoded) => Some(encoded),
+        Err(error) => {
+            node.metrics.blob_info_snapshot_encode_error_total.inc();
+            tracing::warn!(
+                ?error,
+                walrus.epoch = epoch,
+                "failed to encode the blob info snapshot"
+            );
+            None
+        }
+    }
+}
+
+/// Encodes the snapshot file, reports its blob ID for cross-node comparison, and returns the
+/// sliver pairs of this node's shards in the current committee, so that certification can store
+/// and attest them. Only those pairs are encoded, so the full expansion of the snapshot (roughly
+/// 4.5x its size) is never held in memory; the peak is that of computing the metadata.
 async fn try_encode_snapshot(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
     snapshot_path: &Path,
-) -> Result<()> {
+) -> Result<(Vec<SliverPair>, VerifiedBlobMetadataWithId)> {
     let encoding_config = node.encoding_config().get_for_type(DEFAULT_ENCODING);
     // Encoding is inherent to the protocol, so every valid system can encode. Committees of
     // fewer than four shards cannot: no shard may be faulty, so the encoding is left without
@@ -272,14 +676,32 @@ async fn try_encode_snapshot(
         "the system must be able to encode"
     );
 
+    let own_shards = node
+        .committee_service
+        .active_committees()
+        .current_committee()
+        .shards_for_node_public_key(node.public_key())
+        .to_vec();
     let encode_start = Instant::now();
     let path = snapshot_path.to_path_buf();
-    let verified_metadata = tokio::task::spawn_blocking(move || {
+    let (sliver_pairs, verified_metadata) = tokio::task::spawn_blocking(move || {
         let content = fs::read(path)?;
-        // TODO(WAL-1250): certifying the snapshot needs its slivers, so this becomes a full
-        // encode rather than only the metadata.
+        // Lets a simtest make one node's snapshot blob differ from the other nodes', to exercise
+        // the divergence detection, without changing the snapshot file on disk.
+        #[cfg(msim)]
+        let content = {
+            let mut diverge = false;
+            sui_macros::fail_point_if!("storage_node_blob_info_snapshot_diverge", || {
+                diverge = true;
+            });
+            let mut content = content;
+            if diverge {
+                content.push(0);
+            }
+            content
+        };
         encoding_config
-            .compute_metadata(&content)
+            .compute_metadata_with_slivers_for_shards(&content, &own_shards)
             .map_err(anyhow::Error::from)
     })
     .await
@@ -311,7 +733,20 @@ async fn try_encode_snapshot(
         ?encode_elapsed,
         "encoded blob info snapshot"
     );
-    Ok(())
+
+    // No-op outside of simtest.
+    sui_macros::fail_point_arg!(
+        "storage_node_blob_info_snapshot_blob_id",
+        |blob_id_map: Arc<Mutex<HashMap<Epoch, HashMap<ObjectID, BlobId>>>>| {
+            blob_id_map
+                .lock()
+                .expect("failed to lock the blob id map")
+                .entry(epoch)
+                .or_default()
+                .insert(node.node_capability, blob_id);
+        }
+    );
+    Ok((sliver_pairs, verified_metadata))
 }
 
 /// Removes all snapshot files (including temporary ones) whose epoch matches `should_remove`.
@@ -343,15 +778,18 @@ mod tests {
 
     #[test]
     fn config_default_is_enabled() {
-        // Default is enabled, and an omitted field falls back to it.
+        // Default is enabled, and an omitted field falls back to it; certification is opt-in.
         assert!(BlobInfoSnapshotWriterConfig::default().enabled);
+        assert!(!BlobInfoSnapshotWriterConfig::default().certify);
         let empty: BlobInfoSnapshotWriterConfig =
             serde_yaml::from_str("{}\n").expect("config should deserialize");
         assert!(empty.enabled);
+        assert!(!empty.certify);
         // An explicit `enabled: false` still disables it.
         let disabled: BlobInfoSnapshotWriterConfig =
             serde_yaml::from_str("enabled: false\n").expect("config should deserialize");
         assert!(!disabled.enabled);
+        assert!(!disabled.certify);
     }
 
     #[test]

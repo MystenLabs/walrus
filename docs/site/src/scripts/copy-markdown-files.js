@@ -6,8 +6,13 @@ const path = require('path');
 const matter = require('gray-matter');
 
 const contentDir = path.join(__dirname, '../../.markdown/with-imports');
-const outputDir = path.join(__dirname, '../../static/markdown');
-const glossaryPath = path.join(__dirname, '../../static/glossary.json');
+const staticDir = path.join(__dirname, '../../static');
+const outputDir = path.join(staticDir, 'markdown');
+const glossaryPath = path.join(staticDir, 'glossary.json');
+
+// Doc sets whose export path already matches their public route. Everything
+// else belongs to the main docs plugin and is served under `/docs`.
+const EXTERNAL_DOC_SETS = ['blog', 'oyster', 'walrus-memory'];
 
 // NOTE: The llms.txt directive is not injected here so that
 // generate-llmstxt.mjs reads clean content without self-referential links.
@@ -224,6 +229,63 @@ function stripFrontmatter(content, filePath, baseDir) {
 }
 
 /**
+ * Deletes previously exported markdown from a directory that also holds other
+ * generated files, so stale pages do not survive into the next build.
+ */
+function removeExportedMarkdown(dir) {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      removeExportedMarkdown(full);
+      if (fs.readdirSync(full).length === 0) fs.rmdirSync(full);
+    } else if (entry.name.endsWith('.md')) {
+      fs.unlinkSync(full);
+    }
+  }
+}
+
+/**
+ * Writes one file, plus the flattened twin an index page needs.
+ *
+ * A page sourced from `<dir>/index.mdx` renders at `/<dir>`, so a reader who
+ * appends `.md` to that route asks for `<dir>.md`. Without the twin every
+ * section landing page 404s as markdown.
+ */
+function writeWithIndexTwin(outputPath, content, writeTwin) {
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, content, 'utf8');
+
+  if (writeTwin && path.basename(outputPath) === 'index.md') {
+    fs.writeFileSync(`${path.dirname(outputPath)}.md`, content, 'utf8');
+  }
+}
+
+/**
+ * Exports one page, given its path inside the markdown output tree.
+ *
+ * Readers reach a page's markdown by appending `.md` to the page URL, so the
+ * file has to exist at that public path. The `/markdown/...` tree is kept as a
+ * mirror because the explicit vercel.json rewrites point into it.
+ */
+function writeMarkdownFile(outputPath, content) {
+  const relativePath = path.relative(outputDir, outputPath);
+  const writeTwin = path.dirname(relativePath) !== '.';
+  const isExternal = EXTERNAL_DOC_SETS.some(
+    set => relativePath === set || relativePath.startsWith(`${set}${path.sep}`),
+  );
+  const publicPath = isExternal
+    ? path.join(staticDir, relativePath)
+    : path.join(staticDir, 'docs', relativePath);
+
+  // The mirror keeps the plain `<dir>/index.md` layout: generate-llmstxt.mjs
+  // reads it and already maps that file to the flattened `/docs/<dir>.md` URL,
+  // so adding the twin there would list every landing page twice.
+  writeWithIndexTwin(outputPath, content, false);
+  writeWithIndexTwin(publicPath, content, writeTwin);
+}
+
+/**
  * Recursively copies markdown files from content dir to build output.
  */
 function copyMarkdownFiles(dir, baseDir = dir) {
@@ -261,9 +323,7 @@ function copyMarkdownFiles(dir, baseDir = dir) {
       // Normalize all files to .md extension
       const outputPath = path.join(outputDir, relativePath.replace(/\.mdx?$/, '.md'));
 
-      // Create directory structure if it doesn't exist
-      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-      fs.writeFileSync(outputPath, cleanContent, 'utf8');
+      writeMarkdownFile(outputPath, cleanContent);
       console.log(`  ✔ Copied: ${relativePath}`);
     }
   });
@@ -281,6 +341,12 @@ if (fs.existsSync(outputDir)) {
 }
 fs.mkdirSync(outputDir, { recursive: true });
 
+// Clean the public copies too. `/static/docs` holds nothing but exported pages,
+// while the external doc sets also hold generated llms.txt files, so only the
+// markdown is removed there.
+fs.rmSync(path.join(staticDir, 'docs'), { recursive: true, force: true });
+EXTERNAL_DOC_SETS.forEach(set => removeExportedMarkdown(path.join(staticDir, set)));
+
 // Copy all doc markdown files
 copyMarkdownFiles(contentDir);
 
@@ -296,7 +362,7 @@ if (fs.existsSync(blogDir)) {
     const cleanContent = stripFrontmatter(content, filePath, blogDir);
     if (!cleanContent.trim()) continue;
     const outputPath = path.join(blogOutputDir, file.replace(/\.mdx?$/, '.md'));
-    fs.writeFileSync(outputPath, cleanContent, 'utf8');
+    writeMarkdownFile(outputPath, cleanContent);
     console.log(`  ✔ Blog: ${file}`);
   }
 }
@@ -329,8 +395,7 @@ if (fs.existsSync(walrusMemoryDir)) {
         if (!cleanContent.trim()) return;
         const relativePath = path.relative(baseDir, filePath);
         const outPath = path.join(walrusMemoryOutputDir, relativePath.replace(/\.mdx?$/, '.md'));
-        fs.mkdirSync(path.dirname(outPath), { recursive: true });
-        fs.writeFileSync(outPath, cleanContent, 'utf8');
+        writeMarkdownFile(outPath, cleanContent);
         console.log(`  ✔ Walrus Memory: ${relativePath}`);
       }
     });
@@ -360,8 +425,7 @@ if (fs.existsSync(oysterDir)) {
         if (!cleanContent.trim()) return;
         const relativePath = path.relative(baseDir, filePath);
         const outPath = path.join(oysterOutputDir, relativePath.replace(/\.mdx?$/, '.md'));
-        fs.mkdirSync(path.dirname(outPath), { recursive: true });
-        fs.writeFileSync(outPath, cleanContent, 'utf8');
+        writeMarkdownFile(outPath, cleanContent);
         console.log(`  ✔ Oyster: ${relativePath}`);
       }
     });

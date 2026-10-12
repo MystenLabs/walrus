@@ -135,6 +135,27 @@ impl SuiContractClient {
         .await
     }
 
+    /// Certifies the specified blob info snapshot blob on Sui, with the given metadata and epoch.
+    pub async fn certify_snapshot_blob(
+        &self,
+        blob_metadata: BlobObjectMetadata,
+        snapshot_epoch: u32,
+        node_capability_object_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        self.retry_on_wrong_version(|| async {
+            self.inner
+                .lock()
+                .await
+                .certify_snapshot_blob(
+                    blob_metadata.clone(),
+                    snapshot_epoch,
+                    node_capability_object_id,
+                )
+                .await
+        })
+        .await
+    }
+
     /// Invalidates the specified blob id on Sui, given a certificate that confirms that it is
     /// invalid.
     pub async fn invalidate_blob_id(
@@ -728,6 +749,32 @@ impl SuiContractClientInner {
             .await?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "certify_event_blob")
+            .await?;
+        Ok(())
+    }
+
+    /// Certifies the specified blob info snapshot blob on Sui, with the given metadata and epoch.
+    pub async fn certify_snapshot_blob(
+        &mut self,
+        blob_metadata: BlobObjectMetadata,
+        snapshot_epoch: u32,
+        node_capability_object_id: ObjectID,
+    ) -> SuiClientResult<()> {
+        tracing::debug!(
+            %node_capability_object_id,
+            "calling certify_snapshot_blob"
+        );
+
+        let mut pt_builder = self.transaction_builder();
+        pt_builder
+            .certify_snapshot_blob(
+                blob_metadata,
+                node_capability_object_id.into(),
+                snapshot_epoch,
+            )
+            .await?;
+        let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
+        self.sign_and_send_transaction(transaction, "certify_snapshot_blob")
             .await?;
         Ok(())
     }

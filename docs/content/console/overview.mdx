@@ -6,13 +6,7 @@ keywords: [walrus console, spaces, folders, files, asset types, zklogin, api key
 
 Walrus Console is the developer-first interface for interacting with the Walrus network. It gives you a hosted place to store, manage, and serve data without running your own Walrus client or handling wallets and tokens directly. You sign in and upload your first file in minutes, then manage everything from one place; when you want programmatic access, you mint an API key.
 
-:::info
-
-Walrus Console is available on Mainnet through a closed, invite-only beta. Some capabilities below are planned to ship at general availability or later, and the structure might change before GA. Availability is called out per feature below.
-
-:::
-
-## How Console relates to Walrus
+## How Walrus Console relates to Walrus
 
 Walrus is the underlying protocol: a decentralized network that stores data as blobs, coordinated onchain through Sui. You can use Walrus directly through the CLI and SDKs, which give you low-level control over blobs, storage epochs, and payments.
 
@@ -22,9 +16,9 @@ Walrus Console sits on top of that protocol as a managed developer surface. It h
 
 Console organizes your data in three levels.
 
-1. A **space** is the top-level container tied to your account. Console creates a **Personal Space** for you automatically when you sign up. A space tracks how much storage you have used against your storage cap. Team Spaces, which let a group share storage under one managed API key, arrive after GA.
+1. A **space** is the top-level container tied to your account. Console creates a **Personal Space** for you automatically when you sign up. A space tracks how much storage you have used against your storage cap.
 
-2. A **folder** is a named container inside a space that holds files. Every folder has a visibility setting. In the current beta, all folders are private and encrypted with [Seal](/docs/data-security); public folders are planned for a later release.
+2. A **folder** is a named container inside a space that holds files. All folders are private and encrypted with [Seal](/docs/data-security).
 
 3. A **file** is an individual object that lives inside a folder. Uploads are asynchronous: you upload a file, then poll its status until Console confirms that Walrus stores it. Each file can carry metadata you define, which you can use later to search and organize your data.
 
@@ -42,13 +36,13 @@ Console private folders solve this by encrypting every file client-side with [Se
 
 Console is built around a single navigation shell that treats your data as typed assets. Files and memory are both first-class asset types managed the same way.
 
-**Files** are general-purpose objects you upload and retrieve. This is the asset type available in the current beta.
+**Files** are general-purpose objects you upload and retrieve.
 
-**Memory** refers to Walrus Memory namespaces, the portable memory layer for AI agents. At GA you can browse, search, and manage your agent memory directly in Console, without touching the SDK. Console plans to add memory storage renewal in a post-GA release.
+**Memory** refers to Walrus Memory namespaces, the portable memory layer for AI agents. Connect your Walrus Memory account from the **Memory** tab to view your memories and delegate keys in Console. Managing memories and delegate keys happens on the Walrus Memory dashboard. See [Walrus Memory in Console](#walrus-memory-in-console).
 
 ## Accounts and sign-in
 
-You sign in through Google or Apple using Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin) capabilities. Console derives a Sui address from your identity and silently provisions a Pearl wallet (the embedded wallet Console manages for you), so you do not manage private keys or hold tokens to get started.
+You sign in through Google or Apple using Sui [zkLogin](https://docs.sui.io/concepts/cryptography/zklogin) capabilities. Console derives a Sui address from your identity and silently provisions a Pearl wallet (the embedded wallet Console manages for you), so you do not manage private keys or hold tokens to get started. There is no invite or waitlist: sign in and start storing data.
 
 Identities from different providers map to separate accounts, so the Google and Apple identities of one person own separate data.
 
@@ -60,9 +54,17 @@ You mint API keys under **Integrations** in the Console web app, choosing a `rea
 
 Alongside the API key, Console generates a service private key (prefixed `suiprivkey1`) in your browser and shows it once next to the API key. Console stores only the derived public address. You keep the private key locally and use it to sign the transaction that finalizes a private folder and to authenticate decrypt sessions with Seal. It does not need a token balance.
 
+If a key leaks or you want a fresh one, use **Rotate** on the key in Integrations. Rotation is revoke-first: Console revokes the old key, mints a replacement with the same role and name and a new service private key, and shows the new secrets once. There is no overlap window, so anything using the old key stops working the moment you rotate and starts again when you paste in the new secrets. Rotate and Revoke are separate actions with separate confirmations.
+
 ### Connect AI clients with the MCP server
 
-Console publishes an open-source [MCP](https://modelcontextprotocol.io/) server that exposes file and folder operations as tools for AI clients, available in beta. See [Connect AI clients with the MCP server](./mcp-server) for installation, the tools it exposes, and how it handles your credentials.
+Console publishes an open source [MCP](https://modelcontextprotocol.io/) server that exposes file and folder operations as tools for AI clients. See [Connect AI clients with the MCP server](./mcp-server) for installation, the tools it exposes, and how it handles your credentials. After you create an API key, Console walks you through connecting your agent from the same screen. See [Connect from the Console web app](./mcp-server#connect-from-the-walrus-console-web-app).
+
+## Walrus Memory in Console
+
+If you use [Walrus Memory](https://memory.walrus.xyz), connect your Walrus Memory account to Console from the **Memory** tab. Console verifies that you own the account, then shows your memories and the delegate keys your agents use. Console shows memory metadata only. It never reads or stores memory content.
+
+This view is read-only. To manage memories and delegate keys, use the Walrus Memory dashboard. Console links you there from the Memory tab. Disconnecting your Walrus Memory account removes the connection and Console's copy of the metadata. It does not delete any memory.
 
 ## Storage, epochs, and renewal
 
@@ -74,17 +76,17 @@ Console extends the storage of your files automatically before it expires, so yo
 
 Each space holds up to 5 GB of storage and five folders, and each upload is capped at 100 MiB. Console manages WAL token handling on your behalf.
 
-## What is available in beta
+## Delete your account
 
-Capabilities roll out in phases. The current beta is a subset of the full product.
+You can delete your Console account from **Settings**, under **Account Deletion**. Choose **Delete account**, type `DELETE` to enable the button, then choose **Permanently delete**. Deletion permanently removes your folders, files, and API keys. Any MCP integration using one of those keys stops working immediately. It cannot be undone. Memories stored in Walrus Memory are not deleted and remain available outside Console. Only the link between the two accounts is removed.
 
-| **Capability** | **Availability** |
-| --- | --- |
-| Google and Apple sign-in, Personal Space | Beta |
-| Private, Seal-encrypted folders and file upload or download | Beta |
-| API keys and the MCP server | Beta |
-| Automatic storage renewal | Beta |
-| Memory as an asset type | GA |
-| Memory storage renewal in Console | After GA |
-| Mainnet billing and free tier | After GA |
-| Existing-blob discovery, Team Spaces | After GA |
+## What Walrus Console includes
+
+Walrus Console includes the following:
+
+- Google and Apple sign-in, and a Personal Space.
+- Private, Seal-encrypted folders, and file upload and download.
+- API keys, key rotation, and the MCP server.
+- Automatic storage renewal.
+- Account deletion.
+- Walrus Memory account connection, to view your memories and delegate keys.
