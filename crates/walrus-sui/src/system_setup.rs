@@ -12,7 +12,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use move_core_types::language_storage::StructTag;
-use move_package_alt::{
+use move_package::{
     RootPackage,
     schema::{
         Environment,
@@ -24,7 +24,7 @@ use move_package_alt::{
         PublishedID,
     },
 };
-use move_package_alt_compilation::build_config::BuildConfig as MoveBuildConfig;
+use move_package_compilation::build_config::BuildConfig as MoveBuildConfig;
 use sui_move_build::{CompiledPackage, PackageDependencies};
 use sui_package_alt::{BuildParams, SuiFlavor};
 use sui_package_management::LockCommand;
@@ -347,7 +347,7 @@ fn compile_package_inner_blocking(
     root_pkg: RootPackage<SuiFlavor>,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
     let mut stdout = std::io::stdout();
-    let package = move_package_alt_compilation::compile_from_root_package::<
+    let package = move_package_compilation::compile_from_root_package::<
         std::io::Stdout,
         SuiFlavor,
     >(&root_pkg, &build_config, &mut stdout)
