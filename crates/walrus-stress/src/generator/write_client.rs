@@ -260,15 +260,7 @@ async fn new_client(
     let wallet = wallet_for_testing_from_refill(config, network, refiller).await?;
     let rpc_urls = &[wallet.as_ref().get_rpc_url()];
     let sui_client = RetriableSuiClient::new(
-        rpc_urls
-            .iter()
-            .map(|rpc_url| {
-                LazySuiClientBuilder::new(
-                    rpc_url,
-                    config.communication_config.sui_client_request_timeout,
-                )
-            })
-            .collect(),
+        rpc_urls.iter().map(LazySuiClientBuilder::new).collect(),
         Default::default(),
     )?;
     let sui_read_client = config.new_read_client(sui_client).await?;

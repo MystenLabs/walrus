@@ -121,7 +121,7 @@ Sui has deprecated JSON-RPC. Current Walrus clients already read and write Sui s
 
 :::caution
 
-`WALRUS_GRPC_MIGRATION_LEVEL` exists as a temporary escape hatch for debugging the migration. Setting it below the client's default forces older JSON-RPC code paths that Sui full nodes are removing, so do not set it in production.
+Older Walrus releases read a `WALRUS_GRPC_MIGRATION_LEVEL` environment variable that forces JSON-RPC code paths Sui full nodes no longer serve. Current releases ignore it. If you set it, unset it.
 
 :::
 

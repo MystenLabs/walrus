@@ -459,7 +459,7 @@ pub(crate) async fn publish_package(
 ) -> Result<ExecutedTransaction> {
     let sender = wallet.active_address();
     let retry_client = RetriableSuiClient::new(
-        vec![LazySuiClientBuilder::new(wallet.get_rpc_url(), None)],
+        vec![LazySuiClientBuilder::new(wallet.get_rpc_url())],
         Default::default(),
     )?;
 
@@ -821,7 +821,7 @@ pub async fn create_system_and_staking_objects(
     let address = wallet.active_address();
 
     let retry_client = RetriableSuiClient::new(
-        vec![LazySuiClientBuilder::new(wallet.get_rpc_url(), None)],
+        vec![LazySuiClientBuilder::new(wallet.get_rpc_url())],
         Default::default(),
     )?;
 

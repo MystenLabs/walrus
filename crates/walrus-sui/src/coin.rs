@@ -40,19 +40,6 @@ impl Coin {
     }
 }
 
-impl From<sui_sdk::rpc_types::Coin> for Coin {
-    fn from(coin: sui_sdk::rpc_types::Coin) -> Self {
-        Self {
-            coin_type: coin.coin_type,
-            coin_object_id: coin.coin_object_id,
-            version: coin.version,
-            digest: coin.digest,
-            balance: coin.balance,
-            previous_transaction: coin.previous_transaction,
-        }
-    }
-}
-
 /// The type of coin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoinType {

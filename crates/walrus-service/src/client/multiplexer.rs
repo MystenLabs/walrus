@@ -499,11 +499,8 @@ impl<'a> SubClientLoader<'a> {
 
         let rpc_urls = &[wallet.get_rpc_url()];
 
-        let sui_client = RetriableSuiClient::new_for_rpc_urls(
-            rpc_urls,
-            self.config.backoff_config().clone(),
-            self.config.communication_config.sui_client_request_timeout,
-        )?;
+        let sui_client =
+            RetriableSuiClient::new_for_rpc_urls(rpc_urls, self.config.backoff_config().clone())?;
 
         if should_refill(&sui_client, address, Coin::SUI, min_balance).await {
             self.refiller.send_gas_request(address).await?;

@@ -1,9 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-//! Client to access Sui via both JSON RPC and gRPC. This module is intended to facilitate a
-//! migration from Sui JSON RPC to gRPC by gradually migrating callsites away from the JSON RPC
-//! Client [`SuiClient`].
+//! Client to access Sui via gRPC.
 
 use std::{future::Future, pin::Pin, time::Duration};
 
@@ -44,7 +42,6 @@ use sui_rpc::{
         owner::OwnerKind,
     },
 };
-use sui_sdk::{SuiClient, SuiClientBuilder};
 use sui_types::{
     TypeTag,
     base_types::{ObjectDigest, ObjectID, ObjectRef, SequenceNumber, SuiAddress},
@@ -60,7 +57,7 @@ use sui_types::{
 use walrus_core::ensure;
 
 use crate::{
-    client::{SuiClientError, retry_client::retriable_sui_client::GrpcMigrationLevel},
+    client::SuiClientError,
     coin::Coin,
     contracts::{AssociatedContractStruct, TypeOriginMap},
     dynamic_field_info::{DynamicFieldPage, dynamic_field_info_from_grpc},
@@ -95,12 +92,9 @@ pub type BoxedExecuteTxFuture<'a> =
 pub type BoxedGasCostFuture<'a> =
     Pin<Box<dyn Future<Output = Result<GasCostSummary, SuiClientError>> + Send + 'a>>;
 
-/// A client that combines the Sui SDK client and a gRPC client in order to facilitate a migration
-/// from Sui JSON RPC to gRPC by gradually migrating callsites away from [`SuiClient`].
+/// A client that accesses Sui via gRPC.
 #[derive(Clone)]
 pub struct DualClient {
-    /// The Sui SDK client for JSON RPC calls. This will eventually be removed.
-    sui_client: Option<SuiClient>,
     grpc_client: GrpcClient,
 }
 
@@ -144,49 +138,11 @@ pub(crate) struct CoinBatch {
 }
 
 impl DualClient {
-    /// Create a new DualClient with the given RPC URL and optional request timeout.
-    ///
-    /// The JSON-RPC [`SuiClient`] is only constructed if the gRPC migration level requires it;
-    /// at higher levels, all operations are served via gRPC and the client works against Sui
-    /// endpoints that no longer serve JSON-RPC. Note that building the JSON-RPC client performs
-    /// a network request, so skipping it also avoids a startup failure on such endpoints.
-    pub async fn new(
-        rpc_url: impl AsRef<str>,
-        request_timeout: Option<Duration>,
-    ) -> Result<Self, SuiClientError> {
-        let rpc_url = rpc_url.as_ref();
-        let sui_client = if GrpcMigrationLevel::default().requires_json_rpc_client() {
-            let mut client_builder = SuiClientBuilder::default();
-            if let Some(request_timeout) = request_timeout {
-                client_builder = client_builder.request_timeout(request_timeout);
-            }
-            Some(client_builder.build(rpc_url).await?)
-        } else {
-            tracing::debug!(
-                rpc_url,
-                "skipping JSON-RPC SuiClient construction; all operations use gRPC at this \
-                migration level"
-            );
-            None
-        };
-        let grpc_client = GrpcClient::new(rpc_url).context("unable to create grpc client")?;
-        Ok(Self {
-            sui_client,
-            grpc_client,
-        })
-    }
-
-    /// Accessor for the JSON-RPC [`SuiClient`].
-    ///
-    /// Returns an error if the client was not constructed because the gRPC migration level does
-    /// not require it; see [`DualClient::new`].
-    pub fn try_sui_client(&self) -> Result<&SuiClient, SuiClientError> {
-        self.sui_client.as_ref().ok_or_else(|| {
-            SuiClientError::Internal(anyhow::anyhow!(
-                "the JSON-RPC SuiClient is not constructed at this WALRUS_GRPC_MIGRATION_LEVEL; \
-                this operation is only available at lower migration levels"
-            ))
-        })
+    /// Create a new DualClient with the given RPC URL.
+    pub fn new(rpc_url: impl AsRef<str>) -> Result<Self, SuiClientError> {
+        let grpc_client =
+            GrpcClient::new(rpc_url.as_ref()).context("unable to create grpc client")?;
+        Ok(Self { grpc_client })
     }
 
     /// Get the BCS representation of an object from the Sui network.

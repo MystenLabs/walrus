@@ -56,7 +56,7 @@ pub trait MakeRetriableError {
 
 impl MakeRetriableError for SuiClientError {
     fn make_retriable_error() -> Self {
-        sui_sdk::error::Error::RpcError(jsonrpsee::core::ClientError::RequestTimeout).into()
+        SuiClientError::GrpcError(tonic::Status::deadline_exceeded("injected timeout error"))
     }
 }
 

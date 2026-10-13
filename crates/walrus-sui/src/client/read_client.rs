@@ -442,7 +442,7 @@ impl SuiReadClient {
         contract_config: &ContractConfig,
         backoff_config: ExponentialBackoffConfig,
     ) -> SuiClientResult<Self> {
-        let client = RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config, None)?;
+        let client = RetriableSuiClient::new_for_rpc_urls(rpc_addresses, backoff_config)?;
         Self::new(client, contract_config).await
     }
 
@@ -709,12 +709,9 @@ impl SuiReadClient {
             )
             .await
             .map_err(|err| match err {
-                SuiClientError::SuiSdkError(boxed) => match *boxed {
-                    sui_sdk::error::Error::InsufficientFund { amount, .. } => match coin_type {
-                        CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
-                        CoinType::Sui => SuiClientError::NoCompatibleGasCoins(Some(amount)),
-                    },
-                    other => SuiClientError::SuiSdkError(Box::new(other)),
+                SuiClientError::InsufficientFunds { amount, .. } => match coin_type {
+                    CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
+                    CoinType::Sui => SuiClientError::NoCompatibleGasCoins(Some(amount)),
                 },
                 err => err,
             })
@@ -798,7 +795,7 @@ impl SuiReadClient {
         Ok(entries.into_iter().filter_map(move |entry| {
             let _entered = span.enter();
             // The server-side filter already constrains the type, but keep the assertion as a
-            // defense-in-depth check, matching the JSON-RPC `try_from_object_data` path.
+            // defense-in-depth check.
             if entry.object_type.name.as_str() != U::CONTRACT_STRUCT.name
                 || entry.object_type.module.as_str() != U::CONTRACT_STRUCT.module
             {

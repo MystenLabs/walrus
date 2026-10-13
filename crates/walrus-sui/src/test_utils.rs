@@ -360,8 +360,7 @@ impl TestClusterHandle {
         let rpc_url = format!("http://{}", config.json_rpc_address);
         cluster.swarm.spawn_new_node(config).await;
 
-        // Poll with the raw gRPC client (not walrus's) so this does not depend on the
-        // `WALRUS_GRPC_MIGRATION_LEVEL` environment variable.
+        // Poll with the raw gRPC client, not walrus's.
         let mut grpc_client =
             sui_rpc::Client::new(rpc_url.clone()).expect("creating gRPC client must succeed");
         tokio::time::timeout(Duration::from_secs(60), async {

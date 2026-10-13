@@ -67,15 +67,3 @@ impl Balance {
         }
     }
 }
-
-impl TryFrom<sui_sdk::rpc_types::Balance> for Balance {
-    type Error = BalanceRetrievalError;
-
-    fn try_from(balance: sui_sdk::rpc_types::Balance) -> Result<Self, BalanceRetrievalError> {
-        Ok(Self {
-            coin_balance: CoinBalance::Count(balance.coin_object_count),
-            total_balance: u64::try_from(balance.total_balance)
-                .context("total balance exceeds u64")?,
-        })
-    }
-}

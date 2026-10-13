@@ -377,10 +377,8 @@ pub async fn deploy_walrus_contract(
         let rpc_url = admin_wallet.get_rpc_url();
 
         // Get coins from faucet for the wallet.
-        let sui_client = RetriableSuiClient::new(
-            vec![LazySuiClientBuilder::new(rpc_url, None)],
-            Default::default(),
-        )?;
+        let sui_client =
+            RetriableSuiClient::new(vec![LazySuiClientBuilder::new(rpc_url)], Default::default())?;
         request_sui_from_faucet(admin_wallet.active_address(), &sui_network, &sui_client).await?;
         admin_wallet
     };

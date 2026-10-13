@@ -253,11 +253,8 @@ async fn pull_archive_blob(
 
 async fn get_backfill_client(config: ClientConfig) -> Result<WalrusNodeClient<SuiReadClient>> {
     tracing::debug!(?config, "loaded client config");
-    let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
-        &config.rpc_urls,
-        config.backoff_config().clone(),
-        None,
-    )?;
+    let retriable_sui_client =
+        RetriableSuiClient::new_for_rpc_urls(&config.rpc_urls, config.backoff_config().clone())?;
     let sui_read_client = config.new_read_client(retriable_sui_client).await?;
     let refresh_handle = config
         .build_refresher_and_run(sui_read_client.clone())
