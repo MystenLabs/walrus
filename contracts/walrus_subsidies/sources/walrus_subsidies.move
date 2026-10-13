@@ -26,7 +26,7 @@ const EInvalidMigration: u64 = 2;
 // without requiring the AdminCap.
 
 /// The current version of this contract.
-const VERSION: u64 = 3;
+const VERSION: u64 = 4;
 
 /// Helper struct to get the package ID for the version 1 of this contract.
 public struct V1()
@@ -34,11 +34,13 @@ public struct V1()
 public struct V2()
 /// Helper struct to get the package ID for the version 3 of this contract.
 public struct V3()
+/// Helper struct to get the package ID for the version 4 of this contract.
+public struct V4()
 
 /// Returns the package ID for the current version of this contract.
 /// Needs to be updated whenever the package is upgraded.
 fun package_id_for_current_version(): ID {
-    package_id_for_type<V3>()
+    package_id_for_type<V4>()
 }
 
 /// Returns the package ID for the given type.
@@ -250,7 +252,7 @@ use std::unit_test::assert_eq;
 fun test_package_id_for_current_version() {
     let package_id = package_id_for_current_version();
     assert_eq!(
-        type_name::with_defining_ids<V3>().address_string(),
+        type_name::with_defining_ids<V4>().address_string(),
         package_id.to_address().to_ascii_string(),
     );
 }

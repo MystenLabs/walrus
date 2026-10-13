@@ -84,6 +84,8 @@ public fun migrate(_staking: &mut Staking, _system: &mut System) {
 /// Migrate to version 4:
 ///   - Increase the max size of the active set to the updated `TEMP_ACTIVE_SET_SIZE_LIMIT`.
 ///   - Create the blob info snapshot certification state dynamic field on the system object.
+/// Migrate to version 5:
+///   - No additional steps beyond version bump.
 entry fun migrate_v2(staking: &mut Staking, system: &mut System, _ctx: &mut TxContext) {
     staking.migrate();
     system.migrate();

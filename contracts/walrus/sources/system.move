@@ -29,7 +29,7 @@ const EWrongVersion: u64 = 1;
 const EZeroExtractSize: u64 = 2;
 
 /// Flag to indicate the version of the system.
-const VERSION: u64 = 4;
+const VERSION: u64 = 5;
 
 /// Key for the dynamic field on `System` holding the blob info snapshot certification state.
 ///
@@ -517,10 +517,10 @@ public(package) fun set_new_package_id(system: &mut System, new_package_id: ID) 
 /// This function sets the new package id and version and can be modified in future versions
 /// to migrate changes in the `system_state_inner` object if needed.
 public(package) fun migrate(system: &mut System) {
-    // Below logic is for upgrading to version 4. When upgrading to future versions, this function
+    // Below logic is for upgrading to version 5. When upgrading to future versions, this function
     // needs to be revisited to perform correct migration steps.
     assert!(system.version < VERSION, EInvalidMigration);
-    assert!(VERSION == 4, EInvalidMigration);
+    assert!(VERSION == 5, EInvalidMigration);
 
     // Move the old system state inner to the new version.
     let system_state_inner: SystemStateInnerV1 = dynamic_field::remove(
@@ -529,15 +529,6 @@ public(package) fun migrate(system: &mut System) {
     );
     dynamic_field::add(&mut system.id, VERSION, system_state_inner);
     system.version = VERSION;
-
-    // Create the blob info snapshot certification state introduced in version 4.
-    // TODO(WAL-1364): remove this step when upgrading to version 5; the field then already
-    // exists on the migrated objects, and adding it again would abort the migration.
-    dynamic_field::add(
-        &mut system.id,
-        SnapshotStateKey(),
-        snapshot_blob::create_with_empty_state(),
-    );
 
     // Set the new package id.
     assert!(system.new_package_id.is_some(), EInvalidMigration);
