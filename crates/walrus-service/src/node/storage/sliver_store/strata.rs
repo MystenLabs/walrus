@@ -15,12 +15,11 @@ use super::{
     super::{
         blob_info::{BlobInfoApi, BlobInfoTable},
         strata_lifecycle::{
-            DIRTY_BLOBS_CF,
-            EpochProgress,
             HaltOnIncompleteWrite,
-            LIFETIMES_CF,
             ReconcileBlob,
+            ReconciliationProgress,
             StrataLifecycle,
+            TypedBatchExt,
             error,
         },
     },
@@ -31,6 +30,8 @@ use crate::utils;
 
 // Time in seconds to wait for data to be fsynced when writing slivers into Strata.
 const SYNC_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+const BLOB_CHUNK_SIZE: usize = 256;
+const POOL_CHUNK_SIZE: usize = 256;
 
 /// Strata store for slivers. Walrus control tables remain in RocksDB.
 #[derive(Debug, Clone)]
@@ -72,9 +73,13 @@ impl StrataSliverStore {
         })
     }
 
-    /// The worker serializes epoch passes, but events and puts keep running. Only each batch's
-    /// blob locks are held through submission, sync and acknowledgement. Shard/clock changes
-    /// use the lifecycle lock; the reference-table scan never takes it exclusively.
+    /// The background worker finishes one epoch reconciliation before starting the next.
+    /// Walrus event processing and puts can continue while it scans RocksDB for blobs to reconcile.
+    /// Each batch locks its blobs until the Strata changes are synced and completion is
+    /// recorded in RocksDB. For example, updating blob X blocks concurrent puts to X,
+    /// but puts to unrelated blobs can continue.
+    /// Shard creation and removal and Strata epoch advancement take the lifecycle lock exclusively.
+    /// The scan works off of a snapshot of the db, so it does not block all puts.
     pub(super) async fn reconcile_epoch(
         &self,
         epoch: Epoch,
@@ -84,42 +89,43 @@ impl StrataSliverStore {
         // Cancellation of the worker must not abandon a submitted write and its locks.
         let task = tokio::spawn(async move {
             this.lifecycle.check_running()?;
-            // The sole worker awaits every pass. Refuse to replace unfinished work and skip
-            // a pass that already completed; the checkpoint tells us which phase to resume.
             let progress = this.lifecycle.progress.get(&())?;
             match progress {
-                Some(EpochProgress::Applying(pending) | EpochProgress::Advancing(pending)) => {
+                Some(
+                    ReconciliationProgress::Applying(pending)
+                    | ReconciliationProgress::Advancing(pending),
+                ) => {
                     // The worker finishes interrupted work before starting a newer request.
                     anyhow::ensure!(
                         pending == epoch,
                         "cannot reconcile epoch {epoch} while epoch {pending} is unfinished"
                     );
                 }
-                Some(EpochProgress::Complete(done)) if done >= epoch => return Ok(()),
+                Some(ReconciliationProgress::Complete(done)) if done >= epoch => return Ok(()),
                 _ => {}
             }
             let mut completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
             // Advancing means this pass's blob updates are already durable. After a crash,
             // resume the clock transition and cleanup below without repeating the scan.
-            if progress != Some(EpochProgress::Advancing(epoch)) {
+            if progress != Some(ReconciliationProgress::Advancing(epoch)) {
                 let reader = this.clone();
                 let scan = tokio::task::spawn_blocking(move || {
                     let mut batch = reader.lifecycle.progress.batch();
                     batch.insert_batch(
                         &reader.lifecycle.progress,
-                        [((), EpochProgress::Applying(epoch))],
+                        [((), ReconciliationProgress::Applying(epoch))],
                     )?;
                     batch.write_with_sync(true)?;
                     reader.blob_info.reconciliation_candidates()
                 });
                 let snapshot = utils::unwrap_or_resume_unwind(scan.await)?;
-                for group in snapshot.blobs.chunks(256) {
+                for group in snapshot.blobs.chunks(BLOB_CHUNK_SIZE) {
                     this.reconcile_blobs(epoch, group, delete_data).await?;
                 }
                 // Extension event 100 marked P dirty. Clear it only if no event 101 has
                 // replaced that marker. Hold P's lock from the check through the synced delete;
                 // otherwise event 101 could arrive between them and lose its pending work.
-                for group in snapshot.pools.chunks(256) {
+                for group in snapshot.pools.chunks(POOL_CHUNK_SIZE) {
                     let pools: Vec<_> = group.iter().map(|(pool, _)| *pool).collect();
                     let _guard = this.lifecycle.lock_pools(&pools).await?;
                     let mut cleanup = HaltOnIncompleteWrite::new(this.lifecycle.clone());
@@ -127,10 +133,10 @@ impl StrataSliverStore {
                     let group = group.to_vec();
                     utils::unwrap_or_resume_unwind(
                         tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-                            let mut batch = writer.lifecycle.pools.batch();
+                            let mut batch = writer.lifecycle.dirty_pools.batch();
                             for (pool, event_index) in group {
-                                if writer.lifecycle.pools.get(&pool)? == Some(event_index) {
-                                    batch.delete_batch(&writer.lifecycle.pools, [pool])?;
+                                if writer.lifecycle.dirty_pools.get(&pool)? == Some(event_index) {
+                                    batch.delete_batch(&writer.lifecycle.dirty_pools, [pool])?;
                                 }
                             }
                             batch.write_with_sync(true)?;
@@ -145,7 +151,7 @@ impl StrataSliverStore {
                     let mut batch = writer.lifecycle.progress.batch();
                     batch.insert_batch(
                         &writer.lifecycle.progress,
-                        [((), EpochProgress::Advancing(epoch))],
+                        [((), ReconciliationProgress::Advancing(epoch))],
                     )?;
                     batch.write_with_sync(true)?;
                     Ok(())
@@ -170,16 +176,13 @@ impl StrataSliverStore {
                 for row in bindings.safe_iter()? {
                     let (key, _) = row?;
                     if key.starts_with(&prefix) {
-                        ack.delete(
-                            bindings.cf_name(),
-                            &strata_index::port::codec::encode_key(&key)?,
-                        )?;
+                        ack.delete_strata(bindings, &key)?;
                     }
                 }
-                ack.put(
-                    super::super::strata_lifecycle::EPOCH_CF,
-                    &typed_store::rocks::be_fix_int_ser(&())?,
-                    &bcs::to_bytes(&EpochProgress::Complete(epoch))?,
+                ack.insert_walrus(
+                    &writer.lifecycle.progress,
+                    &(),
+                    &ReconciliationProgress::Complete(epoch),
                 )?;
                 ack.write(true)?;
                 Ok(())
@@ -211,14 +214,14 @@ impl StrataSliverStore {
                 // and puts. The earlier snapshot supplies candidates, not permission
                 // to delete. Sync these live inputs before any destructive write.
                 let mut work = Vec::new();
-                let mut inputs = writer.lifecycle.lifetimes.batch();
+                let mut inputs = writer.lifecycle.blob_lifetimes.batch();
                 for ReconcileBlob {
                     id,
                     end_epoch: snapshot_end,
                     dirty: expected,
                 } in group
                 {
-                    let live = writer.lifecycle.blobs.get(&id)?;
+                    let live = writer.lifecycle.dirty_blobs.get(&id)?;
                     let unchanged = live.map(|row| row.event_index)
                         == expected.map(|row| row.event_index)
                         && (delete_data || !live.is_some_and(|row| row.delete));
@@ -229,7 +232,13 @@ impl StrataSliverStore {
                     let end = if unchanged {
                         snapshot_end
                     } else {
-                        snapshot_end.max(writer.lifecycle.lifetimes.get(&id)?.unwrap_or_default())
+                        snapshot_end.max(
+                            writer
+                                .lifecycle
+                                .blob_lifetimes
+                                .get(&id)?
+                                .unwrap_or_default(),
+                        )
                     }
                     .max(writer.blob_info.strata_pool_end_epoch(id)?);
                     let delete = delete_data && !registered && live.is_some_and(|row| row.delete);
@@ -237,7 +246,7 @@ impl StrataSliverStore {
                         // Persist the lifetime hint before Strata. Otherwise a put after a crash
                         // could restore an old cached lifetime over a surviving extension, while
                         // the tracked LSN incorrectly tells recovery that extension is complete.
-                        inputs.insert_batch(&writer.lifecycle.lifetimes, [(id, end)])?;
+                        inputs.insert_batch(&writer.lifecycle.blob_lifetimes, [(id, end)])?;
                     }
                     work.push((
                         id,
@@ -249,7 +258,7 @@ impl StrataSliverStore {
                     ));
                 }
                 inputs.write_with_sync(true)?;
-                let mut ack = writer.lifecycle.db.write_batch();
+                let mut ack = writer.lifecycle.dirty_blobs.batch();
                 let prefix = [b"walrus-epoch/".as_slice(), &epoch.to_be_bytes()].concat();
                 let shards = writer
                     .store
@@ -297,17 +306,17 @@ impl StrataSliverStore {
                         submitted = true;
                     }
                     if *unchanged {
-                        ack.delete(DIRTY_BLOBS_CF, &typed_store::rocks::be_fix_int_ser(id)?)?;
+                        ack.delete_batch(&writer.lifecycle.dirty_blobs, [id])?;
                     }
                     if *delete {
-                        ack.delete(LIFETIMES_CF, &typed_store::rocks::be_fix_int_ser(id)?)?;
+                        ack.delete_batch(&writer.lifecycle.blob_lifetimes, [id])?;
                     }
                 }
                 if submitted {
                     writer.store.sync()?;
                 }
                 // No marker may reappear after a later put is admitted on these keys.
-                ack.write(true)?;
+                ack.write_with_sync(true)?;
                 Ok(())
             })
             .await,
@@ -474,7 +483,7 @@ impl StrataShardSliverStore {
                     tokio::task::spawn_blocking(move || {
                         prepare.check_generation()?;
                         let mut payloads = Vec::new();
-                        let mut admission = prepare.node.lifecycle.blobs.batch();
+                        let mut admission = prepare.node.lifecycle.dirty_blobs.batch();
                         let mut changed = false;
                         for (blob_id, sliver) in slivers {
                             let mut lifetime = None;
@@ -494,7 +503,7 @@ impl StrataShardSliverStore {
                                 let end_epoch = prepare
                                     .node
                                     .lifecycle
-                                    .lifetimes
+                                    .blob_lifetimes
                                     .get(&blob_id)?
                                     .ok_or_else(|| error("registered blob has no lifetime"))?;
                                 lifetime = Some(end_epoch);
@@ -507,12 +516,12 @@ impl StrataShardSliverStore {
                                 // cancellation before releasing the lock so recovery cannot
                                 // resurrect an old delete after this new payload.
                                 if let Some(mut dirty) =
-                                    prepare.node.lifecycle.blobs.get(&blob_id)?
+                                    prepare.node.lifecycle.dirty_blobs.get(&blob_id)?
                                     && dirty.delete
                                 {
                                     dirty.delete = false;
                                     admission.insert_batch(
-                                        &prepare.node.lifecycle.blobs,
+                                        &prepare.node.lifecycle.dirty_blobs,
                                         [(blob_id, dirty)],
                                     )?;
                                     changed = true;

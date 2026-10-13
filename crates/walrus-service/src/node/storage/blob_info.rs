@@ -196,20 +196,23 @@ impl BlobInfoTable {
             // events from before Strata was enabled will not be replayed to populate lifetimes.
             // Bound memory by batching; include persisted values when taking the maximum so
             // multiple references across batches and retries cannot shorten a blob's lifetime.
-            tracing::info!("initializing Strata lifetimes and blob-to-pool lookup");
+            tracing::info!("initializing Strata lifetimes and blob to pool lookup");
             for rows in &table.per_object_blob_info.safe_iter()?.chunks(1024) {
                 let mut lifetimes = HashMap::new();
                 for row in rows {
                     let (_, PerObjectBlobInfo::V1(info)) = row?;
                     if !info.deleted {
-                        let end = lifetimes
-                            .entry(info.blob_id)
-                            .or_insert(lifecycle.lifetimes.get(&info.blob_id)?.unwrap_or_default());
+                        let end = lifetimes.entry(info.blob_id).or_insert(
+                            lifecycle
+                                .blob_lifetimes
+                                .get(&info.blob_id)?
+                                .unwrap_or_default(),
+                        );
                         *end = (*end).max(info.end_epoch);
                     }
                 }
-                let mut batch = lifecycle.lifetimes.batch();
-                batch.insert_batch(&lifecycle.lifetimes, lifetimes)?;
+                let mut batch = lifecycle.blob_lifetimes.batch();
+                batch.insert_batch(&lifecycle.blob_lifetimes, lifetimes)?;
                 batch.write()?;
             }
             for rows in &table.per_object_pooled_blob_info.safe_iter()?.chunks(1024) {
@@ -222,13 +225,16 @@ impl BlobInfoTable {
                         [((info.blob_id, object_id), info.storage_pool_id)],
                     )?;
                     if let Some(pool) = table.storage_pool_info.get(&info.storage_pool_id)? {
-                        let end = lifetimes
-                            .entry(info.blob_id)
-                            .or_insert(lifecycle.lifetimes.get(&info.blob_id)?.unwrap_or_default());
+                        let end = lifetimes.entry(info.blob_id).or_insert(
+                            lifecycle
+                                .blob_lifetimes
+                                .get(&info.blob_id)?
+                                .unwrap_or_default(),
+                        );
                         *end = (*end).max(pool.end_epoch());
                     }
                 }
-                batch.insert_batch(&lifecycle.lifetimes, lifetimes)?;
+                batch.insert_batch(&lifecycle.blob_lifetimes, lifetimes)?;
                 batch.write()?;
             }
             // The initial requested epoch is the completion marker. Sync it only after both
@@ -236,7 +242,7 @@ impl BlobInfoTable {
             let mut batch = lifecycle.requested_epoch.batch();
             batch.insert_batch(&lifecycle.requested_epoch, [((), 0)])?;
             batch.write_with_sync(true)?;
-            tracing::info!("initialized Strata lifetimes and blob-to-pool lookup");
+            tracing::info!("initialized Strata lifetimes and blob to pool lookup");
         }
         Ok(table)
     }
@@ -746,7 +752,7 @@ impl BlobInfoTable {
         if let Some(lifecycle) = &self.strata_lifecycle
             && matches!(event, StoragePoolEvent::StoragePoolExtended(_))
         {
-            batch.insert_batch(&lifecycle.pools, [(*storage_pool_id, event_index)])?;
+            batch.insert_batch(&lifecycle.dirty_pools, [(*storage_pool_id, event_index)])?;
         }
         batch.partial_merge_batch(table, [(storage_pool_id, operand.to_bytes())])?;
         batch.insert_batch(latest_handled_event_index, [(&(), event_index)])?;
@@ -788,16 +794,16 @@ impl BlobInfoTable {
             .expect("Strata tables are open");
         let snapshot = self.aggregate_blob_info.rocksdb.snapshot();
         lifecycle.db.flush_wal(true)?;
-        let mut dirty: HashMap<_, _> = lifecycle
-            .blobs
+        let mut dirty_blobs: HashMap<_, _> = lifecycle
+            .dirty_blobs
             .safe_iter_with_snapshot(&snapshot)?
             .map(|row| row.map(|(id, dirty)| (id, Some(dirty))))
             .collect::<Result<_, _>>()?;
-        let pools: HashMap<_, _> = lifecycle
-            .pools
+        let dirty_pools: HashMap<_, _> = lifecycle
+            .dirty_pools
             .safe_iter_with_snapshot(&snapshot)?
             .collect::<Result<_, _>>()?;
-        if dirty.is_empty() && pools.is_empty() {
+        if dirty_blobs.is_empty() && dirty_pools.is_empty() {
             return Ok(super::strata_lifecycle::ReconcileSnapshot {
                 blobs: Vec::new(),
                 pools: Vec::new(),
@@ -816,10 +822,11 @@ impl BlobInfoTable {
             .safe_iter_with_snapshot(&snapshot)?
         {
             let (_, PerObjectPooledBlobInfo::V1(info)) = row?;
-            if pools.contains_key(&info.storage_pool_id) {
-                dirty.entry(info.blob_id).or_insert(None);
+            if dirty_pools.contains_key(&info.storage_pool_id) {
+                // Add pooled blob in dirty blob set
+                dirty_blobs.entry(info.blob_id).or_insert(None);
             }
-            if (!pools.is_empty() || dirty.contains_key(&info.blob_id))
+            if (!dirty_pools.is_empty() || dirty_blobs.contains_key(&info.blob_id))
                 && let Some(end_epoch) = pool_ends.get(&info.storage_pool_id)
             {
                 let end = lifetimes.entry(info.blob_id).or_default();
@@ -831,12 +838,12 @@ impl BlobInfoTable {
             .safe_iter_with_snapshot(&snapshot)?
         {
             let (_, PerObjectBlobInfo::V1(info)) = row?;
-            if !info.deleted && dirty.contains_key(&info.blob_id) {
+            if !info.deleted && dirty_blobs.contains_key(&info.blob_id) {
                 let end = lifetimes.entry(info.blob_id).or_default();
                 *end = (*end).max(info.end_epoch);
             }
         }
-        let mut blobs: Vec<_> = dirty
+        let mut blobs: Vec<_> = dirty_blobs
             .into_iter()
             .map(|(id, dirty)| super::strata_lifecycle::ReconcileBlob {
                 id,
@@ -847,7 +854,7 @@ impl BlobInfoTable {
         blobs.sort_unstable_by_key(|blob| blob.id);
         Ok(super::strata_lifecycle::ReconcileSnapshot {
             blobs,
-            pools: pools.into_iter().collect(),
+            pools: dirty_pools.into_iter().collect(),
         })
     }
 

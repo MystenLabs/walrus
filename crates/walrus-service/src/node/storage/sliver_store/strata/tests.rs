@@ -48,7 +48,7 @@ async fn run_until(storage: &Storage, epoch: Epoch, delete_data: bool) -> TestRe
         result = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 if matches!(strata(storage).lifecycle.progress.get(&())?,
-                    Some(EpochProgress::Complete(done)) if done >= epoch) {
+                    Some(ReconciliationProgress::Complete(done)) if done >= epoch) {
                     // Complete is visible just before the final clock transition releases
                     // its guard. Wait for that transition before cancelling the worker.
                     let _guard = strata(storage).lifecycle.lock_lifecycle().await?;
@@ -178,13 +178,13 @@ async fn existing_references_initialize_lifetimes_before_strata_puts() -> TestRe
             )?;
             drop(legacy);
             let lifecycle = &strata(&storage).lifecycle;
-            assert!(lifecycle.lifetimes.is_empty());
+            assert!(lifecycle.blob_lifetimes.is_empty());
             assert!(lifecycle.pool_references.is_empty());
             let mut batch = lifecycle.requested_epoch.batch();
             batch.delete_batch(&lifecycle.requested_epoch, [()])?;
             if interrupted {
                 // Model an earlier backfill that persisted its first batch but not completion.
-                batch.insert_batch(&lifecycle.lifetimes, [(X, 120)])?;
+                batch.insert_batch(&lifecycle.blob_lifetimes, [(X, 120)])?;
             }
             batch.write_with_sync(true)?;
             close(storage).await?;
@@ -192,7 +192,7 @@ async fn existing_references_initialize_lifetimes_before_strata_puts() -> TestRe
             let storage = open(dir.path(), optimistic)?;
             let lifecycle = &strata(&storage).lifecycle;
             for (id, end) in [(X, 120), (Y, 80), (pooled, 110), (mixed, 150)] {
-                assert_eq!(lifecycle.lifetimes.get(&id)?, Some(end));
+                assert_eq!(lifecycle.blob_lifetimes.get(&id)?, Some(end));
             }
             assert_eq!(
                 lifecycle
@@ -201,8 +201,8 @@ async fn existing_references_initialize_lifetimes_before_strata_puts() -> TestRe
                 Some(POOL)
             );
             assert_eq!(lifecycle.requested_epoch.get(&())?, Some(0));
-            assert!(lifecycle.blobs.is_empty());
-            assert!(lifecycle.pools.is_empty());
+            assert!(lifecycle.dirty_blobs.is_empty());
+            assert!(lifecycle.dirty_pools.is_empty());
             storage
                 .create_storage_for_shards_for_testing(&[SHARD])
                 .await?;
@@ -215,7 +215,10 @@ async fn existing_references_initialize_lifetimes_before_strata_puts() -> TestRe
             // The initialized lifetimes and completion marker survive another open.
             let storage = open(dir.path(), optimistic)?;
             for (id, end) in [(X, 120), (Y, 80), (pooled, 110), (mixed, 150)] {
-                assert_eq!(strata(&storage).lifecycle.lifetimes.get(&id)?, Some(end));
+                assert_eq!(
+                    strata(&storage).lifecycle.blob_lifetimes.get(&id)?,
+                    Some(end)
+                );
                 assert!(stored(&storage, id)?);
             }
             close(storage).await?;
@@ -246,14 +249,21 @@ async fn explicit_delete_is_deferred_and_survives_restart() -> TestResult {
             )
             .await?;
         assert!(stored(&storage, X)?);
-        assert!(strata(&storage).lifecycle.blobs.get(&X)?.unwrap().delete);
+        assert!(
+            strata(&storage)
+                .lifecycle
+                .dirty_blobs
+                .get(&X)?
+                .unwrap()
+                .delete
+        );
         // The event can complete before a worker runs; the durable request must survive restart.
         storage.request_strata_reconciliation(2, 2).await?;
         close(storage).await?;
         let storage = open(dir.path(), optimistic)?;
         run_until(&storage, 2, true).await?;
         assert!(!stored(&storage, X)?);
-        assert!(strata(&storage).lifecycle.blobs.get(&X)?.is_none());
+        assert!(strata(&storage).lifecycle.dirty_blobs.get(&X)?.is_none());
         assert!(
             strata(&storage)
                 .store
@@ -291,13 +301,20 @@ async fn put_cancels_delete_but_preserves_lifetime_reconciliation() -> TestResul
                     .into(),
             )
             .await?;
-        assert!(strata(&storage).lifecycle.blobs.get(&X)?.unwrap().delete);
+        assert!(
+            strata(&storage)
+                .lifecycle
+                .dirty_blobs
+                .get(&X)?
+                .unwrap()
+                .delete
+        );
         put(&storage, X).await?;
-        let pending = strata(&storage).lifecycle.blobs.get(&X)?.unwrap();
+        let pending = strata(&storage).lifecycle.dirty_blobs.get(&X)?.unwrap();
         assert!(!pending.delete);
         assert_eq!(pending.event_index, 2);
         reconcile(&storage, 2, 2, true).await?;
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(30));
+        assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(30));
         assert!(stored(&storage, X)?);
         reconcile(&storage, 30, 30, true).await?;
         assert!(!stored(&storage, X)?);
@@ -337,7 +354,7 @@ async fn stale_snapshot_cannot_delete_a_new_registration_and_put() -> TestResult
         assert_eq!(
             strata(&storage)
                 .lifecycle
-                .blobs
+                .dirty_blobs
                 .get(&X)?
                 .unwrap()
                 .event_index,
@@ -454,12 +471,15 @@ async fn pool_updates_coalesce_and_other_references_keep_their_lifetime() -> Tes
                 &StoragePoolEvent::extended_for_testing(POOL, 50),
             )
             .await?;
-        assert_eq!(strata(&storage).lifecycle.pools.safe_iter()?.count(), 1);
-        assert!(strata(&storage).lifecycle.blobs.is_empty()); // No foreground member fan-out.
+        assert_eq!(
+            strata(&storage).lifecycle.dirty_pools.safe_iter()?.count(),
+            1
+        );
+        assert!(strata(&storage).lifecycle.dirty_blobs.is_empty()); // No foreground member fan-out.
         reconcile(&storage, 20, 20, true).await?;
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(80));
+        assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(80));
         assert!(stored(&storage, X)?);
-        assert!(strata(&storage).lifecycle.pools.is_empty());
+        assert!(strata(&storage).lifecycle.dirty_pools.is_empty());
         reconcile(&storage, 80, 80, true).await?;
         assert!(!stored(&storage, X)?);
         close(storage).await?;
@@ -528,19 +548,19 @@ async fn restart_after_durable_delete_does_not_repeat_it_after_a_new_put() -> Te
                 .into(),
         )
         .await?;
-    let pending = strata(&storage).lifecycle.blobs.get(&X)?.unwrap();
+    let pending = strata(&storage).lifecycle.dirty_blobs.get(&X)?.unwrap();
     let mut start = strata(&storage).lifecycle.progress.batch();
     start.insert_batch(
         &strata(&storage).lifecycle.progress,
-        [((), EpochProgress::Applying(2))],
+        [((), ReconciliationProgress::Applying(2))],
     )?;
     start.write_with_sync(true)?;
     let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
     strata(&storage).reconcile_blobs(2, &snapshot, true).await?;
     assert!(!stored(&storage, X)?);
     // Model a crash after Strata sync but before dirty-marker acknowledgement.
-    let mut restore = strata(&storage).lifecycle.blobs.batch();
-    restore.insert_batch(&strata(&storage).lifecycle.blobs, [(X, pending)])?;
+    let mut restore = strata(&storage).lifecycle.dirty_blobs.batch();
+    restore.insert_batch(&strata(&storage).lifecycle.dirty_blobs, [(X, pending)])?;
     restore.write_with_sync(true)?;
     close(storage).await?;
     let storage = open(dir.path(), true)?;
@@ -569,7 +589,7 @@ async fn restart_after_epoch_sync_does_not_advance_twice() -> TestResult {
     let mut progress = strata(&storage).lifecycle.progress.batch();
     progress.insert_batch(
         &strata(&storage).lifecycle.progress,
-        [((), EpochProgress::Advancing(11))],
+        [((), ReconciliationProgress::Advancing(11))],
     )?;
     progress.write_with_sync(true)?;
     let mut batch = strata(&storage).store.batch();
@@ -584,13 +604,13 @@ async fn restart_after_epoch_sync_does_not_advance_twice() -> TestResult {
     assert_eq!(strata(&storage).store.current_epoch()?, 11);
     assert_eq!(
         strata(&storage).lifecycle.progress.get(&())?,
-        Some(EpochProgress::Advancing(11))
+        Some(ReconciliationProgress::Advancing(11))
     );
     run_until(&storage, 12, true).await?;
     assert_eq!(strata(&storage).store.current_epoch()?, 12);
     assert_eq!(
         strata(&storage).lifecycle.progress.get(&())?,
-        Some(EpochProgress::Complete(12))
+        Some(ReconciliationProgress::Complete(12))
     );
     close(storage).await?;
     Ok(())
@@ -618,7 +638,14 @@ async fn disabled_data_deletion_preserves_pending_deletes_and_expiry() -> TestRe
         .await?;
     reconcile(&storage, 3, 3, false).await?;
     assert!(stored(&storage, X)?);
-    assert!(strata(&storage).lifecycle.blobs.get(&X)?.unwrap().delete);
+    assert!(
+        strata(&storage)
+            .lifecycle
+            .dirty_blobs
+            .get(&X)?
+            .unwrap()
+            .delete
+    );
     reconcile(&storage, 4, 4, true).await?;
     assert!(!stored(&storage, X)?);
     close(storage).await?;
@@ -653,13 +680,13 @@ async fn put_after_restart_cannot_restore_a_stale_pool_lifetime() -> TestResult 
     let mut start = strata(&storage).lifecycle.progress.batch();
     start.insert_batch(
         &strata(&storage).lifecycle.progress,
-        [((), EpochProgress::Applying(3))],
+        [((), ReconciliationProgress::Applying(3))],
     )?;
     start.write_with_sync(true)?;
     let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
     strata(&storage).reconcile_blobs(3, &snapshot, true).await?;
     // The pool remains dirty, so recovery will discover the same extension and its saved LSN.
-    assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(20));
+    assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(20));
     close(storage).await?;
     let storage = open(dir.path(), true)?;
     put(&storage, X).await?;
@@ -722,8 +749,15 @@ async fn catch_up_allows_recovery_puts_before_reconciliation() -> TestResult {
             .await?;
         reconcile(&storage, 60, 100, true).await?;
         assert_eq!(strata(&storage).store.current_epoch()?, 0);
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(20));
-        assert!(strata(&storage).lifecycle.blobs.get(&Y)?.unwrap().delete);
+        assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(20));
+        assert!(
+            strata(&storage)
+                .lifecycle
+                .dirty_blobs
+                .get(&Y)?
+                .unwrap()
+                .delete
+        );
         assert!(strata(&storage).lifecycle.progress.get(&())?.is_none());
 
         // The boundary only requests work. Recovery can create shards and write slivers
@@ -745,14 +779,17 @@ async fn catch_up_allows_recovery_puts_before_reconciliation() -> TestResult {
         drop(shard);
         assert!(stored(&storage, X)?);
         assert_eq!(strata(&storage).store.current_epoch()?, 0);
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(20));
+        assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(20));
         run_until(&storage, 100, true).await?;
         assert_eq!(strata(&storage).store.current_epoch()?, 100);
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(120));
+        assert_eq!(
+            strata(&storage).lifecycle.blob_lifetimes.get(&X)?,
+            Some(120)
+        );
         assert!(stored(&storage, X)?);
-        assert!(strata(&storage).lifecycle.lifetimes.get(&Y)?.is_none());
-        assert!(strata(&storage).lifecycle.blobs.is_empty());
-        assert!(strata(&storage).lifecycle.pools.is_empty());
+        assert!(strata(&storage).lifecycle.blob_lifetimes.get(&Y)?.is_none());
+        assert!(strata(&storage).lifecycle.dirty_blobs.is_empty());
+        assert!(strata(&storage).lifecycle.dirty_pools.is_empty());
 
         // Reference state keeps advancing while either kind of payload recovery is running.
         for (epoch, status) in [
@@ -800,7 +837,7 @@ async fn expiry_keeps_dirty_ids_after_reference_rows_are_removed() -> TestResult
         put(&storage, X).await?;
         put(&storage, Y).await?;
         reconcile(&storage, 2, 2, true).await?;
-        assert!(strata(&storage).lifecycle.blobs.is_empty());
+        assert!(strata(&storage).lifecycle.dirty_blobs.is_empty());
         let metrics = crate::node::metrics::NodeMetricSet::new(&Registry::default());
         storage
             .process_expired_storage_pools(3, &metrics, 100)
@@ -818,8 +855,14 @@ async fn expiry_keeps_dirty_ids_after_reference_rows_are_removed() -> TestResult
         reconcile(&storage, 3, 3, true).await?;
         for id in [X, Y] {
             assert!(!stored(&storage, id)?);
-            assert!(strata(&storage).lifecycle.blobs.get(&id)?.is_none());
-            assert!(strata(&storage).lifecycle.lifetimes.get(&id)?.is_none());
+            assert!(strata(&storage).lifecycle.dirty_blobs.get(&id)?.is_none());
+            assert!(
+                strata(&storage)
+                    .lifecycle
+                    .blob_lifetimes
+                    .get(&id)?
+                    .is_none()
+            );
         }
         close(storage).await?;
     }
@@ -843,7 +886,7 @@ async fn blocked_worker_does_not_block_requests_events_or_unrelated_puts() -> Te
         let worker = tokio::spawn(async move { run_until(&worker_storage, 102, true).await });
         tokio::time::timeout(Duration::from_secs(5), async {
             while strata(&storage).lifecycle.progress.get(&())?
-                != Some(EpochProgress::Applying(100))
+                != Some(ReconciliationProgress::Applying(100))
             {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -863,7 +906,7 @@ async fn blocked_worker_does_not_block_requests_events_or_unrelated_puts() -> Te
         assert_eq!(strata(&storage).store.current_epoch()?, 0);
         assert_eq!(
             strata(&storage).lifecycle.progress.get(&())?,
-            Some(EpochProgress::Applying(100))
+            Some(ReconciliationProgress::Applying(100))
         );
         assert_eq!(
             strata(&storage).lifecycle.requested_epoch.get(&())?,
@@ -915,7 +958,7 @@ async fn pool_cleanup_only_blocks_updates_to_the_locked_pools() -> TestResult {
         let mut worker = tokio::spawn(async move { run_until(&worker_storage, 2, true).await });
         tokio::time::timeout(Duration::from_secs(5), async {
             // Blob work finishes, but clearing POOL's pending extension must wait for its lock.
-            while lifecycle.blobs.get(&X)?.is_some() {
+            while lifecycle.dirty_blobs.get(&X)?.is_some() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
             Ok::<_, anyhow::Error>(())
@@ -958,17 +1001,17 @@ async fn pool_cleanup_only_blocks_updates_to_the_locked_pools() -> TestResult {
                 .await
                 .is_err()
         );
-        assert_eq!(lifecycle.pools.get(&POOL)?, Some(3));
+        assert_eq!(lifecycle.dirty_pools.get(&POOL)?, Some(3));
         assert_eq!(storage.get_latest_handled_event_index()?, 5);
         drop(guard);
         extension.await??;
         worker.await??;
         // Whether cleanup or extension got the lock first, the new pending work must survive.
-        assert_eq!(lifecycle.pools.get(&POOL)?, Some(6));
-        assert_eq!(lifecycle.pools.get(&other_pool)?, Some(5));
+        assert_eq!(lifecycle.dirty_pools.get(&POOL)?, Some(6));
+        assert_eq!(lifecycle.dirty_pools.get(&other_pool)?, Some(5));
         reconcile(&storage, 3, 3, true).await?;
-        assert!(lifecycle.pools.is_empty());
-        assert_eq!(lifecycle.lifetimes.get(&X)?, Some(40));
+        assert!(lifecycle.dirty_pools.is_empty());
+        assert_eq!(lifecycle.blob_lifetimes.get(&X)?, Some(40));
         close(storage).await?;
     }
     Ok(())
@@ -1044,7 +1087,7 @@ async fn only_one_worker_can_start_until_the_store_is_reopened() -> TestResult {
             tokio::spawn(async move { worker_storage.run_strata_reconciliation(true).await });
         tokio::time::timeout(Duration::from_secs(5), async {
             while strata(&storage).lifecycle.progress.get(&())?
-                != Some(EpochProgress::Applying(100))
+                != Some(ReconciliationProgress::Applying(100))
             {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -1080,7 +1123,7 @@ async fn only_one_worker_can_start_until_the_store_is_reopened() -> TestResult {
         // The detached pass can still finish safely after its worker is cancelled.
         tokio::time::timeout(Duration::from_secs(5), async {
             while strata(&storage).lifecycle.progress.get(&())?
-                != Some(EpochProgress::Complete(100))
+                != Some(ReconciliationProgress::Complete(100))
             {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -1132,18 +1175,18 @@ async fn puts_use_cached_pool_lifetime_until_reconciliation() -> TestResult {
                 &StoragePoolEvent::extended_for_testing(POOL, 20),
             )
             .await?;
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(3));
+        assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(3));
         // The old expiry (3) is still safe while Strata remains at epoch 2. A put
         // uses it without expanding the pending pool extension to expiry 20.
         put(&storage, X).await?;
         assert_eq!(strata(&storage).store.current_epoch()?, 2);
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(3));
+        assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(3));
         assert!(stored(&storage, X)?);
         strata(&storage)
             .reconcile_blobs(3, &old_snapshot, true)
             .await?;
-        assert_eq!(strata(&storage).lifecycle.lifetimes.get(&X)?, Some(20));
-        assert_eq!(strata(&storage).lifecycle.pools.get(&POOL)?, Some(2));
+        assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(20));
+        assert_eq!(strata(&storage).lifecycle.dirty_pools.get(&POOL)?, Some(2));
         // A put between the lifetime update and clock advance must use the refreshed cache.
         put(&storage, X).await?;
         reconcile(&storage, 3, 3, true).await?;
@@ -1201,7 +1244,10 @@ async fn later_delete_in_the_same_pass_does_not_reuse_an_old_binding() -> TestRe
         .await?;
     let lifecycle = &strata(&storage).lifecycle;
     let mut start = lifecycle.progress.batch();
-    start.insert_batch(&lifecycle.progress, [((), EpochProgress::Applying(2))])?;
+    start.insert_batch(
+        &lifecycle.progress,
+        [((), ReconciliationProgress::Applying(2))],
+    )?;
     start.write_with_sync(true)?;
     for event_index in [0, 2] {
         let registered = registration(X, 20);

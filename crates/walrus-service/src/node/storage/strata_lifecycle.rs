@@ -22,17 +22,20 @@ use super::DatabaseTableOptionsFactory;
 mod coordination;
 mod database;
 
+pub(super) use database::TypedBatchExt;
+
 pub(super) const DIRTY_BLOBS_CF: &str = "strata_dirty_blobs";
 pub(super) const DIRTY_POOLS_CF: &str = "strata_dirty_pools";
 pub(super) const LIFETIMES_CF: &str = "strata_lifetimes";
 pub(super) const EPOCH_CF: &str = "strata_reconcile_epoch";
 pub(super) const REQUESTED_EPOCH_CF: &str = "strata_requested_epoch";
 pub(super) const POOL_REFERENCES_CF: &str = "strata_pool_references";
+pub type EventIndex = u64;
 
 /// Presence means lifetime reconciliation is pending. A put clears only `delete`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub(super) struct DirtyBlob {
-    pub event_index: u64,
+    pub event_index: EventIndex,
     pub delete: bool,
 }
 
@@ -55,7 +58,7 @@ pub(super) struct ReconcileSnapshot {
 /// each checkpoint before proceeding. This tracks reconciliation, not Walrus's current epoch:
 /// events and puts can continue while the worker finishes an older pass.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub(super) enum EpochProgress {
+pub(super) enum ReconciliationProgress {
     /// Blob lifetime updates and deletes have started but may be incomplete.
     /// Recovery rescans the metadata and resumes reconciliation for this epoch.
     Applying(Epoch),
@@ -70,15 +73,13 @@ pub(super) enum EpochProgress {
 
 #[derive(Debug)]
 pub(super) struct StrataLifecycle {
-    pub blobs: DBMap<BlobId, DirtyBlob>,
-    pub pools: DBMap<ObjectID, u64>,
-    // A conservative lifetime used by puts; reconciliation refreshes it from all live references.
-    pub lifetimes: DBMap<BlobId, Epoch>,
-    // Blob/object -> pool, maintained with the authoritative reference rows. Reconciliation
-    // uses this lookup to recheck live pool expiries before applying lifetime updates.
+    pub dirty_blobs: DBMap<BlobId, DirtyBlob>,
+    pub dirty_pools: DBMap<ObjectID, EventIndex>,
+    pub blob_lifetimes: DBMap<BlobId, Epoch>,
+    // Blob id, object id -> pool id
     pub pool_references: DBMap<(BlobId, ObjectID), ObjectID>,
     // Checkpoint of the active or most recently completed reconciliation pass.
-    pub progress: DBMap<(), EpochProgress>,
+    pub progress: DBMap<(), ReconciliationProgress>,
     // Latest requested target; it can move ahead while an older pass is still running.
     pub requested_epoch: DBMap<(), Epoch>,
     // Held while publishing an epoch request through fsync, and while the worker reads it.
@@ -113,19 +114,19 @@ pub(super) fn database(database: &Arc<RocksDB>) -> Arc<dyn IndexDb> {
 impl StrataLifecycle {
     pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
         Ok(Self {
-            blobs: DBMap::reopen(
+            dirty_blobs: DBMap::reopen(
                 database,
                 Some(DIRTY_BLOBS_CF),
                 &ReadWriteOptions::default(),
                 false,
             )?,
-            pools: DBMap::reopen(
+            dirty_pools: DBMap::reopen(
                 database,
                 Some(DIRTY_POOLS_CF),
                 &ReadWriteOptions::default(),
                 false,
             )?,
-            lifetimes: DBMap::reopen(
+            blob_lifetimes: DBMap::reopen(
                 database,
                 Some(LIFETIMES_CF),
                 &ReadWriteOptions::default(),
@@ -166,9 +167,9 @@ impl StrataLifecycle {
         deletion: bool,
         registration: bool,
     ) -> Result<(), TypedStoreError> {
-        let previous = self.blobs.get(&id)?;
+        let previous = self.dirty_blobs.get(&id)?;
         batch.insert_batch(
-            &self.blobs,
+            &self.dirty_blobs,
             [(
                 id,
                 DirtyBlob {
@@ -178,16 +179,32 @@ impl StrataLifecycle {
             )],
         )?;
         if let Some(end_epoch) = end_epoch {
-            let end_epoch = end_epoch.max(self.lifetimes.get(&id)?.unwrap_or_default());
-            batch.insert_batch(&self.lifetimes, [(id, end_epoch)])?;
+            self.update_blob_lifetime(batch, id, end_epoch)?;
         }
         Ok(())
     }
 
+    pub fn update_blob_lifetime(
+        &self,
+        batch: &mut DBBatch,
+        id: BlobId,
+        end_epoch: Epoch,
+    ) -> Result<(), TypedStoreError> {
+        let current = self.blob_lifetimes.get(&id)?.unwrap_or_default();
+        let new = end_epoch.max(current);
+        batch.insert_batch(&self.blob_lifetimes, [(id, new)])?;
+        Ok(())
+    }
+
     pub fn is_empty(&self) -> Result<bool, TypedStoreError> {
-        Ok(self.blobs.safe_iter()?.next().transpose()?.is_none()
-            && self.pools.safe_iter()?.next().transpose()?.is_none()
-            && self.lifetimes.safe_iter()?.next().transpose()?.is_none()
+        Ok(self.dirty_blobs.safe_iter()?.next().transpose()?.is_none()
+            && self.dirty_pools.safe_iter()?.next().transpose()?.is_none()
+            && self
+                .blob_lifetimes
+                .safe_iter()?
+                .next()
+                .transpose()?
+                .is_none()
             && self
                 .pool_references
                 .safe_iter()?

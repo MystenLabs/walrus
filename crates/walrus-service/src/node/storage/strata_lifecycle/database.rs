@@ -7,12 +7,45 @@
 use std::sync::Arc;
 
 use rocksdb::{BoundColumnFamily, Options, ReadOptions, WriteOptions};
+use serde::Serialize;
 use strata_index::{
     Error,
     Result,
-    port::{IndexDb, IndexSnapshot, IndexWriteBatch, RowCursor},
+    port::{IndexDb, IndexSnapshot, IndexWriteBatch, RowCursor, TypedMap},
 };
-use typed_store::rocks::{RocksDB, RocksDBBatch, RocksDBRawIter};
+use typed_store::rocks::{DBMap, RocksDB, RocksDBBatch, RocksDBRawIter};
+
+/// Typed operations for a batch that touches both Strata and Walrus tables in the same DB.
+/// Keep each table's existing encoding: Walrus values use BCS, Strata values use MessagePack.
+pub(crate) trait TypedBatchExt: IndexWriteBatch {
+    fn delete_strata<K: Serialize, V>(
+        &mut self,
+        table: &TypedMap<K, V>,
+        key: &K,
+    ) -> anyhow::Result<()> {
+        self.delete(
+            table.cf_name(),
+            &strata_index::port::codec::encode_key(key)?,
+        )?;
+        Ok(())
+    }
+
+    fn insert_walrus<K: Serialize, V: Serialize>(
+        &mut self,
+        table: &DBMap<K, V>,
+        key: &K,
+        value: &V,
+    ) -> anyhow::Result<()> {
+        self.put(
+            table.cf_name(),
+            &typed_store::rocks::be_fix_int_ser(key)?,
+            &bcs::to_bytes(value)?,
+        )?;
+        Ok(())
+    }
+}
+
+impl<T: IndexWriteBatch + ?Sized> TypedBatchExt for T {}
 
 #[derive(Debug, Clone)]
 pub(super) struct Database(pub Arc<RocksDB>);

@@ -60,7 +60,7 @@ use self::{
     },
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
-    strata_lifecycle::EpochProgress,
+    strata_lifecycle::ReconciliationProgress,
 };
 use super::{
     errors::{ShardNotAssigned, SyncShardServiceError},
@@ -793,8 +793,10 @@ impl Storage {
                     // Select which epoch to process; reconcile_epoch uses the same checkpoint
                     // to decide which phase to resume. Finish an interrupted pass first, even
                     // if requested_epoch has moved ahead (e.g. resume 100 before starting 102).
-                    if let Some(EpochProgress::Applying(epoch) | EpochProgress::Advancing(epoch)) =
-                        progress
+                    if let Some(
+                        ReconciliationProgress::Applying(epoch)
+                        | ReconciliationProgress::Advancing(epoch),
+                    ) = progress
                     {
                         return Ok(Some(epoch));
                     }
@@ -802,7 +804,7 @@ impl Storage {
                     if requested == GENESIS_EPOCH {
                         return Ok(None);
                     }
-                    if let Some(EpochProgress::Complete(completed)) = progress
+                    if let Some(ReconciliationProgress::Complete(completed)) = progress
                         && completed >= requested
                     {
                         return Ok(None);
