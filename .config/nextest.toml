@@ -10,6 +10,11 @@ filter = 'package(walrus-e2e-tests)'
 threads-required = 4
 
 [profile.ci]
+# CoinMarketCap rate-limits PR CI with HTTP 429. Run it in coinmarketcap-nightly.yml instead.
+default-filter = '''
+not package(walrus-performance-tests)
+and not test(=node::wal_price_monitor::tests::test_fetch_from_coinmarketcap)
+'''
 retries = 1 # retry once for a total of 2 attempts
 slow-timeout = { period = "1m", terminate-after = 10 } # Timeout tests after 10 minutes
 
