@@ -634,7 +634,6 @@ pub async fn start_backup_orchestrator(
         RetriableSuiClient::new_for_rpc_urls(
             &combine_rpc_urls(&config.sui.rpc, &config.sui.additional_rpc_endpoints),
             config.sui.backoff_config.clone(),
-            None,
         )
         .context("[orchestrator] cannot create RetriableSuiClient")?,
         &config.sui.contract_config,
@@ -963,7 +962,6 @@ async fn backup_fetcher(
                 &backup_config.sui.additional_rpc_endpoints,
             ),
             backup_config.sui.backoff_config.clone(),
-            None,
         )
         .context("[backup_fetcher] cannot create RetriableSuiClient")?,
         &backup_config.sui.contract_config,

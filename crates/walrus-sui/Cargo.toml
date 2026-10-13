@@ -30,7 +30,6 @@ fastcrypto.workspace = true
 futures.workspace = true
 futures-util.workspace = true
 home.workspace = true
-jsonrpsee.workspace = true
 move-core-types.workspace = true
 move-package.workspace = true
 move-package-alt.workspace = true

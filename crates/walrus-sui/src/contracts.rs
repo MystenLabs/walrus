@@ -10,24 +10,13 @@ use std::collections::BTreeMap;
 use anyhow::{Context, Result};
 use move_core_types::{identifier::Identifier, language_storage::StructTag as MoveStructTag};
 use serde::de::DeserializeOwned;
-use sui_sdk::{
-    rpc_types::{SuiData, SuiObjectData},
-    types::base_types::ObjectID,
-};
+use sui_sdk::types::base_types::ObjectID;
 use sui_types::TypeTag;
 use thiserror::Error;
-use tracing::Level;
-use walrus_core::ensure;
 
 /// Error returned when converting a Sui object or event to a rust struct.
 #[derive(Debug, Error)]
 pub enum MoveConversionError {
-    #[error("object data does not contain bcs")]
-    /// Error if the object data we are trying to convert does not contain BCS.
-    NoBcs,
-    #[error("not a Move object")]
-    /// Error if the object data is not a Move object.
-    NotMoveObject,
     /// Error resulting if the object or event does not have the expected type.
     #[error("the Move struct {actual} does not match the expected type {expected}")]
     TypeMismatch {
@@ -43,40 +32,10 @@ pub enum MoveConversionError {
 
 /// A trait for types that correspond to a contract type.
 ///
-/// Implementors of this trait are convertible from [SuiObjectData]s and can
-/// identify their associated contract type.
+/// Implementors of this trait can identify their associated contract type.
 pub trait AssociatedContractStruct: DeserializeOwned {
     /// [`StructTag`] corresponding to the Move struct associated type.
     const CONTRACT_STRUCT: StructTag<'static>;
-
-    /// Converts a [`SuiObjectData`] to [`Self`].
-    #[tracing::instrument(
-        err(Debug, level = Level::DEBUG),
-        skip_all,
-        fields(object_id = %sui_object_data.object_id),
-    )]
-    fn try_from_object_data(sui_object_data: &SuiObjectData) -> Result<Self, MoveConversionError> {
-        tracing::trace!(
-            target_struct = %Self::CONTRACT_STRUCT,
-            "converting Move object to Rust struct",
-        );
-        let raw = sui_object_data
-            .bcs
-            .as_ref()
-            .ok_or(MoveConversionError::NoBcs)?;
-        let raw = raw
-            .try_as_move()
-            .ok_or(MoveConversionError::NotMoveObject)?;
-        ensure!(
-            raw.type_.name.as_str() == Self::CONTRACT_STRUCT.name
-                && raw.type_.module.as_str() == Self::CONTRACT_STRUCT.module,
-            MoveConversionError::TypeMismatch {
-                expected: Self::CONTRACT_STRUCT.to_string(),
-                actual: format!("{}::{}", raw.type_.module.as_str(), raw.type_.name.as_str()),
-            }
-        );
-        Ok(bcs::from_bytes(&raw.bcs_bytes)?)
-    }
 }
 
 /// A trait for types that store the latest package ID. This is helpful to enable some generic

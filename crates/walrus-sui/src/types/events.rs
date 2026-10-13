@@ -6,7 +6,6 @@
 use anyhow::anyhow;
 use move_core_types::language_storage::StructTag as MoveStructTag;
 use serde::{Deserialize, Serialize};
-use sui_sdk::rpc_types::SuiEvent;
 use sui_types::{base_types::ObjectID, event::EventID};
 use walrus_core::{BlobId, EncodingType, Epoch, ShardIndex, ensure};
 
@@ -21,16 +20,6 @@ pub struct EventEnvelope {
     pub type_: MoveStructTag,
     /// The BCS-serialized event contents.
     pub bcs: Vec<u8>,
-}
-
-impl From<SuiEvent> for EventEnvelope {
-    fn from(event: SuiEvent) -> Self {
-        Self {
-            id: event.id,
-            type_: event.type_,
-            bcs: event.bcs.bytes().to_vec(),
-        }
-    }
 }
 
 fn ensure_event_type(

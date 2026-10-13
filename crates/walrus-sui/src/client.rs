@@ -125,10 +125,6 @@ pub enum SuiClientError {
     /// Unexpected internal errors.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
-    /// Error resulting from a Sui-SDK call.
-    // Wrapped in a `Box` to avoid the large memory overhead of this error variant.
-    #[error(transparent)]
-    SuiSdkError(#[from] Box<sui_sdk::error::Error>),
     /// Other errors resulting from Sui crates.
     // Wrapped in a `Box` to avoid the large memory overhead of this error variant.
     #[error(transparent)]
@@ -206,6 +202,14 @@ pub enum SuiClientError {
         merging the coins in the wallet and retrying"
     )]
     InsufficientFundsWithMaxCoins(String),
+    /// The address does not have enough balance of the requested coin type.
+    #[error("address {address} has insufficient funds for the requested amount {amount}")]
+    InsufficientFunds {
+        /// The address whose coins were selected.
+        address: SuiAddress,
+        /// The requested amount.
+        amount: u128,
+    },
     /// Error returned when converting a Sui object or event to a rust struct.
     #[error(transparent)]
     MoveConversionError(#[from] MoveConversionError),
@@ -223,12 +227,6 @@ pub enum SuiClientError {
 impl From<sui_types::error::SuiError> for SuiClientError {
     fn from(error: sui_types::error::SuiError) -> Self {
         Self::SuiError(Box::new(error))
-    }
-}
-
-impl From<sui_sdk::error::Error> for SuiClientError {
-    fn from(error: sui_sdk::error::Error) -> Self {
-        Self::SuiSdkError(Box::new(error))
     }
 }
 
@@ -260,8 +258,8 @@ impl SuiClientError {
     ///
     /// In Sui, calling a non-existent function results in a
     /// `VMVerificationOrDeserializationError`. This can surface either as a
-    /// `TransactionExecutionError` (from execution effects) or as an `SuiSdkError` (from a
-    /// dry run failure).
+    /// `TransactionExecutionError` (from execution effects) or as a `GrpcError` (from a
+    /// simulation failure).
     pub fn is_function_not_found(&self) -> bool {
         let error_string = self.to_string();
         error_string.contains("FunctionNotFound")
@@ -546,7 +544,7 @@ impl SuiContractClient {
         tracing::debug!("creating a new `SuiContractClient`");
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?,
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone())?,
                 contract_config,
             )
             .await?,
@@ -566,7 +564,7 @@ impl SuiContractClient {
     ) -> SuiClientResult<Self> {
         let read_client = Arc::new(
             SuiReadClient::new(
-                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone(), None)?
+                RetriableSuiClient::new_for_rpc_urls(rpc_urls, backoff_config.clone())?
                     .with_metrics(Some(metrics)),
                 contract_config,
             )

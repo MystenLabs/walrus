@@ -80,10 +80,7 @@ impl ClientManager {
         )?;
 
         let sui_client = RetriableSuiClient::new(
-            rest_urls
-                .iter()
-                .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, Some(request_timeout)))
-                .collect(),
+            rest_urls.iter().map(LazySuiClientBuilder::new).collect(),
             ExponentialBackoffConfig::default(),
         )?;
 

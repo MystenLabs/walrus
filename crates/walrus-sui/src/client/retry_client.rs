@@ -3,7 +3,7 @@
 
 //! Infrastructure for retrying RPC calls with backoff, in case there are network errors.
 //!
-//! Wraps the [`sui_sdk::SuiClient`] to introduce retries.
+//! Wraps the Sui gRPC client to introduce retries.
 
 use std::{future::Future, sync::Arc, time::Instant};
 
@@ -31,9 +31,6 @@ mod retry_count_guard;
 /// The gas overhead to add to the gas budget to ensure that the transaction will succeed.
 /// Set based on `GAS_SAFE_OVERHEAD` in the sui CLI. Used for gas budget estimation.
 const GAS_SAFE_OVERHEAD: u64 = 1000;
-
-/// The maximum number of objects to get in a single RPC call.
-pub(crate) const MULTI_GET_OBJ_LIMIT: usize = 50;
 
 /// Trait to convert an error to a string.
 pub trait ToErrorType {
@@ -121,49 +118,13 @@ where
 
 impl ToErrorType for anyhow::Error {
     fn to_error_type(&self) -> String {
-        self.downcast_ref::<sui_sdk::error::Error>()
-            .map(|error| error.to_error_type())
-            .unwrap_or_else(|| "other".to_string())
-    }
-}
-
-impl ToErrorType for sui_sdk::error::Error {
-    fn to_error_type(&self) -> String {
-        match self {
-            Self::RpcError(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("Call") {
-                    "rpc_call"
-                } else if err_str.contains("Transport") {
-                    "rpc_transport"
-                } else if err_str.contains("RequestTimeout") {
-                    "rpc_timeout"
-                } else {
-                    "rpc_other"
-                }
-                .to_string()
-            }
-            Self::JsonRpcError(_) => "json_rpc".to_string(),
-            Self::BcsSerialisationError(_) => "bcs_ser".to_string(),
-            Self::JsonSerializationError(_) => "json_ser".to_string(),
-            Self::UserInputError(_) => "user_input".to_string(),
-            Self::Subscription(_) => "subscription".to_string(),
-            Self::FailToConfirmTransactionStatus(_, _) => "tx_confirm".to_string(),
-            Self::DataError(_) => "data_error".to_string(),
-            Self::ServerVersionMismatch { .. } => "version_mismatch".to_string(),
-            Self::InsufficientFund { .. } => "insufficient_fund".to_string(),
-            Self::InvalidSignature => "invalid_sig".to_string(),
-            Self::CustomHeadersError(_) => "custom_headers".to_string(),
-        }
+        "other".to_string()
     }
 }
 
 impl ToErrorType for SuiClientError {
     fn to_error_type(&self) -> String {
-        match self {
-            Self::SuiSdkError(error) => error.to_error_type(),
-            _ => "sui_client_error_other".to_string(),
-        }
+        "sui_client_error_other".to_string()
     }
 }
 

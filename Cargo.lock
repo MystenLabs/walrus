@@ -13989,7 +13989,6 @@ dependencies = [
  "home",
  "indoc",
  "inflections",
- "jsonrpsee",
  "move-core-types",
  "move-package",
  "move-package-alt",

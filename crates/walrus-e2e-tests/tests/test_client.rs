@@ -2817,10 +2817,7 @@ pub async fn test_select_coins_max_objects() -> TestResult {
 
     // Create a new client with the funded wallet.
     let retry_client = RetriableSuiClient::new(
-        rpc_urls
-            .iter()
-            .map(|rpc_url| LazySuiClientBuilder::new(rpc_url, None))
-            .collect(),
+        rpc_urls.iter().map(LazySuiClientBuilder::new).collect(),
         ExponentialBackoffConfig::default(),
     )?;
 
@@ -2852,8 +2849,8 @@ pub async fn test_select_coins_max_objects() -> TestResult {
         .await;
     if let Err(error) = result {
         assert!(
-            matches!(error, SuiClientError::SuiSdkError(_)),
-            "expected SuiSdkError error"
+            matches!(error, SuiClientError::InsufficientFunds { .. }),
+            "expected InsufficientFunds error"
         );
     } else {
         panic!("the wallet does not have 5 SUI");
@@ -3085,7 +3082,7 @@ async fn test_store_with_upload_relay_with_tip() {
             .rpc_url()
             .to_string();
         RetriableSuiClient::new(
-            vec![LazySuiClientBuilder::new(&rpc_url, None)],
+            vec![LazySuiClientBuilder::new(&rpc_url)],
             ExponentialBackoffConfig::default(),
         )
         .expect("create retry client")

@@ -581,7 +581,6 @@ pub async fn get_client_with_config(
     let retriable_sui_client = RetriableSuiClient::new_for_rpc_urls(
         &client_config.rpc_urls,
         client_config.backoff_config().clone(),
-        None,
     )?
     .with_metrics(Some(Arc::new(SuiClientMetricSet::new(registry))));
 

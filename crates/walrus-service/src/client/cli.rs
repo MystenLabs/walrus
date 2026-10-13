@@ -149,15 +149,9 @@ pub async fn get_sui_read_client_from_rpc_node_or_wallet(
         }
     };
 
-    let sui_client = RetriableSuiClient::new_for_rpc_urls(
-        &rpc_urls,
-        backoff_config,
-        config.communication_config.sui_client_request_timeout,
-    )
-    .context(format!(
-        "cannot connect to Sui RPC nodes at {}",
-        rpc_urls.join(", ")
-    ))?;
+    let sui_client = RetriableSuiClient::new_for_rpc_urls(&rpc_urls, backoff_config).context(
+        format!("cannot connect to Sui RPC nodes at {}", rpc_urls.join(", ")),
+    )?;
 
     Ok(config.new_read_client(sui_client).await?)
 }

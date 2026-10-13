@@ -17,7 +17,6 @@ use sui_keys::keystore::{
     Keystore,
 };
 use sui_sdk::{
-    rpc_types::SuiObjectResponse,
     sui_client_config::{SuiClientConfig, SuiEnv},
     types::base_types::ObjectID,
 };
@@ -92,20 +91,6 @@ pub fn write_price_for_encoded_length(encoded_length: u64, price_per_unit_size: 
     storage_units_from_size(encoded_length) * price_per_unit_size
 }
 
-/// Gets the package address from an object response.
-///
-/// Note: This returns the package address from the object type, not the newest package ID.
-pub(crate) fn get_package_id_from_object_response(
-    object_response: &SuiObjectResponse,
-) -> Result<ObjectID> {
-    let sui_types::base_types::ObjectType::Struct(move_object_type) =
-        object_response.object()?.object_type()?
-    else {
-        anyhow::bail!("response does not contain a move struct object");
-    };
-    Ok(move_object_type.address().into())
-}
-
 /// Gets the package address from an object.
 ///
 /// Note: This returns the package address from the object type, not the newest package ID.
@@ -150,28 +135,6 @@ pub(crate) fn get_created_sui_object_ids_by_type(
             response.digest
         )),
     }
-}
-
-pub(crate) fn get_sui_object_from_object_response<U>(
-    object_response: &SuiObjectResponse,
-) -> SuiClientResult<U>
-where
-    U: AssociatedContractStruct,
-{
-    Ok(
-        U::try_from_object_data(object_response.data.as_ref().with_context(|| {
-            format!(
-                "response does not contain object data [err={:?}]",
-                object_response.error
-            )
-        })?)
-        .with_context(|| {
-            format!(
-                "could not convert object to expected type {}",
-                U::CONTRACT_STRUCT
-            )
-        })?,
-    )
 }
 
 pub(crate) fn get_sui_object_from_bcs<U>(
@@ -437,7 +400,7 @@ pub async fn get_sui_from_wallet_or_faucet(
     let min_balance = sui_amount + 2 * one_sui;
     let sender = wallet.active_address();
     let rpc_urls = &[wallet.get_rpc_url()];
-    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default(), None)?;
+    let client = RetriableSuiClient::new_for_rpc_urls(rpc_urls, Default::default())?;
     let balance = client.get_total_balance(sender, Coin::SUI).await?;
     if balance >= min_balance {
         let mut ptb = ProgrammableTransactionBuilder::new();

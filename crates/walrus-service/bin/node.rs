@@ -1106,7 +1106,7 @@ mod commands {
         };
 
         let retriable_sui_client = RetriableSuiClient::new(
-            vec![LazySuiClientBuilder::new(sui_rpc_url, None)],
+            vec![LazySuiClientBuilder::new(sui_rpc_url)],
             ExponentialBackoffConfig::default(),
         )?;
         let contract_config = ContractConfig::new(system_object_id, staking_object_id);
