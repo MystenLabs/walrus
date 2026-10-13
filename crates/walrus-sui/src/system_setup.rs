@@ -347,11 +347,13 @@ fn compile_package_inner_blocking(
     root_pkg: RootPackage<SuiFlavor>,
 ) -> Result<(CompiledPackage, MoveBuildConfig, RootPackage<SuiFlavor>)> {
     let mut stdout = std::io::stdout();
-    let package = move_package_compilation::compile_from_root_package::<
-        std::io::Stdout,
-        SuiFlavor,
-    >(&root_pkg, &build_config, &mut stdout)
-    .expect("Compilation should succeed");
+    let package =
+        move_package_compilation::compile_from_root_package::<std::io::Stdout, SuiFlavor>(
+            &root_pkg,
+            &build_config,
+            &mut stdout,
+        )
+        .expect("Compilation should succeed");
 
     let package_dependencies = PackageDependencies::new(&root_pkg)?;
     tracing::info!(
