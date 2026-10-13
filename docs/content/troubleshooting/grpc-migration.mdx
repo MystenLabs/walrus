@@ -97,10 +97,10 @@ One symptom means nothing is wrong. The public nodes serve Sui client and SDK tr
 
 ## Do not force the old code paths
 
-`WALRUS_GRPC_MIGRATION_LEVEL` exists as a temporary escape hatch for debugging the migration. If you set it below the client's default, the client falls back to the older JSON-RPC code paths that Sui full nodes are removing, which reintroduces every failure above.
+Older Walrus releases read a `WALRUS_GRPC_MIGRATION_LEVEL` environment variable. Setting it below the client's default makes those releases fall back to JSON-RPC code paths that Sui full nodes no longer serve, which reintroduces every failure above. Current releases have no JSON-RPC code paths and ignore the variable.
 
 :::caution
 
-Do not set `WALRUS_GRPC_MIGRATION_LEVEL` in production. If you set it while debugging, unset it before you deploy.
+Do not set `WALRUS_GRPC_MIGRATION_LEVEL`. If you set it while debugging, unset it before you deploy.
 
 :::
