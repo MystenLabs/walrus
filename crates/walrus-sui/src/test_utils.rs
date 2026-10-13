@@ -355,7 +355,6 @@ impl TestClusterHandle {
 
         let config = cluster
             .fullnode_config_builder()
-            .with_disable_json_rpc(true)
             .build(&mut rand::rngs::OsRng, cluster.swarm.config());
         let rpc_url = format!("http://{}", config.json_rpc_address);
         cluster.swarm.spawn_new_node(config).await;
