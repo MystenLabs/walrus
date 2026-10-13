@@ -715,7 +715,7 @@ pub async fn create_storage_node_configs(
         } else {
             node.keypair.into()
         };
-        let mut storage_node_config = StorageNodeConfig {
+        let storage_node_config = StorageNodeConfig {
             name: node.name.clone(),
             storage_path,
             blocklist_path: None,
@@ -770,10 +770,6 @@ pub async fn create_storage_node_configs(
             wal_price_monitor: Default::default(),
             epoch_state_consistency: Default::default(),
         };
-        if sliver_store_backend == SliverStoreBackendKind::Strata {
-            // Strata-backed slivers do not yet support Walrus's periodic data-deletion GC.
-            storage_node_config.garbage_collection.enable_data_deletion = false;
-        }
         storage_node_configs.push(storage_node_config);
     }
 
