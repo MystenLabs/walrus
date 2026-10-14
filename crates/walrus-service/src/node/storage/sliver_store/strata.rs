@@ -472,11 +472,13 @@ impl StrataShardSliverStore {
         utils::unwrap_or_resume_unwind(
             tokio::spawn(async move {
                 let ids: Vec<_> = slivers.iter().map(|(id, _)| *id).collect();
-                let _guard = this
+                let guard = this
                     .node
                     .lifecycle
-                    .lock_blobs(&ids.iter().map(|id| id.0.as_slice()).collect::<Vec<_>>())
+                    .lock_blobs_shared(&ids.iter().map(|id| id.0.as_slice()).collect::<Vec<_>>())
                     .await?;
+                let admission = guard.lock_put_admission().await;
+                this.node.lifecycle.check_running()?;
                 let mut completion = HaltOnIncompleteWrite::new(this.node.lifecycle.clone());
                 let prepare = this.clone();
                 let payloads = utils::unwrap_or_resume_unwind(
@@ -541,6 +543,9 @@ impl StrataShardSliverStore {
                     })
                     .await,
                 )?;
+                // The cancellation is durable now. Other slivers of this blob can prepare and
+                // submit while this put waits for Strata, sharing the same durability cycle.
+                drop(admission);
                 let count = payloads.len();
                 let writer = this.clone();
                 let lsn = utils::unwrap_or_resume_unwind(

@@ -431,6 +431,178 @@ async fn a_blocked_blob_does_not_block_an_unrelated_put() -> TestResult {
 }
 
 #[tokio::test]
+async fn slivers_of_one_blob_share_the_durability_wait() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let shards: Vec<_> = (0..16).map(ShardIndex).collect();
+        storage
+            .create_storage_for_shards_for_testing(&shards)
+            .await?;
+        storage
+            .update_blob_info_coordinated(0, &registration(X, 20).into())
+            .await?;
+
+        // Model another put still waiting for durability. Actual sliver puts must be able
+        // to finish while it holds the shared guard, including across shards and axes.
+        let guard = strata(&storage)
+            .lifecycle
+            .lock_blobs_shared(&[&X.0])
+            .await?;
+        let mut puts = Vec::new();
+        for shard_id in &shards {
+            let shard = storage.shard_storage(*shard_id).await.unwrap();
+            for axis in [SliverType::Primary, SliverType::Secondary] {
+                let shard = shard.clone();
+                puts.push(
+                    async move { shard.put_registered_sliver(X, get_sliver(axis, 2), 1).await },
+                );
+            }
+        }
+        // Waiting for a separate one-second sync per sliver would take about 32 seconds.
+        let results =
+            tokio::time::timeout(Duration::from_secs(10), futures::future::try_join_all(puts))
+                .await??;
+        assert!(results.into_iter().all(|stored| stored));
+        assert!(strata(&storage).contains_sliver_pairs_in_all(X, &shards)?);
+        drop(guard);
+        close(storage).await?;
+
+        let storage = open(dir.path(), optimistic)?;
+        assert!(strata(&storage).contains_sliver_pairs_in_all(X, &shards)?);
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn shared_put_guard_blocks_reconciliation_metadata_and_epoch_changes() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), true)?;
+    storage
+        .update_blob_info_coordinated(0, &registration(X, 20).into())
+        .await?;
+    {
+        let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
+        let guard = strata(&storage)
+            .lifecycle
+            .lock_blobs_shared(&[&X.0])
+            .await?;
+
+        let reconciliation = strata(&storage).reconcile_blobs(2, &snapshot, true);
+        tokio::pin!(reconciliation);
+        assert!(futures::poll!(&mut reconciliation).is_pending());
+        let epoch_change = async {
+            let _guard = strata(&storage).lifecycle.lock_lifecycle().await?;
+            Ok::<_, TypedStoreError>(())
+        };
+        tokio::pin!(epoch_change);
+        assert!(futures::poll!(&mut epoch_change).is_pending());
+        let mut metadata = tokio::spawn({
+            let storage = storage.clone();
+            async move {
+                storage
+                    .update_blob_info_coordinated(1, &registration(X, 40).into())
+                    .await
+            }
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut metadata)
+                .await
+                .is_err()
+        );
+        assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(20));
+
+        drop(guard);
+        // Drive the queued operations together: reconciliation itself holds a shared lifecycle
+        // guard, so the exclusive epoch guard cannot be awaited ahead of it.
+        let (reconciled, epoch, updated) = tokio::join!(reconciliation, epoch_change, metadata);
+        reconciled?;
+        epoch?;
+        updated??;
+        assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(40));
+    }
+    close(storage).await
+}
+
+#[tokio::test]
+async fn put_waits_for_another_put_to_sync_delete_cancellation() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        storage
+            .create_storage_for_shards_for_testing(&[SHARD])
+            .await?;
+        let alice = registration(X, 20);
+        storage
+            .update_blob_info_coordinated(0, &alice.clone().into())
+            .await?;
+        storage
+            .update_blob_info_coordinated(1, &registration(X, 30).into())
+            .await?;
+        storage
+            .update_blob_info_coordinated(
+                2,
+                &alice
+                    .into_corresponding_deleted_event_for_testing(false)
+                    .into(),
+            )
+            .await?;
+        let lifecycle = &strata(&storage).lifecycle;
+        let guard = lifecycle.lock_blobs_shared(&[&X.0]).await?;
+        let admission = guard.lock_put_admission().await;
+        let mut dirty = lifecycle.dirty_blobs.get(&X)?.unwrap();
+        assert!(dirty.delete);
+        dirty.delete = false;
+        // Model the interval between RocksDB making the cancellation visible and its
+        // synchronous write returning. A second put must not rely on the visible flag yet.
+        let mut batch = lifecycle.dirty_blobs.batch();
+        batch.insert_batch(&lifecycle.dirty_blobs, [(X, dirty)])?;
+        batch.write()?;
+        let shard = storage.shard_storage(SHARD).await.unwrap();
+        let mut writer = tokio::spawn(async move {
+            shard
+                .put_registered_sliver(X, get_sliver(SliverType::Primary, 2), 1)
+                .await
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut writer)
+                .await
+                .is_err()
+        );
+        assert!(
+            !strata(&storage)
+                .store
+                .contains_in_shards(&sliver_key(&X, SliverType::Primary), &[u32::from(SHARD.0)],)?
+        );
+        let mut synced = lifecycle.dirty_blobs.batch();
+        synced.insert_batch(&lifecycle.dirty_blobs, [(X, dirty)])?;
+        synced.write_with_sync(true)?;
+        drop(admission);
+        assert!(tokio::time::timeout(Duration::from_secs(5), writer).await???);
+        drop(guard);
+        close(storage).await?;
+
+        let storage = open(dir.path(), optimistic)?;
+        assert!(
+            !strata(&storage)
+                .lifecycle
+                .dirty_blobs
+                .get(&X)?
+                .unwrap()
+                .delete
+        );
+        assert!(
+            strata(&storage)
+                .store
+                .contains_in_shards(&sliver_key(&X, SliverType::Primary), &[u32::from(SHARD.0)],)?
+        );
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn pool_updates_coalesce_and_other_references_keep_their_lifetime() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;
