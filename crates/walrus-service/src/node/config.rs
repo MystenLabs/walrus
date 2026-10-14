@@ -378,6 +378,10 @@ impl StorageNodeConfig {
     /// Returns the default configuration for the testnet network.
     pub fn default_testnet() -> Self {
         Self {
+            blob_info_snapshot: BlobInfoSnapshotWriterConfig {
+                certify: true,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -2366,6 +2370,40 @@ mod tests {
                 loaded_config.config.live_upload_deferral.enabled,
                 expected_defaults.live_upload_deferral.enabled,
                 "default-only values are preserved"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn load_config_certifies_blob_info_snapshots_by_default_on_testnet_only() -> TestResult {
+        let mainnet_ids = contract_ids_from_yaml(MAINNET_CLIENT_CONFIG_YAML);
+        let testnet_ids = contract_ids_from_yaml(TESTNET_CLIENT_CONFIG_YAML);
+        let cases = [
+            ("testnet-default", &testnet_ids, "", true),
+            (
+                "testnet-explicit-off",
+                &testnet_ids,
+                "blob_info_snapshot:\n    certify: false\n",
+                false,
+            ),
+            ("mainnet-default", &mainnet_ids, "", false),
+        ];
+
+        let dir = TempDir::new()?;
+        for (label, ids, extra, expected_certify) in cases {
+            let yaml = base_user_yaml_with_sui(ids.system_object, ids.staking_object, extra);
+            let config_path = dir.path().join(format!("node-{label}.yaml"));
+            std::fs::write(&config_path, yaml)?;
+
+            let config = StorageNodeConfig::load_config(&config_path)?.config;
+            assert_eq!(
+                config.blob_info_snapshot.certify, expected_certify,
+                "{label}: certify default follows the network unless set explicitly"
+            );
+            assert!(
+                config.blob_info_snapshot.enabled,
+                "{label}: snapshot serialization stays enabled"
             );
         }
         Ok(())
