@@ -574,8 +574,11 @@ impl Storage {
         }
 
         let strata_database = strata_lifecycle::database(&database);
-        let blob_info =
-            BlobInfoTable::reopen(&database, sliver_backend == SliverStoreBackendKind::Strata)?;
+        let blob_info = BlobInfoTable::reopen(
+            &database,
+            sliver_backend == SliverStoreBackendKind::Strata,
+            &metrics_registry,
+        )?;
         let sliver_store = match sliver_backend {
             SliverStoreBackendKind::RocksDb => {
                 SliverStore::new_rocksdb(Arc::clone(&database), db_table_opts_factory.clone())
@@ -753,7 +756,16 @@ impl Storage {
                 if epoch > requested {
                     let mut batch = lifecycle.requested_epoch.batch();
                     batch.insert_batch(&lifecycle.requested_epoch, [((), epoch)])?;
+                    let _sync = lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["rocksdb", "epoch_request"])
+                        .start_timer();
                     batch.write_with_sync(true)?;
+                    lifecycle
+                        .metrics
+                        .reconciliation_requested_epoch
+                        .set(i64::from(epoch));
                 }
                 completion.complete();
                 // Notify inside the task: cancellation of the caller must not lose the wakeup.
@@ -789,6 +801,16 @@ impl Storage {
                     reader.check_running()?;
                     let requested = reader.requested_epoch.get(&())?.unwrap_or_default();
                     let progress = reader.progress.get(&())?;
+                    reader
+                        .metrics
+                        .reconciliation_requested_epoch
+                        .set(i64::from(requested));
+                    if let Some(ReconciliationProgress::Complete(completed)) = progress {
+                        reader
+                            .metrics
+                            .reconciliation_completed_epoch
+                            .set(i64::from(completed));
+                    }
 
                     // Select which epoch to process; reconcile_epoch uses the same checkpoint
                     // to decide which phase to resume. Finish an interrupted pass first, even

@@ -21,6 +21,7 @@ use super::DatabaseTableOptionsFactory;
 
 mod coordination;
 mod database;
+mod metrics;
 
 pub(super) use database::TypedBatchExt;
 
@@ -91,6 +92,7 @@ pub(super) struct StrataLifecycle {
     // be finishing. Reopen the store before starting a replacement worker.
     pub worker_started: AtomicBool,
     coordination: Arc<coordination::Coordination>,
+    pub metrics: Arc<metrics::LifecycleMetrics>,
 }
 
 pub(super) fn options(factory: &DatabaseTableOptionsFactory) -> Vec<(&'static str, Options)> {
@@ -112,7 +114,10 @@ pub(super) fn database(database: &Arc<RocksDB>) -> Arc<dyn IndexDb> {
 }
 
 impl StrataLifecycle {
-    pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
+    pub fn reopen(
+        database: &Arc<RocksDB>,
+        registry: &walrus_utils::metrics::Registry,
+    ) -> Result<Self, TypedStoreError> {
         Ok(Self {
             dirty_blobs: DBMap::reopen(
                 database,
@@ -155,6 +160,7 @@ impl StrataLifecycle {
             db: self::database(database),
             worker_started: AtomicBool::new(false),
             coordination: Arc::default(),
+            metrics: Arc::new(metrics::LifecycleMetrics::new(registry)),
         })
     }
 

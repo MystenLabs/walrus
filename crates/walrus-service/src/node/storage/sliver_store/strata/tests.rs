@@ -1452,3 +1452,144 @@ async fn later_delete_in_the_same_pass_does_not_reuse_an_old_binding() -> TestRe
     close(storage).await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn lock_wait_metrics_include_blocked_and_cancelled_acquisitions() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), false)?;
+    let lifecycle = &strata(&storage).lifecycle;
+    let exclusive = lifecycle.lock_blobs(&[&X.0]).await?;
+    let waiter = lifecycle
+        .metrics
+        .lock_waiters
+        .with_label_values(&["blob", "shared"]);
+    let duration = lifecycle
+        .metrics
+        .lock_wait_duration_seconds
+        .with_label_values(&["blob", "shared"]);
+    {
+        let waiting = lifecycle.lock_blobs_shared(&[&X.0]);
+        tokio::pin!(waiting);
+        assert!(futures::poll!(&mut waiting).is_pending());
+        assert_eq!(waiter.get(), 1);
+        assert_eq!(duration.get_sample_count(), 0);
+        // Cancellation must remove a waiting task, even though it never acquired the lock.
+    }
+    assert_eq!(waiter.get(), 0);
+    assert_eq!(duration.get_sample_count(), 1);
+    drop(exclusive);
+    {
+        let shared = lifecycle.lock_blobs_shared(&[&X.0]).await?;
+        assert_eq!(waiter.get(), 0); // A holder must not count as a waiter.
+        assert_eq!(duration.get_sample_count(), 2);
+        let admission = shared.lock_put_admission().await;
+        let admission_waiter = lifecycle
+            .metrics
+            .lock_waiters
+            .with_label_values(&["put_admission", "exclusive"]);
+        {
+            let waiting = shared.lock_put_admission();
+            tokio::pin!(waiting);
+            assert!(futures::poll!(&mut waiting).is_pending());
+            assert_eq!(admission_waiter.get(), 1);
+        }
+        assert_eq!(admission_waiter.get(), 0);
+        drop(admission);
+    }
+    let exclusive = lifecycle.lock_lifecycle().await?;
+    let waiter = lifecycle
+        .metrics
+        .lock_waiters
+        .with_label_values(&["lifecycle", "shared"]);
+    {
+        let waiting = lifecycle.lock_blobs_shared(&[&X.0]);
+        tokio::pin!(waiting);
+        assert!(futures::poll!(&mut waiting).is_pending());
+        assert_eq!(waiter.get(), 1);
+    }
+    assert_eq!(waiter.get(), 0);
+    drop(exclusive);
+    close(storage).await
+}
+
+#[tokio::test]
+async fn strata_adapter_metrics_cover_put_reconciliation_and_sync() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), false)?;
+    storage
+        .create_storage_for_shards_for_testing(&[SHARD])
+        .await?;
+    storage
+        .update_blob_info_coordinated(0, &registration(X, 3).into())
+        .await?;
+    put(&storage, X).await?;
+    reconcile(&storage, 2, 2, true).await?;
+    let node_metrics = crate::node::metrics::NodeMetricSet::new(&Registry::default());
+    storage
+        .process_expired_blob_objects(3, &node_metrics, 100)
+        .await?;
+    reconcile(&storage, 3, 3, true).await?;
+    let metrics = &strata(&storage).lifecycle.metrics;
+    assert_eq!(metrics.reconciliation_active.get(), 0);
+    assert_eq!(metrics.reconciliation_completed_total.get(), 2);
+    assert_eq!(
+        metrics.reconciliation_duration_seconds.get_sample_count(),
+        2
+    );
+    assert_eq!(metrics.reconciliation_requested_epoch.get(), 3);
+    assert_eq!(metrics.reconciliation_completed_epoch.get(), 3);
+    assert_eq!(metrics.put_duration_seconds.get_sample_count(), 2);
+    assert_eq!(
+        metrics.durability_wait_duration_seconds.get_sample_count(),
+        2
+    );
+    for operation in [
+        "create_shard",
+        "put",
+        "set_lifetime",
+        "delete",
+        "advance_epoch",
+    ] {
+        assert!(
+            metrics
+                .operation_duration_seconds
+                .with_label_values(&[operation])
+                .get_sample_count()
+                > 0,
+            "{operation}"
+        );
+    }
+    for phase in ["snapshot", "blobs", "pools", "advance"] {
+        assert_eq!(
+            metrics
+                .reconciliation_phase_duration_seconds
+                .with_label_values(&[phase])
+                .get_sample_count(),
+            2,
+            "{phase}"
+        );
+    }
+    for (store, reason) in [
+        ("rocksdb", "reconcile_inputs"),
+        ("rocksdb", "blob_ack"),
+        ("strata", "reconcile_blobs"),
+        ("strata", "advance_epoch"),
+    ] {
+        assert!(
+            metrics
+                .sync_duration_seconds
+                .with_label_values(&[store, reason])
+                .get_sample_count()
+                > 0,
+            "{store}/{reason}"
+        );
+    }
+    assert_eq!(metrics.admission_halts_total.get(), 0);
+    // A completed epoch is a no-op, not another pass in the duration histogram.
+    reconcile(&storage, 3, 3, true).await?;
+    assert_eq!(
+        metrics.reconciliation_duration_seconds.get_sample_count(),
+        2
+    );
+    close(storage).await
+}

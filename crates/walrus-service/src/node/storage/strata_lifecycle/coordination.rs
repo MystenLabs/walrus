@@ -18,7 +18,7 @@ use tokio::sync::{
 };
 use typed_store::TypedStoreError;
 
-use super::StrataLifecycle;
+use super::{StrataLifecycle, metrics::LifecycleMetrics};
 type Result<T> = std::result::Result<T, TypedStoreError>;
 
 #[derive(Debug, Default)]
@@ -77,6 +77,7 @@ pub struct LockedKeys {
 #[derive(Debug)]
 #[must_use = "hold through Strata durability and any RocksDB acknowledgement"]
 pub struct SharedLockedBlobs {
+    metrics: Arc<LifecycleMetrics>,
     _guards: Vec<OwnedRwLockReadGuard<()>>,
     entries: Vec<Arc<KeyLock>>,
     _lifecycle: OwnedRwLockReadGuard<()>,
@@ -88,7 +89,9 @@ impl SharedLockedBlobs {
     pub async fn lock_put_admission(&self) -> Vec<OwnedMutexGuard<()>> {
         let mut guards = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
+            let wait = self.metrics.lock_wait("put_admission", "exclusive");
             guards.push(entry.put_admission.clone().lock_owned().await);
+            drop(wait);
         }
         guards
     }
@@ -106,15 +109,20 @@ impl StrataLifecycle {
     /// use `lock_blobs` exclusively and wait for all those puts to finish.
     pub async fn lock_blobs_shared(&self, keys: &[&[u8]]) -> Result<SharedLockedBlobs> {
         self.check_running()?;
+        let wait = self.metrics.lock_wait("lifecycle", "shared");
         let lifecycle = self.coordination.lifecycle.clone().read_owned().await;
+        drop(wait);
         let entries =
             self.key_entries(keys.iter().map(|key| LockKey::Blob(key.to_vec())).collect());
         let mut guards = Vec::with_capacity(entries.len());
         for entry in &entries {
+            let wait = self.metrics.lock_wait("blob", "shared");
             guards.push(entry.lock.clone().read_owned().await);
+            drop(wait);
         }
         self.check_running()?;
         Ok(SharedLockedBlobs {
+            metrics: self.metrics.clone(),
             _guards: guards,
             entries,
             _lifecycle: lifecycle,
@@ -126,7 +134,9 @@ impl StrataLifecycle {
         // Example: a put checks shard 7's generation, then submits its data. A shard drop/recreate
         // must not happen between those steps. Likewise, advancing Strata's epoch must wait for
         // an in-flight lifetime update to finish. Shared mode still lets other blobs make progress.
+        let wait = self.metrics.lock_wait("lifecycle", "shared");
         let lifecycle = self.coordination.lifecycle.clone().read_owned().await;
+        drop(wait);
         let keys = self
             .lock_keys(keys.iter().map(|key| LockKey::Blob(key.to_vec())).collect())
             .await?;
@@ -149,7 +159,13 @@ impl StrataLifecycle {
         // already-acquired guards and the registry entries; idle keys do not accumulate.
         let mut guards = Vec::with_capacity(entries.len());
         for entry in &entries {
+            let lock = match &entry.key {
+                LockKey::Blob(_) => "blob",
+                LockKey::Pool(_) => "pool",
+            };
+            let wait = self.metrics.lock_wait(lock, "exclusive");
             guards.push(entry.lock.clone().write_owned().await);
+            drop(wait);
         }
         self.check_running()?;
         Ok(LockedKeys {
@@ -187,9 +203,11 @@ impl StrataLifecycle {
 
     pub async fn lock_lifecycle(&self) -> Result<LifecycleGuard> {
         self.check_running()?;
+        let wait = self.metrics.lock_wait("lifecycle", "exclusive");
         let guard = LifecycleGuard {
             _guard: self.coordination.lifecycle.clone().write_owned().await,
         };
+        drop(wait);
         self.check_running()?;
         Ok(guard)
     }
@@ -209,10 +227,14 @@ impl StrataLifecycle {
     }
 
     pub fn halt(&self, reason: String) {
-        self.coordination
+        let mut halt_reason = self
+            .coordination
             .halt_reason
             .lock()
-            .expect("halt mutex poisoned")
-            .get_or_insert(reason);
+            .expect("halt mutex poisoned");
+        if halt_reason.is_none() {
+            self.metrics.admission_halts_total.inc();
+            *halt_reason = Some(reason);
+        }
     }
 }

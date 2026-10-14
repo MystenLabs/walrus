@@ -9,7 +9,7 @@ use strata::{BlobKey, ShardState, StrataLsn, StrataStore, StrataStoreConfig, Str
 use strata_index::{StrataIndex, port::IndexDb};
 use typed_store::{Map, TypedStoreError, rocks::DBBatch};
 use walrus_core::{BlobId, Epoch, ShardIndex, Sliver, SliverType};
-use walrus_utils::metrics::Registry;
+use walrus_utils::metrics::{OwnedGaugeGuard, Registry};
 
 use super::{
     super::{
@@ -104,10 +104,23 @@ impl StrataSliverStore {
                 Some(ReconciliationProgress::Complete(done)) if done >= epoch => return Ok(()),
                 _ => {}
             }
+            let _duration = this
+                .lifecycle
+                .metrics
+                .reconciliation_duration_seconds
+                .start_timer();
+            let _active =
+                OwnedGaugeGuard::acquire(this.lifecycle.metrics.reconciliation_active.clone());
             let mut completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
             // Advancing means this pass's blob updates are already durable. After a crash,
             // resume the clock transition and cleanup below without repeating the scan.
             if progress != Some(ReconciliationProgress::Advancing(epoch)) {
+                let scan_duration = this
+                    .lifecycle
+                    .metrics
+                    .reconciliation_phase_duration_seconds
+                    .with_label_values(&["snapshot"])
+                    .start_timer();
                 let reader = this.clone();
                 let scan = tokio::task::spawn_blocking(move || {
                     let mut batch = reader.lifecycle.progress.batch();
@@ -115,13 +128,45 @@ impl StrataSliverStore {
                         &reader.lifecycle.progress,
                         [((), ReconciliationProgress::Applying(epoch))],
                     )?;
-                    batch.write_with_sync(true)?;
+                    {
+                        let _sync = reader
+                            .lifecycle
+                            .metrics
+                            .sync_duration_seconds
+                            .with_label_values(&["rocksdb", "reconcile_checkpoint"])
+                            .start_timer();
+                        batch.write_with_sync(true)?;
+                    }
                     reader.blob_info.reconciliation_candidates()
                 });
                 let snapshot = utils::unwrap_or_resume_unwind(scan.await)?;
+                drop(scan_duration);
+                this.lifecycle
+                    .metrics
+                    .reconciliation_candidates
+                    .with_label_values(&["blobs"])
+                    .set(i64::try_from(snapshot.blobs.len()).unwrap_or(i64::MAX));
+                this.lifecycle
+                    .metrics
+                    .reconciliation_candidates
+                    .with_label_values(&["pools"])
+                    .set(i64::try_from(snapshot.pools.len()).unwrap_or(i64::MAX));
+                let blob_duration = this
+                    .lifecycle
+                    .metrics
+                    .reconciliation_phase_duration_seconds
+                    .with_label_values(&["blobs"])
+                    .start_timer();
                 for group in snapshot.blobs.chunks(BLOB_CHUNK_SIZE) {
                     this.reconcile_blobs(epoch, group, delete_data).await?;
                 }
+                drop(blob_duration);
+                let pool_duration = this
+                    .lifecycle
+                    .metrics
+                    .reconciliation_phase_duration_seconds
+                    .with_label_values(&["pools"])
+                    .start_timer();
                 // Extension event 100 marked P dirty. Clear it only if no event 101 has
                 // replaced that marker. Hold P's lock from the check through the synced delete;
                 // otherwise event 101 could arrive between them and lose its pending work.
@@ -139,13 +184,22 @@ impl StrataSliverStore {
                                     batch.delete_batch(&writer.lifecycle.dirty_pools, [pool])?;
                                 }
                             }
-                            batch.write_with_sync(true)?;
+                            {
+                                let _sync = writer
+                                    .lifecycle
+                                    .metrics
+                                    .sync_duration_seconds
+                                    .with_label_values(&["rocksdb", "pool_ack"])
+                                    .start_timer();
+                                batch.write_with_sync(true)?;
+                            }
                             Ok(())
                         })
                         .await,
                     )?;
                     cleanup.complete();
                 }
+                drop(pool_duration);
                 let writer = this.clone();
                 let finish = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
                     let mut batch = writer.lifecycle.progress.batch();
@@ -153,13 +207,27 @@ impl StrataSliverStore {
                         &writer.lifecycle.progress,
                         [((), ReconciliationProgress::Advancing(epoch))],
                     )?;
-                    batch.write_with_sync(true)?;
+                    {
+                        let _sync = writer
+                            .lifecycle
+                            .metrics
+                            .sync_duration_seconds
+                            .with_label_values(&["rocksdb", "reconcile_checkpoint"])
+                            .start_timer();
+                        batch.write_with_sync(true)?;
+                    }
                     Ok(())
                 });
                 utils::unwrap_or_resume_unwind(finish.await)?;
             }
             // This short clock transition, unlike the scan, excludes in-flight puts so a
             // put's lifetime check and submission cannot straddle the epoch advance.
+            let _advance = this
+                .lifecycle
+                .metrics
+                .reconciliation_phase_duration_seconds
+                .with_label_values(&["advance"])
+                .start_timer();
             let _guard = this.lifecycle.lock_lifecycle().await?;
             let mut epoch_completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
             let writer = this.clone();
@@ -167,9 +235,23 @@ impl StrataSliverStore {
                 if delete_data {
                     let mut batch = writer.store.batch();
                     batch.advance_epoch_to(u64::from(epoch));
+                    let _operation = writer
+                        .lifecycle
+                        .metrics
+                        .operation_duration_seconds
+                        .with_label_values(&["advance_epoch"])
+                        .start_timer();
                     batch.write()?;
                 }
-                writer.store.sync()?;
+                {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["strata", "advance_epoch"])
+                        .start_timer();
+                    writer.store.sync()?;
+                }
                 let prefix = [b"walrus-epoch/".as_slice(), &epoch.to_be_bytes()].concat();
                 let bindings = writer.store.index().submitted_batch_lsns();
                 let mut ack = writer.lifecycle.db.write_batch();
@@ -184,12 +266,25 @@ impl StrataSliverStore {
                     &(),
                     &ReconciliationProgress::Complete(epoch),
                 )?;
-                ack.write(true)?;
+                {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["rocksdb", "reconcile_complete"])
+                        .start_timer();
+                    ack.write(true)?;
+                }
                 Ok(())
             });
             utils::unwrap_or_resume_unwind(advance.await)?;
             epoch_completion.complete();
             completion.complete();
+            this.lifecycle.metrics.reconciliation_completed_total.inc();
+            this.lifecycle
+                .metrics
+                .reconciliation_completed_epoch
+                .set(i64::from(epoch));
             Ok::<_, anyhow::Error>(())
         });
         utils::unwrap_or_resume_unwind(task.await)
@@ -257,7 +352,15 @@ impl StrataSliverStore {
                         live.map(|row| row.event_index),
                     ));
                 }
-                inputs.write_with_sync(true)?;
+                {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["rocksdb", "reconcile_inputs"])
+                        .start_timer();
+                    inputs.write_with_sync(true)?;
+                }
                 let mut ack = writer.lifecycle.dirty_blobs.batch();
                 let prefix = [b"walrus-epoch/".as_slice(), &epoch.to_be_bytes()].concat();
                 let shards = writer
@@ -301,6 +404,13 @@ impl StrataSliverStore {
                             .get(&lsn_key)?
                             .is_none()
                         {
+                            let operation = if *delete { "delete" } else { "set_lifetime" };
+                            let _operation = writer
+                                .lifecycle
+                                .metrics
+                                .operation_duration_seconds
+                                .with_label_values(&[operation])
+                                .start_timer();
                             batch.write_with_lsn(lsn_key)?;
                         }
                         submitted = true;
@@ -313,10 +423,24 @@ impl StrataSliverStore {
                     }
                 }
                 if submitted {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["strata", "reconcile_blobs"])
+                        .start_timer();
                     writer.store.sync()?;
                 }
                 // No marker may reappear after a later put is admitted on these keys.
-                ack.write_with_sync(true)?;
+                {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["rocksdb", "blob_ack"])
+                        .start_timer();
+                    ack.write_with_sync(true)?;
+                }
                 Ok(())
             })
             .await,
@@ -331,6 +455,12 @@ impl StrataSliverStore {
     ) -> Result<StrataShardSliverStore, TypedStoreError> {
         let _guard = futures::executor::block_on(self.lifecycle.lock_lifecycle())?;
         let mut completion = HaltOnIncompleteWrite::new(self.lifecycle.clone());
+        let _operation = self
+            .lifecycle
+            .metrics
+            .operation_duration_seconds
+            .with_label_values(&["create_shard"])
+            .start_timer();
         let generation = self
             .store
             .add_shard(u32::from(shard.0))
@@ -381,6 +511,11 @@ impl StrataSliverStore {
         if lsn == 0 {
             return Ok(());
         }
+        let _wait = self
+            .lifecycle
+            .metrics
+            .durability_wait_duration_seconds
+            .start_timer();
         let mut receiver = self.store.subscribe_durability_progress();
         tokio::time::timeout(SYNC_WAIT_TIMEOUT, async move {
             loop {
@@ -428,13 +563,31 @@ impl StrataShardSliverStore {
         let _guard = futures::executor::block_on(self.node.lifecycle.lock_lifecycle())?;
         self.check_generation()?;
         let mut completion = HaltOnIncompleteWrite::new(self.node.lifecycle.clone());
-        self.node
-            .store
-            .drop_shard(u32::from(self.shard.0))
-            .map_err(store_error)?;
+        {
+            let _operation = self
+                .node
+                .lifecycle
+                .metrics
+                .operation_duration_seconds
+                .with_label_values(&["drop_shard"])
+                .start_timer();
+            self.node
+                .store
+                .drop_shard(u32::from(self.shard.0))
+                .map_err(store_error)?;
+        }
         // Strata drop returns when the generation fence is visible, not yet crash safe. It
         // does not return an LSN to wait on, so sync before removing RocksDB control tables.
-        self.node.store.sync().map_err(store_error)?;
+        {
+            let _sync = self
+                .node
+                .lifecycle
+                .metrics
+                .sync_duration_seconds
+                .with_label_values(&["strata", "drop_shard"])
+                .start_timer();
+            self.node.store.sync().map_err(store_error)?;
+        }
         completion.complete();
         Ok(())
     }
@@ -471,6 +624,12 @@ impl StrataShardSliverStore {
         // Detaching the awaiting request must not release guards around an in-flight write.
         utils::unwrap_or_resume_unwind(
             tokio::spawn(async move {
+                let _duration = this
+                    .node
+                    .lifecycle
+                    .metrics
+                    .put_duration_seconds
+                    .start_timer();
                 let ids: Vec<_> = slivers.iter().map(|(id, _)| *id).collect();
                 let guard = this
                     .node
@@ -537,6 +696,13 @@ impl StrataShardSliverStore {
                         }
                         if changed {
                             // Keep deletion cancellation durable before the put reaches Strata.
+                            let _sync = prepare
+                                .node
+                                .lifecycle
+                                .metrics
+                                .sync_duration_seconds
+                                .with_label_values(&["rocksdb", "put_admission"])
+                                .start_timer();
                             admission.write_with_sync(true)?;
                         }
                         Ok::<_, TypedStoreError>(payloads)
@@ -562,6 +728,13 @@ impl StrataShardSliverStore {
                             }
                             batch.put(u32::from(writer.shard.0), key, Arc::<[u8]>::from(payload));
                         }
+                        let _operation = writer
+                            .node
+                            .lifecycle
+                            .metrics
+                            .operation_duration_seconds
+                            .with_label_values(&["put"])
+                            .start_timer();
                         let result = batch.write().map_err(store_error)?;
                         Ok::<_, TypedStoreError>(result.last_lsn().unwrap_or(0))
                     })
@@ -623,6 +796,13 @@ impl StrataShardSliverStore {
                                 sliver_key(&blob_id, sliver_type),
                             );
                         }
+                        let _operation = writer
+                            .node
+                            .lifecycle
+                            .metrics
+                            .operation_duration_seconds
+                            .with_label_values(&["delete"])
+                            .start_timer();
                         let result = batch.write().map_err(store_error)?;
                         Ok::<_, TypedStoreError>(result.op_lsns().last().copied().unwrap_or(0))
                     })

@@ -147,7 +147,11 @@ pub(crate) fn storage_pool_info_cf_options(
 }
 
 impl BlobInfoTable {
-    pub fn reopen(database: &Arc<RocksDB>, strata: bool) -> Result<Self, TypedStoreError> {
+    pub fn reopen(
+        database: &Arc<RocksDB>,
+        strata: bool,
+        registry: &walrus_utils::metrics::Registry,
+    ) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
             Some(constants::aggregate_blob_info_cf_name()),
@@ -186,7 +190,10 @@ impl BlobInfoTable {
             storage_pool_info,
             latest_handled_event_index,
             strata_lifecycle: strata
-                .then(|| super::strata_lifecycle::StrataLifecycle::reopen(database).map(Arc::new))
+                .then(|| {
+                    super::strata_lifecycle::StrataLifecycle::reopen(database, registry)
+                        .map(Arc::new)
+                })
                 .transpose()?,
         };
         if let Some(lifecycle) = &table.strata_lifecycle
