@@ -66,6 +66,9 @@ pub struct BlobInfoSnapshotWriterConfig {
     pub enabled: bool,
     /// Whether to certify the serialized snapshot on chain.
     ///
+    /// The default depends on the network: `true` on testnet, `false` elsewhere (see
+    /// `StorageNodeConfig::default_testnet`). Set it explicitly to override the default.
+    ///
     /// The snapshot is encoded at every epoch boundary regardless, to report its blob ID.
     /// When this is enabled (together with `enabled`), the node additionally stores its own
     /// shards' slivers once the epoch change has been applied locally, and then attests the
