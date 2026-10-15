@@ -32,6 +32,10 @@ On Walrus, anyone who has a blob ID can read the bytes of a stored blob. Do not 
 
 Console private folders solve this by encrypting every file client-side with [Seal](/docs/data-security) before upload. Console stores ciphertext only and never sees your plaintext or your decryption keys. Setting up a private folder uses a short reserve, sign, and finalize handshake that provisions the folder's Seal access policy onchain. Encryption on upload and decryption on download both happen on your machine.
 
+### Can my application read files stored in Console?
+
+Yes. Every folder is private, so Console holds your files only as ciphertext, but you are not limited to the encrypted bytes. An application you write against the API uses an API key to access your files and the service private key to authenticate its decrypt session with Seal, so decryption happens on the machine running your application. See [API keys and roles](#api-keys-and-roles).
+
 ## Asset types
 
 Console is built around a single navigation shell that treats your data as typed assets. Files and memory are both first-class asset types managed the same way.
