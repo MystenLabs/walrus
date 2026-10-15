@@ -228,15 +228,23 @@ pub(super) fn error(error: impl std::fmt::Display) -> TypedStoreError {
 pub(super) struct HaltOnIncompleteWrite {
     lifecycle: Arc<StrataLifecycle>,
     complete: bool,
+    operation: &'static str,
 }
 
 impl HaltOnIncompleteWrite {
-    pub fn new(lifecycle: Arc<StrataLifecycle>) -> Self {
+    pub fn new(lifecycle: Arc<StrataLifecycle>, operation: &'static str) -> Self {
         Self {
             lifecycle,
             complete: false,
+            operation,
         }
     }
+    /// Preserve the original failure before Drop or another waiting task reports the halt.
+    pub fn record_error(&self, error: &impl std::fmt::Display) {
+        self.lifecycle
+            .halt(format!("{} failed: {error:#}", self.operation));
+    }
+
     pub fn complete(&mut self) {
         self.complete = true;
     }
@@ -245,8 +253,10 @@ impl HaltOnIncompleteWrite {
 impl Drop for HaltOnIncompleteWrite {
     fn drop(&mut self) {
         if !self.complete {
-            self.lifecycle
-                .halt("write did not complete; reopen and recover".into());
+            self.lifecycle.halt(format!(
+                "{} did not complete (cancelled or panicked); reopen and recover",
+                self.operation,
+            ));
         }
     }
 }

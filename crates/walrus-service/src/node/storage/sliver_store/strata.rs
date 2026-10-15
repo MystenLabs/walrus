@@ -111,7 +111,8 @@ impl StrataSliverStore {
                 .start_timer();
             let _active =
                 OwnedGaugeGuard::acquire(this.lifecycle.metrics.reconciliation_active.clone());
-            let mut completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
+            let mut completion =
+                HaltOnIncompleteWrite::new(this.lifecycle.clone(), "reconcile_epoch");
             // Advancing means this pass's blob updates are already durable. After a crash,
             // resume the clock transition and cleanup below without repeating the scan.
             if progress != Some(ReconciliationProgress::Advancing(epoch)) {
@@ -139,7 +140,8 @@ impl StrataSliverStore {
                     }
                     reader.blob_info.reconciliation_candidates()
                 });
-                let snapshot = utils::unwrap_or_resume_unwind(scan.await)?;
+                let snapshot = utils::unwrap_or_resume_unwind(scan.await)
+                    .inspect_err(|error| completion.record_error(error))?;
                 drop(scan_duration);
                 this.lifecycle
                     .metrics
@@ -158,7 +160,9 @@ impl StrataSliverStore {
                     .with_label_values(&["blobs"])
                     .start_timer();
                 for group in snapshot.blobs.chunks(BLOB_CHUNK_SIZE) {
-                    this.reconcile_blobs(epoch, group, delete_data).await?;
+                    this.reconcile_blobs(epoch, group, delete_data)
+                        .await
+                        .inspect_err(|error| completion.record_error(error))?;
                 }
                 drop(blob_duration);
                 let pool_duration = this
@@ -172,8 +176,13 @@ impl StrataSliverStore {
                 // otherwise event 101 could arrive between them and lose its pending work.
                 for group in snapshot.pools.chunks(POOL_CHUNK_SIZE) {
                     let pools: Vec<_> = group.iter().map(|(pool, _)| *pool).collect();
-                    let _guard = this.lifecycle.lock_pools(&pools).await?;
-                    let mut cleanup = HaltOnIncompleteWrite::new(this.lifecycle.clone());
+                    let _guard = this
+                        .lifecycle
+                        .lock_pools(&pools)
+                        .await
+                        .inspect_err(|error| completion.record_error(error))?;
+                    let mut cleanup =
+                        HaltOnIncompleteWrite::new(this.lifecycle.clone(), "reconcile_pools");
                     let writer = this.clone();
                     let group = group.to_vec();
                     utils::unwrap_or_resume_unwind(
@@ -196,7 +205,8 @@ impl StrataSliverStore {
                             Ok(())
                         })
                         .await,
-                    )?;
+                    )
+                    .inspect_err(|error| cleanup.record_error(error))?;
                     cleanup.complete();
                 }
                 drop(pool_duration);
@@ -218,7 +228,8 @@ impl StrataSliverStore {
                     }
                     Ok(())
                 });
-                utils::unwrap_or_resume_unwind(finish.await)?;
+                utils::unwrap_or_resume_unwind(finish.await)
+                    .inspect_err(|error| completion.record_error(error))?;
             }
             // This short clock transition, unlike the scan, excludes in-flight puts so a
             // put's lifetime check and submission cannot straddle the epoch advance.
@@ -228,8 +239,13 @@ impl StrataSliverStore {
                 .reconciliation_phase_duration_seconds
                 .with_label_values(&["advance"])
                 .start_timer();
-            let _guard = this.lifecycle.lock_lifecycle().await?;
-            let mut epoch_completion = HaltOnIncompleteWrite::new(this.lifecycle.clone());
+            let _guard = this
+                .lifecycle
+                .lock_lifecycle()
+                .await
+                .inspect_err(|error| completion.record_error(error))?;
+            let mut epoch_completion =
+                HaltOnIncompleteWrite::new(this.lifecycle.clone(), "advance_epoch");
             let writer = this.clone();
             let advance = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
                 if delete_data {
@@ -277,7 +293,8 @@ impl StrataSliverStore {
                 }
                 Ok(())
             });
-            utils::unwrap_or_resume_unwind(advance.await)?;
+            utils::unwrap_or_resume_unwind(advance.await)
+                .inspect_err(|error| epoch_completion.record_error(error))?;
             epoch_completion.complete();
             completion.complete();
             this.lifecycle.metrics.reconciliation_completed_total.inc();
@@ -300,7 +317,8 @@ impl StrataSliverStore {
     ) -> anyhow::Result<()> {
         let keys: Vec<_> = group.iter().map(|blob| blob.id.0.as_slice()).collect();
         let _guard = self.lifecycle.lock_blobs(&keys).await?;
-        let mut group_completion = HaltOnIncompleteWrite::new(self.lifecycle.clone());
+        let mut group_completion =
+            HaltOnIncompleteWrite::new(self.lifecycle.clone(), "reconcile_blobs");
         let writer = self.clone();
         let group = group.to_vec();
         utils::unwrap_or_resume_unwind(
@@ -444,7 +462,8 @@ impl StrataSliverStore {
                 Ok(())
             })
             .await,
-        )?;
+        )
+        .inspect_err(|error| group_completion.record_error(error))?;
         group_completion.complete();
         Ok(())
     }
@@ -454,7 +473,7 @@ impl StrataSliverStore {
         shard: ShardIndex,
     ) -> Result<StrataShardSliverStore, TypedStoreError> {
         let _guard = futures::executor::block_on(self.lifecycle.lock_lifecycle())?;
-        let mut completion = HaltOnIncompleteWrite::new(self.lifecycle.clone());
+        let mut completion = HaltOnIncompleteWrite::new(self.lifecycle.clone(), "create_shard");
         let _operation = self
             .lifecycle
             .metrics
@@ -464,7 +483,8 @@ impl StrataSliverStore {
         let generation = self
             .store
             .add_shard(u32::from(shard.0))
-            .map_err(store_error)?
+            .map_err(store_error)
+            .inspect_err(|error| completion.record_error(error))?
             .generation;
         completion.complete();
         Ok(StrataShardSliverStore {
@@ -534,11 +554,15 @@ impl StrataSliverStore {
             }
         })
         .await
-        .map_err(|_| {
-            TypedStoreError::TaskError(format!(
+        .unwrap_or_else(|_| {
+            Err(TypedStoreError::TaskError(format!(
                 "timed out waiting for Strata sliver LSN {lsn} to become durable"
-            ))
-        })?
+            )))
+        })
+        .inspect_err(|error| {
+            let progress = self.store.subscribe_durability_progress().borrow().clone();
+            tracing::error!(lsn, ?progress, %error, "Strata durability wait failed");
+        })
     }
 }
 
@@ -562,7 +586,7 @@ impl StrataShardSliverStore {
     pub(super) fn drop_shard(&self) -> Result<(), TypedStoreError> {
         let _guard = futures::executor::block_on(self.node.lifecycle.lock_lifecycle())?;
         self.check_generation()?;
-        let mut completion = HaltOnIncompleteWrite::new(self.node.lifecycle.clone());
+        let mut completion = HaltOnIncompleteWrite::new(self.node.lifecycle.clone(), "drop_shard");
         {
             let _operation = self
                 .node
@@ -574,7 +598,8 @@ impl StrataShardSliverStore {
             self.node
                 .store
                 .drop_shard(u32::from(self.shard.0))
-                .map_err(store_error)?;
+                .map_err(store_error)
+                .inspect_err(|error| completion.record_error(error))?;
         }
         // Strata drop returns when the generation fence is visible, not yet crash safe. It
         // does not return an LSN to wait on, so sync before removing RocksDB control tables.
@@ -586,7 +611,11 @@ impl StrataShardSliverStore {
                 .sync_duration_seconds
                 .with_label_values(&["strata", "drop_shard"])
                 .start_timer();
-            self.node.store.sync().map_err(store_error)?;
+            self.node
+                .store
+                .sync()
+                .map_err(store_error)
+                .inspect_err(|error| completion.record_error(error))?;
         }
         completion.complete();
         Ok(())
@@ -638,7 +667,8 @@ impl StrataShardSliverStore {
                     .await?;
                 let admission = guard.lock_put_admission().await;
                 this.node.lifecycle.check_running()?;
-                let mut completion = HaltOnIncompleteWrite::new(this.node.lifecycle.clone());
+                let mut completion =
+                    HaltOnIncompleteWrite::new(this.node.lifecycle.clone(), "put_slivers");
                 let prepare = this.clone();
                 let payloads = utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
@@ -666,7 +696,9 @@ impl StrataShardSliverStore {
                                     .lifecycle
                                     .blob_lifetimes
                                     .get(&blob_id)?
-                                    .ok_or_else(|| error("registered blob has no lifetime"))?;
+                                    .ok_or_else(|| {
+                                        error(format!("registered blob {blob_id} has no lifetime"))
+                                    })?;
                                 lifetime = Some(end_epoch);
                                 if u64::from(end_epoch)
                                     <= prepare.node.store.current_epoch().map_err(store_error)?
@@ -708,7 +740,8 @@ impl StrataShardSliverStore {
                         Ok::<_, TypedStoreError>(payloads)
                     })
                     .await,
-                )?;
+                )
+                .inspect_err(|error| completion.record_error(error))?;
                 // The cancellation is durable now. Other slivers of this blob can prepare and
                 // submit while this put waits for Strata, sharing the same durability cycle.
                 drop(admission);
@@ -739,12 +772,17 @@ impl StrataShardSliverStore {
                         Ok::<_, TypedStoreError>(result.last_lsn().unwrap_or(0))
                     })
                     .await,
-                )?;
-                this.node.wait_durable_lsn(lsn).await?;
+                )
+                .inspect_err(|error| completion.record_error(error))?;
+                this.node
+                    .wait_durable_lsn(lsn)
+                    .await
+                    .inspect_err(|error| completion.record_error(error))?;
                 if let Some(batch) = control_batch {
                     utils::unwrap_or_resume_unwind(
                         tokio::task::spawn_blocking(move || batch.write()).await,
-                    )?;
+                    )
+                    .inspect_err(|error| completion.record_error(error))?;
                 }
                 completion.complete();
                 Ok(count)
@@ -785,7 +823,8 @@ impl StrataShardSliverStore {
             tokio::spawn(async move {
                 let _guard = this.node.lifecycle.lock_blobs(&[&blob_id.0]).await?;
                 this.check_generation()?;
-                let mut completion = HaltOnIncompleteWrite::new(this.node.lifecycle.clone());
+                let mut completion =
+                    HaltOnIncompleteWrite::new(this.node.lifecycle.clone(), "delete_sliver_pair");
                 let writer = this.clone();
                 let lsn = utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
@@ -807,8 +846,12 @@ impl StrataShardSliverStore {
                         Ok::<_, TypedStoreError>(result.op_lsns().last().copied().unwrap_or(0))
                     })
                     .await,
-                )?;
-                this.node.wait_durable_lsn(lsn).await?;
+                )
+                .inspect_err(|error| completion.record_error(error))?;
+                this.node
+                    .wait_durable_lsn(lsn)
+                    .await
+                    .inspect_err(|error| completion.record_error(error))?;
                 completion.complete();
                 Ok(())
             })

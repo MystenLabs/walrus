@@ -233,6 +233,7 @@ impl StrataLifecycle {
             .lock()
             .expect("halt mutex poisoned");
         if halt_reason.is_none() {
+            tracing::error!(%reason, "halting Strata admission; reopen and recover");
             self.metrics.admission_halts_total.inc();
             *halt_reason = Some(reason);
         }

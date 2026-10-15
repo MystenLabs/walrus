@@ -750,18 +750,28 @@ impl Storage {
                     .lock()
                     .expect("epoch request mutex poisoned");
                 lifecycle.check_running()?;
-                let mut completion =
-                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone());
-                let requested = lifecycle.requested_epoch.get(&())?.unwrap_or_default();
+                let mut completion = strata_lifecycle::HaltOnIncompleteWrite::new(
+                    lifecycle.clone(),
+                    "request_epoch",
+                );
+                let requested = lifecycle
+                    .requested_epoch
+                    .get(&())
+                    .inspect_err(|error| completion.record_error(error))?
+                    .unwrap_or_default();
                 if epoch > requested {
                     let mut batch = lifecycle.requested_epoch.batch();
-                    batch.insert_batch(&lifecycle.requested_epoch, [((), epoch)])?;
+                    batch
+                        .insert_batch(&lifecycle.requested_epoch, [((), epoch)])
+                        .inspect_err(|error| completion.record_error(error))?;
                     let _sync = lifecycle
                         .metrics
                         .sync_duration_seconds
                         .with_label_values(&["rocksdb", "epoch_request"])
                         .start_timer();
-                    batch.write_with_sync(true)?;
+                    batch
+                        .write_with_sync(true)
+                        .inspect_err(|error| completion.record_error(error))?;
                     lifecycle
                         .metrics
                         .reconciliation_requested_epoch
@@ -1193,13 +1203,14 @@ impl Storage {
                     .expect("Strata tables are open");
                 let _guard = lifecycle.lock_pools(&[event.storage_pool_id()]).await?;
                 let mut completion =
-                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone());
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone(), "update_pool");
                 utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
                         storage.update_storage_pool_info(event_index, &event)
                     })
                     .await,
-                )?;
+                )
+                .inspect_err(|error| completion.record_error(error))?;
                 completion.complete();
                 Ok(())
             })
@@ -1263,13 +1274,14 @@ impl Storage {
                     .expect("Strata tables are open");
                 let _guard = lifecycle.lock_blobs(&[&blob_id.0]).await?;
                 let mut completion =
-                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone());
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone(), "update_blob");
                 utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
                         storage.update_blob_info(event_index, &event)
                     })
                     .await,
-                )?;
+                )
+                .inspect_err(|error| completion.record_error(error))?;
                 completion.complete();
                 Ok(())
             })

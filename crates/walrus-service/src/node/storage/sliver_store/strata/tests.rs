@@ -431,6 +431,34 @@ async fn a_blocked_blob_does_not_block_an_unrelated_put() -> TestResult {
 }
 
 #[tokio::test]
+async fn failed_put_preserves_original_admission_halt_reason() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        storage
+            .create_storage_for_shards_for_testing(&[SHARD])
+            .await?;
+        storage
+            .update_blob_info_coordinated(0, &registration(X, 20).into())
+            .await?;
+        // Fail preparation before any payload is submitted. The error must survive the
+        // completion guard's Drop and subsequent failures of waiting metadata tasks.
+        let lifecycle = &strata(&storage).lifecycle;
+        lifecycle.blob_lifetimes.remove(&X)?;
+        let original = put(&storage, X).await.unwrap_err().to_string();
+        assert!(original.contains(&format!("registered blob {X} has no lifetime")));
+        let halt = lifecycle.check_running().unwrap_err().to_string();
+        assert!(halt.contains("put_slivers failed"));
+        assert!(halt.contains(&original));
+        lifecycle.halt("secondary failure".into());
+        assert_eq!(lifecycle.check_running().unwrap_err().to_string(), halt);
+        assert_eq!(lifecycle.metrics.admission_halts_total.get(), 1);
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn slivers_of_one_blob_share_the_durability_wait() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;
