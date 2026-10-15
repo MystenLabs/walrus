@@ -7,22 +7,15 @@ questions:
   - What changed in the latest Walrus Sites release?
   - Where can I find Walrus Sites release history?
 answer: Release notes for Walrus Sites.
-keywords:
-  - walrus sites
-  - release notes
-  - changelog
-  - portal
-  - site-builder
-  - SuiNS
-  - gRPC
-  - mainnet
 ---
 
 ### Walrus Sites v2.12.0
 
 July 10, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.12.0)
 
-The portal gains a glob-based route/redirect matcher behind a flag (first step of the routing migration), and the site-builder migrates off JSON-RPC-only client methods ahead of the JSON-RPC deprecation.
+First step of the routing migration: a glob-based route and redirect matcher behind a flag, with a
+pattern cap. The site-builder also migrates off JSON-RPC-only client methods ahead of the JSON-RPC
+deprecation.
 
 #### Changes
 
@@ -37,7 +30,7 @@ The portal gains a glob-based route/redirect matcher behind a flag (first step o
 
 July 6, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.11.0)
 
-The portal now talks to Sui over gRPC instead of JSON-RPC, in preparation for the JSON-RPC deprecation.
+The portal reads Sui over gRPC instead of JSON-RPC, ahead of the JSON-RPC deprecation.
 
 #### Changes
 
@@ -50,9 +43,10 @@ The portal now talks to Sui over gRPC instead of JSON-RPC, in preparation for th
 
 June 4, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.10.0)
 
-Portal aggregator timing rework: a per-attempt fetch timeout plus a Bun `idleTimeout` sized from the worst-case retry budget close the gap where a slow aggregator could trip the inbound connection mid-flight and surface a generic upstream proxy error instead of the portal's own `aggregatorFail()` page. Sui and Walrus deps bumped to their current testnet releases. No Move contract changes.
-
-> ℹ️ **Portal operators**: each aggregator attempt is now bounded at 10s and fails over to the next URL; Bun's `idleTimeout` is sized from the full retry chain so the portal can return its own response. Tune via `AGGREGATOR_REQUEST_TIMEOUT_MS` (default `10000`) and `PORTAL_IDLE_TIMEOUT_MAX_S` (default `100`); resolved values logged at startup.
+Aggregator timing rework: each attempt is bounded by a 10-second fetch timeout
+(`AGGREGATOR_REQUEST_TIMEOUT_MS`) and fails over to the next URL, and Bun's `idleTimeout` is sized
+from the full retry budget, so a slow aggregator now surfaces the portal's own failure page
+instead of tripping the inbound connection and returning a generic proxy error.
 
 #### Changes
 
@@ -65,7 +59,8 @@ Portal aggregator timing rework: a per-attempt fetch timeout plus a Bun `idleTim
 
 May 21, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.9.2)
 
-Patch release with a portal SuiNS resolution fix and a site-builder dependency bump. No new features, no breaking changes, and no Move contract changes.
+Patch: the portal stops counting SuiNS lookups that resolve to not-exists as full-node failures,
+short-circuiting retries and unwrapping to `null`. No Move contract changes.
 
 #### Changes
 
@@ -78,9 +73,9 @@ Patch release with a portal SuiNS resolution fix and a site-builder dependency b
 
 May 7, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.9.1)
 
-Patch release with portal observability and configuration fixes, plus dependency bumps and CI hardening. No new features, no breaking changes, and no Move contract changes.
-
-> ℹ️ **walrus-upgrade**: drop `walrus_package` from your `sites-config.yaml` (to auto-resolve), or update it to the latest package id from the Walrus `staking_object` in `~/.config/walrus/client_config.yaml`.
+Observability patch: every request is counted in `ws_num_requests_made_counter`, and
+`walrus_package` can now be dropped from `sites-config.yaml` (or updated), since it is
+auto-resolved from the Walrus staking object. No Move contract changes.
 
 #### Changes
 
@@ -95,7 +90,9 @@ Patch release with portal observability and configuration fixes, plus dependency
 
 April 23, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.9.0)
 
-Site builder performance and reliability improvements: resource dynamic field fetching now uses a single batched `multi_get` call instead of chunked per-resource queries with inter-batch delays, and the `sitemap` subcommand correctly respects the active wallet environment instead of whichever env happened to be listed first in the config.
+Performance release: resource dynamic-field fetching collapses into a single batched `multi_get`
+call instead of chunked queries with inter-batch delays, and `sitemap` uses the active wallet
+environment rather than whichever env was listed first.
 
 #### Changes
 
@@ -112,13 +109,11 @@ Site builder performance and reliability improvements: resource dynamic field fe
 
 April 2, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.8.0)
 
-This release adds server-side redirect support to Walrus Sites. Redirect rules are stored as dynamic fields on the on-chain `Site` object, configurable via `ws-resources.json` with glob pattern matching. The portal evaluates redirects before resource fetching and serves 3xx response.
-
-**This release includes a Move contract upgrade** — the `walrus_site` package is upgraded to add redirect storage on-chain. To use the new redirects feature, update the `package_id` in your `sites-config.yaml` to point to the latest package ID, or remove the `package_id` field entirely so that MVR can resolve it automatically.
-
-**Portal config change:** `site_package` has been renamed to `original_package_id` as this is what actually matters of it.
-
-The portal has also been updated to Mysten SDK v2.
+Server-side redirects arrive: rules are stored as dynamic fields on the on-chain `Site` object,
+configured in `ws-resources.json` with glob matching, and evaluated by the portal before fetching
+a resource, serving 3xx responses. Includes a Move contract upgrade, so point `package_id` in
+`sites-config.yaml` at the new package or drop it for MVR resolution. Portal config key
+`site_package` becomes `original_package_id`, and the portal moved to Mysten SDK v2.
 
 #### Changes
 
@@ -138,7 +133,9 @@ The portal has also been updated to Mysten SDK v2.
 
 March 12, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.7.0)
 
-Site builder reliability improvements: large sites (500+ routes/resources) no longer fail with `InsufficientGas` errors due to PTB byte-size overflow, and Site deploying is more resilient to transient Sui object version conflicts with automatic retry and exponential backoff.
+Reliability release: large sites (500 or more routes/resources) no longer fail with
+`InsufficientGas` from PTB byte-size overflow, and deploys retry transient Sui object-version
+conflicts with exponential backoff.
 
 #### Changes
 
@@ -152,7 +149,11 @@ Site builder reliability improvements: large sites (500+ routes/resources) no lo
 
 February 26, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.6.0)
 
-The portal configuration is now loaded from a YAML file instead of environment variables. Env vars can still be used as overrides. This simplifies deployment (single ConfigMap vs many env vars) and enables structured configuration (URL arrays with priority/retries are native YAML lists instead of pipe-delimited strings).
+Portal configuration now loads from a YAML file (`portal-config.yaml` by default, `PORTAL_CONFIG`
+to override the path) instead of a spray of environment variables, which still work as overrides;
+priority/retry URL lists are native YAML instead of pipe-delimited strings. This release also
+carries v2.5.0's priority-based executor for RPC and aggregator URLs, replacing `Promise.any()`
+racing, with `AGGREGATOR_URL` renamed to `AGGREGATOR_URL_LIST`.
 
 #### Changes
 
@@ -177,6 +178,9 @@ The portal configuration is now loaded from a YAML file instead of environment v
 
 February 9, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.4.0)
 
+Portal quality-of-life release: aggregator 403 and 404 errors come with clear messaging instead of
+generic failures, and errors print correctly in the logger with their cause included.
+
 #### Changes
 
 - [portal: Handle aggregator 403/404 errors with better messaging](https://github.com/MystenLabs/walrus-sites/pull/646)
@@ -191,7 +195,8 @@ February 9, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/
 
 January 29, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.3.1)
 
-Requires Walrus CLI v1.37.0 or later
+Hotfix: child-process uploads are disabled until further notice because they broke JSON parsing
+against the Walrus CLI. Requires Walrus CLI v1.37.0 or later.
 
 #### Changes
 
@@ -203,6 +208,10 @@ Requires Walrus CLI v1.37.0 or later
 ### Walrus Sites v2.3.0
 
 January 26, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.3.0)
+
+`deploy --dry-run` output was refined with Sui gas estimates, resources are grouped by size, and
+the missing-site-fields error gained context. Updating a site with expired blobs now works, and
+the portal no longer trips serializing unexpected exceptions.
 
 #### Changes
 
@@ -219,7 +228,10 @@ January 26, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/
 
 January 14, 2026 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.2.1)
 
-This release introduces an optimization for site updates: files that remain unchanged during an update are no longer re-uploaded into new Quilts. Only new and modified files are uploaded.
+The redundant-upload problem from v2.0.0 is fixed: unchanged files are no longer re-uploaded into
+new quilts, only new and modified ones. Blob extension now uses the correct Walrus package ID from
+the staking object, error output includes the config path, and the portal dropped its Amplitude
+integration.
 
 #### Changes
 
@@ -236,13 +248,17 @@ This release introduces an optimization for site updates: files that remain unch
 
 December 16, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.1.2)
 
+Destroying sites with more than 1000 resources works again. Adds a script for generating synthetic
+sites for testing and a GitHub Action to build the service worker.
+
 ---
 
 ### Walrus Sites v2.1.1
 
 December 4, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.1.1)
 
-This is a bugfix release for the Portal component and does not impact Site Builder.
+Portal-only bugfix: aggregator responses are treated as failures only on 5xx. Site builder is
+unaffected.
 
 #### Changes
 
@@ -253,6 +269,10 @@ This is a bugfix release for the Portal component and does not impact Site Build
 ### Walrus Sites v2.1.0
 
 December 1, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.1.0)
+
+Quilt follow-ups: files larger than `--max-quilt-size` can now be published, updating a site with
+more than 1000 resources no longer aborts, and the portal answers 503 and 500 responses for
+service unavailability instead of failing opaquely.
 
 #### Changes
 
@@ -271,7 +291,11 @@ December 1, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/
 
 November 17, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v2.0.0)
 
-This major release transitions the `site-builder` CLI to exclusively use **Quilts** for site data
+Major release: `site-builder` moves exclusively to quilts, cutting publishing cost and time,
+especially for larger sites. Updates re-upload all site data at this stage (redundant uploads were
+removed in v2.2.1), so operators were pointed at dry-running updates on Testnet or republishing in the meantime.
+`update-resource` was redesigned and renamed to `update-resources`, taking multiple resources in
+one operation, and four blob-era flags are gone. Requires Walrus CLI v1.35.0 or later.
 
 #### Changes
 
@@ -286,13 +310,18 @@ This major release transitions the `site-builder` CLI to exclusively use **Quilt
 
 November 3, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.3.1)
 
-Work for feature flag `quilts-experimental`. Mainly testing and bug-fixes.
+Hardening the `quilts-experimental` path ahead of stabilization: a `deploy-quilts` command, the
+large-files limit is respected for quilts, route insertion waits until all resources exist, and
+quilt lifecycle tests land.
 
 ---
 
 ### Walrus Sites v1.3.0
 
 October 21, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.3.0)
+
+Quilt work: `--list-directory` is supported when deploying with quilts, the blob backing a moved
+resource is no longer deleted, and the epoch argument propagates through the quilt path.
 
 #### Changes
 
@@ -311,6 +340,9 @@ October 21, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/
 
 October 7, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.2.1)
 
+Bugfix release for quilt publishing: move commands are split into PTBs dynamically, `--dry-run` no
+longer errors on `publish-quilts`, and the portal logger passes its arguments through.
+
 #### Changes
 
 - [site-builder: Dynamically split move-commands into ptbs](https://github.com/MystenLabs/walrus-sites/pull/564)
@@ -324,11 +356,10 @@ October 7, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/t
 
 September 22, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.2.0)
 
-Further support of quilts under the `quilts-experimental` feature.
-
-> **Note**  
-> Header and ignore-file matching in ws-resources.json, now uses **glob patterns** (e.g. `*.md`, `docs/**`) instead of regular expressions.  
-> Regex support was never intentional, so if you were using advanced regex, please update your configs to glob style.([#556](https://github.com/MystenLabs/walrus-sites/pull/556)).
+More experimental quilt work: `update-quilts` re-creates all resources, and quilt patch IDs
+surface in publish and update output and in the sitemap. Header and ignore-file matching in
+`ws-resources.json` now uses glob patterns instead of regular expressions, and the GitHub deploy
+action accepts exported wallet keys.
 
 #### Changes
 
@@ -353,11 +384,9 @@ Further support of quilts under the `quilts-experimental` feature.
 
 September 8, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.1.0)
 
-This release introduces a new publishing and deployment method for Walrus Sites using [quilts](https://docs.wal.app/usage/quilt.html) instead of blobs. Multiple resources are now bundled as quilt patches on Walrus, significantly reducing the cost of site publishing.
-
-You can use this feature with: `site-builder publish-quilts --epochs=<EPOCHS> <YOUR-BUILD-DIR>`.
-
-> ⚠️ **Important note**: This feature is only available when building `site-builder` from source with `cargo build --features quilts-experimental`.
+First quilt support. Behind the `quilts-experimental` feature flag, `site-builder publish-quilts`
+bundles multiple resources as quilt patches instead of individual blobs, significantly reducing
+publishing cost, and the portal derives `quiltpatchid` values to retrieve quilt-based resources.
 
 #### Changes
 
@@ -388,11 +417,17 @@ You can use this feature with: `site-builder publish-quilts --epochs=<EPOCHS> <Y
 
 July 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/mainnet-v1.0.2)
 
+Maintenance release: points `Move.lock` at the latest Testnet package ID, pins CI actions to
+specific commits, and attaches site-builder binaries to every release.
+
 ---
 
-### Walrus Sites walrus_sites_v0.1.0_1751313026_mainnet_ci
+### Walrus Sites v0.1.0
 
 June 30, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/walrus_sites_v0.1.0_1751313026_mainnet_ci)
+
+An early tagged cut of the site-builder tooling: end-to-end integration tests for publishing, and
+a GitHub Action that builds a pnpm site and deploys it as a Walrus Site.
 
 #### Changes
 
@@ -400,15 +435,12 @@ June 30, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag
 
 ---
 
-### Walrus Sites walrus_sites_v0.1.0_1750076111_mainnet_ci
+### Walrus Sites v0.1.0
 
 June 16, 2025 | [GitHub](https://github.com/MystenLabs/walrus-sites/releases/tag/walrus_sites_v0.1.0_1750076111_mainnet_ci)
 
-🚀 Welcome to the very first official release of Walrus Sites! This marks the production-ready milestone for the project.
-
-Starting with this release, each version will include all the necessary components for deploying (via the site-builder) and accessing (via the portals) your Walrus Sites.
-
-We are committed to following [semantic versioning](https://semver.org/) conventions for all future releases, ensuring clarity and consistency in version updates.
+An early tagged cut of the site-builder tooling: end-to-end integration tests for publishing, and
+a GitHub Action that builds a pnpm site and deploys it as a Walrus Site.
 
 #### Changes
 
