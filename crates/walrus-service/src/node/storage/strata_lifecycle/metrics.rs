@@ -48,6 +48,13 @@ walrus_utils::metrics::define_metric_set! {
                 0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0,
             ],
         },
+        #[help = "Put preparation time and time queued for a blocking worker, by phase."]
+        put_phase_duration_seconds: HistogramVec {
+            labels: ["phase"],
+            buckets: vec![
+                0.00001, 0.0001, 0.001, 0.01, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0,
+            ],
+        },
         #[help = "Wait for LSN durability, including the periodic sync interval."]
         durability_wait_duration_seconds: Histogram {
             buckets: vec![
@@ -79,6 +86,11 @@ walrus_utils::metrics::define_metric_set! {
 }
 
 impl LifecycleMetrics {
+    pub(crate) fn put_phase(&self, phase: &str) -> HistogramTimer {
+        self.put_phase_duration_seconds
+            .with_label_values(&[phase])
+            .start_timer()
+    }
     // Both guards drop on cancellation as well as on successful acquisition.
     pub(super) fn lock_wait(&self, lock: &str, mode: &str) -> (HistogramTimer, OwnedGaugeGuard) {
         (

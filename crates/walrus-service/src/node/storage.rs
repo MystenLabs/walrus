@@ -592,6 +592,7 @@ impl Storage {
                     .clone()
                     .expect("Strata lifecycle tables are open"),
                 blob_info.clone(),
+                db_config.strata_block_cache_capacity_bytes,
             )?,
         };
         // Strata's shard registry is the authority for which control-table shards are active.

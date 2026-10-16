@@ -35,6 +35,29 @@ fn open(path: &Path, optimistic: bool) -> anyhow::Result<Storage> {
     Ok(storage)
 }
 
+#[tokio::test]
+async fn strata_block_cache_budget_is_configurable() -> TestResult {
+    let dir = TempDir::new()?;
+    typed_store::DBMetrics::get();
+    let mut config = DatabaseConfig::default_for_test();
+    config.strata_block_cache_capacity_bytes = Some(1024 * 1024);
+    let storage = Storage::open_with_sliver_backend(
+        dir.path(),
+        config,
+        MetricConf::default(),
+        Registry::default(),
+        SliverStoreBackendKind::Strata,
+    )?;
+    assert_eq!(
+        strata(&storage)
+            .store
+            .config()
+            .lsm_block_cache_capacity_bytes,
+        1024 * 1024
+    );
+    close(storage).await
+}
+
 fn strata(storage: &Storage) -> &StrataSliverStore {
     let SliverStoreBackend::Strata(store) = storage.sliver_store.backend.as_ref() else {
         panic!("Strata backend expected");
@@ -1648,6 +1671,15 @@ async fn strata_adapter_metrics_cover_put_reconciliation_and_sync() -> TestResul
     assert_eq!(metrics.reconciliation_requested_epoch.get(), 3);
     assert_eq!(metrics.reconciliation_completed_epoch.get(), 3);
     assert_eq!(metrics.put_duration_seconds.get_sample_count(), 2);
+    for phase in ["prepare_queue", "prepare", "submit_queue"] {
+        assert_eq!(
+            metrics
+                .put_phase_duration_seconds
+                .with_label_values(&[phase])
+                .get_sample_count(),
+            2
+        );
+    }
     assert_eq!(
         metrics.durability_wait_duration_seconds.get_sample_count(),
         2

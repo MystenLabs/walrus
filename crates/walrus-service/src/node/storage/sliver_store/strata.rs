@@ -56,8 +56,12 @@ impl StrataSliverStore {
         database: Arc<dyn IndexDb>,
         lifecycle: Arc<StrataLifecycle>,
         blob_info: BlobInfoTable,
+        block_cache_capacity_bytes: Option<usize>,
     ) -> anyhow::Result<Self> {
-        let config = StrataStoreConfig::new(path, "slivers");
+        let mut config = StrataStoreConfig::new(path, "slivers");
+        if let Some(bytes) = block_cache_capacity_bytes {
+            config.lsm_block_cache_capacity_bytes = bytes;
+        }
         let metrics = StrataStoreMetrics::new(
             metrics_registry.prometheus_registry(),
             format!("slivers:{}", path.display()),
@@ -672,8 +676,11 @@ impl StrataShardSliverStore {
                 let mut completion =
                     HaltOnIncompleteWrite::new(this.node.lifecycle.clone(), "put_slivers");
                 let prepare = this.clone();
+                let prepare_queue = this.node.lifecycle.metrics.put_phase("prepare_queue");
                 let (payloads, pending_deletes) = utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
+                        drop(prepare_queue);
+                        let _prepare = prepare.node.lifecycle.metrics.put_phase("prepare");
                         prepare.check_generation()?;
                         let mut payloads = Vec::new();
                         let mut pending_deletes = Vec::new();
@@ -769,8 +776,10 @@ impl StrataShardSliverStore {
                 drop(exclusive_admission);
                 let count = payloads.len();
                 let writer = this.clone();
+                let submit_queue = this.node.lifecycle.metrics.put_phase("submit_queue");
                 let lsn = utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
+                        drop(submit_queue);
                         if payloads.is_empty() {
                             return Ok(0);
                         }
