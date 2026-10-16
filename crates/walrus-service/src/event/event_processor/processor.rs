@@ -16,12 +16,13 @@ use tokio::{
     select,
     sync::{Mutex, mpsc},
     task::JoinHandle,
-    time::sleep,
+    time::{Instant, sleep, sleep_until},
 };
 use tokio_util::sync::CancellationToken;
 use typed_store::{Map, TypedStoreError};
 use walrus_core::ensure;
 use walrus_utils::{
+    backoff::{BackoffStrategy, ExponentialBackoff},
     metrics::{Registry, monitored_scope},
     tracing_sampled,
 };
@@ -52,6 +53,10 @@ const STARTUP_CATCHUP_TIMEOUT_SECS: u64 = 5 * 60;
 /// Runtime catchup processing timeout (seconds) used during runtime catchup in
 /// EventProcessor::start_runtime_catchup_monitoring
 const RUNTIME_CATCHUP_PROCESSING_TIMEOUT_SECS: u64 = 5 * 60 * 60;
+/// Backoff before restarting the checkpoint tailing task after it stopped on its own. The backoff
+/// starts over once a task has run for longer than the maximum.
+const TAILING_RESTART_MIN_BACKOFF: Duration = Duration::from_secs(1);
+const TAILING_RESTART_MAX_BACKOFF: Duration = Duration::from_secs(60);
 
 /// The event processor.
 #[derive(Clone)]
@@ -415,72 +420,39 @@ impl EventProcessor {
         coordination_state: Arc<CatchupCoordinationState>,
     ) -> JoinHandle<Result<()>> {
         let processor = self.clone();
-        coordination_state.mark_tailing_started();
-        let coordination_state = coordination_state.clone();
         tokio::spawn(async move {
             tracing::info!("Starting tailing task");
             let result = processor
-                .start_tailing_checkpoints(cancel_token, coordination_state.clone())
+                .start_tailing_checkpoints(cancel_token, coordination_state)
                 .await;
             match &result {
                 Ok(()) => tracing::info!("tailing task exited successfully"),
                 Err(error) => tracing::error!(?error, "tailing task exited with error"),
             }
-            coordination_state.notify_tailing_stopped();
             result
         })
     }
 
-    /// Checkpoint tailing with message-based coordination for catchup
+    /// Checkpoint tailing with message-based coordination for catchup.
+    ///
+    /// See [`supervise_checkpoint_tailing`].
     async fn start_tailing_checkpoints_with_restart_support(
         &self,
         cancel_token: CancellationToken,
         coordination_state: Arc<CatchupCoordinationState>,
-        mut coordination_rx: mpsc::UnboundedReceiver<CoordinationMessage>,
+        coordination_rx: mpsc::UnboundedReceiver<CoordinationMessage>,
     ) -> Result<()> {
-        let mut child_cancel_token = cancel_token.child_token();
-
-        let mut tailing_task: Option<JoinHandle<Result<()>>> =
-            Some(self.start_tailing_task(child_cancel_token.clone(), coordination_state.clone()));
-        loop {
-            tokio::select! {
-                msg = coordination_rx.recv() => {
-                    match msg {
-                        Some(CoordinationMessage::StopCheckpointTailing) => {
-                            child_cancel_token.cancel();
-                            if let Some(handle) = tailing_task.take() {
-                                match handle.await {
-                                    Ok(Ok(_)) => tracing::info!("tailing task exited"),
-                                    Ok(Err(error)) => tracing::error!(?error, "tailing task error"),
-                                    Err(error) => tracing::error!(?error, "tailing task panicked"),
-                                }
-                            } else {
-                                tracing::error!("stop requested but tailing task was not running");
-                                coordination_state.notify_tailing_stopped();
-                            }
-                            continue;
-                        }
-                        Some(CoordinationMessage::RestartCheckpointTailing |
-                            CoordinationMessage::CatchupFailed) => {
-                            tracing::info!("restarting checkpoint tailing");
-                            child_cancel_token = cancel_token.child_token();
-                            tailing_task = Some(self.start_tailing_task(
-                                child_cancel_token.clone(), coordination_state.clone()));
-                            continue;
-                        }
-                        None => {
-                            tracing::info!("tailing task exited");
-                            break;
-                        }
-                    }
-                }
-                _ = cancel_token.cancelled() => {
-                    tracing::info!("tailing task cancelled");
-                    break;
-                }
-            }
-        }
-        Ok(())
+        let processor = self.clone();
+        let tailing_coordination_state = coordination_state.clone();
+        supervise_checkpoint_tailing(
+            cancel_token,
+            coordination_state,
+            coordination_rx,
+            move |child_cancel_token| {
+                processor.start_tailing_task(child_cancel_token, tailing_coordination_state.clone())
+            },
+        )
+        .await
     }
 
     /// Starts a periodic pruning process for events in the event store. This method will run until
@@ -606,6 +578,284 @@ impl EventProcessor {
                 }
             }
         }
+        Ok(())
+    }
+}
+
+/// Runs the checkpoint tailing tasks started by `start_task`, one at a time, and coordinates them
+/// with event blob catchup.
+///
+/// Catchup processes event blobs only after tailing is marked as stopped, and only this function
+/// marks it so: after a `StopCheckpointTailing` message, once the running task (if any) has
+/// exited and any pending restart is dropped. Tailing resumes on `RestartCheckpointTailing` or
+/// `CatchupFailed`. A task that stops on its own (for example, because a package fetch failed) is
+/// restarted after a backoff, and tailing is not marked as stopped in between, so a catchup that
+/// starts during the backoff still has to stop tailing through a message.
+async fn supervise_checkpoint_tailing<F>(
+    cancel_token: CancellationToken,
+    coordination_state: Arc<CatchupCoordinationState>,
+    mut coordination_rx: mpsc::UnboundedReceiver<CoordinationMessage>,
+    start_task: F,
+) -> Result<()>
+where
+    F: Fn(CancellationToken) -> JoinHandle<Result<()>>,
+{
+    let new_restart_backoff = || {
+        ExponentialBackoff::new_with_seed(
+            TAILING_RESTART_MIN_BACKOFF,
+            TAILING_RESTART_MAX_BACKOFF,
+            None,
+            0,
+        )
+    };
+    let mut restart_backoff = new_restart_backoff();
+    let mut child_cancel_token = cancel_token.child_token();
+    coordination_state.mark_tailing_started();
+    let mut task_started_at = Instant::now();
+    let mut tailing_task = Some(start_task(child_cancel_token.clone()));
+    // Set while a task that stopped on its own waits to be restarted.
+    let mut restart_at: Option<Instant> = None;
+
+    loop {
+        select! {
+            biased;
+            _ = cancel_token.cancelled() => {
+                tracing::info!("tailing task cancelled");
+                break;
+            }
+            msg = coordination_rx.recv() => match msg {
+                Some(CoordinationMessage::StopCheckpointTailing) => {
+                    restart_at = None;
+                    stop_tailing_task(&child_cancel_token, tailing_task.take()).await;
+                    coordination_state.notify_tailing_stopped();
+                }
+                Some(
+                    CoordinationMessage::RestartCheckpointTailing
+                    | CoordinationMessage::CatchupFailed,
+                ) => {
+                    tracing::info!("restarting checkpoint tailing");
+                    restart_at = None;
+                    stop_tailing_task(&child_cancel_token, tailing_task.take()).await;
+                    child_cancel_token = cancel_token.child_token();
+                    coordination_state.mark_tailing_started();
+                    task_started_at = Instant::now();
+                    tailing_task = Some(start_task(child_cancel_token.clone()));
+                }
+                None => {
+                    tracing::info!("tailing task exited");
+                    break;
+                }
+            },
+            exit = async {
+                match tailing_task.as_mut() {
+                    Some(handle) => handle.await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                tailing_task = None;
+                // Also stops what the task started in the background, such as the checkpoint
+                // downloader.
+                child_cancel_token.cancel();
+                match exit {
+                    Ok(Ok(())) => tracing::warn!("tailing task stopped without being cancelled"),
+                    Ok(Err(error)) => tracing::error!(?error, "tailing task failed"),
+                    Err(error) => tracing::error!(?error, "tailing task panicked"),
+                }
+                if task_started_at.elapsed() > TAILING_RESTART_MAX_BACKOFF {
+                    restart_backoff = new_restart_backoff();
+                }
+                let delay = restart_backoff
+                    .next_delay()
+                    .unwrap_or(TAILING_RESTART_MAX_BACKOFF);
+                tracing::warn!(?delay, "restarting checkpoint tailing after it stopped");
+                restart_at = Some(Instant::now() + delay);
+            }
+            _ = async {
+                match restart_at {
+                    Some(at) => sleep_until(at).await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                restart_at = None;
+                child_cancel_token = cancel_token.child_token();
+                coordination_state.mark_tailing_started();
+                task_started_at = Instant::now();
+                tailing_task = Some(start_task(child_cancel_token.clone()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Cancels the tailing task, if there is one, and waits for it to exit.
+async fn stop_tailing_task(
+    child_cancel_token: &CancellationToken,
+    tailing_task: Option<JoinHandle<Result<()>>>,
+) {
+    child_cancel_token.cancel();
+    let Some(handle) = tailing_task else {
+        tracing::info!("checkpoint tailing is not running");
+        return;
+    };
+    match handle.await {
+        Ok(Ok(())) => tracing::info!("tailing task exited"),
+        Ok(Err(error)) => tracing::error!(?error, "tailing task error"),
+        Err(error) => tracing::error!(?error, "tailing task panicked"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Mutex as StdMutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use super::*;
+
+    /// A failed tailing task is restarted after the backoff, and the backoff starts over once a
+    /// task has run for longer than the maximum.
+    #[tokio::test(start_paused = true)]
+    async fn failed_tailing_task_restarts_after_backoff() -> Result<()> {
+        let (coordination_state, coordination_rx) = CatchupCoordinationState::new();
+        let coordination_state = Arc::new(coordination_state);
+        let running = Arc::new(AtomicUsize::new(0));
+        let tokens = Arc::new(StdMutex::new(Vec::<CancellationToken>::new()));
+
+        let start_task = {
+            let running = running.clone();
+            let tokens = tokens.clone();
+            move |token: CancellationToken| {
+                let index = {
+                    let mut tokens = tokens.lock().expect("lock is not poisoned");
+                    tokens.push(token.clone());
+                    tokens.len() - 1
+                };
+                let running = running.clone();
+                running.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    // The first six tasks fail at once, the seventh fails after a long run, and
+                    // later ones run until cancelled.
+                    let result = match index {
+                        0..6 => Err(anyhow!("simulated tailing failure")),
+                        6 => select! {
+                            _ = token.cancelled() => Ok(()),
+                            _ = sleep(2 * TAILING_RESTART_MAX_BACKOFF) => {
+                                Err(anyhow!("simulated tailing failure"))
+                            }
+                        },
+                        _ => {
+                            token.cancelled().await;
+                            Ok(())
+                        }
+                    };
+                    running.fetch_sub(1, Ordering::SeqCst);
+                    result
+                })
+            }
+        };
+
+        let cancel_token = CancellationToken::new();
+        let supervisor = tokio::spawn(supervise_checkpoint_tailing(
+            cancel_token.clone(),
+            coordination_state.clone(),
+            coordination_rx,
+            start_task,
+        ));
+
+        // The first task fails at once and is restarted after 1 to 2 seconds; the second task
+        // fails at once too and waits at least 2 more seconds.
+        tokio::time::sleep(TAILING_RESTART_MIN_BACKOFF / 2).await;
+        assert_eq!(tokens.lock().expect("lock is not poisoned").len(), 1);
+        tokio::time::sleep(2 * TAILING_RESTART_MIN_BACKOFF).await;
+        assert_eq!(tokens.lock().expect("lock is not poisoned").len(), 2);
+        assert!(tokens.lock().expect("lock is not poisoned")[0].is_cancelled());
+        assert!(!coordination_state.is_tailing_stopped());
+
+        // The six quick failures raise the wait to the maximum (1 + 2 + 4 + 8 + 16 + 32 seconds
+        // plus up to one second of jitter each), so the seventh task runs by 70 seconds.
+        tokio::time::sleep(Duration::from_secs(70)).await;
+        assert_eq!(tokens.lock().expect("lock is not poisoned").len(), 7);
+        assert_eq!(running.load(Ordering::SeqCst), 1);
+
+        // The seventh task fails at most 189 seconds in. Without the reset, the eighth task would
+        // start at least 60 seconds later; with it, within 2 seconds.
+        tokio::time::sleep(2 * TAILING_RESTART_MAX_BACKOFF).await;
+        assert_eq!(tokens.lock().expect("lock is not poisoned").len(), 8);
+        assert_eq!(running.load(Ordering::SeqCst), 1);
+
+        cancel_token.cancel();
+        supervisor.await??;
+        Ok(())
+    }
+
+    /// A catchup that starts while a failed tailing task waits for its restart must not overlap
+    /// with a restarted task, and the failed task's background work must be cancelled.
+    #[tokio::test(start_paused = true)]
+    async fn catchup_during_restart_backoff_does_not_overlap_tailing() -> Result<()> {
+        let (coordination_state, coordination_rx) = CatchupCoordinationState::new();
+        let coordination_state = Arc::new(coordination_state);
+        let running = Arc::new(AtomicUsize::new(0));
+        let tokens = Arc::new(StdMutex::new(Vec::<CancellationToken>::new()));
+
+        let start_task = {
+            let running = running.clone();
+            let tokens = tokens.clone();
+            move |token: CancellationToken| {
+                let first = {
+                    let mut tokens = tokens.lock().expect("lock is not poisoned");
+                    tokens.push(token.clone());
+                    tokens.len() == 1
+                };
+                let running = running.clone();
+                running.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    if !first {
+                        token.cancelled().await;
+                    }
+                    running.fetch_sub(1, Ordering::SeqCst);
+                    if first {
+                        bail!("simulated tailing failure");
+                    }
+                    Ok(())
+                })
+            }
+        };
+
+        let cancel_token = CancellationToken::new();
+        let supervisor = tokio::spawn(supervise_checkpoint_tailing(
+            cancel_token.clone(),
+            coordination_state.clone(),
+            coordination_rx,
+            start_task,
+        ));
+
+        // The first task fails at once; the supervisor waits at least the minimum backoff before
+        // restarting it.
+        tokio::time::sleep(TAILING_RESTART_MIN_BACKOFF / 2).await;
+        assert_eq!(running.load(Ordering::SeqCst), 0);
+        assert!(tokens.lock().expect("lock is not poisoned")[0].is_cancelled());
+        assert!(!coordination_state.is_tailing_stopped());
+
+        // Catchup stops tailing during the backoff and processes for longer than any backoff.
+        coordination_state.start_catchup_processing_phase()?;
+        assert!(
+            coordination_state
+                .wait_for_tailing_stopped(Duration::from_secs(1))
+                .await
+        );
+        tokio::time::sleep(2 * TAILING_RESTART_MAX_BACKOFF).await;
+        assert_eq!(running.load(Ordering::SeqCst), 0);
+        assert_eq!(tokens.lock().expect("lock is not poisoned").len(), 1);
+
+        // Tailing resumes once catchup completes.
+        coordination_state.complete_catchup()?;
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        assert_eq!(running.load(Ordering::SeqCst), 1);
+        assert!(!coordination_state.is_tailing_stopped());
+
+        cancel_token.cancel();
+        supervisor.await??;
         Ok(())
     }
 }
