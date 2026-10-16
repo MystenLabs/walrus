@@ -9,13 +9,7 @@ use std::{
 };
 
 use sui_types::base_types::ObjectID;
-use tokio::sync::{
-    Mutex as AsyncMutex,
-    OwnedMutexGuard,
-    OwnedRwLockReadGuard,
-    OwnedRwLockWriteGuard,
-    RwLock,
-};
+use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use typed_store::TypedStoreError;
 
 use super::{StrataLifecycle, metrics::LifecycleMetrics};
@@ -38,7 +32,7 @@ enum LockKey {
 struct KeyLock {
     key: LockKey,
     lock: Arc<RwLock<()>>,
-    put_admission: Arc<AsyncMutex<()>>,
+    put_admission: Arc<RwLock<()>>,
     owner: Weak<Coordination>,
 }
 
@@ -84,13 +78,25 @@ pub struct SharedLockedBlobs {
 }
 
 impl SharedLockedBlobs {
-    /// Serialize the delete-marker check and its fsync, not the Strata durability wait.
-    /// Otherwise a second put could observe `delete = false` before the first put synced it.
-    pub async fn lock_put_admission(&self) -> Vec<OwnedMutexGuard<()>> {
+    /// Check delete markers concurrently, waiting for any cancellation still being synced.
+    pub async fn lock_put_admission_shared(&self) -> Vec<OwnedRwLockReadGuard<()>> {
+        let mut guards = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            let wait = self.metrics.lock_wait("put_admission", "shared");
+            guards.push(entry.put_admission.clone().read_owned().await);
+            drop(wait);
+        }
+        guards
+    }
+
+    /// Clear delete markers exclusively and hold through their RocksDB sync. Release all
+    /// shared admission guards before acquiring this, then recheck the markers: another put
+    /// may have cleared them while we waited. The outer blob guards still exclude new deletes.
+    pub async fn lock_put_admission(&self) -> Vec<OwnedRwLockWriteGuard<()>> {
         let mut guards = Vec::with_capacity(self.entries.len());
         for entry in &self.entries {
             let wait = self.metrics.lock_wait("put_admission", "exclusive");
-            guards.push(entry.put_admission.clone().lock_owned().await);
+            guards.push(entry.put_admission.clone().write_owned().await);
             drop(wait);
         }
         guards

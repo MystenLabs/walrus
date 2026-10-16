@@ -471,12 +471,19 @@ async fn slivers_of_one_blob_share_the_durability_wait() -> TestResult {
             .update_blob_info_coordinated(0, &registration(X, 20).into())
             .await?;
 
-        // Model another put still waiting for durability. Actual sliver puts must be able
-        // to finish while it holds the shared guard, including across shards and axes.
+        // Another put is still checking admission. Ordinary puts must finish while it holds
+        // shared admission, including across shards and axes, without needing a RocksDB sync.
         let guard = strata(&storage)
             .lifecycle
             .lock_blobs_shared(&[&X.0])
             .await?;
+        let admission = guard.lock_put_admission_shared().await;
+        let admission_sync = strata(&storage)
+            .lifecycle
+            .metrics
+            .sync_duration_seconds
+            .with_label_values(&["rocksdb", "put_admission"]);
+        let syncs_before = admission_sync.get_sample_count();
         let mut puts = Vec::new();
         for shard_id in &shards {
             let shard = storage.shard_storage(*shard_id).await.unwrap();
@@ -493,6 +500,8 @@ async fn slivers_of_one_blob_share_the_durability_wait() -> TestResult {
                 .await??;
         assert!(results.into_iter().all(|stored| stored));
         assert!(strata(&storage).contains_sliver_pairs_in_all(X, &shards)?);
+        assert_eq!(admission_sync.get_sample_count(), syncs_before);
+        drop(admission);
         drop(guard);
         close(storage).await?;
 
@@ -625,6 +634,78 @@ async fn put_waits_for_another_put_to_sync_delete_cancellation() -> TestResult {
                 .store
                 .contains_in_shards(&sliver_key(&X, SliverType::Primary), &[u32::from(SHARD.0)],)?
         );
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_puts_clear_delete_once() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        storage
+            .create_storage_for_shards_for_testing(&[SHARD])
+            .await?;
+        let alice = registration(X, 20);
+        storage
+            .update_blob_info_coordinated(0, &alice.clone().into())
+            .await?;
+        storage
+            .update_blob_info_coordinated(1, &registration(X, 30).into())
+            .await?;
+        storage
+            .update_blob_info_coordinated(
+                2,
+                &alice
+                    .into_corresponding_deleted_event_for_testing(false)
+                    .into(),
+            )
+            .await?;
+        let lifecycle = &strata(&storage).lifecycle;
+        assert!(lifecycle.dirty_blobs.get(&X)?.unwrap().delete);
+        let guard = lifecycle.lock_blobs_shared(&[&X.0]).await?;
+        let admission_sync = lifecycle
+            .metrics
+            .sync_duration_seconds
+            .with_label_values(&["rocksdb", "put_admission"]);
+        let syncs_before = admission_sync.get_sample_count();
+
+        // Concurrent puts either see the pending delete and recheck it exclusively, or
+        // see the durably cleared marker in shared mode. Only one cancellation is synced.
+        let mut writers = Vec::new();
+        for axis in [SliverType::Primary, SliverType::Secondary]
+            .into_iter()
+            .cycle()
+            .take(32)
+        {
+            let shard = storage.shard_storage(SHARD).await.unwrap();
+            writers.push(tokio::spawn(async move {
+                shard.put_registered_sliver(X, get_sliver(axis, 2), 1).await
+            }));
+        }
+        tokio::time::timeout(Duration::from_secs(10), async {
+            for writer in writers {
+                assert!(writer.await??);
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        assert_eq!(admission_sync.get_sample_count(), syncs_before + 1);
+        assert!(!lifecycle.dirty_blobs.get(&X)?.unwrap().delete);
+        drop(guard);
+        close(storage).await?;
+
+        let storage = open(dir.path(), optimistic)?;
+        assert!(
+            !strata(&storage)
+                .lifecycle
+                .dirty_blobs
+                .get(&X)?
+                .unwrap()
+                .delete
+        );
+        assert!(stored(&storage, X)?);
         close(storage).await?;
     }
     Ok(())

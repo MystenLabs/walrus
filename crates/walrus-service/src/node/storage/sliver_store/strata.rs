@@ -665,17 +665,18 @@ impl StrataShardSliverStore {
                     .lifecycle
                     .lock_blobs_shared(&ids.iter().map(|id| id.0.as_slice()).collect::<Vec<_>>())
                     .await?;
-                let admission = guard.lock_put_admission().await;
+                let admission = guard.lock_put_admission_shared().await;
                 this.node.lifecycle.check_running()?;
+                // Declare before completion so a panic halts admission before either lock drops.
+                let mut exclusive_admission = None;
                 let mut completion =
                     HaltOnIncompleteWrite::new(this.node.lifecycle.clone(), "put_slivers");
                 let prepare = this.clone();
-                let payloads = utils::unwrap_or_resume_unwind(
+                let (payloads, pending_deletes) = utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
                         prepare.check_generation()?;
                         let mut payloads = Vec::new();
-                        let mut admission = prepare.node.lifecycle.dirty_blobs.batch();
-                        let mut changed = false;
+                        let mut pending_deletes = Vec::new();
                         for (blob_id, sliver) in slivers {
                             let mut lifetime = None;
                             if let Some(epoch) = epoch {
@@ -705,19 +706,14 @@ impl StrataShardSliverStore {
                                 {
                                     continue;
                                 }
-                                // A put cancels deletion, not lifetime reconciliation. Persist
-                                // cancellation before releasing the lock so recovery cannot
-                                // resurrect an old delete after this new payload.
-                                if let Some(mut dirty) =
-                                    prepare.node.lifecycle.dirty_blobs.get(&blob_id)?
-                                    && dirty.delete
+                                if prepare
+                                    .node
+                                    .lifecycle
+                                    .dirty_blobs
+                                    .get(&blob_id)?
+                                    .is_some_and(|dirty| dirty.delete)
                                 {
-                                    dirty.delete = false;
-                                    admission.insert_batch(
-                                        &prepare.node.lifecycle.dirty_blobs,
-                                        [(blob_id, dirty)],
-                                    )?;
-                                    changed = true;
+                                    pending_deletes.push(blob_id);
                                 }
                             }
                             payloads.push((
@@ -726,25 +722,51 @@ impl StrataShardSliverStore {
                                 lifetime,
                             ));
                         }
-                        if changed {
-                            // Keep deletion cancellation durable before the put reaches Strata.
-                            let _sync = prepare
-                                .node
-                                .lifecycle
-                                .metrics
-                                .sync_duration_seconds
-                                .with_label_values(&["rocksdb", "put_admission"])
-                                .start_timer();
-                            admission.write_with_sync(true)?;
-                        }
-                        Ok::<_, TypedStoreError>(payloads)
+                        Ok::<_, TypedStoreError>((payloads, pending_deletes))
                     })
                     .await,
                 )
                 .inspect_err(|error| completion.record_error(error))?;
-                // The cancellation is durable now. Other slivers of this blob can prepare and
-                // submit while this put waits for Strata, sharing the same durability cycle.
+                // Never wait for exclusive admission while holding shared admission: two
+                // puts finding the same delete would deadlock. Keep the outer shared blob
+                // guards so metadata changes and reconciliation cannot add a new delete.
                 drop(admission);
+                if !pending_deletes.is_empty() {
+                    exclusive_admission = Some(guard.lock_put_admission().await);
+                    this.node.lifecycle.check_running()?;
+                    let lifecycle = this.node.lifecycle.clone();
+                    utils::unwrap_or_resume_unwind(
+                        tokio::task::spawn_blocking(move || {
+                            let mut batch = lifecycle.dirty_blobs.batch();
+                            let mut changed = false;
+                            for id in pending_deletes {
+                                // Another put may already have cleared and synced this marker.
+                                if let Some(mut dirty) = lifecycle.dirty_blobs.get(&id)?
+                                    && dirty.delete
+                                {
+                                    // Cancel deletion, keeping the lifetime reconciliation work.
+                                    dirty.delete = false;
+                                    batch.insert_batch(&lifecycle.dirty_blobs, [(id, dirty)])?;
+                                    changed = true;
+                                }
+                            }
+                            if changed {
+                                let _sync = lifecycle
+                                    .metrics
+                                    .sync_duration_seconds
+                                    .with_label_values(&["rocksdb", "put_admission"])
+                                    .start_timer();
+                                batch.write_with_sync(true)?;
+                            }
+                            Ok::<_, TypedStoreError>(())
+                        })
+                        .await,
+                    )
+                    .inspect_err(|error| completion.record_error(error))?;
+                }
+                // A cleared marker is safe for other puts to use only after this sync.
+                // On failure, halt admission before releasing the exclusive guard.
+                drop(exclusive_admission);
                 let count = payloads.len();
                 let writer = this.clone();
                 let lsn = utils::unwrap_or_resume_unwind(
