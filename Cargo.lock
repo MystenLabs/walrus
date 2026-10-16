@@ -1416,7 +1416,7 @@ dependencies = [
  "bitflags 2.11.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "lazy_static",
  "lazycell",
  "proc-macro2",
@@ -1436,7 +1436,7 @@ dependencies = [
  "bitflags 2.11.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "regex",
@@ -2156,7 +2156,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.1",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -2408,7 +2408,7 @@ dependencies = [
 [[package]]
 name = "core"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=2fe239b16b11cd22f6e66523c5b2b0abb699ef2a#2fe239b16b11cd22f6e66523c5b2b0abb699ef2a"
+source = "git+https://github.com/MystenLabs/strata.git?rev=cd04832deb66b07a97fa626e4a0125e5dd4280fb#cd04832deb66b07a97fa626e4a0125e5dd4280fb"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -2886,7 +2886,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 2.0.117",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -4079,7 +4079,7 @@ dependencies = [
 [[package]]
 name = "gc"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=2fe239b16b11cd22f6e66523c5b2b0abb699ef2a#2fe239b16b11cd22f6e66523c5b2b0abb699ef2a"
+source = "git+https://github.com/MystenLabs/strata.git?rev=cd04832deb66b07a97fa626e4a0125e5dd4280fb#cd04832deb66b07a97fa626e4a0125e5dd4280fb"
 dependencies = [
  "core",
 ]
@@ -4614,7 +4614,7 @@ dependencies = [
  "hyper",
  "libc",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -4826,7 +4826,7 @@ checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
 [[package]]
 name = "index"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=2fe239b16b11cd22f6e66523c5b2b0abb699ef2a#2fe239b16b11cd22f6e66523c5b2b0abb699ef2a"
+source = "git+https://github.com/MystenLabs/strata.git?rev=cd04832deb66b07a97fa626e4a0125e5dd4280fb#cd04832deb66b07a97fa626e4a0125e5dd4280fb"
 dependencies = [
  "bincode",
  "core",
@@ -5394,7 +5394,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if",
- "windows-targets 0.53.3",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -5627,7 +5627,7 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 [[package]]
 name = "lsm"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=2fe239b16b11cd22f6e66523c5b2b0abb699ef2a#2fe239b16b11cd22f6e66523c5b2b0abb699ef2a"
+source = "git+https://github.com/MystenLabs/strata.git?rev=cd04832deb66b07a97fa626e4a0125e5dd4280fb#cd04832deb66b07a97fa626e4a0125e5dd4280fb"
 dependencies = [
  "core",
  "libc",
@@ -9230,7 +9230,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.1",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9569,7 +9569,7 @@ dependencies = [
 [[package]]
 name = "segment"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=2fe239b16b11cd22f6e66523c5b2b0abb699ef2a#2fe239b16b11cd22f6e66523c5b2b0abb699ef2a"
+source = "git+https://github.com/MystenLabs/strata.git?rev=cd04832deb66b07a97fa626e4a0125e5dd4280fb#cd04832deb66b07a97fa626e4a0125e5dd4280fb"
 dependencies = [
  "core",
  "libc",
@@ -10090,7 +10090,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.61.1",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -10274,7 +10274,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "store"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=2fe239b16b11cd22f6e66523c5b2b0abb699ef2a#2fe239b16b11cd22f6e66523c5b2b0abb699ef2a"
+source = "git+https://github.com/MystenLabs/strata.git?rev=cd04832deb66b07a97fa626e4a0125e5dd4280fb#cd04832deb66b07a97fa626e4a0125e5dd4280fb"
 dependencies = [
  "core",
  "gc",
@@ -10284,6 +10284,7 @@ dependencies = [
  "prometheus",
  "segment",
  "sha2 0.10.9",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "xxhash-rust",
@@ -10292,7 +10293,7 @@ dependencies = [
 [[package]]
 name = "strata"
 version = "0.1.0"
-source = "git+https://github.com/MystenLabs/strata.git?rev=2fe239b16b11cd22f6e66523c5b2b0abb699ef2a#2fe239b16b11cd22f6e66523c5b2b0abb699ef2a"
+source = "git+https://github.com/MystenLabs/strata.git?rev=cd04832deb66b07a97fa626e4a0125e5dd4280fb#cd04832deb66b07a97fa626e4a0125e5dd4280fb"
 dependencies = [
  "core",
  "store",
@@ -12326,7 +12327,7 @@ dependencies = [
  "getrandom 0.4.1",
  "once_cell",
  "rustix",
- "windows-sys 0.61.1",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -12356,7 +12357,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
  "rustix",
- "windows-sys 0.61.1",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

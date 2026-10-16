@@ -166,7 +166,7 @@ impl LoadGenerator {
                 }
                 Err(error) => {
                     // This may happen if the client runs out of gas.
-                    tracing::warn!("failed to write blob");
+                    tracing::warn!(?error, "failed to write blob");
                     metrics.observe_error("failed to write blob");
                     if error.is_out_of_coin_error() {
                         tracing::warn!("consider decreasing the gas refill period");
