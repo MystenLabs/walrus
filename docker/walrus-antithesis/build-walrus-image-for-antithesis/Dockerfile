@@ -11,9 +11,12 @@
 FROM rust:1.96-bookworm AS builder
 
 # Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends cmake clang \
+RUN apt-get update && apt-get install -y --no-install-recommends cmake clang openssh-client \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR "/walrus"
+RUN install -d -m 0700 /root/.ssh \
+    && ssh-keyscan github.com >> /root/.ssh/known_hosts
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
 
 # Copy project files. COPYs ordered least- to most-frequently-changing for
 # deeper layer cache hits.
@@ -62,7 +65,8 @@ ENV GIT_REVISION=$GIT_REVISION
 # - /opt/walrus-binaries is a normal path, so it becomes part of this layer.
 # - The next stage uses COPY --from=builder /opt/walrus-binaries/... which reads from the image
 #   filesystem; COPY cannot see cache mount contents, only content that was written into the image.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
+RUN --mount=type=ssh \
+    --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/walrus/target \
     cargo build \

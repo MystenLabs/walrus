@@ -4,10 +4,12 @@
 //! Backend abstraction for primary and secondary sliver storage.
 
 use std::{
+    path::Path,
     sync::{Arc, OnceLock},
     time::Instant,
 };
 
+#[cfg(not(msim))]
 use futures::{StreamExt, stream::FuturesUnordered};
 use rocksdb::Transaction;
 use serde::{Deserialize, Serialize};
@@ -39,6 +41,9 @@ use super::{
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
 };
 use crate::utils;
+
+mod strata;
+use self::strata::{StrataShardSliverStore, StrataSliverStore};
 
 /// Primary sliver data stored in the database.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,7 +96,8 @@ pub(crate) struct SliverStore {
 
 #[derive(Debug)]
 enum SliverStoreBackend {
-    RocksDb(RocksDbSliverStore),
+    RocksDb(Box<RocksDbSliverStore>),
+    Strata(StrataSliverStore),
 }
 
 #[derive(Debug)]
@@ -106,10 +112,56 @@ impl SliverStore {
         table_options: DatabaseTableOptionsFactory,
     ) -> Self {
         Self {
-            backend: Arc::new(SliverStoreBackend::RocksDb(RocksDbSliverStore {
+            backend: Arc::new(SliverStoreBackend::RocksDb(Box::new(RocksDbSliverStore {
                 database,
                 table_options,
-            })),
+            }))),
+        }
+    }
+
+    pub(super) fn new_strata(
+        path: &Path,
+        metrics_registry: &walrus_utils::metrics::Registry,
+        database: Arc<dyn strata_index::port::IndexDb>,
+        lifecycle: Arc<super::strata_lifecycle::StrataLifecycle>,
+        blob_info: super::blob_info::BlobInfoTable,
+        block_cache_capacity_bytes: Option<usize>,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            backend: Arc::new(SliverStoreBackend::Strata(StrataSliverStore::open(
+                path,
+                metrics_registry,
+                database,
+                lifecycle,
+                blob_info,
+                block_cache_capacity_bytes,
+            )?)),
+        })
+    }
+
+    pub(crate) fn is_strata(&self) -> bool {
+        matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
+    }
+
+    pub(super) async fn reconcile_epoch(
+        &self,
+        epoch: walrus_core::Epoch,
+        delete_data: bool,
+    ) -> anyhow::Result<()> {
+        match self.backend.as_ref() {
+            SliverStoreBackend::Strata(store) => store.reconcile_epoch(epoch, delete_data).await,
+            SliverStoreBackend::RocksDb(_) => Ok(()),
+        }
+    }
+
+    /// Reads Strata's shard registry to distinguish active, dropped, and interrupted creations.
+    pub(crate) fn strata_shard_state(
+        &self,
+        shard: ShardIndex,
+    ) -> Result<Option<::strata::ShardState>, TypedStoreError> {
+        match self.backend.as_ref() {
+            SliverStoreBackend::RocksDb(_) => Ok(None),
+            SliverStoreBackend::Strata(store) => store.shard_state(shard),
         }
     }
 
@@ -121,6 +173,10 @@ impl SliverStore {
     ) -> Result<ShardSliverStore, TypedStoreError> {
         match self.backend.as_ref() {
             SliverStoreBackend::RocksDb(store) => store.open_shard(shard, metrics),
+            SliverStoreBackend::Strata(store) => Ok(ShardSliverStore {
+                metrics,
+                backend: ShardSliverStoreBackend::Strata(store.open_shard(shard)?),
+            }),
         }
     }
 
@@ -155,6 +211,16 @@ impl SliverStore {
                 .await?
                 .is_none())
             }
+            SliverStoreBackend::Strata(store) => {
+                let shard_ids = shards.iter().map(|(shard, _)| *shard).collect::<Vec<_>>();
+                let store = store.clone();
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        store.contains_sliver_pairs_in_all(blob_id, &shard_ids)
+                    })
+                    .await,
+                )
+            }
         }
     }
 
@@ -180,6 +246,10 @@ impl SliverStore {
                     }
                 }
                 Ok(true)
+            }
+            SliverStoreBackend::Strata(store) => {
+                let shard_ids = shards.iter().map(|(shard, _)| *shard).collect::<Vec<_>>();
+                store.contains_sliver_pairs_in_all(*blob_id, &shard_ids)
             }
         }
     }
@@ -226,12 +296,12 @@ impl RocksDbSliverStore {
 
         Ok(ShardSliverStore {
             metrics,
-            backend: ShardSliverStoreBackend::RocksDb(RocksDbShardSliverStore {
+            backend: ShardSliverStoreBackend::RocksDb(Box::new(RocksDbShardSliverStore {
                 primary_slivers,
                 secondary_slivers,
                 sst_primary_buffer: Arc::new(OnceLock::new()),
                 sst_secondary_buffer: Arc::new(OnceLock::new()),
-            }),
+            })),
         })
     }
 }
@@ -245,7 +315,8 @@ pub(crate) struct ShardSliverStore {
 
 #[derive(Debug, Clone)]
 enum ShardSliverStoreBackend {
-    RocksDb(RocksDbShardSliverStore),
+    RocksDb(Box<RocksDbShardSliverStore>),
+    Strata(StrataShardSliverStore),
 }
 
 #[derive(Debug, Clone)]
@@ -257,7 +328,55 @@ struct RocksDbShardSliverStore {
         Arc<OnceLock<std::sync::Mutex<SstIngestBuffer<BlobId, SecondarySliverData>>>>,
 }
 
+/// A shard-sync write unit. Control state is committed only after the sliver backend's writes
+/// have crossed its durability boundary. RocksDB currently uses the same batch for both, so its
+/// existing atomicity is preserved.
+pub(crate) struct SliverSyncBatch {
+    control_batch: DBBatch,
+    strata: Option<(StrataShardSliverStore, Vec<(BlobId, Sliver)>)>,
+    epoch: walrus_core::Epoch,
+}
+
+impl SliverSyncBatch {
+    pub(crate) fn control(&mut self) -> &mut DBBatch {
+        &mut self.control_batch
+    }
+
+    pub(crate) async fn write(self) -> Result<(), TypedStoreError> {
+        if let Some((store, slivers)) = self.strata {
+            return store
+                .put_many(slivers, self.epoch, self.control_batch)
+                .await;
+        }
+        self.control_batch.write()
+    }
+}
+
 impl ShardSliverStore {
+    pub(crate) fn uses_rocksdb_column_families(&self) -> bool {
+        matches!(self.backend, ShardSliverStoreBackend::RocksDb(_))
+    }
+
+    pub(crate) fn supports_sst_ingestion(&self) -> bool {
+        matches!(self.backend, ShardSliverStoreBackend::RocksDb(_))
+    }
+
+    pub(crate) fn drop_shard(&self) -> Result<(), TypedStoreError> {
+        match &self.backend {
+            ShardSliverStoreBackend::RocksDb(_) => Ok(()),
+            ShardSliverStoreBackend::Strata(store) => store.drop_shard(),
+        }
+    }
+
+    pub(crate) async fn delete_pair(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
+        match &self.backend {
+            ShardSliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
+                "standalone RocksDB sliver deletion is not supported".to_owned(),
+            )),
+            ShardSliverStoreBackend::Strata(store) => store.delete_pair(blob_id).await,
+        }
+    }
+
     /// Stores one sliver. This remains the normal foreground write API; bulk writes are only an
     /// implementation option for workflows such as shard sync.
     ///
@@ -265,10 +384,21 @@ impl ShardSliverStore {
     /// A backend that persists in the background must wait until the LSN corresponding to this
     /// write has been published durably before returning.
     pub(crate) async fn put(&self, blob_id: BlobId, sliver: Sliver) -> Result<(), TypedStoreError> {
+        self.put_with_registration(blob_id, sliver, None)
+            .await
+            .map(|_| ())
+    }
+
+    pub(crate) async fn put_with_registration(
+        &self,
+        blob_id: BlobId,
+        sliver: Sliver,
+        epoch: Option<walrus_core::Epoch>,
+    ) -> Result<bool, TypedStoreError> {
         let start = Instant::now();
         let sliver_type = sliver.r#type();
         let response = match &self.backend {
-            ShardSliverStoreBackend::RocksDb(store) => match sliver {
+            ShardSliverStoreBackend::RocksDb(store) => (match sliver {
                 Sliver::Primary(primary) => {
                     let table = store.primary_slivers.clone();
                     utils::unwrap_or_resume_unwind(
@@ -287,7 +417,9 @@ impl ShardSliverStore {
                         .await,
                     )
                 }
-            },
+            })
+            .map(|_| true),
+            ShardSliverStoreBackend::Strata(store) => store.put(blob_id, sliver, epoch).await,
         };
         self.metrics.observe_operation_duration(
             sliver_labels(
@@ -334,6 +466,14 @@ impl ShardSliverStore {
                 .primary_slivers
                 .get(blob_id)
                 .map(|sliver| sliver.map(Into::into)),
+            ShardSliverStoreBackend::Strata(store) => {
+                store.get(blob_id, SliverType::Primary).map(|sliver| {
+                    sliver.map(|sliver| match sliver {
+                        Sliver::Primary(primary) => primary,
+                        Sliver::Secondary(_) => unreachable!("requested a primary sliver"),
+                    })
+                })
+            }
         }
     }
 
@@ -343,6 +483,14 @@ impl ShardSliverStore {
                 .secondary_slivers
                 .get(blob_id)
                 .map(|sliver| sliver.map(Into::into)),
+            ShardSliverStoreBackend::Strata(store) => {
+                store.get(blob_id, SliverType::Secondary).map(|sliver| {
+                    sliver.map(|sliver| match sliver {
+                        Sliver::Secondary(secondary) => secondary,
+                        Sliver::Primary(_) => unreachable!("requested a secondary sliver"),
+                    })
+                })
+            }
         }
     }
 
@@ -364,6 +512,7 @@ impl ShardSliverStore {
             (ShardSliverStoreBackend::RocksDb(store), SliverType::Secondary) => {
                 store.secondary_slivers.may_contain_key(blob_id)
             }
+            (ShardSliverStoreBackend::Strata(store), _) => store.contains(blob_id, sliver_type),
         };
         self.metrics.observe_operation_duration(
             sliver_labels(
@@ -395,6 +544,7 @@ impl ShardSliverStore {
             (ShardSliverStoreBackend::RocksDb(store), SliverType::Secondary) => {
                 store.secondary_slivers.contains_key(blob_id)
             }
+            (ShardSliverStoreBackend::Strata(store), _) => store.contains(blob_id, sliver_type),
         };
         self.metrics.observe_operation_duration(
             sliver_labels(
@@ -414,6 +564,26 @@ impl ShardSliverStore {
         blob_ids: &[BlobId],
     ) -> Result<Vec<(BlobId, Sliver)>, TypedStoreError> {
         let start = Instant::now();
+        if let ShardSliverStoreBackend::Strata(store) = &self.backend {
+            let response = blob_ids
+                .iter()
+                .try_fold(Vec::new(), |mut slivers, blob_id| {
+                    if let Some(sliver) = store.get(blob_id, sliver_type)? {
+                        slivers.push((*blob_id, sliver));
+                    }
+                    Ok::<_, TypedStoreError>(slivers)
+                });
+            self.metrics.observe_operation_duration(
+                sliver_labels(
+                    sliver_type,
+                    OperationType::MultiGet,
+                    "MULTI_GET sliver BY blob_id_list",
+                )
+                .with_response_as_unit(response.as_ref()),
+                start.elapsed(),
+            );
+            return response;
+        }
         let response = match &self.backend {
             ShardSliverStoreBackend::RocksDb(store) => ByAxis::from(sliver_type)
                 .map(
@@ -421,6 +591,7 @@ impl ShardSliverStore {
                     |_| store.secondary_slivers.multi_get(blob_ids),
                 )
                 .transpose(),
+            ShardSliverStoreBackend::Strata(_) => unreachable!("handled above"),
         };
 
         self.metrics.observe_operation_duration(
@@ -454,36 +625,48 @@ impl ShardSliverStore {
         Ok(output)
     }
 
-    pub(crate) fn batch(&self, sliver_type: SliverType) -> DBBatch {
-        match (&self.backend, sliver_type) {
-            (ShardSliverStoreBackend::RocksDb(store), SliverType::Primary) => {
-                store.primary_slivers.batch()
-            }
-            (ShardSliverStoreBackend::RocksDb(store), SliverType::Secondary) => {
-                store.secondary_slivers.batch()
-            }
+    pub(crate) fn sync_batch(
+        &self,
+        control_batch: DBBatch,
+        epoch: walrus_core::Epoch,
+    ) -> SliverSyncBatch {
+        let strata = match &self.backend {
+            ShardSliverStoreBackend::RocksDb(_) => None,
+            ShardSliverStoreBackend::Strata(store) => Some((store.clone(), Vec::new())),
+        };
+        SliverSyncBatch {
+            control_batch,
+            strata,
+            epoch,
         }
     }
 
     pub(crate) fn insert_in_batch(
         &self,
-        batch: &mut DBBatch,
+        batch: &mut SliverSyncBatch,
         blob_id: &BlobId,
         sliver: &Sliver,
     ) -> Result<(), TypedStoreError> {
         match (&self.backend, sliver) {
             (ShardSliverStoreBackend::RocksDb(store), Sliver::Primary(primary)) => batch
+                .control()
                 .insert_batch(
                     &store.primary_slivers,
                     [(blob_id, &PrimarySliverData::from(primary.clone()))],
                 )
                 .map(|_| ()),
             (ShardSliverStoreBackend::RocksDb(store), Sliver::Secondary(secondary)) => batch
+                .control()
                 .insert_batch(
                     &store.secondary_slivers,
                     [(blob_id, &SecondarySliverData::from(secondary.clone()))],
                 )
                 .map(|_| ()),
+            (ShardSliverStoreBackend::Strata(_), _) => {
+                let (_, slivers) = batch.strata.as_mut().expect("Strata batch required");
+                slivers.push((*blob_id, sliver.clone()));
+                Ok(())
+            }
         }
     }
 
@@ -518,6 +701,9 @@ impl ShardSliverStore {
                     .expect("lock should succeed")
                     .push(blob_id, SecondarySliverData::from(secondary.clone()))
             }
+            (ShardSliverStoreBackend::Strata(_), _) => Err(TypedStoreError::TaskError(
+                "SST ingestion is only supported by RocksDB sliver storage".to_owned(),
+            )),
         }
     }
 
@@ -536,6 +722,7 @@ impl ShardSliverStore {
                 }
                 Ok(())
             }
+            ShardSliverStoreBackend::Strata(_) => Ok(()),
         }
     }
 
@@ -561,6 +748,7 @@ impl ShardSliverStore {
                 sst_file_threshold,
                 compact_after_sync,
             ),
+            (ShardSliverStoreBackend::Strata(_), _) => Ok(false),
         }
     }
 
@@ -575,6 +763,9 @@ impl ShardSliverStore {
                 batch.delete_batch(&store.secondary_slivers, std::iter::once(blob_id))?;
                 Ok(())
             }
+            ShardSliverStoreBackend::Strata(_) => Err(TypedStoreError::TaskError(
+                "Strata slivers cannot be deleted in a RocksDB batch".to_owned(),
+            )),
         }
     }
 
@@ -591,6 +782,9 @@ impl ShardSliverStore {
                 }
                 Ok(())
             }
+            ShardSliverStoreBackend::Strata(_) => {
+                anyhow::bail!("Strata slivers cannot be deleted in a RocksDB transaction")
+            }
         }
     }
 
@@ -605,6 +799,9 @@ impl ShardSliverStore {
                 .secondary_slivers
                 .safe_iter()?
                 .try_fold(0, |count, entry| entry.map(|_| count + 1)),
+            (ShardSliverStoreBackend::Strata(_), _) => Err(TypedStoreError::TaskError(
+                "sliver count is not available in Strata".to_owned(),
+            )),
         }
     }
 }

@@ -19,6 +19,11 @@ printf "build date: \t%s\n" "$BUILD_DATE"
 printf "git revision: \t%s\n" "$GIT_REVISION"
 echo
 
+# Forward an available SSH agent so Cargo can fetch internal Git dependencies such as Strata.
+if [ -n "${SSH_AUTH_SOCK:-}" ]; then
+  set -- --ssh default "$@"
+fi
+
 docker build \
   --progress plain \
   -f "$DOCKERFILE" "$REPO_ROOT" \

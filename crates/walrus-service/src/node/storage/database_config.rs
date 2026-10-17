@@ -318,6 +318,10 @@ impl From<&GlobalDatabaseOptions> for Options {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct DatabaseConfig {
+    /// Optional byte budget for Strata's immutable blob-LSM block cache. Verified cached blocks
+    /// avoid repeated disk reads and checksums. Unset keeps Strata's default; zero disables it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) strata_block_cache_capacity_bytes: Option<usize>,
     /// Global database options. Applied when opening/creating the database.
     pub(super) global: GlobalDatabaseOptions,
 
@@ -551,6 +555,7 @@ impl DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
+            strata_block_cache_capacity_bytes: None,
             global: GlobalDatabaseOptions::default(),
             standard: DatabaseTableOptions::standard(),
             optimized_for_blobs: DatabaseTableOptions::optimized_for_blobs(),

@@ -6,7 +6,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
-use futures::future::try_join_all;
+use futures::{StreamExt, stream};
 use sui_sdk::types::base_types::SuiAddress;
 use tokio::{task::JoinHandle, time::MissedTickBehavior};
 use tracing::Instrument;
@@ -15,6 +15,10 @@ use walrus_sui::{
     client::{SuiContractClient, retry_client::RetriableSuiClient},
     coin::Coin,
 };
+
+// Keep RPC fan-out bounded, and amortize the funding wallet's transaction lock across recipients.
+const BALANCE_CHECK_CONCURRENCY: usize = 32;
+const REFILL_BATCH_SIZE: usize = 100;
 
 /// Refills gas and WAL for the clients.
 #[derive(Debug, Clone)]
@@ -82,12 +86,14 @@ impl Refiller {
             sui_client,
             Coin::SUI,
             self.min_balance,
-            move |refiller, address| {
+            move |refiller, addresses| {
                 let metrics = metrics.clone();
                 async move {
-                    refiller.send_sui(amount, address).await?;
-                    tracing::info!("clients gas coins refilled");
-                    metrics.observe_gas_refill();
+                    refiller.send_sui_batch(amount, &addresses).await?;
+                    tracing::info!(clients = addresses.len(), "clients gas coins refilled");
+                    for _ in addresses {
+                        metrics.observe_gas_refill();
+                    }
                     Ok(())
                 }
             },
@@ -108,12 +114,14 @@ impl Refiller {
             sui_client,
             self.wal_coin_type(),
             self.min_balance,
-            move |refiller, address| {
+            move |refiller, addresses| {
                 let metrics = metrics.clone();
                 async move {
-                    refiller.send_wal(amount, address).await?;
-                    tracing::info!("clients WAL coins refilled");
-                    metrics.observe_wal_refill();
+                    refiller.send_wal_batch(amount, &addresses).await?;
+                    tracing::info!(clients = addresses.len(), "clients WAL coins refilled");
+                    for _ in addresses {
+                        metrics.observe_wal_refill();
+                    }
                     Ok(())
                 }
             },
@@ -130,7 +138,7 @@ impl Refiller {
         inner_action: F,
     ) -> JoinHandle<anyhow::Result<()>>
     where
-        F: Fn(Arc<SuiContractClient>, SuiAddress) -> Fut + Send + Sync + 'static,
+        F: Fn(Arc<SuiContractClient>, Vec<SuiAddress>) -> Fut + Send + Sync + 'static,
         Fut: std::future::Future<Output = anyhow::Result<()>> + Send,
     {
         let mut interval = tokio::time::interval(period);
@@ -142,38 +150,37 @@ impl Refiller {
             loop {
                 let span =
                     tracing::debug_span!("periodic_refill", coin_type, min_coin_value, ?period);
-                let inner_span_parent = span.clone();
                 async {
                     interval.tick().await;
-                    let sui_client = &sui_client;
-                    let _ = try_join_all(addresses.iter().cloned().map(|address| {
-                        let inner_fut = inner_action(refiller.clone(), address);
-                        let coin_type = coin_type.clone();
-                        async move {
-                            if should_refill(sui_client, address, &coin_type, min_coin_value).await
-                            {
-                                inner_fut.await
-                            } else {
-                                Ok(())
+                    let recipients: Vec<_> = stream::iter(addresses.iter().copied())
+                        .map(|address| {
+                            let sui_client = &sui_client;
+                            let coin_type = &coin_type;
+                            async move {
+                                should_refill(sui_client, address, coin_type, min_coin_value)
+                                    .await
+                                    .then_some(address)
                             }
+                        })
+                        .buffer_unordered(BALANCE_CHECK_CONCURRENCY)
+                        .filter_map(std::future::ready)
+                        .collect()
+                        .await;
+
+                    // A failed batch must not cancel refills for the remaining wallets. The next
+                    // pass checks balances again, including after an uncertain transaction result.
+                    for batch in recipients.chunks(REFILL_BATCH_SIZE) {
+                        if let Err(error) = inner_action(refiller.clone(), batch.to_vec()).await {
+                            tracing::error!(
+                                ?error,
+                                clients = batch.len(),
+                                "failed to refill wallets"
+                            );
                         }
-                        .instrument(tracing::debug_span!(
-                            parent: inner_span_parent.clone(),
-                            "maybe_refill_address",
-                            address=%address
-                        ))
-                    }))
-                    .instrument(span)
-                    .await
-                    .inspect_err(|error| {
-                        tracing::error!(
-                            ?error,
-                            "error during periodic refill of coin type {:?}",
-                            coin_type
-                        )
-                    });
+                    }
                 }
-                .await
+                .instrument(span)
+                .await;
             }
         })
     }

@@ -51,6 +51,7 @@ use crate::{
     client::{self},
     common::config::{SuiConfig, SuiReaderConfig},
     node::{
+        SliverStoreBackendKind,
         config::{
             DEFAULT_PRICE_UPDATE_THRESHOLD_PERCENT,
             LiveUploadDeferralConfig,
@@ -575,6 +576,7 @@ pub async fn create_storage_node_configs(
     metrics_port: u16,
     set_config_dir: Option<&Path>,
     set_db_path: Option<&Path>,
+    sliver_store_backend: SliverStoreBackendKind,
     faucet_cooldown: Option<Duration>,
     rpc_fallback_config: Option<RpcFallbackConfig>,
     admin_contract_client: &mut SuiContractClient,
@@ -588,6 +590,7 @@ pub async fn create_storage_node_configs(
         metrics_port,
         ?set_config_dir,
         ?set_db_path,
+        ?sliver_store_backend,
         ?faucet_cooldown,
         disable_event_blob_writer,
         "starting to create storage-node configs"
@@ -710,7 +713,7 @@ pub async fn create_storage_node_configs(
         } else {
             node.keypair.into()
         };
-        storage_node_configs.push(StorageNodeConfig {
+        let storage_node_config = StorageNodeConfig {
             name: node.name.clone(),
             storage_path,
             blocklist_path: None,
@@ -727,6 +730,7 @@ pub async fn create_storage_node_configs(
             rest_api_address,
             sui,
             db_config: Default::default(),
+            sliver_store_backend,
             rest_server: Default::default(),
             rest_graceful_shutdown_period_secs: None,
             blob_recovery: Default::default(),
@@ -763,7 +767,8 @@ pub async fn create_storage_node_configs(
             sliver_reference_cache_max_entries: defaults::SLIVER_REFERENCE_CACHE_MAX_ENTRIES,
             wal_price_monitor: Default::default(),
             epoch_state_consistency: Default::default(),
-        });
+        };
+        storage_node_configs.push(storage_node_config);
     }
 
     let contract_clients = join_all(wallets.into_iter().map(|wallet| async {
