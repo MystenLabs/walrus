@@ -147,8 +147,8 @@ serde_with.workspace = true
 serde_yaml.workspace = true
 sha2.workspace = true
 snap.workspace = true
-strata = { git = "https://github.com/MystenLabs/strata.git", rev = "8701d54acea45b79794030eaa1cb34bc64359206" }
-strata-index = { package = "index", git = "https://github.com/MystenLabs/strata.git", rev = "8701d54acea45b79794030eaa1cb34bc64359206" }
+strata = { git = "https://github.com/MystenLabs/strata.git", rev = "62b5d9efc8e17a0bde123710e85ba8f1a11d49a6" }
+strata-index = { package = "index", git = "https://github.com/MystenLabs/strata.git", rev = "62b5d9efc8e17a0bde123710e85ba8f1a11d49a6" }
 sui-config.workspace = true
 sui-macros.workspace = true
 sui-package-resolver.workspace = true
