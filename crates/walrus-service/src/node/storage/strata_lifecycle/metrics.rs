@@ -9,6 +9,10 @@ use walrus_utils::metrics::OwnedGaugeGuard;
 walrus_utils::metrics::define_metric_set! {
     #[namespace = "walrus_strata"]
     pub(crate) struct LifecycleMetrics {
+        #[help = "Lifetime updates submitted by successful sliver write batches."]
+        lifetime_updates_submitted_total: IntCounter [],
+        #[help = "Redundant lifetime updates skipped by successful sliver write batches."]
+        lifetime_updates_skipped_total: IntCounter [],
         #[help = "Epoch reconciliation attempt duration, including scanning, locks and durability."]
         reconciliation_duration_seconds: Histogram {
             buckets: vec![
