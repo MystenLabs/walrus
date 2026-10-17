@@ -172,15 +172,15 @@ The portal Docker image version must match your `site-builder` version. Run the 
 $ site-builder -V | awk '{ print $2 }' | awk -F - '{ printf("v%s\n", $1) }'
 ```
 
-Be sure that version tag matches the version in `mysten/walrus-sites-server-portal:mainnet-v2.8.0`.
+Be sure that version tag matches the tag of the image you run: the `mysten/walrus-sites-server-portal:mainnet-v2.8.0` tag shown above is only an example, so replace `v2.8.0` with the version that the preceding command reports for your `site-builder`.
 
-Once the Docker container is running, open your browser and navigate to the following URL:
+The command maps the container port with `-p 3000:3000`, so port 3000 must be free on your host. Once the Docker container is running, open your browser and navigate to the following URL:
 
 ```
 http:/localhost:3000
 ```
 
-### Local development
+### Local development (server portal on port 3000, service-worker portal on port 8080)
 
 This method requires `bun`. Check whether `bun` is installed:
 
