@@ -12,6 +12,7 @@ use std::{
 
 use strata::{BlobKey, ShardState, StrataLsn, StrataStore, StrataStoreConfig, StrataStoreMetrics};
 use strata_index::{StrataIndex, port::IndexDb};
+use tokio::sync::OwnedMutexGuard;
 use typed_store::{Map, TypedStoreError, rocks::DBBatch};
 use walrus_core::{BlobId, Epoch, ShardIndex, Sliver, SliverType};
 use walrus_utils::metrics::{OwnedGaugeGuard, Registry};
@@ -23,6 +24,7 @@ use super::{
             HaltOnIncompleteWrite,
             ReconcileBlob,
             ReconciliationProgress,
+            SharedLockedBlobs,
             StrataLifecycle,
             TypedBatchExt,
             error,
@@ -60,6 +62,34 @@ pub(super) struct StrataShardSliverStore {
 }
 
 impl StrataSliverStore {
+    /// Only the first submission of a lifetime needs serialization. A waiting cache miss
+    /// becomes a hit once another upload submits it, so release its lock before payload I/O.
+    /// The outer shared blob guards keep this knowledge valid even if the cache evicts it.
+    async fn lock_missing_lifetimes(
+        &self,
+        guard: &SharedLockedBlobs,
+        mut updates: HashMap<BlobKey, Epoch>,
+    ) -> (Vec<OwnedMutexGuard<()>>, HashMap<BlobKey, Epoch>) {
+        let remove_submitted = |updates: &mut HashMap<BlobKey, Epoch>| {
+            let cache = self
+                .submitted_lifetimes
+                .lock()
+                .expect("lifetime cache poisoned");
+            updates.retain(|key, end| !cache.contains(key, *end));
+        };
+        remove_submitted(&mut updates);
+        let mut locks = if updates.is_empty() {
+            Vec::new()
+        } else {
+            guard.lock_lifetime_submission().await
+        };
+        remove_submitted(&mut updates);
+        if updates.is_empty() {
+            locks.clear();
+        }
+        (locks, updates)
+    }
+
     pub(super) fn open(
         path: &Path,
         metrics_registry: &Registry,
@@ -812,21 +842,15 @@ impl StrataShardSliverStore {
                 // The outer blob guards prevent reconciliation/registration from changing the
                 // lifetime. A hit needs no extra lock. Misses serialize only the check+submit,
                 // then recheck below so concurrent shard uploads share one lifetime write.
-                let missing_lifetime = {
-                    let cache = this
-                        .node
-                        .submitted_lifetimes
-                        .lock()
-                        .expect("lifetime cache poisoned");
-                    payloads
-                        .iter()
-                        .any(|(key, _, end)| end.is_some_and(|end| !cache.contains(key, end)))
-                };
-                lifetime_submission = if missing_lifetime {
-                    guard.lock_lifetime_submission().await
-                } else {
-                    Vec::new()
-                };
+                let lifetime_count = payloads.iter().filter(|(_, _, end)| end.is_some()).count();
+                let pending = payloads
+                    .iter()
+                    .filter_map(|(key, _, end)| end.map(|end| (key.clone(), end)))
+                    .collect();
+                let cache_updates;
+                (lifetime_submission, cache_updates) =
+                    this.node.lock_missing_lifetimes(&guard, pending).await;
+                let skipped = lifetime_count - cache_updates.len();
                 this.node.lifecycle.check_running()?;
                 let writer = this.clone();
                 let submit_queue = this.node.lifecycle.metrics.put_phase("submit_queue");
@@ -837,26 +861,11 @@ impl StrataShardSliverStore {
                             return Ok(0);
                         }
                         let mut batch = writer.node.store.batch();
-                        let mut cache_updates = HashMap::new();
-                        let mut skipped = 0;
-                        for (key, payload, end_epoch) in payloads {
-                            if let Some(end_epoch) = end_epoch {
-                                // Initialize the admitted registration in the same write as its
-                                // payload, also protecting puts while Strata's epoch lags Walrus.
-                                if cache_updates.get(&key) == Some(&end_epoch)
-                                    || writer
-                                        .node
-                                        .submitted_lifetimes
-                                        .lock()
-                                        .expect("lifetime cache poisoned")
-                                        .contains(&key, end_epoch)
-                                {
-                                    skipped += 1;
-                                } else {
-                                    batch.set_blob_lifetime(key.clone(), u64::from(end_epoch));
-                                    cache_updates.insert(key.clone(), end_epoch);
-                                }
-                            }
+                        // Initialize each missing registration in the same write as its payload.
+                        for (key, end_epoch) in &cache_updates {
+                            batch.set_blob_lifetime(key.clone(), u64::from(*end_epoch));
+                        }
+                        for (key, payload, _) in payloads {
                             batch.put(u32::from(writer.shard.0), key, Arc::<[u8]>::from(payload));
                         }
                         let _operation = writer
@@ -882,7 +891,7 @@ impl StrataShardSliverStore {
                             .lifecycle
                             .metrics
                             .lifetime_updates_skipped_total
-                            .inc_by(skipped);
+                            .inc_by(skipped as u64);
                         let mut cache = writer
                             .node
                             .submitted_lifetimes

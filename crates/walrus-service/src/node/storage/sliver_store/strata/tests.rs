@@ -1740,6 +1740,51 @@ async fn strata_adapter_metrics_cover_put_reconciliation_and_sync() -> TestResul
 }
 
 #[tokio::test]
+async fn waiting_lifetime_cache_hit_releases_submission_lock() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), false)?;
+    let node = strata(&storage);
+    let guard = node.lifecycle.lock_blobs_shared(&[&X.0]).await?;
+    let key = sliver_key(&X, SliverType::Primary);
+    let (first, updates) = node
+        .lock_missing_lifetimes(&guard, HashMap::from([(key.clone(), 20)]))
+        .await;
+    assert_eq!(first.len(), 1);
+    assert_eq!(updates.len(), 1);
+
+    let (second, updates) = {
+        let waiting = node.lock_missing_lifetimes(&guard, HashMap::from([(key.clone(), 20)]));
+        tokio::pin!(waiting);
+        assert!(futures::poll!(&mut waiting).is_pending());
+        // Model the first upload's successful submission while the second waits on its lock.
+        node.submitted_lifetimes
+            .lock()
+            .unwrap()
+            .record(key.clone(), 20);
+        drop(first);
+        waiting.await
+    };
+    assert!(updates.is_empty());
+    assert!(
+        second.is_empty(),
+        "a resolved miss must not serialize payload I/O"
+    );
+    // Keep the second upload alive: another submitter must not wait for its payload or sync.
+    let third =
+        tokio::time::timeout(Duration::from_secs(1), guard.lock_lifetime_submission()).await?;
+    drop(third);
+    // A different expiry still requires a serialized lifetime update.
+    let (extended, updates) = node
+        .lock_missing_lifetimes(&guard, HashMap::from([(key, 21)]))
+        .await;
+    assert_eq!(extended.len(), 1);
+    assert_eq!(updates.len(), 1);
+    drop(extended);
+    drop(guard);
+    close(storage).await
+}
+
+#[tokio::test]
 async fn lifetime_cache_coalesces_concurrent_shards_and_reconciliation() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;
