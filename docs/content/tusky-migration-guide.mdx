@@ -101,7 +101,7 @@ Based on your needs for data management going forward, you can choose to encrypt
   - [Walrus Quilt](/docs/system-overview/quilt)
 
 3. Validate integrity and availability of the data.
-  - You might have to decrypt your data using encryption keys that you have retrieved from Tusky. Make sure you request these **before** their service is shut down.
+    - Blobs fetched directly from Walrus do not pass through the Tusky SDK, so unlike data downloaded from Tusky via SDK (which should already be decrypted), any encrypted data must be decrypted by you using encryption keys retrieved from Tusky. Make sure you request these **before** their service is shut down.
 
 4. Update your application or workflows to reference Walrus directly going forward.
 

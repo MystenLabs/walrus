@@ -118,7 +118,7 @@ For example, the following settings apply:
 
 ## Blob size limits
 
-RaptorQ encodes the size of a symbol as a 16-bit integer. Therefore, the maximum size of a blob that can be encoded is $2^{16} - 1 = 65535$ bytes. At a minimum, a symbol must be at least 1 byte.
+RaptorQ encodes the size of a symbol as a 16-bit integer. Therefore, the maximum size of a *symbol* is $2^{16} - 1 = 65535$ bytes, and at a minimum a symbol must be at least 1 byte. The maximum blob size is correspondingly larger, since a blob is split into many symbols.
 
 The system encodes the blob in the rectangular message matrix, which upper-bounds the blob size by `source_symbols_primary * source_symbols_secondary * u16::MAX` and lower-bounds it by `source_symbols_primary * source_symbols_secondary`. A few examples for the same configurations as above:
 

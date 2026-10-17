@@ -68,7 +68,7 @@ The service records blob metadata (the Walrus blob ID, the Sui object ID, the ch
 
 - [x] A Walrus client configuration and a wallet funded with SUI and WAL. See [Getting Started](/docs/getting-started).
 
-- [x] Optional: a PostgreSQL database if you want indexed queries alongside the local RocksDB store.
+- [x] Optional: a PostgreSQL database if you want indexed queries alongside the local RocksDB store. You configure it through the optional PostgreSQL connection URL in the example configuration file reviewed in the next step.
 
 </TabItem>
 </Tabs>
@@ -95,7 +95,7 @@ Then build and run the example:
    cargo run --release -p walrus-sui-archival -- run --config config/testnet_local_config.yaml
    ```
 
-4. Open the web interface at `http://localhost:9185` to view archival statistics, browse archived blobs, and look up checkpoints.
+4. Open the web interface at the REST API bind address from your configuration (`http://localhost:9185` when the default `0.0.0.0:9185` is used) to view archival statistics, browse archived blobs, and look up checkpoints.
 
 ## Query the API
 
