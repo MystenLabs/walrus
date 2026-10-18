@@ -115,6 +115,9 @@ struct StressArgs {
     /// The binary logarithm of the maximum blob size to use for the load generation.
     #[arg(long, default_value = "20")]
     max_size_log2: u8,
+    /// Use this exact blob size in bytes, overriding the logarithmic size bounds.
+    #[arg(long)]
+    blob_size_bytes: Option<usize>,
     /// The period in milliseconds to check if gas needs to be refilled.
     ///
     /// This is useful for continuous load testing where the gas budget need to be refilled
@@ -192,12 +195,15 @@ async fn run_stress(
         COIN_REFILL_AMOUNT,
         MIN_BALANCE,
     );
-    let blob_config = WriteBlobConfig::new(
+    let mut blob_config = WriteBlobConfig::new(
         args.min_size_log2,
         args.max_size_log2,
         args.min_epochs_to_store,
         args.max_epochs_to_store,
     );
+    if let Some(size) = args.blob_size_bytes {
+        blob_config = blob_config.with_fixed_size_bytes(size)?;
+    }
     let mut load_generator = LoadGenerator::new(
         n_clients,
         blob_config,
