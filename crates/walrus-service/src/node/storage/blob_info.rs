@@ -13,7 +13,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
     ops::Bound::{self, Unbounded},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use anyhow::Context as _;
@@ -224,6 +224,16 @@ impl BlobInfoTable {
                 storage_pool_info_cf_options(db_table_opts_factory),
             ),
         ]
+    }
+
+    /// Blocks blob info updates from events until the returned guard is dropped.
+    ///
+    /// Event updates take this lock for their whole write, so a caller that holds it knows that no
+    /// event write is in flight.
+    pub(super) fn lock_event_updates(&self) -> MutexGuard<'_, DBMap<(), u64>> {
+        self.latest_handled_event_index
+            .lock()
+            .expect("mutex should not be poisoned")
     }
 
     /// Updates the blob info for a blob based on the [`BlobEvent`].
