@@ -300,6 +300,118 @@ async fn explicit_delete_is_deferred_and_survives_restart() -> TestResult {
 }
 
 #[tokio::test]
+async fn invalid_blob_delete_clears_all_shards_with_two_durable_operations() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let shards = [SHARD, ShardIndex(8)];
+        storage
+            .create_storage_for_shards_for_testing(&shards)
+            .await?;
+        for id in [X, Y] {
+            storage
+                .update_blob_info_coordinated(
+                    if id == X { 0 } else { 1 },
+                    &registration(id, 20).into(),
+                )
+                .await?;
+            for shard in shards {
+                let writer = strata(&storage).open_shard(shard)?;
+                writer
+                    .write(
+                        vec![
+                            (id, get_sliver(SliverType::Primary, 2)),
+                            (id, get_sliver(SliverType::Secondary, 2)),
+                        ],
+                        Some(1),
+                        None,
+                    )
+                    .await?;
+            }
+        }
+        let before = strata(&storage).store.index().get_next_lsn()?;
+        storage.delete_blob_data(&X).await?;
+        assert_eq!(strata(&storage).store.index().get_next_lsn()? - before, 2);
+        for shard in shards {
+            for axis in [SliverType::Primary, SliverType::Secondary] {
+                assert!(strata(&storage).open_shard(shard)?.get(&X, axis)?.is_none());
+                assert!(strata(&storage).open_shard(shard)?.get(&Y, axis)?.is_some());
+            }
+        }
+        close(storage).await?;
+        let storage = open(dir.path(), optimistic)?;
+        for shard in shards {
+            for axis in [SliverType::Primary, SliverType::Secondary] {
+                assert!(strata(&storage).open_shard(shard)?.get(&X, axis)?.is_none());
+                assert!(strata(&storage).open_shard(shard)?.get(&Y, axis)?.is_some());
+            }
+        }
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_key_does_not_reuse_a_legacy_tombstone_binding() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), true)?;
+    storage
+        .create_storage_for_shards_for_testing(&[SHARD])
+        .await?;
+    let registered = registration(X, 20);
+    storage
+        .update_blob_info_coordinated(0, &registered.clone().into())
+        .await?;
+    put(&storage, X).await?;
+    storage
+        .update_blob_info_coordinated(
+            1,
+            &registered
+                .into_corresponding_deleted_event_for_testing(false)
+                .into(),
+        )
+        .await?;
+    let mut start = strata(&storage).lifecycle.progress.batch();
+    start.insert_batch(
+        &strata(&storage).lifecycle.progress,
+        [((), ReconciliationProgress::Applying(2))],
+    )?;
+    start.write_with_sync(true)?;
+
+    // Model a crash after the old per-shard tombstone protocol recorded its submission binding
+    // but before the reconciliation marker was acknowledged.
+    let legacy_identity = bcs::to_bytes(&(X, 20_u32, true, Some(1_u64)))?;
+    let legacy_key = [
+        b"walrus-epoch/".as_slice(),
+        &2_u32.to_be_bytes(),
+        legacy_identity.as_slice(),
+    ]
+    .concat();
+    strata(&storage)
+        .store
+        .index()
+        .submitted_batch_lsns()
+        .insert(&legacy_key, &1)?;
+
+    let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
+    strata(&storage).reconcile_blobs(2, &snapshot, true).await?;
+
+    assert!(!stored(&storage, X)?);
+    assert_eq!(
+        strata(&storage)
+            .store
+            .index()
+            .submitted_batch_lsns()
+            .safe_iter()?
+            .count(),
+        2
+    );
+    run_until(&storage, 2, true).await?;
+    close(storage).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn put_cancels_delete_but_preserves_lifetime_reconciliation() -> TestResult {
     for optimistic in [false, true] {
         let dir = TempDir::new()?;
@@ -1910,7 +2022,7 @@ async fn lifetime_cache_handles_repeated_keys_in_one_batch_and_failed_preparatio
             .unwrap()
             .contains(&sliver_key(&X, SliverType::Secondary), 20)
     );
-    writer.delete_pair(X).await?;
+    node.delete_blob(X).await?;
     assert!(!stored(&storage, X)?);
     assert!(
         !node

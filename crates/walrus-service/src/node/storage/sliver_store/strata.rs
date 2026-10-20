@@ -42,6 +42,7 @@ use lifetime_cache::LifetimeCache;
 const SYNC_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 const BLOB_CHUNK_SIZE: usize = 256;
 const POOL_CHUNK_SIZE: usize = 256;
+const DELETE_KEY_BINDING_VERSION: u8 = 1;
 
 /// Strata store for slivers. Walrus control tables remain in RocksDB.
 #[derive(Debug, Clone)]
@@ -426,12 +427,6 @@ impl StrataSliverStore {
                 }
                 let mut ack = writer.lifecycle.dirty_blobs.batch();
                 let prefix = [b"walrus-epoch/".as_slice(), &epoch.to_be_bytes()].concat();
-                let shards = writer
-                    .store
-                    .index()
-                    .shards()
-                    .safe_iter()?
-                    .collect::<Result<Vec<_>, _>>()?;
                 let mut submitted = false;
                 let mut cache_updates = Vec::new();
                 for (id, end, unchanged, delete, registered, event_index) in &work {
@@ -445,12 +440,8 @@ impl StrataSliverStore {
                                 .lock()
                                 .expect("lifetime cache poisoned")
                                 .invalidate(&key);
-                            for (shard, info) in &shards {
-                                if info.is_active() {
-                                    batch.tombstone(*shard, key.clone());
-                                    needs_submission = true;
-                                }
-                            }
+                            batch.delete_key(key);
+                            needs_submission = true;
                         } else if *registered
                             && u64::from(*end) > writer.store.current_epoch()?
                             && !writer
@@ -469,11 +460,14 @@ impl StrataSliverStore {
                     // repeated after a crash even after individual dirty IDs were acked.
                     // A later registration/delete can occur while this pass is running. It
                     // must not reuse an earlier delete's binding after writing a new payload.
-                    let lsn_key = [
-                        prefix.as_slice(),
-                        &bcs::to_bytes(&(id, end, delete, event_index))?,
-                    ]
-                    .concat();
+                    // A legacy per-shard tombstone binding does not prove the whole key and
+                    // lifetime were cleared. Reissue that pending delete once after upgrading.
+                    let identity = if *delete {
+                        bcs::to_bytes(&(id, end, delete, event_index, DELETE_KEY_BINDING_VERSION))?
+                    } else {
+                        bcs::to_bytes(&(id, end, delete, event_index))?
+                    };
+                    let lsn_key = [prefix.as_slice(), identity.as_slice()].concat();
                     if needs_submission {
                         if writer
                             .store
@@ -591,6 +585,48 @@ impl StrataSliverStore {
             }
         }
         Ok(true)
+    }
+
+    pub(super) async fn delete_blob(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
+        let this = self.clone();
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                let _guard = this.lifecycle.lock_blobs(&[&blob_id.0]).await?;
+                let mut completion =
+                    HaltOnIncompleteWrite::new(this.lifecycle.clone(), "delete_blob");
+                let writer = this.clone();
+                let lsn = utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        let mut batch = writer.store.batch();
+                        for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                            let key = sliver_key(&blob_id, sliver_type);
+                            writer
+                                .submitted_lifetimes
+                                .lock()
+                                .expect("lifetime cache poisoned")
+                                .invalidate(&key);
+                            batch.delete_key(key);
+                        }
+                        let _operation = writer
+                            .lifecycle
+                            .metrics
+                            .operation_duration_seconds
+                            .with_label_values(&["delete"])
+                            .start_timer();
+                        let result = batch.write().map_err(store_error)?;
+                        Ok::<_, TypedStoreError>(result.op_lsns().last().copied().unwrap_or(0))
+                    })
+                    .await,
+                )
+                .inspect_err(|error| completion.record_error(error))?;
+                this.wait_durable_lsn(lsn)
+                    .await
+                    .inspect_err(|error| completion.record_error(error))?;
+                completion.complete();
+                Ok(())
+            })
+            .await,
+        )
     }
 
     /// Waits until the Strata checkpoint makes `lsn` crash safe, not merely visible to reads.
@@ -947,52 +983,6 @@ impl StrataShardSliverStore {
             .store
             .contains_in_shards(&key, &[u32::from(self.shard.0)])
             .map_err(store_error)
-    }
-
-    pub(super) async fn delete_pair(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
-        let this = self.clone();
-        utils::unwrap_or_resume_unwind(
-            tokio::spawn(async move {
-                let _guard = this.node.lifecycle.lock_blobs(&[&blob_id.0]).await?;
-                this.check_generation()?;
-                let mut completion =
-                    HaltOnIncompleteWrite::new(this.node.lifecycle.clone(), "delete_sliver_pair");
-                let writer = this.clone();
-                let lsn = utils::unwrap_or_resume_unwind(
-                    tokio::task::spawn_blocking(move || {
-                        let mut batch = writer.node.store.batch();
-                        for sliver_type in [SliverType::Primary, SliverType::Secondary] {
-                            let key = sliver_key(&blob_id, sliver_type);
-                            writer
-                                .node
-                                .submitted_lifetimes
-                                .lock()
-                                .expect("lifetime cache poisoned")
-                                .invalidate(&key);
-                            batch.tombstone(u32::from(writer.shard.0), key);
-                        }
-                        let _operation = writer
-                            .node
-                            .lifecycle
-                            .metrics
-                            .operation_duration_seconds
-                            .with_label_values(&["delete"])
-                            .start_timer();
-                        let result = batch.write().map_err(store_error)?;
-                        Ok::<_, TypedStoreError>(result.op_lsns().last().copied().unwrap_or(0))
-                    })
-                    .await,
-                )
-                .inspect_err(|error| completion.record_error(error))?;
-                this.node
-                    .wait_durable_lsn(lsn)
-                    .await
-                    .inspect_err(|error| completion.record_error(error))?;
-                completion.complete();
-                Ok(())
-            })
-            .await,
-        )
     }
 }
 

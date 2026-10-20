@@ -1658,11 +1658,9 @@ impl Storage {
     #[tracing::instrument(skip_all)]
     pub async fn delete_blob_data(&self, blob_id: &BlobId) -> Result<(), TypedStoreError> {
         if self.sliver_store.is_strata() {
-            // The invalid-blob event is not acknowledged until all Strata tombstones are durable.
-            // If we crash partway through, replaying the event safely repeats the tombstones.
-            for shard in self.existing_shard_storages().await {
-                shard.sliver_store().delete_pair(*blob_id).await?;
-            }
+            // The invalid-blob event is not acknowledged until both whole-key Strata deletes are
+            // durable. If we crash partway through, replaying the event safely repeats them.
+            self.sliver_store.delete_blob(*blob_id).await?;
             let mut batch = self.metadata.batch();
             self.delete_metadata(&mut batch, blob_id, false)?;
             batch.write()?;

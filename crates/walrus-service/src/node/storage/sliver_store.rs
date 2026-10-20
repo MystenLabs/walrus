@@ -143,6 +143,16 @@ impl SliverStore {
         matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
     }
 
+    /// Deletes both sliver-axis keys for a blob from the node-wide Strata store.
+    pub(crate) async fn delete_blob(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
+        match self.backend.as_ref() {
+            SliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
+                "node-wide RocksDB sliver deletion is not supported".to_owned(),
+            )),
+            SliverStoreBackend::Strata(store) => store.delete_blob(blob_id).await,
+        }
+    }
+
     pub(super) async fn reconcile_epoch(
         &self,
         epoch: walrus_core::Epoch,
@@ -365,15 +375,6 @@ impl ShardSliverStore {
         match &self.backend {
             ShardSliverStoreBackend::RocksDb(_) => Ok(()),
             ShardSliverStoreBackend::Strata(store) => store.drop_shard(),
-        }
-    }
-
-    pub(crate) async fn delete_pair(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
-        match &self.backend {
-            ShardSliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
-                "standalone RocksDB sliver deletion is not supported".to_owned(),
-            )),
-            ShardSliverStoreBackend::Strata(store) => store.delete_pair(blob_id).await,
         }
     }
 
