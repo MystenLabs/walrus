@@ -124,6 +124,8 @@ Use this method if you need to [customize the portal configuration](/docs/sites/
 
 */}
 
+## How to deploy a portal with Docker
+
 Clone the `walrus-sites` repository and check out the stable branch:
 
 ```sh
@@ -166,6 +168,8 @@ docker run \
   mysten/walrus-sites-server-portal:mainnet-v2.8.0
 ```
 
+The `--rm` flag removes the Docker container automatically when it stops.
+
 The portal Docker image version must match your `site-builder` version. Run the following command to get the version tag:
 
 ```bash
@@ -180,7 +184,17 @@ Once the Docker container is running, open your browser and navigate to the foll
 http:/localhost:3000
 ```
 
-### Local development
+To view a specific Walrus Site, navigate to the following URL:
+
+```
+http://SITE_OBJECT_ID_B36.localhost:3000
+```
+
+Replace `SITE_OBJECT_ID_B36` with the Base36-encoded object ID of the Walrus Site you want to view.
+
+## How to run a portal for local development
+
+Local development supports 2 portal types: a server-side portal, which runs at `localhost:3000`, and a service-worker portal, which runs at `localhost:8080`.
 
 This method requires `bun`. Check whether `bun` is installed:
 
