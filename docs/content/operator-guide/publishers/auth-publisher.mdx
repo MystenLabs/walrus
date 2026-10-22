@@ -56,7 +56,7 @@ The authenticated publishing flow works as follows:
 
 1. **Asset return (optional):** If specified, the publisher returns the newly created `Blob` object to the Sui address set in the request.
 
-## Understand the authentication flow
+## How does the authentication flow work?
 
 The authenticated publisher enables web apps to let users upload files to Walrus without requiring them to have a wallet. The following example demonstrates a typical workflow where users authenticate through the web app using credentials like username and password rather than a blockchain wallet.
 
@@ -93,20 +93,20 @@ Each JWT token can only be used once. After storing 1 file, the replay suppressi
 
 :::
 
-## Set up the publisher
+## How to set up the publisher
 
 Configure the publisher at startup using the following command line arguments:
 
 - `--jwt-decode-secret`: The secret key used to verify JWT signatures. If set, the publisher only stores blobs with valid JWTs.
 - `--jwt-algorithm`: The algorithm used for JWT verification (defaults to HMAC).
 - `--jwt-expiring-sec`: Duration in seconds after which the JWT is considered expired.
-- `--jwt-verify-upload`: Enables verification of upload parameters against JWT claims.
+- `--jwt-verify-upload`: Enables verification of upload parameters against JWT claims. It does not enable or disable the cryptographic verification of the JWT.
 
 ### Set the JWT decode secret
 
-The secret can be a hexadecimal string, starting with `0x`. If you do not specify this parameter, authentication is disabled.
+The secret can be a hexadecimal string, starting with `0x`. If you do not specify this parameter, the publisher disables authentication and stores blobs without requiring a JWT.
 
-All JWT tokens are expected to have the `jti` (JWT ID) set in the claim to a unique value. The publisher uses the JWT ID for replay suppression, to prevent malicious users from storing multiple times using the same JWT. The JWT creator must ensure that this value is unique among all requests to the publisher. Using large nonces to avoid collisions is recommended.
+All JWT tokens are expected to have the `jti` (JWT ID) set in the claim to a unique value. The publisher uses the JWT ID for replay suppression, to prevent malicious users from storing multiple times using the same JWT. The JWT creator must ensure that this value is unique among all requests to the publisher. Using large nonces to avoid collisions is recommended. For the full list of required claims, see [Mandatory fields](#mandatory-fields).
 
 ### Choose an authentication algorithm
 
@@ -138,9 +138,9 @@ Replay suppression supports the following configuration parameters:
 - `--jwt-cache-size`: The maximum size of the JWT cache of the publisher, where the `jti` JWT IDs of used JWTs are kept until their expiration. This is a hard upper bound on the number of entries in the cache, after which additional requests to store are rejected. This hard bound prevents denial-of-service (DoS) attacks on the publisher through the cache.
 - `--jwt-cache-refresh-interval`: The interval (in seconds) after which the cache is refreshed and expired JWTs are removed (possibly creating space for additional JWTs).
 
-## Work with JWTs
+## What must a JWT contain?
 
-The current authenticated publisher implementation does not provide a way to generate JWTs and distribute them to clients. You can generate them with any tool (examples on how to create a JWT are given in the next section), as long as they respect the following constraints.
+The current authenticated publisher implementation does not provide a way to generate JWTs and distribute them to clients. You can generate them with any tool, as long as they respect the following constraints. For examples, see [How to create a valid JWT in the backend](#how-to-create-a-valid-jwt-in-the-backend).
 
 ### Mandatory fields
 
@@ -160,7 +160,7 @@ You cannot use the `epochs` and `max_epochs` claims together, and you cannot use
 
 The JWT can only encode information about the size and epochs of the blob to store, not about the amount of SUI and WAL the user is allowed to consume. You should handle this on the backend before issuing the JWT.
 
-### Create a valid JWT in the backend
+### How to create a valid JWT in the backend
 
 The following examples show how to create JWTs that the authenticated publisher can consume.
 
@@ -190,5 +190,5 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
 let encoding_key = EncodingKey::from_secret("my_secret".as_bytes());
 let claim = Claim { /* set here the parameters for the Claim struct above */ };
-let jwt = encode(&Header::default(), &claim, &encode_key).expect("a valid claim and key");
+let jwt = encode(&Header::default(), &claim, &encoding_key).expect("a valid claim and key");
 ```
