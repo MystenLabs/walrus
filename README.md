@@ -5,17 +5,18 @@ governance.
 
 ## Documentation
 
-Our main documentation is available [as a Walrus Site](https://docs.wal.app) (see [the
-documentation](https://docs.wal.app/walrus-sites/intro.html) for further information on what this
-means) and on [GitHub Pages](https://mystenlabs.github.io/walrus). For information to build and
-modify the documentation, see [the corresponding section in the CONTRIBUTING.md
+Our main documentation is available at [docs.wal.app](https://docs.wal.app). For information to
+build and modify the documentation, see [the corresponding section in the CONTRIBUTING.md
 file](./CONTRIBUTING.md#documentation).
 
 There are some additional documentation resources:
 
+- The design of Walrus is described in our scientific paper, [Walrus: An Efficient Decentralized
+  Storage Network](https://arxiv.org/abs/2505.05370), and in the [Walrus
+  whitepaper](https://docs.wal.app/walrus.pdf), which also covers the WAL token economics.
 - Usage examples are available under [docs/examples](./docs/examples/).
-- Our encoding system, which we call *Red Stuff*, is described in detail in
-  [docs/red-stuff.md](docs/red-stuff.md).
+- Our encoding system, which we call *Red Stuff*, is described in detail in [the
+  documentation](https://docs.wal.app/docs/system-overview/red-stuff).
 - All our code is covered by Rust docs. You can build these and open them in your web browser by
   running the following:
 
@@ -33,7 +34,7 @@ This repository contains all Walrus-related code, tools, and documentation:
 - [`docker`](./docker) contains Dockerfiles and docker-compose setups for building and running Walrus.
 - [`docs`](./docs) contains high-level technical and design documentation about Walrus.
 - [`scripts`](./scripts) contains tools used for evaluating and testing the code. In particular, this
-  contains a script to run a local testbed, see [CONTRIBUTING.md](./CONTRIBUTING.md#run-a-local-walrus-testbed).
+  contains a script to run a local testbed, see [CONTRIBUTING.md](./CONTRIBUTING.md#running-a-local-walrus-testbed).
 - [`setup`](./setup) contains setup scripts and configuration files.
 - [`testnet-contracts`](./testnet-contracts) contains the Walrus contracts deployed for Walrus
   Testnet. The object IDs of the published contracts are included in the `Move.lock` files.
@@ -81,8 +82,8 @@ and more extensive tests:
 ## Using the Walrus client
 
 If you just want to use the Walrus Mainnet or Testnet, please follow the [setup instructions in our
-documentation](https://docs.wal.app/usage/setup.html). Further information about the usage is
-also available in the [public documentation](https://docs.wal.app/usage/interacting.html).
+documentation](https://docs.wal.app/docs/getting-started). Further information about the usage is
+also available in the [public documentation](https://docs.wal.app/docs/walrus-client).
 
 If you want to build the binary from source or run local tests, see the instructions
 [below](#building-from-source-and-testing).
