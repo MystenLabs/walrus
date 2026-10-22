@@ -45,7 +45,7 @@ Instead of your application making many requests to different storage nodes, you
 
 The relay implements server-side retry logic, including automatic retries for failed node connections, timeout handling for slow nodes, quorum management to ensure enough nodes store the data, and error recovery without client intervention.
 
-When the relay receives a blob, it reuses the same uploader that the Walrus TypeScript SDK client uses for direct uploads, so the server inherits all quorum tracking and retry behavior. Within that helper, the SDK concurrently writes to each node, counts failures by shard weight, and keeps retrying until quorum is satisfied (or aborts with `NotEnoughBlobConfirmationsError` if it cannot reach quorum).
+When the relay receives a blob, it reuses the same uploader that the Walrus TypeScript SDK client uses for direct uploads, so the server inherits all quorum tracking and retry behavior. Within that helper, the SDK concurrently writes to each node, counts failures by shard weight, and keeps retrying until quorum is satisfied (or aborts if it cannot reach quorum).
 
 ## Network optimization
 
@@ -63,7 +63,7 @@ Public or community relays often charge a tip to offset bandwidth, compute, and 
 
 Your client must provide the `nonce` and `tx_id` from the payment transaction. Without this payment, the relay rejects the upload request.
 
-Paid relays only accept uploads that include the advertised tip, so your request is prioritized and not throttled once the payment is verified. The payment transaction encodes `blob_digest`, `nonce`, and `unencoded_length`. The relay checks the provided `tx_id` and `nonce` pair before streaming data, preventing freeloading or replay attempts.
+Paid relays only accept uploads that include the advertised tip, so your request is prioritized and not throttled once the payment is verified. Depending on the relay implementation, the payment transaction encodes `blob_digest`, `nonce`, and `unencoded_length`. The relay checks the provided `tx_id` and `nonce` pair before streaming data, preventing freeloading or replay attempts.
 
 ## When to use the relay
 
