@@ -34,11 +34,11 @@ answer: >-
   across shards.
 ---
 
-This page continues from the [RedStuff encoding algorithm overview](red-stuff) with a concrete worked example.
+RedStuff encoding arranges a blob as a matrix of symbols and expands the matrix columns and rows to create primary and secondary slivers. A sliver is a row or column of encoded symbols: a primary sliver is a row of the column expansion, and a secondary sliver is a column of the row expansion. Walrus stores each sliver pair on a shard. The example that follows uses a Walrus instance with 7 shards and builds on the [RedStuff encoding algorithm overview](red-stuff).
 
-## Encoding
+## How does RedStuff encoding work step by step?
 
-Consider a Walrus instance with $N = 7 = 3f + 1$ shards. This means the number of primary source symbols is $N - 2f = 3$, and secondary $N - f = 5$. A blob of size $S = 15 \cdot s$ can therefore be divided into 15 symbols of size $s$, and arranged in the matrix as follows.
+Consider a Walrus instance with $N = 7 = 3f + 1$ shards. This means the number of primary source symbols is $N - 2f = 3$, and secondary $N - f = 5$. You can therefore divide a blob of size $S = 15 \cdot s$ into 15 symbols of size $s$ and arrange them in a matrix with 3 rows ($N - 2f$) and 5 columns ($N - f$):
 
 $$
 \left[
@@ -50,7 +50,15 @@ s_{2,0} & s_{2,1} & s_{2,2} & s_{2,3} & s_{2,4} \\
 \right]
 $$
 
-Then, the primary encoding acts on the columns of the matrix, expanding them such that each column is composed of 4 source symbols and 6 recovery symbols ($s_{i,j}$ indicates source symbols, while $r_{i,j}$ indicates recovery symbols).
+The matrices on this page use the following notation:
+
+- $s_{i,j}$: Source symbol in row $i$ and column $j$.
+- $r_{i,j}$: Recovery symbol in row $i$ and column $j$.
+- Blue: Recovery symbols that the current step adds or highlights.
+
+## How are primary and secondary slivers created?
+
+The primary encoding acts on the columns of the matrix, expanding them such that each column is composed of 3 source symbols and 4 recovery symbols.
 
 $$
 \left[
@@ -85,6 +93,8 @@ $$
 Each of the columns of this row expansion is a secondary sliver. For example, $[r_{0,6}, r_{1,6}, r_{2,6}]$.
 
 The $i$th sliver pair is composed of the $i$th primary and $i$th secondary slivers. For simplicity, consider that the $i$th sliver pair is stored on shard $i$. The [sliver-pair-to-shard mapping section](red-stuff-parameters#sliver-pair-to-shard-mapping) discusses the full mapping.
+
+## What is the fully expanded message matrix?
 
 Thanks to the linearity of RaptorQ, the expansion of:
 
