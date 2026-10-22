@@ -50,7 +50,9 @@ answer: >-
 
 When choosing a platform to store and verify data, you should consider reliability, uptime, availability, programmability, and price predictability. Walrus offers a fixed, USD-denominated storage cost of **$0.023/GB/month**, allowing you to budget and scale with confidence.
 
-## Estimate storage costs
+Walrus bills on each blob's encoded size: the erasure-coded size of the blob, about 4.5x the original, plus a fixed 64 MB of metadata per blob. You pay for storage in WAL and for Sui transactions in SUI. To get a figure for your data, use the [Walrus Cost Calculator](https://costcalculator.wal.app/) or [estimate the cost by hand](#estimate-cost-by-hand).
+
+## How to estimate storage costs
 
 :::tip Storing many small files?
 
@@ -72,7 +74,7 @@ If the calculator does not load, open the [Walrus Cost Calculator](https://costc
 
 For command-line estimates, run `walrus info` to view current storage prices and upload fees. You can also run `walrus store --dry-run ...` to see the encoded size used in WAL cost calculations without submitting transactions.
 
-## How pricing works
+## How does Walrus pricing work?
 
 Storage on Walrus is paid in WAL but priced at a fixed rate of **$0.023/GB/month**. The amount of WAL required adjusts automatically as the WAL token price changes.
 
@@ -84,7 +86,7 @@ You also pay **SUI** for executing transactions on Sui Mainnet. Each operation t
 
 :::tip
 
-Walrus bills you on the blob's **encoded size**, not the size of your original file. The encoded size is about 4.5x the original blob plus a fixed 64 MB of per-blob metadata. The cost calculator and `walrus info` already account for this, so you do not need to compute it yourself. Run `walrus store --dry-run ...` to see the exact encoded size for a file.
+Walrus bills you on the blob's **encoded size**, not the size of your original file. The encoded size is the erasure-coded size of the blob, about 4.5x the original, plus a fixed 64 MB of per-blob metadata. The cost calculator and `walrus info` already account for this, so you do not need to compute it yourself. Run `walrus store --dry-run ...` to see the exact encoded size for a file.
 
 :::
 
@@ -152,7 +154,7 @@ Access is enforced through onchain policies, enabling fine-grained, dynamic perm
 
 #### Storage resources
 
-You need a storage resource with adequate capacity and epoch duration to store a blob. You can purchase storage resources from the Walrus system contract by paying WAL, which is used by the client and aggregators while free space is available, or you can receive them from other parties.
+You need a storage resource with adequate capacity and epoch duration to store a blob. Walrus measures storage duration in epochs. On Mainnet, 1 epoch lasts 2 weeks. You can purchase storage resources from the Walrus system contract by paying WAL, which is used by the client and aggregators while free space is available, or you can receive them from other parties.
 
 The cost of a storage resource is based on the blob's **encoded size**, not the size of your original file. The encoded size is the erasure-coded size of the blob, about 4.5x the original, plus a fixed 64 MB of per-blob metadata. For blobs smaller than 10 MB, the fixed metadata cost dominates. See [Reducing costs for small blobs](#reducing-costs-for-small-blobs-with-quilt) for optimization strategies.
 
@@ -179,7 +181,7 @@ Registering a blob costs WAL to cover upload costs. This ensures that deleting b
 
 Storing a blob involves up to 3 onchain [Sui transactions](https://docs.sui.io/concepts/transactions), each of which incurs SUI gas fees.
 
-1. Acquiring a storage resource (`reserve_space`)
+1. Acquiring a storage resource (`reserve_space`), only if you do not already own a storage resource of appropriate size and duration
 
 1. Registering the blob
 
@@ -189,7 +191,7 @@ Storing a blob involves up to 3 onchain [Sui transactions](https://docs.sui.io/c
 
 Walrus blobs are represented as [Sui objects](https://docs.sui.io/guides/developer/objects/object-model) onchain. Creating these objects deposits SUI into the [Sui storage fund](https://docs.sui.io/concepts/sui-architecture/sui-storage#storage-fund), most of which is refunded when you delete the objects.
 
-## Measuring costs
+## How to measure costs
 
 The most accurate way to measure costs is to upload a blob and observe SUI and WAL costs in a Sui explorer or through the Sui gRPC API. Blob contents do not affect cost.
 
@@ -257,7 +259,7 @@ You can acquire storage resources through 3 methods:
 
 1. **Transfer or trade:** Storage resources can be transferred between users or acquired through marketplace implementations.
 
-## Optimizing costs
+## How to optimize costs
 
 #### Reducing costs for small blobs with Quilt
 
@@ -275,7 +277,7 @@ For details, see [Batch Storage with Quilt](/docs/system-overview/quilt).
 
 Purchasing larger storage resources at once, both in size and duration, minimizes SUI gas costs per unit. You can split and merge these resources as needed for smaller blobs or shorter durations.
 
-#### Use Sui PTBs efficiently
+#### Use Sui programmable transaction blocks efficiently
 
 Pack multiple smart contract calls into a single [Sui programmable transaction block (PTB)](https://docs.sui.io/concepts/transactions/prog-txn-blocks) to manage resource acquisition, splitting, and merging. This reduces both latency and costs.
 
