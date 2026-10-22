@@ -53,11 +53,11 @@ A Walrus Site is made up of 4 main components that work together: the site's fil
 
 Each section below covers one component on its own. To follow all four through a single page load, read [Technical Overview](/docs/sites/introduction/technical-overview). To skip the theory and deploy something, go straight to [Publishing Your First Site](/docs/sites/getting-started/publishing-your-first-site), or browse the full guide set from [Walrus Sites](/docs/sites).
 
-## Site files on Walrus
+## How does Walrus store site files?
 
 Your site's static assets (HTML, CSS, JavaScript, images, fonts, and so on) are stored as blobs on Walrus. When you deploy a site, the `site-builder` uploads your assets to Walrus by encoding multiple files into a single storage entity called a [quilt](/docs/system-overview/quilt), a unique feature designed to reduce upload cost and improve upload speed. Each file in the quilt is assigned a `QuiltPatchID`.
 
-## The Sui site object
+## What does the Sui site object store?
 
 Each Walrus Site corresponds to a single object on Sui, defined by the Move smart contract in the [`move/walrus_site`](https://github.com/MystenLabs/walrus-sites/tree/main/move/walrus_site) directory of the repository. Unlike storing a single blob directly on Walrus, a Walrus Site bundles all its files into a quilt and represents the entire site as one Sui object. At its core, a site object is a basic structure:
 
@@ -68,7 +68,7 @@ struct Site has key, store {
 }
 ```
 
-Each resource in the site is attached to this object as a dynamic field of type `Resource`:
+The site object stores each resource as a [dynamic field](https://docs.sui.io/concepts/dynamic-fields) of type `Resource`:
 
 ```move
 struct Resource has store, drop {
@@ -88,7 +88,7 @@ Blobs are stored for a fixed number of epochs. On Mainnet, each epoch lasts 14 d
 
 :::
 
-## The `site-builder` CLI
+## What does the `site-builder` CLI do?
 
 The `site-builder` is a Rust CLI tool that creates and manages Walrus Sites. It takes your site's build output directory as input and handles uploading files to Walrus and writing the onchain index to Sui.
 
@@ -98,11 +98,13 @@ The primary command is [`deploy`](/docs/sites/getting-started/using-the-site-bui
 site-builder deploy --epochs <NUMBER> <DIRECTORY>
 ```
 
+Replace `<NUMBER>` with the number of epochs to store your site's files, and replace `<DIRECTORY>` with your site's build output directory.
+
 The `site-builder` requires a [`sites-config.yaml` configuration file](/docs/sites/getting-started/using-the-site-builder) that specifies the Sui package ID for the Walrus Sites contract and your network context.
 
 When you run `deploy` for the first time, it publishes a new site and writes the resulting Sui object ID to the `object_id` field in `ws-resources.json`. On subsequent runs, `deploy` reads that object ID and updates the existing site instead of creating a new one.
 
-## `ws-resources.json`
+## What is `ws-resources.json` used for?
 
 [`ws-resources.json`](/docs/sites/configuration/site-configuration) is a configuration file the `site-builder` reads during deployment to control how your site is built and served. The file itself is not uploaded to Walrus and is not accessible to visitors.
 
@@ -139,7 +141,7 @@ Walrus Sites does not support dynamic redirects. Redirect plugins used in framew
 
 :::
 
-## Portals
+## How does a portal serve a site?
 
 A [portal](/docs/sites/portals/mainnet-testnet) resolves and serves a Walrus Site to a visitor's browser. When a visitor navigates to a Walrus Site URL, the portal performs the following steps:
 
@@ -154,7 +156,7 @@ The public Mainnet portal operated by Mysten Labs is available at [https://wal.a
 
 Anyone can host their own portal. For setup instructions, see [Deploy a Local Portal](/docs/sites/portals/deploy-locally).
 
-## Local development
+## How to develop a site locally
 
 You can iterate on a Walrus Site entirely on your own machine by running each component locally, which avoids spending Testnet or Mainnet tokens on every change:
 
