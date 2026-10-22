@@ -59,7 +59,7 @@ The configuration snippets and the operator list below come straight from the Wa
 
 :::
 
-## Network parameters
+## What are the Walrus network parameters? {#network-parameters}
 
 Walrus operates a production Mainnet on Sui Mainnet and a Testnet on Sui Testnet. The following fixed system parameters apply to each network:
 
@@ -98,9 +98,9 @@ The publisher difference blocks more Mainnet launches than any other item here. 
 
 The choice depends on where the upload runs and who holds the wallet. Server-side code that already has a funded wallet should integrate with the SDK. A browser or mobile client that cannot hold WAL should use an upload relay. A fleet of internal clients that expects an HTTP endpoint should get a private authenticated publisher. For the full set of upload paths, including the CLI, see [Choose your upload path](/docs/getting-started#choose-your-upload-path).
 
-Testnet package IDs change whenever Walrus redeploys the contracts, so read them from the `Move.lock` files in the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) rather than pinning a copied value. For everything specific to Testnet, including faucets and how to recover after a reset, see the [Testnet Reference](/docs/testnet-reference).
+Testnet package IDs change whenever Walrus redeploys the contracts, so read them from the `Move.lock` files in the [`testnet-contracts` directory on GitHub](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) rather than pinning a copied value. For everything specific to Testnet, including faucets and how to recover after a reset, see the [Testnet Reference](/docs/testnet-reference). To get Testnet WAL, run `walrus get-wal` instead of using a third-party faucet, which might distribute WAL from a package the client rejects.
 
-## Sui RPC endpoints
+## Which Sui RPC endpoints does Walrus use? {#sui-rpc-endpoints}
 
 The Walrus client and SDKs read Walrus state from a Sui full node. The default RPC URLs are:
 
@@ -125,7 +125,7 @@ Older Walrus releases read a `WALRUS_GRPC_MIGRATION_LEVEL` environment variable 
 
 :::
 
-## Package IDs
+## What are the Walrus package IDs? {#package-ids}
 
 The Walrus client and the TypeScript SDK infer package IDs automatically from the system and staking objects, so you do not need to set them manually in most configurations. The values below are provided for contract exploration and for advanced setups that pin a specific deployment.
 
@@ -152,7 +152,7 @@ The `site-builder` tool uses these package IDs, which are set in the `sites-conf
 | Testnet | `0x22b8c1496650eb45fbcca0f8f37fae77ed33b7d4eaab4da5f0bb9b62a8708dcb` |
 {/* GENERATED:END id=sites-packages */}
 
-## System and staking object IDs
+## What are the system and staking object IDs? {#system-and-staking-object-ids}
 
 The Walrus client configuration identifies the network through its system object and staking object. These objects track the state of the Walrus network on Sui.
 
@@ -176,7 +176,7 @@ On Testnet, the SUI/WAL exchange objects used by `walrus get-wal` are:
 
 These object IDs are pre-filled in the [client configuration files](#walrus-cli). The configuration file is the authoritative source if a value here differs.
 
-## Aggregators and publishers
+## Which aggregators and publishers can you use? {#aggregators-and-publishers}
 
 An aggregator exposes an HTTP interface to read blobs. A publisher exposes an HTTP interface to store blobs. Both expose their API specification at the path `/v1/api`, for example at `https://aggregator.walrus-testnet.walrus.space/v1/api`.
 
@@ -223,7 +223,7 @@ For the full request and response details, see [Storing Blobs with the HTTP API]
 
 ## Upload relays
 
-An upload relay stores blob slivers on behalf of clients that cannot open many connections, such as browsers and mobile devices. Mysten Labs operates the following public upload relays:
+An upload relay stores blob slivers on behalf of clients that cannot open many connections, such as browsers and mobile devices. Unlike a publisher, which consumes SUI and WAL on the service side, an upload relay charges the client a tip per upload. Mysten Labs operates the following public upload relays:
 
 {/* GENERATED:START id=upload-relays */}
 | **Network** | **Upload relay endpoint** |
@@ -234,7 +234,7 @@ An upload relay stores blob slivers on behalf of clients that cannot open many c
 
 An upload relay exposes its tip configuration at `/v1/tip-config` and accepts blobs at `/v1/blob-upload-relay`. For details, see [Operate an Upload Relay](/docs/operator-guide/upload-relay).
 
-## Token units
+## How do WAL and SUI token units convert? {#token-units}
 
 Walrus uses WAL for storage and Sui uses SUI for gas. Each token has a smallest indivisible unit:
 
@@ -247,7 +247,7 @@ Walrus uses WAL for storage and Sui uses SUI for gas. Each token has a smallest 
 
 Storage is paid in WAL but priced at a fixed rate of $0.023/GB/month. The amount of WAL adjusts automatically as the WAL price changes. CLI options that take a raw amount, such as `--amount` on `walrus get-wal` and `--gas-budget`, use the smallest unit (FROST or MIST). For current prices and the per-write fee, run `walrus info`. For full cost details, see [Storage Costs](/docs/system-overview/storage-costs).
 
-## Configuration snippets
+## How to configure a client for each network {#configuration-snippets}
 
 The generator imports each snippet below from the canonical client configuration, so they track the deployed networks.
 
@@ -291,6 +291,8 @@ const suiClient = new SuiGrpcClient({
 // Walrus SDK methods are available on suiClient.walrus.
 const walrusClient = suiClient.walrus;
 ```
+
+The `walrus()` extension adds the Walrus SDK methods to the Sui client, which exposes them on `suiClient.walrus`.
 
 To connect to a custom or updated deployment, pass an explicit package configuration using the system and staking object IDs above. For full details, see the [Walrus TypeScript SDK](https://sdk.mystenlabs.com/walrus) and the [SDKs](/docs/typescript-sdk/sdks) page.
 
