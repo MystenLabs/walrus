@@ -44,7 +44,7 @@ Walrus stores data as blobs. Each blob is an immutable array of bytes. Any type 
 
 Sui is a blockchain that supports [programmable transactions](https://docs.sui.io/concepts/transactions/prog-txn-blocks). Walrus binds all blobs to objects on Sui. Walrus blobs are represented as Sui objects of type `Blob`.
 
-## Walrus architecture
+## What is the Walrus architecture?
 
 The Walrus architecture is built on the following key actors:
 
@@ -70,11 +70,11 @@ Storage nodes manage the actual data storage on Walrus. Each storage node holds 
 
 Every blob undergoes [erasure encoding](/docs/system-overview/red-stuff), which splits it into many **slivers**. The slivers from each stored blob are distributed across all shards in the system. A node stores all slivers belonging to its assigned shards and serves them upon request.
 
-A smart contract on Sui controls how shards are assigned to storage nodes. These assignments occur within storage epochs, which last 2 weeks on Mainnet. Walrus assumes that more than 2/3 of shards are managed by honest storage nodes within each storage epoch. The system tolerates up to 1/3 of shards being controlled by malicious or faulty storage nodes. This tolerance level applies both within individual storage epochs and across transitions between epochs.
+A smart contract on Sui controls how shards are assigned to storage nodes. These assignments occur within storage epochs, which currently last 2 weeks on Mainnet. Walrus assumes that more than 2/3 of shards are managed by honest storage nodes within each storage epoch. The system tolerates up to 1/3 of shards being controlled by malicious or faulty storage nodes. This tolerance level applies both within individual storage epochs and across transitions between epochs.
 
 Some assurance properties ensure the correct internal processes of Walrus storage nodes. For the purposes of defining these, an **inconsistency proof** proves that a blob ID was stored by a user that incorrectly encoded a blob:
 
-- **Sliver recovery:** After the PoA, for a blob ID stored by a correct user, a storage node can always recover the correct slivers for its shards for this blob ID.
+- **Sliver recovery:** After the point of availability (PoA), if a correct user stored the blob ID, a storage node can always recover the correct slivers for its shards for this blob ID.
 
 - **Inconsistency detection:** After the PoA, if a correct storage node cannot recover a sliver, it can produce an inconsistency proof for the blob ID.
 
@@ -118,7 +118,7 @@ The [`InvalidBlobID`](https://github.com/MystenLabs/walrus/blob/main/contracts/w
 
 System-level events such as [`EpochChangeStart`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L54-L57) and [`EpochChangeDone`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L59-L63) indicate transitions between epochs. Associated events such as [`ShardsReceived`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L65-L69), [`EpochParametersSelected`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L71-L74), and [`ShardRecoveryStart`](https://github.com/MystenLabs/walrus/blob/main/contracts/walrus/sources/system/events.move#L76-L80) indicate storage node-level events related to epoch transitions, shard migrations, and epoch parameters.
 
-## Additional infrastructure
+## What additional infrastructure does Walrus support?
 
 Walrus supports additional infrastructure actors that can operate in a permissionless way. These infrastructure components are optional.
 
@@ -144,7 +144,7 @@ Publishers are clients that help end users store blobs through protocols like HT
 
 - Performing all required onchain actions
 
-## Data storage process
+## How does Walrus store data?
 
 <figure>
   <iframe src="/diagrams/interactive_walrus-write-path_v1.html"
@@ -209,7 +209,7 @@ When data is uploaded to Walrus, the following process occurs:
 
 1. 2/3 of the receipt signatures are aggregated into an availability certificate. The blob is certified, indicating that a sufficient number of slivers have been stored to guarantee the blob's availability. When a blob is certified, its `certified_epoch` field contains the epoch in which it was certified. A certified blob remains available for the duration specified by its associated storage resource.
 
-## Data retrieval process
+## How does Walrus retrieve data?
 
 <figure>
   <iframe src="/diagrams/interactive_walrus-read-path_v1.html"
