@@ -31,11 +31,11 @@ questions:
 answer: Solutions to common errors when deploying and browsing Walrus Sites.
 ---
 
-Solutions to common errors when deploying and browsing Walrus Sites.
+Common Walrus Sites errors occur in 3 places: `site-builder` configuration, `site-builder deploy`, and browsing a site through a portal. Each entry names the error, its cause, and a solution.
 
-This page covers common errors when deploying and browsing Walrus Sites, organized by where they occur.
+Commands use uppercase placeholders, such as `EPOCHS`, `DIRECTORY`, `OBJECT_ID`, and `SITE_OBJECT_ID`. Replace each placeholder with your own value before you run the command.
 
-## Configuration errors
+## How to fix configuration errors
 
 Errors in this section relate to `site-builder` configuration.
 
@@ -43,7 +43,7 @@ Errors in this section relate to `site-builder` configuration.
 
 **Cause:** The `site-builder` binary is not in a directory that your shell searches when running commands.
 
-**Solution:** Move the binary to a directory included in your `$PATH`, or add its current location:
+**Solution:** Move the binary to a directory included in your `$PATH` (the list of directories your shell searches for commands), or add its current location:
 
 ```
 $ export PATH=$PATH:/path/to/site-builder-directory
@@ -80,7 +80,7 @@ $ site-builder --config /path/to/sites-config.yaml deploy --epochs EPOCHS DIRECT
 
 ---
 
-## Deployment errors
+## How to fix deployment errors
 
 Errors in this section occur when running `site-builder deploy`.
 
@@ -121,7 +121,7 @@ On Mainnet, acquire WAL through an exchange or transfer before deploying.
 $ sui client transfer --object-id SITE_OBJECT_ID --to NEW_WALLET_ADDRESS --gas-budget 10000000
 ```
 
-#### Deploy publishes a new site instead of updating
+#### Why does deploy publish a new site instead of updating?
 
 **Cause:** The `deploy` command creates a new site object when it cannot find an existing object ID. It checks the `--object-id` flag first, then the `object_id` field in `ws-resources.json`. If neither is present, a new site is created.
 
@@ -135,23 +135,23 @@ After the first deploy, `site-builder` writes the object ID to `ws-resources.jso
 
 ---
 
-## Browsing errors
+## How to fix browsing errors
 
 Errors in this section occur when accessing a site through a portal.
 
-#### Site does not load on `wal.app`
+#### Why does a site not load on `wal.app`?
 
 **Cause:** The `wal.app` portal only serves Mainnet sites. If your site is deployed to Testnet, the portal cannot resolve it. The `wal.app` portal also requires a SuiNS name and does not support Base36 object ID subdomains.
 
 **Solution:** If your site is on Testnet, run a local portal to access it. If your site is on Mainnet but has no SuiNS name, assign one through the [SuiNS app](https://suins.io/) and link it to your site's object ID.
 
-#### SuiNS name does not resolve to the correct site
+#### Why does a SuiNS name not resolve to the correct site?
 
 **Cause:** Your SuiNS name points to a different object ID than your current site, or the record has not propagated yet.
 
 **Solution:** Open the [SuiNS app](https://suins.io/), navigate to your name's settings, and verify the linked object ID matches the output from your most recent `site-builder deploy`. Allow a few minutes for changes to propagate, then hard-refresh your browser (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd> or <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>).
 
-#### Pages return a 404 error on direct URL access
+#### Why do pages return a 404 error on direct URL access?
 
 **Cause:** The portal fetches the requested URL path as a file from Walrus. For single-page applications that use client-side routing, those paths do not correspond to real files, so the request returns a 404 error.
 
