@@ -45,7 +45,7 @@ Walrus that you are not willing to make public.
 
 :::
 
-## Data availability
+## How does Walrus keep data available?
 
 The encoding mechanisms applied by Walrus guarantee that blobs can be written and remain
 available as long as 2/3 of the shards are operated by storage nodes that act honestly.
@@ -62,22 +62,23 @@ inconsistency proofs generated for them.
 You can learn more in the [whitepaper](/walrus.pdf) and in the [Walrus fundamentals
 documentation](/docs/system-overview/core-concepts).
 
-## Data integrity
+## How does Walrus protect data integrity?
 
 Walrus guarantees that any data read corresponds to what the user who uploaded the data
-intended. Because the encoding is done by the client, it is possible that this encoding is
-incorrect, either by mistake or on purpose. This causes some subtleties, which are
-described in the [encoding documentation](/docs/system-overview/red-stuff).
+intended. Because the client does the encoding, the encoding might be incorrect, either by
+mistake or on purpose. In that case, storage nodes can produce an inconsistency proof, and
+reads for that blob ID return `None`. For the remaining subtleties, see the
+[encoding documentation](/docs/system-overview/red-stuff).
 
-## Data confidentiality
+## How do you keep data confidential?
 
 Walrus does not provide native encryption for data. By default, all blobs stored in Walrus
 are public and discoverable by everyone. To keep data confidential, encrypt it on the
 client before you store it, for example with [Seal](https://github.com/MystenLabs/seal), and
-treat the blob ID as public. Encryption is your responsibility. Walrus stores and serves
+treat the blob ID as public. Encryption and key management are your responsibility: keep the plaintext and any keys off Walrus, because Walrus stores and serves
 whatever bytes you upload.
 
-## Data sovereignty and residency
+## Can you choose where Walrus stores data?
 
 Walrus does not let you choose which storage nodes or geographic regions hold your data.
 When you store a blob, Walrus erasure-codes it into slivers and distributes them across all
@@ -88,11 +89,11 @@ Because every blob is public and its placement is not controllable, do not store
 regulated data on Walrus in the clear. If you must handle such data, encrypt it before
 storing it, keep the plaintext and any keys off Walrus, and store only what you are willing
 to make permanently public. For the distribution and encoding details, see
-[Core Concepts](/docs/system-overview/core-concepts) and [Red Stuff](/docs/system-overview/red-stuff).
+[Core Concepts](/docs/system-overview/core-concepts) and the [Red Stuff](/docs/system-overview/red-stuff) encoding documentation.
 
-## Nautilus: Secure and verifiable offchain computation
+## What is Nautilus?
 
-Nautilus is a framework for secure and verifiable offchain computation on Sui. It enables
+Nautilus is a framework for secure and verifiable offchain computation on Sui that complements Walrus: an enclave can process data stored on Walrus in a tamper-resistant way. It enables
 you to delegate sensitive or resource-intensive tasks to a self-managed trusted execution
 environment (TEE) while using smart contract verification to preserve trust onchain.
 
