@@ -26,11 +26,9 @@ const OUTPUT_DIR = path.resolve(SITE_ROOT, "../walrus-memory-content");
 // being added to it (internal notes, drafts, runbooks) stay off the site.
 const NAV_FILE = path.join(CACHE_DIR, "docs.json");
 
-// Pages published although the upstream navigation does not list them: group landing pages that
-// listed pages link to, and pages the docs.wal.app sidebar shows under Reference.
+// Pages published although the upstream navigation does not list them: the docs.wal.app sidebar
+// shows them under Reference.
 const EXTRA_PAGES = new Set([
-  "sdk/usage",
-  "python-sdk/usage",
   "security/health-check-unsigned",
   "architecture/permanent-registry-design",
 ]);
@@ -53,6 +51,8 @@ function loadNavSlugs(navFile) {
       return;
     }
     if (!node || typeof node !== "object") return;
+    // A group's `root` is its landing page, for example sdk/usage for the Usage group.
+    if (typeof node.root === "string") slugs.add(node.root);
     for (const page of node.pages || []) {
       if (typeof page === "string") slugs.add(page);
     }
@@ -784,12 +784,16 @@ function removeSkippedPageLinks(content) {
     },
   );
 
-  // Remove <Card> blocks pointing to skipped pages
+  // Remove <Card> blocks pointing to skipped or dropped pages. Cards navigate in an onClick
+  // handler, so the build's broken-link check never sees their targets.
   result = result.replace(
     /<Card\s+[^>]*href="\/([^"]+)"[^>]*>[\s\S]*?<\/Card>\s*/gi,
     (match, target) => {
-      const clean = target.replace(/^walrus-memory\//, "").replace(/\/$/, "");
-      return SKIPPED_SLUGS.has(clean) ? "" : match;
+      const clean = target
+        .replace(/^walrus-memory\//, "")
+        .replace(/#.*$/, "")
+        .replace(/\/$/, "");
+      return SKIPPED_SLUGS.has(clean) || droppedSlugSet.has(clean) ? "" : match;
     },
   );
 
@@ -897,7 +901,7 @@ function main() {
   for (const { fullPath, relPath } of files) {
     const basename = path.basename(relPath);
     if (skipFiles.has(basename)) continue;
-    // Pages dropped from the published site (changelog, consolidated pages).
+    // Pages dropped from the published site (see isDroppedPage).
     if (isDroppedPage(relPath)) continue;
     // Skip files in src/ directory (CSS, assets)
     if (relPath.startsWith("src/")) continue;
