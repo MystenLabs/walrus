@@ -51,7 +51,7 @@ Storage pools are a preview feature. They are currently available through the Ru
 
 :::
 
-## Storage pools at a glance
+## How do pooled blobs differ from regular blobs?
 
 The following table summarizes how storing a blob in a pool differs from storing it in the standard flow.
 
@@ -63,7 +63,7 @@ The following table summarizes how storing a blob in a pool differs from storing
 | **Ownership** | The `Blob` object can be owned, transferred, or shared. | The `PooledBlob` object lives inside the pool and cannot be transferred on its own. |
 | **Reading** | By blob ID through any client or aggregator. | Identical; pooled blobs have regular blob IDs. |
 
-## How storage pools work
+## How do storage pools work?
 
 A storage pool is a Sui object that wraps a storage resource with a fixed encoded capacity and a lifetime spanning a start epoch up to, but not including, an end epoch. The pool tracks three things: its reserved encoded capacity, the encoded bytes currently in use, and the number of registered blobs. The pool represents each blob as a `PooledBlob` object that lives inside the pool rather than as an independently owned `Blob` object.
 
@@ -76,7 +76,7 @@ Pooled blobs differ from regular blobs in a few important ways:
 
 ### Capacity is measured in encoded bytes
 
-Pool capacity, like all Walrus storage, is measured in *encoded* bytes: the size of a blob after erasure coding, which is about 4.5x the original size plus a fixed metadata overhead of roughly 64 MB per blob. See [storage costs](/docs/system-overview/storage-costs) for how encoded size is calculated and how to check it with a dry run.
+Pool capacity, like all Walrus storage, is measured in *encoded* bytes: the size of a blob after erasure coding, which is about 4.5x the original size plus a fixed metadata overhead of roughly 64 MB per blob. The overhead applies to each blob, not to the pool as a whole. For example, a 10 MB file consumes roughly 45 MB plus 64 MB, about 109 MB of pool capacity. See [storage costs](/docs/system-overview/storage-costs) for how encoded size is calculated and how to check it with a dry run.
 
 The fixed per-blob metadata overhead applies to pooled blobs too, so a pool does not make many small blobs cheaper; each one still consumes at least the metadata overhead of capacity. If your goal is to reduce the cost of many small blobs, use [Quilt](/docs/system-overview/quilt), which batches small blobs into a single blob. The two features compose: you can store quilts in a pool.
 
@@ -91,9 +91,9 @@ A pool is either active or expired, and the state determines which operations ar
 
 Expiry is silent: when the end epoch arrives, storage nodes stop serving the pool's blobs and no onchain event is emitted. The `PooledBlob` objects remain inside the pool until they are burned, but the data is no longer available. Track your pool's end epoch and extend it before it arrives.
 
-## Costs
+## How much does a storage pool cost?
 
-Storage pools use the same two prices as regular blobs, the per-epoch storage price and the one-off write price, both billed per encoded storage unit. The difference is which operation pays which fee:
+Storage pools have no separate pricing. They use the same two prices as regular blobs, the per-epoch storage price and the one-off write price, both billed per encoded storage unit. The difference is which operation pays which fee:
 
 | Operation | Storage fee | Write fee |
 |---|---|---|
@@ -110,7 +110,7 @@ Two properties follow from this:
 
 There are no refunds. Deleting a blob frees capacity for reuse inside the pool but does not return WAL, and shrinking a pool's unused capacity returns a storage resource object that you can use elsewhere, not WAL.
 
-## When to use a storage pool
+## When should you use a storage pool?
 
 Use a storage pool when:
 
@@ -122,7 +122,7 @@ Prefer regular blobs when blobs need independent lifetimes, when you need to tra
 
 ### Decision guide
 
-Use the following matrix to decide whether a storage pool fits your workload. A pool is the right choice only when every row points to it.
+Use the following matrix to decide whether a storage pool fits your workload. A pool is the right choice only when every row points to it. The blob size row is the exception: if you batch small files with Quilt first, you can store the resulting quilts in a pool.
 
 | **Dimension** | **Use a storage pool when** | **Use regular blobs when** |
 |---|---|---|
@@ -131,6 +131,8 @@ Use the following matrix to decide whether a storage pool fits your workload. A 
 | **Ownership** | Blobs never need to be transferred or shared individually. | You need to transfer, sell, or share individual blob objects. |
 | **Capacity planning** | You can predict your working set and keep the pool close to full. | Your storage needs are spiky or unpredictable; unused reservation is wasted cost. |
 | **Blob size** | Blobs are large enough that the fixed per-blob metadata overhead is acceptable. | You mostly store small files; use [Quilt](/docs/system-overview/quilt) instead, optionally inside a pool. |
+
+Deletability determines whether you get the capacity-reuse benefit. Register blobs as deletable if you want to reuse their capacity; permanent pooled blobs pin their capacity until the pool expires.
 
 ## Pool operations
 
@@ -166,7 +168,7 @@ let pool_id = client
 
 When sizing the capacity, remember that blobs consume it at their *encoded* size. You can compute a blob's exact encoded size with `walrus_core::encoding::encoded_blob_length_for_n_shards`, or check it for a sample file with `walrus store --dry-run`. The pool's lifetime is bounded by the system's maximum blob lifetime, currently 53 epochs, the same limit that applies to [regular blob lifetimes](/docs/walrus-client/managing-blobs).
 
-### Store blobs in the pool
+### How to store blobs in a pool
 
 The `reserve_and_store_blobs_in_storage_pool` method handles encoding, registration, sliver upload to storage nodes, and certification in one call, and returns one result per blob:
 
@@ -199,9 +201,9 @@ for result in &results {
 
 The store call enforces a few rules that differ from the regular store path:
 
-- The pool's end epoch must already cover the requested `epochs_ahead`; otherwise the call fails with `StoragePoolInsufficientLifetime`. The SDK never extends a pool's lifetime automatically, because that would change the expiry of every other blob in the pool. Call `extend_storage_pool` first if needed.
+- The pool's end epoch must already cover the requested `epochs_ahead`, which `StoreArgs::default_with_epochs(5)` sets to 5 in the example; otherwise the call fails with `StoragePoolInsufficientLifetime`. This value does not set the blob's lifetime: every pooled blob expires at the pool's end epoch. The SDK never extends a pool's lifetime automatically, because that would change the expiry of every other blob in the pool. Call `extend_storage_pool` first if needed.
 - If the pool lacks capacity for the new blobs, the SDK automatically calls `increase_storage_pool_capacity`, which pays the storage fee for the additional capacity from your wallet.
-- The call does not automatically retry across an epoch change, because pooled registration is not idempotent and a blind retry could register duplicate entries. If the call fails with a committee-change error, inspect the pool state before retrying.
+- The call does not automatically retry across an epoch change. Pooled registration is not idempotent, meaning that repeating it does not have the same effect as running it once, so a blind retry could register duplicate entries. If the call fails with a committee-change error during an epoch change, inspect the pool state before retrying.
 - Only `PostStoreAction::Keep` is supported, because pooled blobs live inside the pool and cannot be transferred or shared after the store.
 - By default blobs are registered as deletable. Pass `BlobPersistence::Permanent` in the store arguments only if you never need to reclaim their capacity while the pool is active.
 
@@ -345,7 +347,7 @@ Capacity increases and decreases, burning expired blobs, and destroying a pool d
 - Blobs registered as permanent cannot be deleted while the pool is active; their capacity is only reclaimable after the pool expires. Register blobs as deletable if you want to reuse their capacity.
 - Certification must happen before the pool's final epoch; you cannot certify a blob into a pool that expires in the current epoch.
 - A pool's remaining lifetime plus any extension cannot exceed the system's maximum blob lifetime, currently 53 epochs.
-- Storage pools currently support only the RS2 encoding type, which is the default.
+- Storage pools currently support only the RS2 encoding type, which is the default. Even though `register_pooled_blob` takes an `encoding_type` parameter, pass only RS2.
 
 ## Common pitfalls
 
