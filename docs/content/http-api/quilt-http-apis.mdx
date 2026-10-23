@@ -41,7 +41,13 @@ answer: >-
 
 Walrus supports storing and retrieving multiple blobs as a single unit called a [quilt](/docs/system-overview/quilt). Publishers and aggregators both support quilt operations. Set `$PUBLISHER` and `$AGGREGATOR` to endpoints from the [Network Reference](/docs/network-reference#aggregators-and-publishers).
 
-## Storing quilts
+To store and retrieve a blob in a quilt:
+
+1. Store the files as a quilt through the publisher with `PUT /v1/quilts`.
+2. From the store response, copy the `quiltPatchId` of the blob you want, or copy the quilt ID (`blobId`) and the blob's identifier.
+3. Retrieve the blob through the aggregator with `/v1/blobs/by-quilt-patch-id/` or `/v1/blobs/by-quilt-id/`.
+
+## How to store quilts
 
 All query parameters available for [storing regular blobs](/docs/http-api/storing-blobs#configuring-storage-options) can also be used when storing quilts.
 
@@ -54,7 +60,7 @@ $ curl -X PUT "$PUBLISHER/v1/quilts?epochs=5" \
   -F "logo-2024=@image.png"
 ```
 
-Identifiers must be unique within a quilt and cannot start with `_`. The field name `_metadata` is reserved for Walrus native metadata and does not conflict with user-defined identifiers. See the [Quilt documentation](/docs/system-overview/quilt) for complete identifier restrictions.
+Identifiers must be unique within a quilt and cannot start with `_`. Walrus reserves the field name `_metadata` for native metadata. Because identifiers cannot start with `_`, `_metadata` never conflicts with a user-defined identifier. See the [Quilt documentation](/docs/system-overview/quilt) for complete identifier restrictions.
 
 The following example stores 2 files with Walrus-native metadata tags:
 
@@ -122,13 +128,11 @@ If successful, the response contains the blob object details and the stored quil
 }
 ```
 
-## Reading quilts
+## How to read quilts
 
 You can retrieve blobs from a quilt through the aggregator APIs using their quilt patch ID or their quilt ID and unique identifier. Currently, only 1 blob can be retrieved per request. Bulk retrieval of multiple blobs from a quilt in a single request is not yet supported.
 
 ### Retrieving by quilt patch ID
-
-test
 
 Each blob in a quilt has a unique patch ID. Retrieve a specific blob using its patch ID:
 
@@ -141,7 +145,7 @@ You can obtain quilt patch IDs from the store quilt output or by using the [`lis
 
 ### Retrieving by quilt ID and identifier
 
-You can also retrieve a blob using the quilt ID and the blob's identifier:
+You can also retrieve a blob using the quilt ID and the blob's identifier. The quilt ID is the `blobId` value in the store response:
 
 ```sh
 # Retrieve a blob with identifier `walrus.jpg` from the quilt:
