@@ -1054,6 +1054,32 @@ impl SuiContractClient {
         self.inner.lock().await.send_wal(amount, address).await
     }
 
+    /// Sends `amount` SUI to each recipient in one transaction.
+    pub async fn send_sui_batch(
+        &self,
+        amount: u64,
+        recipients: &[SuiAddress],
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .send_sui_batch(amount, recipients)
+            .await
+    }
+
+    /// Sends `amount` WAL to each recipient in one transaction.
+    pub async fn send_wal_batch(
+        &self,
+        amount: u64,
+        recipients: &[SuiAddress],
+    ) -> SuiClientResult<()> {
+        self.inner
+            .lock()
+            .await
+            .send_wal_batch(amount, recipients)
+            .await
+    }
+
     /// Updates the parameters for a storage node.
     pub async fn update_node_params(
         &self,
@@ -1837,8 +1863,21 @@ impl SuiContractClientInner {
 
     /// Sends the `amount` gas to the provided `recipient`.
     pub async fn send_sui(&mut self, amount: u64, recipient: SuiAddress) -> SuiClientResult<()> {
+        self.send_sui_batch(amount, &[recipient]).await
+    }
+
+    async fn send_sui_batch(
+        &mut self,
+        amount: u64,
+        recipients: &[SuiAddress],
+    ) -> SuiClientResult<()> {
+        if recipients.is_empty() {
+            return Ok(());
+        }
         let mut pt_builder = self.transaction_builder();
-        pt_builder.pay_sui(recipient, amount).await?;
+        for &recipient in recipients {
+            pt_builder.pay_sui(recipient, amount).await?;
+        }
         self.sign_and_send_transaction(
             pt_builder.build_transaction_data(self.gas_budget).await?,
             "send_sui",
@@ -1849,10 +1888,21 @@ impl SuiContractClientInner {
 
     /// Sends the `amount` WAL to the provided `address`.
     pub async fn send_wal(&mut self, amount: u64, address: SuiAddress) -> SuiClientResult<()> {
-        tracing::debug!(%address, "sending WAL to address");
-        let mut pt_builder = self.transaction_builder();
+        self.send_wal_batch(amount, &[address]).await
+    }
 
-        pt_builder.pay_wal(address, amount).await?;
+    async fn send_wal_batch(
+        &mut self,
+        amount: u64,
+        recipients: &[SuiAddress],
+    ) -> SuiClientResult<()> {
+        if recipients.is_empty() {
+            return Ok(());
+        }
+        let mut pt_builder = self.transaction_builder();
+        for &recipient in recipients {
+            pt_builder.pay_wal(recipient, amount).await?;
+        }
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "send_wal")
             .await?;

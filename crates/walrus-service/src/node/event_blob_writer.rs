@@ -1253,7 +1253,7 @@ impl EventBlobWriter {
 
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
-                .store_sliver_unchecked(
+                .store_event_sliver_unchecked(
                     blob_metadata_clone.clone(),
                     sliver_pair.index(),
                     Sliver::Primary(sliver_pair.primary.clone()),
@@ -1277,7 +1277,7 @@ impl EventBlobWriter {
 
         try_join_all(sliver_pairs.iter().map(|sliver_pair| async {
             self.node
-                .store_sliver_unchecked(
+                .store_event_sliver_unchecked(
                     blob_metadata_clone.clone(),
                     sliver_pair.index(),
                     Sliver::Secondary(sliver_pair.secondary.clone()),

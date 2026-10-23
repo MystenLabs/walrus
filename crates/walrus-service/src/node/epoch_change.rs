@@ -285,6 +285,15 @@ impl StorageNode {
         // (spawned by `execute_epoch_change` as part of the finisher task) cannot contend with
         // phase 1's disk traffic on the same RocksDB instance.
         self.start_garbage_collection_task(event.epoch).await?;
+        if self.inner.storage.is_strata() {
+            // Historical boundaries only accumulate dirty IDs. Persist the current target
+            // before this event can complete, then let the worker scan while Walrus transitions.
+            let (current_epoch, _) = self.inner.contract_service.get_epoch_and_state().await?;
+            self.inner
+                .storage
+                .request_strata_reconciliation(event.epoch, current_epoch)
+                .await?;
+        }
 
         // Compute this before the handle is moved into `execute_epoch_change`, whose finisher marks
         // the event complete in the background: checking afterwards could misclassify first-time

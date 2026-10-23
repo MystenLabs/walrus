@@ -55,6 +55,7 @@ services:
     environment:
       - EPOCH_DURATION=2m
       - NO_COLOR=1
+      - SLIVER_STORE_BACKEND=${SLIVER_STORE_BACKEND:-rocks-db}
     volumes:
       - ./files/deploy-walrus.sh:/root/deploy-walrus.sh
       - walrus-deploy-outputs:/opt/walrus/outputs

@@ -730,3 +730,39 @@ async fn test_automatic_wal_coin_squashing(
     );
     Ok(())
 }
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_batch_wallet_refills() -> anyhow::Result<()> {
+    walrus_test_utils::init_tracing();
+    let (_cluster, client, _, _) = initialize_contract_and_wallet_with_single_node().await?;
+    let client = client.as_ref();
+    let recipients: Vec<_> = (0..100)
+        .map(|_| SuiAddress::random_for_testing_only())
+        .collect();
+    let amount = 500_000_000;
+    client.send_sui_batch(amount, &recipients).await?;
+    client.send_wal_batch(amount, &recipients).await?;
+    // Empty batches are no-ops, including no gas charge.
+    let balance = client.total_balance(CoinType::Sui).await?;
+    client.send_sui_batch(amount, &[]).await?;
+    client.send_wal_batch(amount, &[]).await?;
+    assert_eq!(client.total_balance(CoinType::Sui).await?, balance);
+    for recipient in recipients {
+        assert_eq!(
+            client
+                .retriable_sui_client()
+                .get_total_balance(recipient, walrus_sui::coin::Coin::SUI)
+                .await?,
+            amount
+        );
+        assert_eq!(
+            client
+                .retriable_sui_client()
+                .get_total_balance(recipient, client.read_client().wal_coin_type())
+                .await?,
+            amount
+        );
+    }
+    Ok(())
+}

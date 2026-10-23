@@ -39,7 +39,13 @@ use rand::{Rng, SeedableRng, rngs::StdRng, thread_rng};
 use recovery_symbol_service::{RecoverySymbolRequest, RecoverySymbolService};
 use serde::Serialize;
 use start_epoch_change_finisher::StartEpochChangeFinisher;
-pub use storage::{DatabaseConfig, DatabaseTableOptionsFactory, NodeStatus, Storage};
+pub use storage::{
+    DatabaseConfig,
+    DatabaseTableOptionsFactory,
+    NodeStatus,
+    SliverStoreBackendKind,
+    Storage,
+};
 use storage::{StorageShardLock, blob_info::PerObjectBlobInfoApi};
 #[cfg(msim)]
 use sui_macros::fail_point_if;
@@ -790,11 +796,12 @@ impl StorageNode {
         let storage = if let Some(storage) = node_params.pre_created_storage {
             storage
         } else {
-            Storage::open(
+            Storage::open_with_sliver_backend(
                 config.storage_path.as_path(),
                 config.db_config.clone(),
                 MetricConf::new("storage"),
                 registry.clone(),
+                config.sliver_store_backend,
             )?
         };
         tracing::info!("successfully opened the node database");
@@ -836,11 +843,16 @@ impl StorageNode {
             metrics.clone(),
         );
         let checkpoint_manager =
-            match DbCheckpointManager::new(storage.get_db(), config.checkpoint_config.clone()) {
-                Ok(manager) => Some(Arc::new(manager)),
-                Err(error) => {
-                    tracing::warn!(?error, "failed to initialize checkpoint manager");
-                    None
+            if config.sliver_store_backend == storage::SliverStoreBackendKind::Strata {
+                tracing::warn!("RocksDB-only checkpoints are disabled with Strata sliver storage");
+                None
+            } else {
+                match DbCheckpointManager::new(storage.get_db(), config.checkpoint_config.clone()) {
+                    Ok(manager) => Some(Arc::new(manager)),
+                    Err(error) => {
+                        tracing::warn!(?error, "failed to initialize checkpoint manager");
+                        None
+                    }
                 }
             };
         let system_parameters = contract_service.fixed_system_parameters();
@@ -1042,6 +1054,14 @@ impl StorageNode {
         }
 
         select! {
+            result = self.inner.storage.run_strata_reconciliation(
+                self.inner.garbage_collection_config.enable_data_deletion
+                    && self.inner.garbage_collection_config.enable_blob_info_cleanup,
+            ) => {
+                // A failed worker must stop the node, not silently leave reclamation stalled.
+                result.context("Strata reconciliation worker stopped")?;
+                unreachable!("Strata reconciliation worker never completes");
+            },
             () = self.epoch_change_driver.run() => {
                 unreachable!("epoch change driver never completes");
             },
@@ -1680,7 +1700,7 @@ impl StorageNode {
                 event_handle.mark_as_complete();
             }
             EventStreamElement::ContractEvent(ContractEvent::StoragePoolEvent(event)) => {
-                self.process_storage_pool_event(event_handle, event)?;
+                self.process_storage_pool_event(event_handle, event).await?;
             }
             EventStreamElement::ContractEvent(ContractEvent::ProtocolEvent(event)) => {
                 panic!(
@@ -1743,7 +1763,7 @@ impl StorageNode {
     /// Processes storage pool events to manage the storage pool info table, tracking pool
     /// lifetimes (start and end epochs) for each storage pool.
     #[tracing::instrument(skip_all)]
-    fn process_storage_pool_event(
+    async fn process_storage_pool_event(
         &self,
         event_handle: EventHandle,
         event: StoragePoolEvent,
@@ -1753,7 +1773,8 @@ impl StorageNode {
         tracing::debug!(?event, "{} event received", event.name());
         self.inner
             .storage
-            .update_storage_pool_info(event_handle.index(), &event)
+            .update_storage_pool_info_coordinated(event_handle.index(), &event)
+            .await
             .context("failed to update storage pool info")?;
         event_handle.mark_as_complete();
         Ok(())
@@ -2540,6 +2561,34 @@ impl StorageNodeInner {
         sliver_pair_index: SliverPairIndex,
         sliver: Sliver,
     ) -> Result<bool, StoreSliverError> {
+        self.store_sliver_impl(
+            metadata,
+            sliver_pair_index,
+            sliver,
+            Some(self.current_committee_epoch()),
+        )
+        .await
+    }
+
+    /// Event blobs have no registration. They still participate in Strata blob/lifecycle locks
+    /// and wait for durability; only their registration precondition is bypassed.
+    pub(crate) async fn store_event_sliver_unchecked(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        sliver_pair_index: SliverPairIndex,
+        sliver: Sliver,
+    ) -> Result<bool, StoreSliverError> {
+        self.store_sliver_impl(metadata, sliver_pair_index, sliver, None)
+            .await
+    }
+
+    async fn store_sliver_impl(
+        &self,
+        metadata: Arc<VerifiedBlobMetadataWithId>,
+        sliver_pair_index: SliverPairIndex,
+        sliver: Sliver,
+        registered_epoch: Option<Epoch>,
+    ) -> Result<bool, StoreSliverError> {
         let Some((shard_storage, verified_sliver)) = self
             .prepare_sliver_for_storage(metadata.clone(), sliver_pair_index, sliver)
             .await?
@@ -2549,10 +2598,18 @@ impl StorageNodeInner {
 
         let sliver_type = verified_sliver.r#type();
 
-        shard_storage
-            .put_sliver(*metadata.blob_id(), verified_sliver)
-            .await
-            .context("unable to store sliver")?;
+        if let Some(epoch) = registered_epoch {
+            let written = shard_storage
+                .put_registered_sliver(*metadata.blob_id(), verified_sliver, epoch)
+                .await
+                .context("unable to store sliver")?;
+            ensure!(written, StoreSliverError::NotCurrentlyRegistered);
+        } else {
+            shard_storage
+                .put_sliver(*metadata.blob_id(), verified_sliver)
+                .await
+                .context("unable to store event sliver")?;
+        }
 
         walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver_type).inc();
 

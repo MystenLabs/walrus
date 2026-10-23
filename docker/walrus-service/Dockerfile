@@ -21,6 +21,9 @@ COPY crates crates
 # GIT_REVISION declared late so SHA changes don't invalidate the COPYs above.
 ARG GIT_REVISION
 ENV GIT_REVISION=$GIT_REVISION
+# librocksdb-sys does not detect sched_getcpu; use RocksDB's fast Linux lookup
+# instead of CPUID. Target-specific flags preserve CXXFLAGS and other platforms.
+ENV CXXFLAGS_x86_64_unknown_linux_gnu="-DROCKSDB_SCHED_GETCPU_PRESENT=1"
 RUN cargo build --locked --profile ${PROFILE} \
     --bin walrus \
     --bin walrus-node \

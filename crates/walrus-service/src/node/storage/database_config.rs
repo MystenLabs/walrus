@@ -75,6 +75,13 @@ pub struct DatabaseTableOptions {
     /// Pin l0 filter and index blocks in block cache.
     #[serde(skip_serializing_if = "Option::is_none")]
     pin_l0_filter_and_index_blocks_in_block_cache: Option<bool>,
+    /// Number of L0 files that starts slowing writes. Unset preserves RocksDB's default.
+    /// A negative value disables this slowdown trigger.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    level0_slowdown_writes_trigger: Option<i32>,
+    /// Number of L0 files that stops writes. Unset preserves RocksDB's default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    level0_stop_writes_trigger: Option<i32>,
     /// The soft pending compaction bytes limit. When pending compaction bytes exceed this limit,
     /// write rate will be throttled.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -106,6 +113,8 @@ impl DatabaseTableOptions {
             block_cache_size: Some(256 << 20),         // 256 MB,
             block_size: Some(64 << 10),                // 64 KiB,
             pin_l0_filter_and_index_blocks_in_block_cache: Some(true),
+            level0_slowdown_writes_trigger: None,
+            level0_stop_writes_trigger: None,
             soft_pending_compaction_bytes_limit: None,
             hard_pending_compaction_bytes_limit: None,
         }
@@ -203,6 +212,12 @@ impl DatabaseTableOptions {
             pin_l0_filter_and_index_blocks_in_block_cache: self
                 .pin_l0_filter_and_index_blocks_in_block_cache
                 .or(default_override.pin_l0_filter_and_index_blocks_in_block_cache),
+            level0_slowdown_writes_trigger: self
+                .level0_slowdown_writes_trigger
+                .or(default_override.level0_slowdown_writes_trigger),
+            level0_stop_writes_trigger: self
+                .level0_stop_writes_trigger
+                .or(default_override.level0_stop_writes_trigger),
             soft_pending_compaction_bytes_limit: self
                 .soft_pending_compaction_bytes_limit
                 .or(default_override.soft_pending_compaction_bytes_limit),
@@ -318,6 +333,10 @@ impl From<&GlobalDatabaseOptions> for Options {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default)]
 pub struct DatabaseConfig {
+    /// Optional byte budget for Strata's immutable blob-LSM block cache. Verified cached blocks
+    /// avoid repeated disk reads and checksums. Unset keeps Strata's default; zero disables it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) strata_block_cache_capacity_bytes: Option<usize>,
     /// Global database options. Applied when opening/creating the database.
     pub(super) global: GlobalDatabaseOptions,
 
@@ -551,6 +570,7 @@ impl DatabaseConfig {
 impl Default for DatabaseConfig {
     fn default() -> Self {
         Self {
+            strata_block_cache_capacity_bytes: None,
             global: GlobalDatabaseOptions::default(),
             standard: DatabaseTableOptions::standard(),
             optimized_for_blobs: DatabaseTableOptions::optimized_for_blobs(),
@@ -722,6 +742,12 @@ impl DatabaseTableOptionsFactory {
             );
             options.set_block_based_table_factory(&block_based_options);
         }
+        if let Some(trigger) = table_options.level0_slowdown_writes_trigger {
+            options.set_level_zero_slowdown_writes_trigger(trigger);
+        }
+        if let Some(trigger) = table_options.level0_stop_writes_trigger {
+            options.set_level_zero_stop_writes_trigger(trigger);
+        }
         if let Some(soft_pending_compaction_bytes_limit) =
             table_options.soft_pending_compaction_bytes_limit
         {
@@ -890,6 +916,66 @@ mod tests {
     use walrus_test_utils::Result as TestResult;
 
     use super::*;
+
+    #[test]
+    fn test_level0_limits_inheritance() -> TestResult {
+        let config: DatabaseConfig = serde_yaml::from_str(indoc! {"
+            optimized_for_blobs:
+                level0_slowdown_writes_trigger: 40
+                level0_stop_writes_trigger: 80
+            shard:
+                level0_stop_writes_trigger: 100
+        "})?;
+        assert_eq!(config.shard().level0_slowdown_writes_trigger, Some(40));
+        assert_eq!(config.shard().level0_stop_writes_trigger, Some(100));
+        assert_eq!(config.shard_status().level0_slowdown_writes_trigger, None);
+        assert_eq!(config.shard_status().level0_stop_writes_trigger, None);
+        let roundtrip: DatabaseConfig = serde_yaml::from_str(&serde_yaml::to_string(&config)?)?;
+        assert_eq!(roundtrip, config);
+        Ok(())
+    }
+
+    #[test]
+    fn test_level0_limits_applied_to_rocksdb() -> TestResult {
+        for (yaml, slowdown, stop) in [
+            ("{}", 20, 36),
+            (
+                "shard: {level0_slowdown_writes_trigger: 40, level0_stop_writes_trigger: 80}",
+                40,
+                80,
+            ),
+        ] {
+            let config: DatabaseConfig = serde_yaml::from_str(yaml)?;
+            let factory = DatabaseTableOptionsFactory::new(config, true);
+            let mut options = factory.shard();
+            options.create_if_missing(true);
+            let directory = tempfile::tempdir()?;
+            let database = rocksdb::DB::open(&options, directory.path())?;
+            database.put(b"key", b"value")?;
+            drop(database);
+            let options_path = std::fs::read_dir(directory.path())?
+                .collect::<std::io::Result<Vec<_>>>()?
+                .into_iter()
+                .filter(|entry| entry.file_name().to_string_lossy().starts_with("OPTIONS-"))
+                .map(|entry| entry.path())
+                .max()
+                .expect("RocksDB must persist its effective options");
+            let persisted = std::fs::read_to_string(options_path)?;
+            for expected in [
+                format!("level0_slowdown_writes_trigger={slowdown}"),
+                format!("level0_stop_writes_trigger={stop}"),
+                "level0_file_num_compaction_trigger=4".to_string(),
+                "soft_pending_compaction_bytes_limit=68719476736".to_string(),
+                "hard_pending_compaction_bytes_limit=274877906944".to_string(),
+            ] {
+                assert!(
+                    persisted.lines().any(|line| line.trim() == expected),
+                    "{expected}"
+                );
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_optimized_for_blobs_database_config() -> TestResult {
