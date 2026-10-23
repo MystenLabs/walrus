@@ -19,7 +19,6 @@
         "gen:llms:memory": "node src/scripts/generate-llmstxt.mjs --only-prefix walrus-memory --output static/walrus-memory/llms.txt",
         "build": "npm run build:prep && docusaurus build",
         "swizzle": "docusaurus swizzle",
-        "deploy": "docusaurus deploy",
         "clear": "docusaurus clear",
         "serve": "docusaurus serve",
         "docs:audit": "node src/scripts/audit-docs.mjs",

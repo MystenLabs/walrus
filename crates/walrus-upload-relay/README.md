@@ -148,9 +148,11 @@ you might place the configuration such that it is reachable when invoking Docker
 For the sake of the example below, we're assuming that:
 
 - `$HOME/.config/walrus/walrus_upload_relay_config.yaml` exists on the host machine and contains the specification for
-  the `walrus-upload-relay` configuration, as described [here](about:blank).
+  the `walrus-upload-relay` configuration, as described
+  [here](https://docs.wal.app/docs/operator-guide/upload-relay#configure-relay-specific-settings).
 - `$HOME/.config/walrus/client_config.yaml` exists on the host machine and contains Walrus client
-  configuration as specified [here](https://mystenlabs.github.io/walrus-docs/usage/setup.html#configuration).
+  configuration as specified
+  [here](https://docs.wal.app/docs/getting-started/advanced-setup#configure-walrus).
 - You *must* specify one or more `rpc_urls` within the active context of your `client_config.yaml`.
 - Port 3000 is available for the relay to bind to (change this to whichever port you'd like to
   expose from your host.)

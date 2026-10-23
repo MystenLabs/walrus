@@ -112,4 +112,6 @@ git subtree pull --prefix=docs/site/src/shared https://github.com/MystenLabs/ML-
 Vercel deploys the site through its GitHub integration: every push to `main` deploys
 [docs.wal.app](https://docs.wal.app/), and every pull request gets a preview deployment. The
 `Build and publish docs` workflow (`.github/workflows/publish-docs.yaml`) only checks that the site
-builds; it also runs daily and when upstream Walrus Memory or Oyster docs change.
+builds; it also runs daily and when upstream Walrus Memory or Oyster docs change. On pull requests
+that touch `docs/`, `Build docs for PRs` (`.github/workflows/pages-preview.yaml`) runs the same
+build and fails on broken links.
