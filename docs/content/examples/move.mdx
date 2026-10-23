@@ -40,15 +40,15 @@ answer: >-
 
 Every Walrus blob has a corresponding `Blob` object on Sui. In Move, the type of that object is `Blob`, defined in the `walrus::blob` module of the Walrus package. It has the `key` and `store` abilities, so your own Move packages can hold blobs in custom structs, transfer them between addresses, and manage their lifecycle onchain. Add the Walrus package as a dependency to read blob properties, wrap blobs in your own object types, and call the system functions that extend or delete blobs.
 
-## Add the Walrus dependency
+## How to add the Walrus dependency
 
 Declare the Walrus package as a git dependency in your package's `Move.toml`:
 
-<ImportContent source="docs/examples/move/walrus_dep/Move.toml" mode="code" />
+<ImportContent source="docs/examples/move/walrus_dep/Move.toml" mode="code" org="MystenLabs" repo="walrus" />
 
 The `contracts/walrus` subdirectory contains the development sources. The Walrus repository also tracks the sources deployed on each network in the [`mainnet-contracts`](https://github.com/MystenLabs/walrus/tree/main/mainnet-contracts) and [`testnet-contracts`](https://github.com/MystenLabs/walrus/tree/main/testnet-contracts) directories, and the [Network Reference](/docs/network-reference#package-ids) lists the deployed package and object IDs.
 
-## Wrap a blob object
+## How to wrap a blob object
 
 Because `Blob` has the `store` ability, you can embed it in your own object types. The following example module accepts a `Blob` by value and escrows it inside a `WrappedBlob`:
 
@@ -56,7 +56,7 @@ Because `Blob` has the `store` ability, you can embed it in your own object type
 
 After wrapping, only the functions of the wrapping module can reach the blob again, which gives your package full control over where the blob can be transferred next and who can manage it. A marketplace escrow, a vault, or an app-specific asset type all follow this pattern.
 
-## Read blob properties
+## How to read blob properties
 
 The `walrus::blob` module exposes accessors for every `Blob` field:
 
@@ -83,7 +83,13 @@ The `walrus::system` module exposes lifecycle functions on the shared `System` o
 - `extend_blob_with_resource(system, blob, extension)` extends the blob with a `Storage` resource you already own; the resource must match the blob's storage size and last longer.
 - `delete_blob(system, blob)` consumes a deletable blob and returns its `Storage` resource, which you can reuse for another blob.
 
-The `walrus::blob` module additionally provides `burn(blob)`, which destroys the `Blob` object without deleting the data from Walrus and without refunding storage, and metadata functions such as `insert_or_update_metadata_pair` and `remove_metadata_pair` to manage key-value metadata on a blob you hold. The [Managing Blobs](/docs/walrus-client/managing-blobs) page describes the CLI equivalents.
+The `walrus::blob` module additionally provides metadata functions such as `insert_or_update_metadata_pair` and `remove_metadata_pair` to manage key-value metadata on a blob you hold. The [Managing Blobs](/docs/walrus-client/managing-blobs) page describes the CLI equivalents.
+
+:::caution
+
+The `walrus::blob` module also provides `burn(blob)`, which destroys the `Blob` object without deleting the data from Walrus and without refunding storage.
+
+:::
 
 ## Share a blob
 
@@ -98,10 +104,20 @@ The CLI offers the same capability through `walrus share --blob-obj-id <SUI_OBJ_
 
 ## Build, test, and publish
 
-The complete example package lives in the [`docs/examples/move/walrus_dep`](https://github.com/MystenLabs/walrus/tree/main/docs/examples/move/walrus_dep) directory of the Walrus repository. From that directory, run:
+The complete example package lives in the [`docs/examples/move/walrus_dep`](https://github.com/MystenLabs/walrus/tree/main/docs/examples/move/walrus_dep) directory of the Walrus repository. From that directory, build the package:
 
 ```sh
 sui move build
+```
+
+Run the package tests:
+
+```sh
 sui move test
+```
+
+Publish the package:
+
+```sh
 sui client publish --skip-dependency-verification
 ```
