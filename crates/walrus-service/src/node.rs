@@ -1257,8 +1257,10 @@ impl StorageNode {
         // `first_complete_epoch` is the oldest epoch for which all events are guaranteed to be
         // still available through non-expired event blobs.
         let current_epoch = self.inner.committee_service.get_epoch();
-        let first_complete_epoch =
-            current_epoch + 1 - self.inner.system_parameters.max_epochs_ahead;
+        let first_complete_epoch = current_epoch
+            .checked_add(1)
+            .context("current epoch overflow")?
+            .saturating_sub(self.inner.system_parameters.max_epochs_ahead);
 
         assert!(
             // Note that the first event of the first non-expired event blob cannot be the
