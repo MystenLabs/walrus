@@ -1,6 +1,6 @@
 # Walrus Documentation
 
-Walrus developer documentation, built with [Docusaurus](https://docusaurus.io/) and deployed as a [Walrus Site](https://docs.wal.app/).
+Walrus developer documentation, built with [Docusaurus](https://docusaurus.io/) and deployed to [docs.wal.app](https://docs.wal.app/) by Vercel.
 
 ## Quick start
 
@@ -43,8 +43,7 @@ docs/
 └── site/                  # Docusaurus project root
     ├── docusaurus.config.js
     ├── sidebars.js
-    ├── ws-resources.json          # Walrus Sites resource config (auto-generated)
-    ├── ws-resources.manual.json   # Manual resource config (redirects, headers)
+    ├── vercel.json        # Vercel config (redirects, rewrites, headers)
     ├── src/
     │   ├── components/    # Site-specific React components
     │   ├── pages/         # Standalone pages
@@ -89,13 +88,11 @@ The full build runs these steps in sequence:
    from `editorial/` source files.
 2. **`build:prep`** — Inlines imports, copies markdown files, and generates `llms.txt` / `llms-full.txt` for LLM consumption.
 3. **`docusaurus build`** — Compiles the Docusaurus site.
-4. **`generate-routes.js`** — Produces route metadata for the Walrus Sites portal.
 
 ## Redirects and custom headers
 
-Redirects and custom HTTP headers are configured in
-`site/ws-resources.manual.json`. Do not use client-side JavaScript redirects.
-This file is merged with auto-generated route data during the build.
+Redirects, rewrites, and custom HTTP headers are configured in `site/vercel.json`. Do not use
+client-side JavaScript redirects.
 
 ## Shared components
 
@@ -112,11 +109,7 @@ git subtree pull --prefix=docs/site/src/shared https://github.com/MystenLabs/ML-
 
 ## Deployment
 
-The site is deployed as a Walrus Site. To deploy:
-
-```bash
-cd site
-pnpm deploy-site
-```
-
-This runs the `site-builder` CLI to publish the built site to Walrus.
+Vercel deploys the site through its GitHub integration: every push to `main` deploys
+[docs.wal.app](https://docs.wal.app/), and every pull request gets a preview deployment. The
+`Build and publish docs` workflow (`.github/workflows/publish-docs.yaml`) only checks that the site
+builds; it also runs daily and when upstream Walrus Memory or Oyster docs change.
