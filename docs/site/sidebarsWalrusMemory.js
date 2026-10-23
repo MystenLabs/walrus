@@ -215,6 +215,7 @@ const sidebars = {
           "id": "relayer/api-reference",
           "label": "Relayer HTTP API"
         },
+        "security/health-check-unsigned",
         {
           "type": "category",
           "label": "Smart Contract",
@@ -234,7 +235,8 @@ const sidebars = {
             "indexer/onchain-events",
             "indexer/database-sync"
           ]
-        }
+        },
+        "architecture/permanent-registry-design"
       ]
     }
   ]

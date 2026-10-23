@@ -26,8 +26,14 @@ const OUTPUT_DIR = path.resolve(SITE_ROOT, "../walrus-memory-content");
 // being added to it (internal notes, drafts, runbooks) stay off the site.
 const NAV_FILE = path.join(CACHE_DIR, "docs.json");
 
-// Group landing pages that the navigation does not list as pages but that listed pages link to.
-const EXTRA_PAGES = new Set(["sdk/usage", "python-sdk/usage"]);
+// Pages published although the upstream navigation does not list them: group landing pages that
+// listed pages link to, and pages the docs.wal.app sidebar shows under Reference.
+const EXTRA_PAGES = new Set([
+  "sdk/usage",
+  "python-sdk/usage",
+  "security/health-check-unsigned",
+  "architecture/permanent-registry-design",
+]);
 
 // Listed in the upstream navigation, but contributor docs rather than product docs.
 const EXCLUDED_DIRS = ["contributing/"];

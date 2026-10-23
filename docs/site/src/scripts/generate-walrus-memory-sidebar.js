@@ -176,6 +176,7 @@ const STRUCTURE = [
       "mcp/reference",
       "openclaw/reference",
       "relayer/api-reference",
+      "security/health-check-unsigned",
       {
         label: "Smart Contract",
         items: [
@@ -194,6 +195,7 @@ const STRUCTURE = [
         ],
         autoDirs: ["indexer"],
       },
+      "architecture/permanent-registry-design",
     ],
     autoDirs: ["reference", "security", "architecture"],
   },
