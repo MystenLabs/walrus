@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Blob encoding functionality, using the RedStuff algorithm.
-
-// TODO(giac): Link or import the `../../../docs/red-stuff.md` documentation here (#307).
+//!
+//! The algorithm is described in detail in the [RedStuff documentation][doc].
+//!
+//! [doc]: https://github.com/MystenLabs/walrus/blob/main/docs/content/system-overview/red-stuff.mdx
 
 mod basic_encoding;
 pub use basic_encoding::{
