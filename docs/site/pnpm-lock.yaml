@@ -68,6 +68,9 @@ importers:
       js-yaml:
         specifier: ^4.1.1
         version: 4.1.1
+      katex:
+        specifier: ^0.16.28
+        version: 0.16.28
       markdown-it:
         specifier: ^14.1.1
         version: 14.1.1
