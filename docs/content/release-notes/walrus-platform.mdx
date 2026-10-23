@@ -8,18 +8,61 @@ questions:
   - Where can I find Walrus release history?
   - What breaking changes should I be aware of?
 answer: Release notes for the Walrus decentralized storage platform.
-keywords:
-  - walrus
-  - release notes
-  - changelog
-  - storage node
-  - aggregator
-  - publisher
-  - daemon
-  - blob
-  - CLI
-  - mainnet
-  - testnet
+---
+
+### Walrus v1.57.0
+
+`Mainnet` | September 30, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.57.0)
+
+---
+
+### Walrus v1.56.1
+
+`Testnet` | September 17, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.56.1)
+
+---
+
+### Walrus v1.56.0
+
+`Mainnet` | September 16, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.56.0)
+
+---
+
+### Walrus v1.55.2
+
+`Mainnet` | September 2, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.55.2)
+
+#### Changes
+
+- [Adds a `node_recovery_baseline_invalidations_total` metric counting sync-and-recovery info publications that invalidate the node-recovery baseline and supersede in-flight node-recovery runs.](https://github.com/MystenLabs/walrus/pull/3643)
+
+---
+
+### Walrus v1.55.1
+
+`Testnet` | August 28, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.55.1)
+
+#### Changes
+
+- [Adds a `node_recovery_baseline_invalidations_total` metric counting sync-and-recovery info publications that invalidate the node-recovery baseline and supersede in-flight node-recovery runs.](https://github.com/MystenLabs/walrus/pull/3643)
+
+---
+
+### Walrus v1.54.0
+
+`Mainnet` | August 19, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.54.0)
+
+#### Changes
+
+- [Requests for quilt patches of expired or nonexistent quilts now return 404 `BLOB_NOT_FOUND` within about a second, instead of 503 `BLOB_UNAVAILABLE` after a 10-20 second fan-out.](https://github.com/MystenLabs/walrus/pull/3604)
+- [`walrus read-quilt` fails immediately with "the blob ID does not exist" for expired or never-certified quilts, instead of timing out against the storage nodes.](https://github.com/MystenLabs/walrus/pull/3604)
+
+---
+
+### Walrus v1.53.0
+
+`Mainnet` | August 5, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.53.0)
+
 ---
 
 ### Walrus v1.52.1
@@ -46,7 +89,7 @@ keywords:
 
 ### Walrus v1.51.1
 
-`Mainnet` | July 8, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.51.1)
+`Mainnet` | July 9, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.51.1)
 
 #### Changes
 
@@ -129,7 +172,7 @@ unfinished upload pipeline instead of starting over.
 
 ### Walrus v1.45.2
 
-`Mainnet` | April 1, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.45.2)
+`Mainnet` | April 2, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.45.2)
 
 Raises the storage node's RocksDB background threads from 2 to 16 and adds the opt-in
 `garbage_collection.enable_immediate_data_deletion` parameter. Also fixes a combined-daemon body
@@ -179,7 +222,7 @@ to 16, and adds the opt-in `garbage_collection.enable_immediate_data_deletion` p
 
 ### Walrus v1.44.2
 
-`Mainnet` | March 18, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.44.2)
+`Mainnet` | March 19, 2026 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.44.2)
 
 #### Changes
 
@@ -340,7 +383,7 @@ Delivers a major reduction in memory usage when reading large blobs and adds the
 
 ### Walrus v1.35.0
 
-`Testnet` | October 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.35.0)
+`Testnet` | October 16, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.35.0)
 
 The Testnet preview with a major reduction in memory usage for large blobs and sliver-range
 information in `store-quilt` output, plus advance notice that the default consistency check changes
@@ -378,7 +421,7 @@ pass `permanent=true` (or `--permanent`) to retain permanent storage.
 
 ### Walrus v1.33.2
 
-`Testnet` | September 25, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.33.2)
+`Testnet` | September 26, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.33.2)
 
 Marks the Testnet switch to deletable-by-default blob storage; add `permanent=true` or the
 `--permanent` CLI option to keep blobs permanent.
@@ -493,7 +536,7 @@ constraint for new nodes.
 
 ### Walrus v1.28.4
 
-`Mainnet` | July 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.28.4)
+`Mainnet` | July 16, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.28.4)
 
 Fixes an issue where a blob could be reported as non-existent immediately after certification,
 affecting both the aggregator and the CLI.
@@ -520,7 +563,7 @@ Fixes an issue where a blob was sometimes reported as non-existing immediately a
 
 ### Walrus v1.28.1
 
-`Testnet` | July 2, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.28.1)
+`Testnet` | July 3, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.28.1)
 
 Fixes a storage node startup problem with deleted `events` and `event_blob_writer` databases, along
 with the post-certification blob existence reporting fix.
@@ -588,7 +631,7 @@ and REST API endpoints bind to the configured address rather than always to `0.0
 
 ### Walrus v1.25.1
 
-`Mainnet` | May 22, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.25.1)
+`Mainnet` | May 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/mainnet-v1.25.1)
 
 A bug fix adding options to tune compaction write throttling and setting a high write-stalling
 threshold on the metadata table.
@@ -630,7 +673,7 @@ gas costs when registering multiple blobs at once.
 
 ### Walrus v1.24.1
 
-`Testnet` | May 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.24.1)
+`Testnet` | May 7, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.24.1)
 
 The Testnet preview adding a publisher `force` store option and CLI `completion` command, with a
 major SUI gas reduction for registering multiple blobs simultaneously.
@@ -673,7 +716,7 @@ in the `health` command, and fixes default-location Sui wallet creation. Operato
 
 ### Walrus v1.21.1
 
-`Testnet` | April 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.21.1)
+`Testnet` | April 16, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.21.1)
 
 #### Changes
 
@@ -728,7 +771,7 @@ certificate setup options, plus the publisher JWT token `size` field.
 
 ### Walrus v1.17.2
 
-`Testnet` | March 14, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.17.2)
+`Testnet` | March 15, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.17.2)
 
 Adds `--network-key-path` and `--certificate-path` options to the `setup` command, removes legacy
 event-provider flags, and adjusts default storage prices and commission rates.
@@ -828,7 +871,7 @@ and `network_key_pair.path`, and enables automatic rotation of the protocol key 
 
 ### Walrus v1.12.0
 
-`Testnet` | February 5, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.12.0)
+`Testnet` | February 6, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.12.0)
 
 Lets the `walrus health` command accept a list of node IDs or URLs; this is a breaking change for
 JSON mode, where `nodeId` and `nodeUrl` become `nodeIds` and `nodeUrls`.
@@ -847,7 +890,7 @@ recovery symbol endpoint in favor of a new one.
 
 ### Walrus v1.10.0
 
-`Testnet` | January 23, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.10.0)
+`Testnet` | January 24, 2025 | [GitHub](https://github.com/MystenLabs/walrus/releases/tag/testnet-v1.10.0)
 
 Makes storage node error responses machine-readable, adds error statuses and richer OpenAPI schemas
 to the aggregator and publisher, and introduces an optional JWT auth layer for the publisher. Also
