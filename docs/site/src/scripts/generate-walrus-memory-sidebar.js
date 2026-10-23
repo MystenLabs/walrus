@@ -157,8 +157,6 @@ const STRUCTURE = [
       "relayer/nautilus-tee",
       "relayer/observability",
       "relayer/versioning-and-compatibility",
-      "relayer/benchmark-ci-setup",
-      "relayer/runbook-gas-pool",
     ],
     autoDirs: ["relayer"],
     autoExclude: ["relayer/api-reference"],

@@ -525,9 +525,6 @@ Sui smart contract as the on-chain index.
     The Rust relayer exposes these routes. The route table lives in services/server/src/main.rs.
     See also: Environment Variables Configuration Versioning and Compatibility The routes below
     require signed headers, except the MCP transports, which use bearer authentication.
-- [Benchmark CI Setup](https://docs.wal.app/walrus-memory/relayer/benchmark-ci-setup.md):
-    This document records how to configure the relayer benchmark workflows. The live benchmark
-    intentionally runs only the public relayer /api/recall path.
 - [Nautilus Tee](https://docs.wal.app/walrus-memory/relayer/nautilus-tee.md):
     Run the Walrus Memory relayer with a TEE deployment pattern when you want the default SDK flow
     without giving the host operator direct access to plaintext memory payloads.
@@ -544,10 +541,6 @@ Sui smart contract as the on-chain index.
     A managed relayer is a simpler experience for teams that want to get started without running
     infrastructure. If a managed relayer endpoint is available for your environment, it gives you
     the fastest path to integration.
-- [All SUI coins for an address, largest first:](https://docs.wal.app/walrus-memory/relayer/runbook-gas-pool.md):
-    When to use this: a gas-pool alert fires (the SUI gas pool maintenance alert), or relayer logs
-    show wallet jobs aborting with or Enoki dryrunfailed plus 0x2:balance:split (ENotEnough, abort
-    code 2).
 - [Opt the write path into gRPC (testnet example)](https://docs.wal.app/walrus-memory/relayer/self-hosting.md):
     Self-hosting means running your own relayer, either pointing at an existing Walrus Memory
     package ID or deploying an entirely new Walrus Memory instance with your own contract,
@@ -609,13 +602,6 @@ Sui smart contract as the on-chain index.
     withMemWal(model, options) | Field | Required | Notes | | --- | --- | --- | | key | yes |
     Delegate private key in hex | | accountId | yes | MemWalAccount object ID on Sui | | serverUrl
     | no | Relayer URL.
-- [Console Identity Link](https://docs.wal.app/walrus-memory/reference/console-identity-link.md):
-    Console (Walrus Console) and Walrus Memory (WM) are separate Enoki zkLogin applications.
-- [Enoki Connect Requirements](https://docs.wal.app/walrus-memory/reference/enoki-connect-requirements.md):
-    Enoki Connect lets an external application (a "connecting app," for example, Console)
-    authenticate its users through Walrus Memory's Enoki-hosted identity flow. This requires
-    configuration on two sides: WM's own Enoki app settings, and each connecting app's origin being
-    allowlisted.
 - [Environment Variables](https://docs.wal.app/walrus-memory/reference/environment-variables.md):
     This page lists the supported, public environment variables across Walrus Memory, grouped by
     where you set it: the client SDKs, the MCP server, the self-hosted relayer, and frontend apps.
@@ -874,19 +860,6 @@ Sui smart contract as the on-chain index.
     Walrus Testnet is a free, non-durable network for development and testing. Read values that
     change from the canonical Network Reference, which is the single maintained source.
 
-## Walrus Memory: API
-
-- [Memory Read API](https://docs.wal.app/walrus-memory/api/memory-read-api.md):
-    Registered routes (colon form used by the docs freshness check): GET /v1/owners/:owner/agents
-    Owner-scoped, cursor-based, read-only.
-- [Owner Token Auth](https://docs.wal.app/walrus-memory/api/owner-token-auth.md):
-    Issuance route: POST /v1/owner-tokens. Lets Console call WM's owner-scoped read API without
-    ever holding a delegate key.
-- [1. Request and sign the returned personal-message challenge in the wallet.](https://docs.wal.app/walrus-memory/api/security-delete.md):
-    The Security Delete API permanently deletes legacy Walrus Blob objects that were tracked in
-    Walrus Memory's old-V1 database. The server selects and verifies the objects, builds and
-    sponsors the Sui transaction, and executes it.
-
 ## Walrus Memory: Guides
 
 - [Agent Runtimes](https://docs.wal.app/walrus-memory/guides/agent-runtimes.md):
@@ -916,10 +889,6 @@ Sui smart contract as the on-chain index.
     Connecting the MCP server gives an agent the memory tools. It does not make the agent use them.
     Most agents write only when the user says "remember this", which is why an untuned setup
     produces a handful of memories and then goes quiet. A system prompt fixes that.
-
-## Walrus Memory: Migration
-
-- [Ceremony Environments](https://docs.wal.app/walrus-memory/migration/ceremony-environments.md)
 
 ## Walrus Memory: Python SDK
 

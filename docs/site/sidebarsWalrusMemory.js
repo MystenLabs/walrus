@@ -26,7 +26,10 @@ const sidebars = {
           "type": "link",
           "label": "GitHub",
           "href": "https://github.com/MystenLabs/MemWal"
-        }
+        },
+        "examples/chatbot",
+        "examples/noter",
+        "examples/researcher"
       ]
     },
     {
@@ -40,6 +43,7 @@ const sidebars = {
         "fundamentals/architecture/how-storage-works",
         "fundamentals/architecture/data-flow-security-model",
         "fundamentals/architecture/funding-storage",
+        "fundamentals/architecture/tracking-agent-storage",
         "fundamentals/concepts/how-agent-memory-works",
         "fundamentals/concepts/verifiable-memory",
         "fundamentals/concepts/where-to-store-agent-data"
@@ -50,8 +54,13 @@ const sidebars = {
       "label": "Manage Memories",
       "collapsed": true,
       "items": [
+        "guides/agent-runtimes",
         "guides/delete-memories-programmatically",
-        "guides/delete-old-memories"
+        "guides/delete-old-memories",
+        "guides/import-existing-memory",
+        "guides/manage-your-memory",
+        "guides/returning-user",
+        "guides/system-prompt-templates"
       ]
     },
     {
@@ -68,7 +77,9 @@ const sidebars = {
         "mcp/cursor",
         "mcp/codex",
         "mcp/opencode",
-        "mcp/antigravity"
+        "mcp/antigravity",
+        "mcp/claude-connector",
+        "mcp/quickstart"
       ]
     },
     {
@@ -161,8 +172,7 @@ const sidebars = {
         "relayer/nautilus-tee",
         "relayer/observability",
         "relayer/versioning-and-compatibility",
-        "relayer/benchmark-ci-setup",
-        "relayer/runbook-gas-pool"
+        "relayer/synthetic-seal-cross-account"
       ]
     },
     {
