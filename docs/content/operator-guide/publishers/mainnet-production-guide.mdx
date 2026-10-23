@@ -39,7 +39,7 @@ An unauthenticated Mainnet publisher lets anyone spend the publisher wallet's SU
 
 :::
 
-## Choose the right upload path
+## Which upload path should you use?
 
 Use a publisher when your service needs an HTTP upload interface and you are prepared to operate the wallet, authentication, and cost controls behind it.
 
@@ -50,7 +50,9 @@ Use a publisher when your service needs an HTTP upload interface and you are pre
 | [TypeScript SDK](/docs/typescript-sdk/sdks) | Applications that can integrate Walrus directly and manage signing in code | Application wallet or signer |
 | [Walrus CLI](/docs/walrus-client/storing-blobs) | Operators, scripts, and manual uploads | CLI wallet |
 
-## Recommended Mainnet setup
+If your clients run in a browser or mobile app, use Upload Relay. If your application can integrate Walrus directly and manage signing in code, use the TypeScript SDK. For scripts and manual uploads, use the Walrus CLI.
+
+## How to set up a production Mainnet publisher
 
 For production Mainnet usage, run a private publisher with authentication enabled:
 
@@ -86,13 +88,13 @@ For additional controls, consider:
 - Separate publishers or wallets for staging and production.
 - Logs and [daemon metrics](/docs/operator-guide/limitations#view-daemon-metrics) for accepted, rejected, and failed uploads.
 
-## Configure CORS intentionally
+## When should you enable CORS?
 
 Only enable cross-origin resource sharing (CORS) for browser clients that must call the publisher directly. If uploads come through your backend, keep the publisher private and avoid exposing it to browsers.
 
 When browser access is required, restrict allowed origins to your application domains and test preflight requests before production launch.
 
-## Plan for failover
+## How to plan for failover
 
 If your application depends on a publisher, plan how uploads behave when it is unavailable:
 
