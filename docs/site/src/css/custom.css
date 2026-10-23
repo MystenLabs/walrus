@@ -48,6 +48,8 @@
 }
 
 @import "./fonts.css";
+/* rehype-katex emits the markup only; without this stylesheet every formula renders twice. */
+@import "katex/dist/katex.min.css";
 
 @import "tailwindcss/theme" layer(theme);
 @import "tailwindcss/utilities" layer(utilities);
