@@ -37,9 +37,9 @@ answer: >-
   databases, and server-side rendering are out of scope.
 ---
 
-Walrus Sites are decentralized websites built on [Sui](https://docs.sui.io/) and Walrus. Your site's files are stored on Walrus, a decentralized storage network, while a Sui smart contract records ownership and maps each resource path to its content. Anyone can publish a Walrus Site using the [`site-builder` CLI tool](/docs/sites/getting-started/installing-the-site-builder) and browse it through a [portal](/docs/sites/portals/deploy-locally).
+Walrus Sites are decentralized websites built on [Sui](https://docs.sui.io/) and Walrus. Your site's files are stored on Walrus, a decentralized storage network, while a Sui smart contract records ownership and maps each resource path to its content. Anyone can publish a Walrus Site using the [`site-builder` CLI tool](/docs/sites/getting-started/installing-the-site-builder), and visitors browse it through a [portal](/docs/sites/portals/deploy-locally) such as wal.app.
 
-Because there is no server behind a Walrus Site, no single host can take it offline, and no one but the wallet that owns the Sui site object can change it. The same absence of a server sets the limits: a Walrus Site serves static files only, so backends, databases, and server-side rendering are out of scope. Any framework that produces a static build works once you point `site-builder` at its output directory, and client-side routing works through the `routes` field in `ws-resources.json`.
+Because there is no server behind a Walrus Site, no single host can take it offline, and no one but the wallet that owns the Sui site object can change it. The same absence of a server sets the limits: a Walrus Site serves static files only, so backends, databases, and server-side rendering are out of scope. Any framework that produces a static build works once you point `site-builder` at its output directory, and client-side routing works through the `routes` field in `ws-resources.json`, which the Site Configuration guide covers.
 
 ## Where to start
 
