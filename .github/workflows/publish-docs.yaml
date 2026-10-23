@@ -40,14 +40,14 @@ jobs:
       - name: Build site
         run: cd docs/site && pnpm run build
 
-  # Vercel handles production deployments automatically via its Git
-  # integration (push to main triggers a deploy). This workflow only
-  # needs to verify the build succeeds. The daily schedule and
-  # repository_dispatch triggers ensure Vercel rebuilds when upstream
-  # content (Walrus Memory, Oyster) changes.
+  # Vercel handles production deployments automatically via its Git integration (push to main
+  # triggers a deploy). This workflow only needs to verify the build succeeds. The daily schedule
+  # and repository_dispatch triggers only check that the build still succeeds with the latest
+  # upstream content (Walrus Memory, Oyster); they do not redeploy. Upstream changes reach
+  # docs.wal.app with the next Vercel deploy, that is, the next push to main.
   #
-  # To trigger a Vercel redeploy from CI without Vercel's Git integration,
-  # add a deploy hook URL as a repository secret and uncomment:
+  # To trigger a Vercel redeploy from CI without Vercel's Git integration, add a deploy hook URL as
+  # a repository secret and uncomment:
   #
   # deploy:
   #   name: Trigger Vercel deploy

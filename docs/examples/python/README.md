@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Set up Sui and Walrus as described [here](https://docs.wal.app/usage/setup.html).
+- Set up Sui and Walrus as described [here](https://docs.wal.app/docs/getting-started).
 - Optional: Set up a Python virtual environment:
 
   ```sh

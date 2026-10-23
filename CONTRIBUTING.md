@@ -188,9 +188,9 @@ prettier-move --write <path-to-move-file-or-folder>
 ## Documentation
 
 Our main documentation is built from source files in `docs/` using
-[Docusaurus](https://docusaurus.io/) and deployed as a Walrus Site at
-[docs.wal.app](https://docs.wal.app). If you contribute to the documentation, please make sure to
-follow the [Sui Documentation Style Guide](https://docs.sui.io/style-guide).
+[Docusaurus](https://docusaurus.io/) and deployed at [docs.wal.app](https://docs.wal.app). If you
+contribute to the documentation, please make sure to follow the [Sui Documentation Style
+Guide](https://docs.sui.io/style-guide).
 
 ## Pre-commit hooks
 

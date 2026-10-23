@@ -187,7 +187,9 @@ impl ClientConfig {
         let config = load_multi_config_with_defaults(path).with_context(|| {
             format!(
                 "unable to parse the client config file: [config_filename='{}']\n\
-                see https://docs.wal.app/usage/setup.html#configuration for the correct format",
+                see \
+                https://docs.wal.app/docs/getting-started/advanced-setup#configure-walrus \
+                for the correct format",
                 path.display(),
             )
         })?;
