@@ -277,15 +277,6 @@ const config = {
     ({
       docs: {
         path: "../content",
-        // Docusaurus's default excludes (a custom list replaces them), plus snippets, which
-        // inline-imports.js inlines into other pages and which are not pages of their own.
-        exclude: [
-          "**/_*.{js,jsx,ts,tsx,md,mdx}",
-          "**/_*/**",
-          "**/*.test.{js,jsx,ts,tsx}",
-          "**/__tests__/**",
-          "snippets/**",
-        ],
         sidebarPath: "./sidebars.js",
         editUrl: "https://github.com/MystenLabs/walrus/tree/main/docs/site/",
         remarkPlugins: [
