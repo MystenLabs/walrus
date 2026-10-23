@@ -38,7 +38,7 @@ This page continues from the [RedStuff encoding example](red-stuff-details) with
 
 ## Recovery
 
-Consider that shard 3 fails, losing its slivers, and needs to recover them. This example recovers the primary sliver first. In practice, Walrus recovers the secondary sliver first, because it needs only $N-2f$ symbols (see [worst-case initial sharing](red-stuff-parameters#worst-case-initial-sharing)), but both work when the other shards hold their slivers. In the following, the symbols of the lost slivers are highlighted in red (the lower-right quadrant is never stored).
+Consider that shard 3 fails, losing its slivers, and needs to recover them. This example recovers the primary sliver first. When the other shards hold their slivers, either order works, and storage nodes recover both slivers concurrently. Only in the [worst-case initial sharing](red-stuff-parameters#worst-case-initial-sharing) must a shard recover its secondary sliver first, because it needs only $N-2f$ symbols. In the following, the symbols of the lost slivers are highlighted in red (the lower-right quadrant is never stored).
 
 $$
 \left[

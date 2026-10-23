@@ -74,13 +74,13 @@ RedStuff is based on Reed-Solomon codes. Walrus uses the [`reed-solomon-simd`](h
 <figure>
   <iframe src="/diagrams/interactive_redstuff-encoding_v2.html"
     style={{width:'100%',height:'800px',border:'0'}}
-    title="RedStuff encoding: a two-dimensional erasure code encodes each blob into slivers held by n = 3f + 1 = 7 storage nodes. Any f + 1 = 3 honest shards reconstruct the blob. On Mainnet, with 1,000 shards, billed storage is about 4.5 times the blob size plus a fixed 64 MB metadata term."
+    title="RedStuff encoding: a two-dimensional erasure code encodes each blob into slivers held by n = 3f + 1 = 7 storage nodes. Any f + 1 = 3 honest shards reconstruct the blob. On Mainnet, with 1000 shards, billed storage is about 4.5 times the blob size plus a fixed 64 MB metadata term."
     loading="lazy"></iframe>
   <figcaption>
     RedStuff encodes each blob into slivers held by a committee of n = 3f + 1 storage
     nodes. Any f + 1 honest shards reconstruct the blob, so the committee tolerates up to 2f
     node failures if f + 1 honest shards remain. Click a shard to take that node
-    offline. On Mainnet, with 1,000 shards, billed storage is about 4.5 times the blob size
+    offline. On Mainnet, with 1000 shards, billed storage is about 4.5 times the blob size
     plus a fixed 64 MB metadata term. The number of shards is fixed, so the billed size does
     not change as the number of storage nodes grows.
   </figcaption>
@@ -96,7 +96,7 @@ Consider a scenario in which a blob of data is encoded and stored across $N$ sha
 
 The RedStuff encoding and recovery process works as follows:
 
-- First, the data blob of size $S$ is divided into symbols and arranged in a rectangular message matrix of $N - 2f$ rows and $N - f$ columns of symbols. The number of rows ($n_R$) and columns ($n_C$) is fixed, and determines the symbol size $s$, the smallest even number of bytes such that $n_R \cdot n_C$ symbols hold the blob:
+- First, the data blob of size $S$ is divided into symbols and arranged in a rectangular message matrix of $N - 2f$ rows and $N - f$ columns of symbols. The number of rows ($n_R$) and columns ($n_C$) is fixed, and determines the symbol size $s$, the smallest even number of bytes, at least 2, such that $n_R \cdot n_C$ symbols hold the blob:
 
 $$
 s = 2 \cdot \left\lceil \max(S, 1) / (2 \cdot n_R \cdot n_C) \right\rceil
@@ -105,7 +105,7 @@ $$
 - Then, the columns and the rows of the message matrix are encoded separately with Reed-Solomon codes.
   - The primary encoding, performed on columns, expands the $n_R$ symbols of each column to $N$ symbols.
   - The secondary encoding, performed on rows, expands the $n_C$ symbols of each row to $N$ symbols.
-- $n_R$ is also called the number of primary source symbols, and $n_C$ the number of secondary source symbols. The primary encoding has rate $n_R / N$, and the secondary encoding has rate $n_C / N$. These counts are per encoding, not per sliver: a primary sliver has $n_C = N-f$ symbols, and a secondary sliver has $n_R = N-2f$ symbols. The [Walrus paper](https://arxiv.org/abs/2505.05370) uses the per-sliver view and calls these the reconstruction thresholds $2f+1$ and $f+1$.
+- $n_R$ is also called the number of primary source symbols, and $n_C$ the number of secondary source symbols. The primary encoding has rate $n_R / N$, and the secondary encoding has rate $n_C / N$. These counts are per encoding, not per sliver: a primary sliver has $n_C = N-f$ symbols, and a secondary sliver has $n_R = N-2f$ symbols. The [Walrus paper](https://arxiv.org/abs/2505.05370) uses the per-sliver view; for $N = 3f+1$, these are its reconstruction thresholds $2f+1$ and $f+1$.
 - The encoded rows and columns are then used to obtain primary and secondary slivers, which are distributed to shards and used for blob reconstruction and sliver recovery:
   - Primary slivers are the rows of the matrix of size $N \times n_C$ obtained with the primary encoding of the message matrix. Each primary sliver is therefore composed of $n_C$ symbols.
   - Secondary slivers are the columns of the matrix of size $n_R \times N$ obtained with the secondary encoding of the message matrix. Each secondary sliver is therefore composed of $n_R$ symbols.
