@@ -94,7 +94,10 @@ use crate::{
         config::AuthConfig,
         daemon::auth::verify_jwt_claim,
     },
-    common::telemetry::{MakeHttpSpan, MetricsMiddlewareState, metrics_middleware},
+    common::{
+        api::RestApiError as _,
+        telemetry::{MakeHttpSpan, MetricsMiddlewareState, metrics_middleware},
+    },
 };
 
 pub mod auth;
@@ -709,7 +712,7 @@ pub(crate) async fn auth_layer(
     // Walrus.
     tracing::debug!(query = ?query.0, "authenticating a request to store a blob");
 
-    if let Err(resp) = verify_jwt_claim(
+    if let Err(error) = verify_jwt_claim(
         query,
         bearer_header,
         &auth_config,
@@ -718,7 +721,7 @@ pub(crate) async fn auth_layer(
     )
     .await
     {
-        resp
+        error.to_response()
     } else {
         next.run(request).await
     }

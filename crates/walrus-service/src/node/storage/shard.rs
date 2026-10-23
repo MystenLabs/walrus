@@ -1942,7 +1942,7 @@ mod tests {
 
         // Populates the shard with the generated data.
         for blob_data in data.iter() {
-            for (_sliver_type, sliver) in blob_data.1.iter() {
+            for sliver in blob_data.1.values() {
                 shard.put_sliver(*blob_data.0, sliver.clone()).await?;
             }
         }

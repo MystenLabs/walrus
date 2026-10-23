@@ -1,7 +1,7 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use axum::{body::Body, extract::Query, http::Response};
+use axum::extract::Query;
 use axum_extra::headers::{Authorization, authorization::Bearer};
 use chrono::DateTime;
 use jsonwebtoken::{
@@ -285,9 +285,9 @@ pub async fn verify_jwt_claim(
     auth_config: &AuthConfig,
     token_cache: &CacheHandle<String>,
     body_size_hint: http_body::SizeHint,
-) -> Result<(), Response<Body>> {
+) -> Result<(), PublisherAuthError> {
     let token = bearer.token().trim();
-    let decode_result = if let Some(decoding_key) = auth_config.decoding_key.as_ref() {
+    let claim = if let Some(decoding_key) = auth_config.decoding_key.as_ref() {
         let mut validation = auth_config
             .algorithm
             .map(Validation::new)
@@ -295,47 +295,37 @@ pub async fn verify_jwt_claim(
         if auth_config.expiring_sec > 0 {
             validation.set_required_spec_claims(&["exp", "iat"]);
         }
-        Claim::from_token(token, decoding_key, &validation)
+        Claim::from_token(token, decoding_key, &validation)?
     } else {
-        Claim::from_token_insecure(token)
+        Claim::from_token_insecure(token)?
     };
 
-    match decode_result {
-        Ok(claim) => {
-            // To avoid race conditions between store requests, we insert the token into the cache
-            // now, and later remove it if the JWT verification fails.
-            let Some(expiration) = DateTime::from_timestamp(claim.exp, 0) else {
-                return Err(PublisherAuthError::InvalidTimestamp.to_response());
-            };
+    // To avoid race conditions between store requests, we insert the token into the cache now, and
+    // later remove it if the JWT verification fails.
+    let Some(expiration) = DateTime::from_timestamp(claim.exp, 0) else {
+        return Err(PublisherAuthError::InvalidTimestamp);
+    };
 
-            if let Err(error) = token_cache
-                .insert_if_not_present(
-                    claim.jti.clone(),
-                    // We can trust the expiration value for now. If it is
-                    // invalid, the JWT verification will fail anyways later and
-                    // the entry will be removed.
-                    expiration,
-                )
-                .await
-            {
-                return Err(PublisherAuthError::from(error).to_response());
-            }
+    token_cache
+        .insert_if_not_present(
+            claim.jti.clone(),
+            // We can trust the expiration value for now. If it is invalid, the JWT verification
+            // will fail anyways later and the entry will be removed.
+            expiration,
+        )
+        .await?;
 
-            if let Err(error) = claim.check_valid_upload(&query.0, auth_config, body_size_hint) {
-                // Remove the spurious token entry from the cache.
-                let _ = token_cache
-                    .remove(claim.jti.clone())
-                    .await
-                    .inspect_err(|error| {
-                        tracing::warn!(?error, "there was an error while removing the token")
-                    });
-                Err(error.to_response())
-            } else {
-                Ok(())
-            }
-        }
-        Err(code) => Err(code.to_response()),
+    if let Err(error) = claim.check_valid_upload(&query.0, auth_config, body_size_hint) {
+        // Remove the spurious token entry from the cache.
+        let _ = token_cache
+            .remove(claim.jti.clone())
+            .await
+            .inspect_err(|error| {
+                tracing::warn!(?error, "there was an error while removing the token")
+            });
+        return Err(error);
     }
+    Ok(())
 }
 
 /// Type representing the possible errors that can occur during the authentication process.
@@ -404,6 +394,7 @@ mod tests {
 
     use axum::{
         Router,
+        body::Body,
         http::{Request, StatusCode},
         routing::get,
     };
