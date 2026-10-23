@@ -169,7 +169,7 @@ impl SliverPrefetchBuffer {
 impl Drop for SliverPrefetchBuffer {
     fn drop(&mut self) {
         // Abort all in-flight tasks to avoid unnecessary work.
-        for (_, state) in self.slivers.iter() {
+        for state in self.slivers.values() {
             if let SliverFetchState::InFlight(abort_handle) = state {
                 abort_handle.abort();
             }

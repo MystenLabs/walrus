@@ -102,7 +102,6 @@ pub(super) struct DaemonApiDoc;
 
 #[cfg(test)]
 mod tests {
-    use utoipa::OpenApi as _;
     use utoipa_redoc::Redoc;
     use walrus_test_utils::{Result as TestResult, param_test};
 

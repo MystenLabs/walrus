@@ -446,7 +446,7 @@ impl<P: ProtocolCommands + ProtocolMetrics> Orchestrator<P> {
     /// Run all the benchmarks specified by the benchmark generator.
     pub async fn run_benchmarks(&mut self, parameters: BenchmarkParameters) -> TestbedResult<()> {
         display::header("Preparing testbed");
-        display::config("Commit", format!("'{}'", &self.settings.repository.commit));
+        display::config("Commit", format!("'{}'", self.settings.repository.commit));
         display::newline();
 
         // Cleanup the testbed (in case the previous run was not completed).
