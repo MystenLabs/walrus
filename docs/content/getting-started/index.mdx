@@ -49,6 +49,8 @@ answer: >-
 
 Walrus is a verifiable data platform for high-stakes systems like AI and onchain finance, where data is stored as blobs.
 
+To store your first blob right away, skip to [Before you begin](#before-you-begin), which walks through installing the tools, storing a blob, and reading it back on Testnet. Walrus uses your Sui account: the `sui client` command in the setup steps creates one for you (see [Understand your Sui account](#understand-your-sui-account)).
+
 Walrus uses an object storage architecture, where blobs are stored in a flat namespace rather than a hierarchy. There are no folders or directories. Each piece of data in an object storage model contains the data itself, metadata describing the data, and a unique identifier.
 
 Sui is a blockchain that supports programmability at a [fundamental level](https://docs.sui.io/concepts/transactions/prog-txn-blocks). Walrus binds all blobs to objects on the Sui blockchain.
@@ -106,12 +108,12 @@ The guide covers the following steps:
 2. **Configure tooling for Walrus Testnet:** Point the client at Testnet and verify the connection.
 3. **Understand your Sui account:** Learn about the address and account created during setup.
 4. **Fund your Sui account with tokens:** Get free Testnet SUI, then swap some for WAL.
-5. **Store a blob:** Upload your first file to Walrus.
+5. **Store a blob:** Upload your first file to Walrus and store it for a number of epochs, which are defined periods of time on the network.
 6. **Retrieve a blob:** Read the file back.
 7. **Extend a blob storage duration:** Keep a blob stored for longer.
 8. **Delete a blob:** Release a blob you no longer need.
 
-##step Install tooling
+##step How do I install Walrus and Sui? {#install-tooling}
 
 To install Walrus and Sui, use the Mysten Labs `suiup` tool.
 
@@ -272,9 +274,11 @@ Check your balance again with `sui client balance` to confirm you now have WAL:
 ╰─────────────────────────────────────────╯
 ```
 
-##step Store a blob
+##step How do I store a blob? {#store-a-blob}
 
 Changes to objects on Sui happen through transactions. Accounts sign these transactions on behalf of addresses, and the transactions result in the system creating, updating, transferring, and sometimes destroying objects. Learn more about [transactions](https://docs.sui.io/concepts/transactions).
+
+All blobs stored in Walrus are public and discoverable by anyone, so keep this in mind before you upload a file.
 
 To upload a file to Walrus and store it as a blob, run the following command:
 
@@ -283,6 +287,8 @@ $ walrus store file.txt --epochs 2 --context testnet
 ```
 
 Replace `file.txt` with the file you want to store on Walrus. You can store any file type on Walrus.
+
+The command output includes two identifiers, a **blob ID** and a **Sui object ID**. Later steps need both, so record them as described in the following warning.
 
 You must specify the `--epochs` flag, because the system stores blobs for a certain number of epochs. An epoch is a defined period of time on the network. On Testnet, epochs are 1 day, and on Mainnet, epochs are 2 weeks. You can extend the number of epochs the system stores a blob indefinitely.
 
@@ -298,7 +304,7 @@ Record both identifiers from the `walrus store` output before you continue. You 
 
 You can use [Walrus Explorer](https://walruscan.com/) to view more information about a blob ID.
 
-##step Retrieve a blob
+##step How do I retrieve a blob? {#retrieve-a-blob}
 
 To retrieve a blob and save it on your local machine, run the following command:
 
