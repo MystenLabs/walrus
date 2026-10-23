@@ -22,6 +22,40 @@ const SITE_ROOT = path.resolve(__dirname, "../../");
 const CACHE_DIR = path.join(SITE_ROOT, ".cache-walrus-memory/docs");
 const OUTPUT_DIR = path.resolve(SITE_ROOT, "../walrus-memory-content");
 
+// Only pages in the upstream Mintlify navigation are published, so files that land in docs/ without
+// being added to it (internal notes, drafts, runbooks) stay off the site.
+const NAV_FILE = path.join(CACHE_DIR, "docs.json");
+
+// Group landing pages that the navigation does not list as pages but that listed pages link to.
+const EXTRA_PAGES = new Set(["sdk/usage", "python-sdk/usage"]);
+
+// Listed in the upstream navigation, but contributor docs rather than product docs.
+const EXCLUDED_DIRS = ["contributing/"];
+
+let navSlugSet = new Set();
+
+function loadNavSlugs(navFile) {
+  if (!fs.existsSync(navFile)) {
+    throw new Error(
+      `walrus-memory: ${navFile} not found; refusing to publish without the upstream navigation`,
+    );
+  }
+  const slugs = new Set(EXTRA_PAGES);
+  const walk = (node) => {
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!node || typeof node !== "object") return;
+    for (const page of node.pages || []) {
+      if (typeof page === "string") slugs.add(page);
+    }
+    Object.values(node).forEach(walk);
+  };
+  walk(JSON.parse(fs.readFileSync(navFile, "utf8")).navigation);
+  return slugs;
+}
+
 // Known pages and rename mappings, built dynamically from cache files.
 // knownPageSet: all page slugs (post-rename) that exist in the cache.
 // droppedSlugSet: slugs of pages intentionally dropped from the site (see
@@ -38,10 +72,12 @@ const DROPPED_PAGES = new Set([
   "sdk/research-app-example.md", // subset of sdk/examples.md
 ]);
 
-// A page dropped from the published site: never written to output. Upstream
-// changelog pages are excluded site-wide, and the consolidated pages above.
+// A page dropped from the published site: never written to output. Pages outside the upstream
+// navigation, contributor docs, upstream changelog pages, and the consolidated pages above.
 function isDroppedPage(relPath) {
   if (DROPPED_PAGES.has(relPath)) return true;
+  if (EXCLUDED_DIRS.some((dir) => relPath.startsWith(dir))) return true;
+  if (!navSlugSet.has(relPath.replace(/\.(mdx?)$/, ""))) return true;
   return /^changelog\.(mdx?)$/i.test(path.basename(relPath));
 }
 
@@ -827,8 +863,10 @@ function main() {
     return;
   }
 
-  // Build the known-pages set from actual cache files so link rewriting
-  // stays in sync automatically when the upstream repo adds or removes pages.
+  navSlugSet = loadNavSlugs(NAV_FILE);
+
+  // Build the known-pages set from actual cache files so link rewriting stays in sync automatically
+  // when the upstream repo adds or removes pages.
   buildKnownPages(CACHE_DIR);
 
   // Clean output directory (recreate fresh)

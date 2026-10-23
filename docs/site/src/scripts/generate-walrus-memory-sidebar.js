@@ -157,8 +157,6 @@ const STRUCTURE = [
       "relayer/nautilus-tee",
       "relayer/observability",
       "relayer/versioning-and-compatibility",
-      "relayer/benchmark-ci-setup",
-      "relayer/runbook-gas-pool",
     ],
     autoDirs: ["relayer"],
     autoExclude: ["relayer/api-reference"],
@@ -178,7 +176,6 @@ const STRUCTURE = [
       "mcp/reference",
       "openclaw/reference",
       "relayer/api-reference",
-      "security/health-check-unsigned",
       {
         label: "Smart Contract",
         items: [
@@ -197,7 +194,6 @@ const STRUCTURE = [
         ],
         autoDirs: ["indexer"],
       },
-      "architecture/permanent-registry-design",
     ],
     autoDirs: ["reference", "security", "architecture"],
   },
