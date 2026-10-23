@@ -138,7 +138,7 @@ jobs:
             --base "$REF_NAME" \
             --head "$BRANCH" \
             --title "chore: bump Walrus version to v${NEW_VERSION}" \
-            --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
+            --reviewer "halfprice,ebmifa" \
             --body "Walrus v${NEW_VERSION} Version Bump"
 
           gh pr merge --auto --squash --delete-branch "$BRANCH"

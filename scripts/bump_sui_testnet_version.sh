@@ -255,7 +255,7 @@ if PR_OUTPUT=$(GH_TOKEN="$CREATE_TOKEN" gh pr create \
   --base main \
   --head "$BRANCH" \
   --title "ci: bump Sui testnet version to ${NEW_TAG}" \
-  --reviewer "wbbradley,halfprice,liquid-helium,ebmifa" \
+  --reviewer "halfprice,ebmifa" \
   --body "$BODY" 2>&1); then
 
   # Extract PR URL from output
