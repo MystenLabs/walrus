@@ -8,7 +8,7 @@ use core::{
     num::{NonZeroU16, NonZeroU32},
 };
 
-use fastcrypto::hash::{Blake2b256, HashFunction};
+use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -31,6 +31,7 @@ use crate::{
     SliverPairIndex,
     encoding::{DecodeError, RequiredCount},
     ensure,
+    hash::Blake2b256,
     inconsistency::{InconsistencyProof, SliverOrInconsistencyProof},
     merkle::{DIGEST_LEN, MerkleAuth, MerkleProof, MerkleTree, Node},
     metadata::{BlobMetadata, BlobMetadataApi as _, SliverPairMetadata},
@@ -513,13 +514,13 @@ impl SliverPair {
 mod tests {
     use alloc::vec;
 
-    use fastcrypto::hash::Blake2b256;
     use walrus_test_utils::{Result, param_test, random_subset};
 
     use super::*;
     use crate::{
         EncodingType,
         encoding::{DecodingSymbol, InvalidDataSizeError, ReedSolomonEncodingConfig},
+        hash::Blake2b256,
         test_utils,
     };
 
