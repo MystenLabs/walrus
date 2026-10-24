@@ -42,9 +42,9 @@ answer: >-
   the CLI prints a human-readable error to stderr and exits with a non-zero status.
 ---
 
-JSON mode exposes every Walrus client command and simplifies programmatic access to the [CLI](/docs/walrus-client/walrus-cli). You specify the command and all of its options as a single JSON string, and the CLI prints JSON-formatted results to stdout.
+JSON mode exposes every Walrus client command and simplifies programmatic access to the [CLI](/docs/walrus-client/walrus-cli). You specify the command and all of its options as a single JSON string, and on success the CLI prints JSON-formatted results to stdout.
 
-## Command structure
+## How do I structure a JSON mode command?
 
 Pass a single JSON object to `walrus json`. The object contains the global options (such as `config`, `context`, `wallet`, and `gasBudget`) at the root level, plus a `command` object that holds exactly one command (for example, `store`, `read`, or `blobStatus`) with its options.
 
@@ -82,7 +82,7 @@ $ walrus json \
 
 If you omit `config`, the client searches for `client_config.yaml` (or `client_config.yml`) in the [default locations](/docs/walrus-client/walrus-cli#configuration): the current directory, `$XDG_CONFIG_HOME/walrus/`, `~/.config/walrus/`, and `~/.walrus/`. If the specified path is invalid, the command fails with an error. JSON mode uses no separate authentication: commands that create or modify Sui objects sign transactions with the configured Sui wallet, which you can override with the `wallet` key.
 
-## Pass input through stdin
+## How do I pass input through stdin?
 
 When you run `walrus json` without an argument, the command reads the JSON string from stdin. This lets you pipe input from another program or a file:
 
@@ -97,7 +97,7 @@ $ echo '{
 }' | walrus json
 ```
 
-## Parse the output
+## How do I parse the output?
 
 On success, the command prints only JSON to stdout, with keys in camelCase. You can pipe the output to `jq` to extract relevant fields.
 
@@ -121,7 +121,7 @@ $ walrus json '{"command": {"store": {"files": ["README.md"], "epochs": 5}}}' \
 
 To store many files in one batch, list them all in the `files` array. The CLI encodes and uploads them in a single run and reports a result for each file.
 
-## Handle errors
+## How do I handle errors in JSON mode?
 
 When a command fails, the CLI prints a human-readable error message to stderr and exits with a non-zero status code. JSON mode produces no JSON error object on stdout, so scripts should check the exit code first and parse stdout as JSON only when the command succeeds:
 
