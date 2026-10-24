@@ -40,7 +40,7 @@ and integrity guarantees. It does not provide confidentiality.
 
 :::caution
 
-Blob IDs are not secrets. Anyone with a blob ID can fetch the blob. Do not upload data to
+Blob IDs are not secrets. Anyone with a blob ID can fetch the blob, so always treat a blob ID as public and encrypt data on the client before you store it. Do not upload data to
 Walrus that you are not willing to make public.
 
 :::
@@ -49,7 +49,7 @@ Walrus that you are not willing to make public.
 
 The encoding mechanisms applied by Walrus guarantee that blobs can be written and remain
 available as long as 2/3 of the shards are operated by storage nodes that act honestly.
-After data is written, reads are possible even if as few as 1/3 of the nodes are available.
+Writes therefore need 2/3 of the shards to be served honestly, while after data is written reads are possible even if as few as 1/3 of the shards are available.
 
 Each blob has a point of availability (PoA) observable through an event on Sui. Before the
 PoA, you are responsible for ensuring blob availability and upload to Walrus. After the

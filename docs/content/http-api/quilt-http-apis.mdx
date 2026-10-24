@@ -128,7 +128,7 @@ You can retrieve blobs from a quilt through the aggregator APIs using their quil
 
 ### Retrieving by quilt patch ID
 
-test
+Each blob stored in a quilt is assigned its own patch ID, which the store response returns so you can retrieve that blob later.
 
 Each blob in a quilt has a unique patch ID. Retrieve a specific blob using its patch ID:
 
@@ -137,7 +137,7 @@ Each blob in a quilt has a unique patch ID. Retrieve a specific blob using its p
 $ curl "$AGGREGATOR/v1/blobs/by-quilt-patch-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3PjlBuKoBAQDQAA" \
 ```
 
-You can obtain quilt patch IDs from the store quilt output or by using the [`list-patches-in-quilt`](/docs/walrus-client/quilts#read-blobs-from-a-quilt) CLI command.
+You can obtain quilt patch IDs from the store quilt output (the `quiltPatchId` field of each entry in `storedQuiltBlobs`) or by using the [`list-patches-in-quilt`](/docs/walrus-client/quilts#read-blobs-from-a-quilt) CLI command.
 
 ### Retrieving by quilt ID and identifier
 
@@ -150,7 +150,7 @@ $ curl "$AGGREGATOR/v1/blobs/by-quilt-id/6XUOE-Q5-nAXHRifN6n9nomVDtHZQbGuAkW3Pjl
 
 ### Response headers
 
-Both methods return the raw blob bytes in the response body. Metadata such as the blob ID and tags are returned as HTTP headers:
+Both methods return the raw blob bytes in the response body. Metadata such as the blob ID and the tags supplied through the `_metadata` field at store time are returned as HTTP headers:
 
 - `X-Quilt-Patch-Identifier`: The identifier of the blob within the quilt
 - `ETag`: The patch ID or quilt ID for caching purposes

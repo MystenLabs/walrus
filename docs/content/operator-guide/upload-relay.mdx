@@ -72,7 +72,7 @@ At a high level, a client stores a blob using an upload relay as follows:
 
 1. The client locally encodes the blob and registers it on Sui.
 1. The client sends the blob to the upload relay through an HTTP POST request to the blob-relay endpoint `/v1/blob-upload-relay`.
-1. The upload relay encodes the blob, sends the slivers to the storage nodes, collects a storage confirmation certificate, and sends it back to the client.
+1. The upload relay encodes the blob again on its own host, so the browser does not have to fan out slivers itself, sends the slivers to the storage nodes, collects a storage confirmation certificate, and sends it back to the client.
 1. The client uses the confirmation certificate to certify the blob on Sui.
 
 The upload relay does not perform any onchain operation and only helps clients distribute the slivers of their blobs to storage nodes.

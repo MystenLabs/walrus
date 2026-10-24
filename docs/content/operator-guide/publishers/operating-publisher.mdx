@@ -28,7 +28,7 @@ questions:
 answer: Guide to setting up and operating a publisher on Walrus.
 ---
 
-The publisher and daemon perform onchain actions and require a Sui wallet with sufficient SUI and WAL balances. To handle many parallel requests without object conflicts, they create internal sub-wallets (introduced in version 1.4.0) funded from the main wallet. These sub-wallets persist in a directory you specify with the `--sub-wallets-dir` argument. You can use any existing directory. If the directory already contains sub-wallets, they are reused.
+The publisher and daemon perform onchain actions and require a Sui wallet with sufficient SUI and WAL balances. To handle many parallel requests without object conflicts, they create internal sub-wallets funded from the main wallet. These sub-wallets persist in a directory you specify with the `--sub-wallets-dir` argument. You can use any existing directory. If the directory already contains sub-wallets, they are reused.
 
 By default, 8 sub-wallets are created and funded. You can change this with the `--n-clients` argument (see [Set sub-wallets and upload concurrency](#sub-wallets-concurrency) for details). For basic local testing, 1 or 2 sub-wallets are usually sufficient.
 
