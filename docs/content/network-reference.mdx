@@ -165,7 +165,7 @@ The Walrus client configuration identifies the network through its system object
 | Staking object | Testnet | `0xbe46180321c30aab2f8b3501e24048377287fa708018a5b7c2792b35fe339ee3` |
 {/* GENERATED:END id=object-ids */}
 
-On Testnet, the SUI/WAL exchange objects used by `walrus get-wal` are:
+On Testnet, obtain WAL by running `walrus get-wal` rather than a third-party WAL faucet, which might distribute WAL from a package the client rejects. The SUI/WAL exchange objects that `walrus get-wal` uses are:
 
 {/* GENERATED:START id=exchange-objects */}
 - `0xf4d164ea2def5fe07dc573992a029e010dba09b1a8dcbc44c5c2e79567f39073`
@@ -277,7 +277,7 @@ For the full configuration reference, see the [Site Builder Reference](/docs/sit
 
 ### TypeScript SDK
 
-The TypeScript SDK bundles the package and object IDs for each network. Select the network with the `network` option, and the SDK applies the correct values:
+The TypeScript SDK bundles the package and object IDs for each network. Select the network with the `network` option, and the SDK applies the correct values. The Sui client in the snippet below reaches gRPC at the same full node URL the Sui RPC endpoints table lists, because one URL per network serves both protocols and Walrus has no separate gRPC endpoint setting:
 
 ```ts
 import { SuiGrpcClient } from '@mysten/sui/grpc';

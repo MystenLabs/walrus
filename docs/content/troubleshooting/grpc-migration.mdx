@@ -80,7 +80,7 @@ Then rerun whatever failed. If it still fails against a public endpoint, you are
 
 ## Migration for full node operators
 
-A full node you operate has to enable the gRPC API. The public endpoints in the [Network Reference](/docs/network-reference#sui-rpc-endpoints) already serve it. Nothing changes on the Walrus side once yours does.
+A full node you operate has to enable the gRPC API; for the Sui API surface itself, see the [Sui API reference](https://docs.sui.io/references/sui-api). The public endpoints in the [Network Reference](/docs/network-reference#sui-rpc-endpoints) already serve it. Nothing changes on the Walrus side once yours does.
 
 ## Migration troubleshooting
 
@@ -97,7 +97,7 @@ One symptom means nothing is wrong. The public nodes serve Sui client and SDK tr
 
 ## Do not force the old code paths
 
-Older Walrus releases read a `WALRUS_GRPC_MIGRATION_LEVEL` environment variable. Setting it below the client's default makes those releases fall back to JSON-RPC code paths that Sui full nodes no longer serve, which reintroduces every failure above. Current releases have no JSON-RPC code paths and ignore the variable.
+Older Walrus releases read a `WALRUS_GRPC_MIGRATION_LEVEL` environment variable. Setting it below the client's default makes those releases fall back to JSON-RPC code paths that Sui full nodes no longer serve, which reintroduces every failure above. Current releases already read and write Sui state over gRPC at the same full node URL, and they ignore the variable.
 
 :::caution
 

@@ -62,7 +62,7 @@ $ curl "$AGGREGATOR/v1/blobs/<BLOB_ID>"
 
 :::tip
 
-Modern browsers attempt to sniff the content type for these resources and generally do a good job of inferring content types for media. The aggregator intentionally prevents sniffing from inferring dangerous executable types such as JavaScript or style sheet types.
+Modern browsers attempt to sniff the content type for these resources and generally do a good job of inferring content types for media. The aggregator intentionally prevents sniffing from inferring dangerous executable types such as JavaScript or style sheet types. To have a specific content type returned instead, read the blob by object ID, where the aggregator returns the value of the `content-type` attribute in the corresponding HTTP header.
 
 :::
 
