@@ -66,7 +66,7 @@ These endpoints are also listed in the [Network Reference](/docs/network-referen
   </figcaption>
 </figure>
 
-## Understand the design
+## How does the upload relay work?
 
 At a high level, a client stores a blob using an upload relay as follows:
 
@@ -85,7 +85,7 @@ The relay operates on a single blob per request. A blob is one immutable unit of
 
 The Walrus CLI, Rust SDK, and TypeScript SDK already implement the flow between clients and the upload relay. Developers do not need to implement it themselves. To compare upload paths, see [Choose your upload path](/docs/getting-started#choose-your-upload-path). For completeness, the following sections discuss how the service works, how clients pay for it, and how they use it.
 
-### Operation modes
+### What operation modes does the relay support?
 
 You can operate the upload relay in two ways:
 
@@ -107,7 +107,7 @@ Upload relays expose a tip-configuration endpoint `/v1/tip-config` that returns 
 
 The configuration above specifies that every store operation requires a tip of 105 MIST (arbitrary value), paid to the set address `0x1234..`. Free upload relays also return this configuration, but with a value of `"no_tip"`.
 
-### Pay the tip
+### How to pay the tip
 
 This step is only necessary if the relay requires a tip.
 
@@ -125,7 +125,7 @@ The relay enforces a freshness check on the transaction that paid the tip. The d
 
 ### Send data to the upload relay
 
-See the full [OpenAPI specification](https://github.com/mystenlabs/walrus/tree/main/crates/walrus-upload-relay/upload_relay_openapi.html) for the upload relay for complete details.
+See the full OpenAPI specification for the upload relay in the file `upload_relay_openapi.html`, located in the `crates/walrus-upload-relay` subdirectory of the Walrus repository on [GitHub](https://github.com/MystenLabs/walrus).
 
 The client sends a POST request to the `/v1/blob-upload-relay` API endpoint on the relay, containing the bytes of the blob to be stored in the body.
 
@@ -143,7 +143,7 @@ After the relay finishes storing the blob, it collects the confirmation certific
 
 The relay then sends a response to the client containing the `blob_id` of the stored blob along with the `confirmation_certificate`. The client can then use this certificate to certify the blob onchain.
 
-## Install the relay
+## How to install the relay
 
 To download a pre-built binary of `walrus-upload-relay`, go to the [releases page](https://github.com/MystenLabs/walrus/releases). The `walrus-upload-relay` binary does not daemonize itself and requires a supervisor process to ensure boot at startup, restart on failure, and so on.
 
@@ -164,7 +164,7 @@ $ cargo build --release --bin walrus-upload-relay
 ./target/release/walrus-upload-relay --help
 ```
 
-## Configure the relay
+## How to configure the relay
 
 The following example shows how to place the configuration so that the relay can reach it when you invoke Docker. This example assumes the following:
 
