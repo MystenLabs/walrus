@@ -48,7 +48,7 @@ answer: >-
 
 The Walrus client lets you check a blob's storage status and certification, download its data, and control the consistency checks that protect reads.
 
-## Check blob status
+## How do I check blob status?
 
 You can query the status of a blob through one of the following commands:
 
@@ -63,7 +63,7 @@ For an available blob, the `blob-status` command also returns the `BlobCertified
 
 Status requests to storage nodes time out after 1 second by default. Use the `--timeout <TIMEOUT>` option (for example, `--timeout 5s`) to adjust this on slow connections.
 
-## Read blobs
+## How do I read a blob?
 
 Read blobs from Walrus using the following command:
 
@@ -85,7 +85,7 @@ With the `--json` flag, or in [JSON mode](/docs/walrus-client/json-mode), the `r
 
 To read individual blobs stored inside a quilt, use the `read-quilt` command instead. See [quilts](/docs/walrus-client/quilts#read-blobs-from-a-quilt) for details.
 
-## Check consistency
+## How do I verify blob consistency?
 
 Walrus performs integrity and consistency checks to ensure that any data read from Walrus is what the writer intended, and that the writer encoded the blob correctly.
 
