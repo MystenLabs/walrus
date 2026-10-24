@@ -42,9 +42,9 @@ answer: >-
   service yourself with Cargo.
 ---
 
-The example application below is not the official Sui Archival service. The example uses that service as a checkpoint source and stores the archived data on Walrus, and it shows how to archive blockchain data in a reliable, deterministic, and resilient manner. The application continuously downloads Sui checkpoints, the sequential batches of finalized transactions that the Sui network produces, bundles them into compressed blobs, and uploads the blobs to Walrus. Because Walrus erasure-codes every blob across a large committee of storage nodes, the archive stays readable even when individual nodes fail.
+The Sui Archival example application archives Sui checkpoint data on Walrus. It is not the official Sui Archival service. The example uses that service as a checkpoint source and stores the archived data on Walrus, and it shows how to archive blockchain data in a reliable, deterministic, and resilient manner. The application continuously downloads Sui checkpoints, the sequential batches of finalized transactions that the Sui network produces, bundles them into compressed blobs, and uploads the blobs to Walrus. Because Walrus erasure-codes every blob across a large committee of storage nodes, the archive stays readable even when individual nodes fail.
 
-## How it works
+## How does the Sui archival example work?
 
 Walrus stores data as blobs, immutable units of data that storage nodes keep available for a paid number of epochs. This example application using the Sui Archival service runs the following components concurrently:
 
@@ -53,11 +53,11 @@ Walrus stores data as blobs, immutable units of data that storage nodes keep ava
 3. **Checkpoint blob publisher:** Bundles a contiguous range of checkpoints into a single compressed blob and uploads it to Walrus. The bundling follows a deterministic algorithm: a given checkpoint range, cut at the configured size, time, or end-of-epoch boundaries, always produces the same blob.
 4. **Checkpoint blob extender:** Watches the expiration epoch of every archived blob and extends it automatically, so the archive stays available without manual renewals.
 5. **Archival state snapshot creator:** Uploads snapshots of the archive's metadata and maintains an onchain pointer to the latest snapshot, so a fresh instance can rebuild its database for disaster recovery.
-6. **REST API server:** Serves the web interface and the JSON endpoints described below.
+6. **REST API server:** Serves the web interface and the JSON endpoints listed in [Query the API](#query-the-api).
 
 The service records blob metadata (the Walrus blob ID, the Sui object ID, the checkpoint range, and the size of each archived blob) in a [RocksDB](https://rocksdb.org/) database, and can optionally mirror it to [PostgreSQL](https://www.postgresql.org/) for fast indexed queries.
 
-## Build and run the example
+## How to build and run the example
 
 <div className="outlined-tabs">
 
@@ -95,7 +95,7 @@ Then build and run the example:
    cargo run --release -p walrus-sui-archival -- run --config config/testnet_local_config.yaml
    ```
 
-4. Open the web interface at `http://localhost:9185` to view archival statistics, browse archived blobs, and look up checkpoints.
+4. Open the web interface at `http://localhost:9185` to view archival statistics, browse archived blobs, and look up checkpoints. To confirm that the service is running, send a request to the `GET /v1/health` endpoint, which returns `200 OK`. See [Query the API](#query-the-api).
 
 ## Query the API
 
