@@ -66,7 +66,7 @@ When a visitor navigates to your domain, their request reaches your portal. The 
 </Tabs>
 </div>
 
-## Get your Walrus Site object ID in Base36
+## How to get your Walrus Site object ID in Base36
 
 When serving a Walrus Site through a portal, the portal identifies your site by its object ID in Base36 format. This is different from the standard hexadecimal object ID shown in most Sui tools.
 
@@ -84,7 +84,7 @@ $ site-builder convert 0xYOUR_HEX_OBJECT_ID
 
 Copy and save the Base36 object ID. You need it when configuring your portal.
 
-## Configure your portal
+## How to configure your portal
 
 Once you have a [local portal set up](/docs/sites/portals/deploy-locally), configure it to serve your site using [`portal-config.yaml`](/docs/sites/portals/mainnet-testnet).
 
@@ -150,16 +150,16 @@ Environment variables are supported and override any value set in `portal-config
 
 After editing `portal-config.yaml`, restart your portal server for the changes to take effect.
 
-## Deploy your portal to a server
+## How to deploy your portal to a server
 
 Your portal must be accessible from a public IP address so that DNS can route traffic to it. The process for this depends on your hosting environment.
 
 If you are hosting on a virtual machine (for example, on AWS, GCP, or DigitalOcean), start the portal server on the machine and note its public IP address. The portal listens on a specific port, which you configure as part of the [local portal deployment](/docs/sites/portals/deploy-locally).
 
-## Configure your DNS
+## How to configure your DNS
 
 Once your portal is running and accessible at a public IP address, configure your domain's DNS to point to it. See [DNS Configuration](/docs/sites/custom-domains/dns-configuration) for a full guide on adding DNS records, pointing subdomains, verifying propagation, and troubleshooting.
 
-## Update the site content
+## How to update the site content
 
 When you redeploy your Walrus Site and receive a new object ID, update the `landing_page_oid_b36` value in `portal-config.yaml` with the new Base36 object ID and restart the portal. Your custom domain continues to work without any DNS changes because the domain still points to the same portal server.
