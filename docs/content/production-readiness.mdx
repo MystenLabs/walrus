@@ -47,7 +47,7 @@ collects the decisions to make before you depend on Walrus storage in production
 hardening an upload path, handling transient failures, controlling cost, and confirming durability.
 Each section links to the detailed reference for that area.
 
-## Choose and harden your upload path
+## How to choose and harden your upload path
 
 Walrus does not provide a public unauthenticated publisher on Mainnet, because the operator pays SUI
 and WAL for every blob stored. Pick the path that matches where your uploads run, then harden it.
@@ -63,7 +63,7 @@ protect the wallet, require authentication, put the publisher behind a private b
 failover. Do not rely on community endpoints for production, since they can change, go offline, or
 add restrictions without notice.
 
-## Handle transient failures
+## How to handle transient failures
 
 In a distributed system, network timeouts and brief node unavailability are normal. Production code
 should treat them as expected, not exceptional.
@@ -81,7 +81,7 @@ See [Error handling](/docs/troubleshooting/error-handling) for retry patterns, o
 and storage node error capture, and [Troubleshooting common errors](/docs/troubleshooting/network-errors)
 for specific messages.
 
-## Control cost
+## How to control cost
 
 Storing on Walrus spends two tokens: SUI for transaction gas and WAL for storage. Cost scales with
 blob size and with how long you store the data, so the levers below are where you manage spend.
@@ -101,14 +101,14 @@ blob size and with how long you store the data, so the levers below are where yo
 - **Monitor balances.** Track the SUI and WAL balances of any wallet that stores in production, and
   alert before they run low so uploads do not start failing with insufficient-funds errors.
 
-## Verify durability before depending on data
+## How to verify durability before depending on data
 
 A successful write response is not proof that a blob is certified and will remain available. Before
 your application depends on a stored blob, confirm it against Walrus state on Sui: certified, within
 its storage period, and not deletable when you need persistence. See
 [Verify blob availability before acting](/docs/walrus-client/verifying-availability).
 
-## Protect sensitive data
+## How to protect sensitive data
 
 Every blob stored on Walrus is public and readable by anyone with its blob ID. Encrypt sensitive
 data before you store it, for example with [Seal](/docs/data-security). Decide this before launch,
@@ -116,9 +116,11 @@ since data stored in the clear cannot be made private after the fact.
 
 ## Production checklist
 
-- Upload path chosen and hardened (authenticated publisher, relay, or direct SDK).
-- Publisher wallet protected, funded, and monitored, if you run one.
-- Retry with backoff for transient errors, and onchain verification after timeouts.
-- Lifetimes and permanence chosen for cost, with balance monitoring and alerts.
-- Durability verified against Sui state before depending on a blob.
-- Sensitive data encrypted before storage.
+Confirm each item before you launch:
+
+1. Upload path chosen and hardened (authenticated publisher, relay, or direct SDK)
+2. Publisher wallet protected, funded, and monitored, if you run one
+3. Retry with backoff for transient errors, and onchain verification after timeouts
+4. Lifetimes and permanence chosen for cost, with balance monitoring and alerts
+5. Durability verified against Sui state before depending on a blob
+6. Sensitive data encrypted before storage
