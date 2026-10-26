@@ -15,7 +15,12 @@ use diesel::{
 use diesel_async::{AsyncConnection as _, AsyncPgConnection, RunQueryDsl as _};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use futures::{StreamExt, stream};
-use object_store::{ObjectStore, gcp::GoogleCloudStorageBuilder, local::LocalFileSystem};
+use object_store::{
+    ObjectStore,
+    ObjectStoreExt,
+    gcp::GoogleCloudStorageBuilder,
+    local::LocalFileSystem,
+};
 use prometheus::core::{AtomicU64, GenericCounter};
 use scoped_futures::ScopedFutureExt;
 use sha2::Digest;

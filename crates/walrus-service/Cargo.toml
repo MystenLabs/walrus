@@ -33,12 +33,14 @@ backup = [
   "dep:diesel-async",
   "dep:diesel_migrations",
   "dep:md5",
+  "dep:object-store-reqwest",
   "dep:object_store",
   "dep:scoped-futures",
 ]
 client = [
   "dep:colored",
   "dep:libc",
+  "dep:object-store-reqwest",
   "dep:object_store",
   "dep:prettytable",
 ]
@@ -120,6 +122,7 @@ moka = { version = "0.12.15", features = ["future"] }
 move-core-types.workspace = true
 mysten-metrics = { workspace = true, optional = true }
 num-bigint.workspace = true
+object-store-reqwest = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 opentelemetry.workspace = true
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }

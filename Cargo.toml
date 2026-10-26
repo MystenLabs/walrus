@@ -85,7 +85,14 @@ move-package = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.82
 move-package-compilation = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.82.2" }
 mysten-metrics = { git = "https://github.com/MystenLabs/sui", tag = "testnet-v1.82.2" }
 num-bigint = { version = "0.5.1", default-features = false }
-object_store = { version = "0.11.2", features = ["gcp"] }
+# Not the `gcp` feature: it enables rustls's `aws-lc-rs` backend next to `ring`, and rustls then
+# panics because it cannot pick a default crypto provider. See `object-store-reqwest` below.
+object_store = { version = "0.14.2", features = ["gcp-base", "reqwest", "ring"] }
+# Only enables TLS for the `reqwest` 0.13 client inside `object_store`, without the `aws-lc-rs`
+# backend; rustls then uses `ring`. Not used directly.
+object-store-reqwest = { package = "reqwest", version = "0.13.5", default-features = false, features = [
+  "rustls-no-provider",
+] }
 once_cell = { version = "1.21.4" }
 opentelemetry = { version = "=0.31", default-features = false, features = ["trace"] }
 opentelemetry-otlp = { version = "=0.31" }
