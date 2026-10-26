@@ -38,7 +38,7 @@ answer: >-
 
 Quilt is a batch storage feature designed to optimize the storage cost and efficiency of large numbers of small blobs. Before Quilt, storing small blobs (less than 10 MB) on Walrus involved higher per-byte costs due to internal system data overhead. Quilt addresses this by encoding multiple blobs (up to 666 for QuiltV1) into a single unit called a **quilt**, significantly reducing Walrus storage overhead and lowering costs to purchase Walrus and Sui storage, as well as Sui computation gas fees.
 
-Each blob within a quilt can be accessed and retrieved individually without downloading the entire quilt. The blob boundaries in a quilt align with Walrus internal structures and Walrus storage nodes, allowing for retrieval latency that is comparable to, or lower than, that of a regular blob.
+Each blob within a quilt is a patch. You can access and retrieve each patch individually without downloading the entire quilt. The blob boundaries in a quilt align with Walrus internal structures and Walrus storage nodes, allowing for retrieval latency that is comparable to, or lower than, that of a regular blob.
 
 Quilt introduces custom, immutable Walrus-native blob metadata, allowing you to assign different types of metadata to each blob in a quilt, for example, unique identifiers and tags of key-value pairs. This metadata is functionally similar to the existing blob metadata store onchain, but there are some fundamental distinctions. Walrus-native metadata is stored alongside the blob data, which reduces costs and simplifies management. This metadata can also be used for efficient lookup of blobs within a quilt, for example, reading blobs with a particular tag. When storing a quilt, you can set the Walrus-native metadata using the Quilt APIs.
 
@@ -66,17 +66,17 @@ The total size of all tags combined must not exceed 64 KB.
 
 ## Important considerations
 
-### Per-blob size limit
+### What is the per-blob size limit?
 
 Each individual blob within a quilt is limited to approximately 4 GiB. This limit is separate from the maximum blob size shown by `walrus info`, which applies to regular blobs and to the quilt as a whole. The per-blob limit comes from the quilt's internal header format, which uses a 4-byte field to store each blob's length. A small amount of this space is used for per-blob metadata (identifier and tags), so the usable data capacity is slightly less. You can check this limit by running `walrus info` and looking for the "Maximum blob size in quilt" field.
 
 If you need to store data larger than 4 GiB, store it as a regular blob instead of within a quilt.
 
-### Quilt patch IDs
+### What is a quilt patch ID?
 
 Blobs stored in a quilt are assigned a unique ID called `QuiltPatchId`, which differs from the `BlobId` used for regular Walrus blobs. A `QuiltPatchId` is determined by the composition of the entire quilt rather than the single blob, so it can change if the blob is stored in a different quilt. Individual blobs cannot be deleted, extended, or shared separately. These operations can only be applied to the entire quilt.
 
-## Target use cases
+## What are the use cases for Quilt?
 
 Using Quilt requires minimal additional effort beyond standard procedures. The primary consideration is that the unique ID assigned to each blob within a quilt cannot be directly derived from its contents.
 
@@ -139,9 +139,9 @@ Use a regular blob instead when:
 - Items need independent, one-at-a-time lifetimes. The `delete`, `extend`, and `share` operations apply to the whole quilt rather than to individual items within it, so an item you need to delete, extend, or share on its own schedule should be a regular blob.
 - You need each item addressed by a content-derived blob ID. An item inside a quilt is retrieved by its `QuiltPatchId`, which depends on the composition of the whole quilt and is not derived from the item's contents.
 
-## Decision guide
+## How to choose between a quilt and a regular blob
 
-Use the following matrix to decide between a quilt and regular blobs. Quilt is the right choice only when every row points to it. If any row points to a regular blob, store that item as a regular blob.
+Use the following matrix to decide between a quilt and regular blobs. Quilt is the right choice only when every row points to it. If any row points to a regular blob, store that item as a regular blob. The file count and individual size values are guidance, except for 2 hard limits: 666 items per QuiltV1 and about 4 GiB per item.
 
 | **Dimension** | **Use Quilt when** | **Use a regular blob when** |
 |---|---|---|
