@@ -82,9 +82,9 @@ s_{2,0} & s_{2,1} & s_{2,2} & s_{2,3} & s_{2,4} & \color{blue} r_{2,5} & \color{
 \right]
 $$
 
-Each of the columns of this row expansion is a secondary sliver. For example, $[r_{0,6}, r_{1,6}, r_{2,6}]$.
+Each of the columns of this row expansion is a secondary sliver, so a secondary sliver holds 3 symbols, one from each row. For example, $[r_{0,6}, r_{1,6}, r_{2,6}]$. Expanding such a column with the primary encoding gives 3 source symbols and 4 repair symbols, that is, 7 symbols in total.
 
-For simplicity, this example and the [recovery example](red-stuff-recovery) pair primary sliver $i$ with secondary sliver $i$ (as in the [Walrus paper](https://arxiv.org/abs/2505.05370)), and store sliver pair $i$ on shard $i$. In the implementation, sliver pair $i$ holds primary sliver $i$ and secondary sliver $N-1-i$, and the [sliver-pair-to-shard mapping](red-stuff-parameters#sliver-pair-to-shard-mapping) assigns sliver pairs to shards. Neither difference changes how encoding and recovery work.
+For simplicity, this example and the [recovery example](red-stuff-recovery) pair primary sliver $i$ with secondary sliver $i$ (as in the [Walrus paper](https://arxiv.org/abs/2505.05370)), and store sliver pair $i$ on shard $i$. In the implementation, sliver pair $i$ holds primary sliver $i$ and secondary sliver $N-1-i$, and the [sliver-pair-to-shard mapping](red-stuff-parameters#sliver-pair-to-shard-mapping) assigns sliver pairs to shards. Each shard therefore stores exactly one sliver pair, that is, one primary sliver and one secondary sliver. Neither difference changes how encoding and recovery work.
 
 Thanks to the linearity of Reed-Solomon codes, the expansion of:
 

@@ -140,12 +140,12 @@ Finally, the encoding type tag (representing the RedStuff version or alternative
 
 Each storage node stores the full metadata for the blob. The metadata consists of:
 
-- A `32 B` Merkle root hash for each primary and secondary sliver.
+- A `32 B` Merkle root hash for every one of the $2N$ slivers, that is, the primary and the secondary sliver of each of the $N$ sliver pairs.
 - The `32 B` blob ID, computed as above.
 - The erasure code type (`1 B`).
 - The length of the unencoded blob size (`8 B`).
 
-The hashes for the primary and secondary slivers can be a considerable overhead when the number of shards is high. The following table shows the cumulative size of the hashes stored on the system, depending on the number of nodes and shards.
+Because each storage node stores the full metadata, every node holds all of these sliver hashes, which can be a considerable overhead when the number of shards is high. The following table shows the cumulative size of the hashes stored on the system, depending on the number of nodes and shards.
 
 | N shards | One node | floor(N/floor(log2(N))) nodes | N nodes |
 |---------:|---------:|------------------------------:|--------:|

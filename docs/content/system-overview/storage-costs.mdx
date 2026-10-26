@@ -90,7 +90,7 @@ Walrus bills you on the blob's **encoded size**, not the size of your original f
 
 #### Estimate cost by hand
 
-For a quick estimate without the calculator, work in two steps. First find the encoded size, then apply the fixed monthly rate:
+For a quick estimate without the calculator, work in two steps. First find the encoded size, then apply the fixed monthly rate. All sizes below are expressed in GB, so the fixed 64 MB of per-blob metadata appears as 0.064 GB:
 
 ```text
 encoded_size_GB = 4.5 * original_size_GB + 0.064
@@ -109,7 +109,7 @@ The result is USD-denominated. Storage is paid in WAL, so the WAL amount changes
 
 The same formula explains why a batch of small files costs far more than its contents suggest. Take 600 files of 10 KiB each, roughly 6 MB of data altogether.
 
-If you store them as individual blobs, every file pays the fixed metadata overhead in full:
+If you store them as individual blobs, every file pays the fixed metadata overhead in full (64 MB per blob, shown below as 0.064 GB):
 
 ```text
 per_blob_GB      = 4.5 * 0.00001 + 0.064, roughly 0.064
