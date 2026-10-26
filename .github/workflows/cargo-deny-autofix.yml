@@ -1,0 +1,216 @@
+name: Cargo Deny Advisories Autofix
+
+# The PR check in `code.yml` skips advisories so that a newly published advisory does not block
+# unrelated PRs; this workflow reports and, where possible, fixes them instead. It follows Sui's
+# `cargo-deny-autofix.yml`.
+
+on:
+  schedule:
+    # Mondays at 18:30 UTC, which is late morning in the Pacific time zone (11:30 PDT, 10:30 PST).
+    - cron: "30 18 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: cargo-deny-autofix
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  RUST_BACKTRACE: short
+  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  autofix:
+    name: Fix cargo-deny advisories
+    # This job compiles freshly upgraded crates, whose build scripts run arbitrary code, so it gets
+    # no secrets (not even the sccache credentials). The `publish` job pushes the result.
+    runs-on: ubuntu-ghcloud
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      open_pr: ${{ steps.existing.outputs.open_pr }}
+      has_fixes: ${{ steps.fix.outputs.has_fixes }}
+      has_remaining: ${{ steps.fix.outputs.has_remaining }}
+    steps:
+      - name: Check for an existing autofix PR
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          open_pr=$(gh pr list --state open \
+            --search '"fix cargo-deny advisories" in:title' \
+            --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("autofix/cargo-deny-advisories-"))][0].number // empty')
+          if [[ -n "$open_pr" ]]; then
+            echo "::notice::Autofix PR #${open_pr} is already open; skipping."
+          fi
+          echo "open_pr=$open_pr" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
+        if: steps.existing.outputs.open_pr == ''
+        with:
+          persist-credentials: false
+      # From source: cargo-edit publishes no release binaries, and install-action's cargo-binstall
+      # fallback would receive github.token.
+      - name: Install cargo-edit
+        if: steps.existing.outputs.open_pr == ''
+        run: cargo install cargo-edit@0.13.13 --locked --no-default-features --features upgrade
+      - uses: taiki-e/install-action@a2352fc6ce487f030a3aa709482d57823eadfb37 # pin@v2.75.16
+        if: steps.existing.outputs.open_pr == ''
+        with:
+          tool: cargo-deny@0.18.4
+
+      - name: Detect and fix advisories
+        if: steps.existing.outputs.open_pr == ''
+        id: fix
+        env:
+          OUT_DIR: ${{ runner.temp }}/cargo-deny-autofix
+        run: ./scripts/cargo-deny-autofix.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@v7.0.1
+        if: always() && steps.existing.outputs.open_pr == ''
+        with:
+          name: cargo-deny-autofix
+          path: ${{ runner.temp }}/cargo-deny-autofix
+          if-no-files-found: ignore
+
+  publish:
+    name: Open PR and notify
+    needs: autofix
+    if: always() && needs.autofix.outputs.open_pr == ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # pin@v8.0.2
+        continue-on-error: true
+        with:
+          name: cargo-deny-autofix
+          path: ${{ runner.temp }}/cargo-deny-autofix
+
+      # Pushes and PRs made with GITHUB_TOKEN do not trigger CI, so use the walrus-automerge app.
+      - name: Generate automerge token
+        id: app_token
+        if: needs.autofix.outputs.has_fixes == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pin@v3.2.0
+        with:
+          app-id: ${{ secrets.WALRUS_AUTOMERGE_APP_ID }}
+          private-key: ${{ secrets.WALRUS_AUTOMERGE_PRIVATE_KEY }}
+
+      - name: Create fix PR
+        id: pr
+        if: needs.autofix.outputs.has_fixes == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app_token.outputs.token }}
+          OUT_DIR: ${{ runner.temp }}/cargo-deny-autofix
+        run: |
+          STAMP="$(date +%Y%m%d%H%M%S)"
+          BRANCH="autofix/cargo-deny-advisories-${STAMP}"
+          TITLE="chore: fix cargo-deny advisories"
+
+          git apply "$OUT_DIR/changes.patch"
+          git checkout -b "$BRANCH"
+          git add -u
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "$TITLE"
+
+          # Pass the token through GIT_CONFIG_* rather than `git -c` so it stays out of the command
+          # line. `tr -d '\n'` keeps base64's line wrapping out of the header.
+          auth_header="$(printf '%s' "x-access-token:${GH_TOKEN}" | base64 | tr -d '\n')"
+          GIT_CONFIG_COUNT=1 \
+          GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
+          GIT_CONFIG_VALUE_0="Authorization: basic ${auth_header}" \
+            ./scripts/git_push_with_retry.sh -u origin "$BRANCH"
+
+          {
+            echo "## Description"
+            echo
+            echo "Automated dependency updates for \`cargo deny check advisories\` failures," \
+              "generated by the \`cargo-deny-autofix\` workflow ([run](${RUN_URL})):"
+            echo
+            cat "$OUT_DIR/fixed.md"
+            if [[ -s "$OUT_DIR/remaining.md" ]]; then
+              echo
+              echo "These advisories remain and need a manual fix:"
+              echo
+              cat "$OUT_DIR/remaining.md"
+            fi
+            echo
+            echo "## Test plan"
+            echo
+            echo "The workflow checked that each change reduces the \`cargo deny check" \
+              "advisories\` errors and, for raised version requirements, that the workspace" \
+              "compiles. CI runs the tests."
+          } > "$RUNNER_TEMP/pr-body.md"
+
+          pr_url=$(gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "$TITLE" \
+            --body-file "$RUNNER_TEMP/pr-body.md" | tail -1)
+          echo "pr_url=${pr_url}" >> "$GITHUB_OUTPUT"
+
+      - name: Build notification payload
+        id: payload
+        env:
+          OUT_DIR: ${{ runner.temp }}/cargo-deny-autofix
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+          HAS_REMAINING: ${{ needs.autofix.outputs.has_remaining }}
+          AUTOFIX_RESULT: ${{ needs.autofix.result }}
+        run: |
+          # Slack mrkdwn links are `<url|text>`, not Markdown's `[text](url)`.
+          slack() {
+            if [[ -s "$1" ]]; then
+              sed -E 's/\[([^]]+)\]\(([^)]+)\)/<\2|\1>/g' "$1"
+            fi
+          }
+
+          remaining=$(slack "$OUT_DIR/remaining.md")
+          if [[ "$AUTOFIX_RESULT" != "success" ]]; then
+            remaining="The autofix job failed before it could report advisories. See the run log."
+          elif [[ -z "$PR_URL" && "$HAS_REMAINING" != "true" ]]; then
+            echo "notify=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          fix_steps="1. Check the run log for what the workflow already tried: \`cargo update\` of"
+          fix_steps+=" each flagged crate and its direct parents, then \`cargo upgrade --incompatible\`"
+          fix_steps+=" of the direct dependencies that pull it in."
+          fix_steps+=$'\n'"2. If an upgrade broke the build, make it by hand with the code changes it"
+          fix_steps+=" needs."
+          fix_steps+=$'\n'"3. If nothing in Walrus can fix it (an unmaintained crate, or a fix that"
+          fix_steps+=" depends on Sui or fastcrypto), add the advisory ID to \`ignore\` in"
+          fix_steps+=" \`deny.toml\` with a comment explaining why. Then raise it with the team that"
+          fix_steps+=" owns the dependency and open a Linear issue in Walrus Core to revisit the"
+          fix_steps+=" ignore."
+          payload=$(jq -nc \
+            --arg run_url "$RUN_URL" \
+            --arg pr_url "$PR_URL" \
+            --arg fixed "$(slack "$OUT_DIR/fixed.md")" \
+            --arg remaining "$remaining" \
+            --arg failed_upgrades "$(slack "$OUT_DIR/failed-upgrades.md")" \
+            --arg fix_steps "$fix_steps" \
+            '{run_url: $run_url, pr_url: $pr_url, fixed: $fixed, remaining: $remaining,
+              failed_upgrades: $failed_upgrades, fix_steps: $fix_steps}')
+          {
+            echo "notify=true"
+            echo "json=${payload}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Notify oncall through sui-operations
+        if: steps.payload.outputs.notify == 'true'
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
+        with:
+          token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}
+          repository: MystenLabs/sui-operations
+          event-type: walrus-cargo-deny-autofix
+          client-payload: ${{ steps.payload.outputs.json }}
