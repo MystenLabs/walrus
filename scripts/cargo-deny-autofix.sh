@@ -9,6 +9,10 @@
 # workspace still compiles. Follows Sui's `scripts/cargo-deny-autofix.sh`, which does the first step
 # only.
 #
+# Advisories ignored in `deny.toml` get the `cargo update` steps too, but not the requirement
+# raises, which mostly wait on upstream crates and would cost a compile each week. Ignores whose
+# advisory is no longer reported are removed from `deny.toml`.
+#
 # Must be run from the repository root. Requires cargo, cargo-deny, cargo-upgrade (from cargo-edit),
 # curl, git, and jq. Compiles upgraded dependencies, so run it without credentials in the
 # environment.
@@ -16,10 +20,11 @@
 # Usage: scripts/cargo-deny-autofix.sh
 #
 # Outputs (in $OUT_DIR, default: a fresh mktemp dir):
-#   fixed.md           - one bullet per advisory fixed
-#   remaining.md       - one bullet per advisory that could not be fixed
+#   fixed.md           - one bullet per advisory fixed, ignored or not
+#   remaining.md       - one bullet per advisory that is not ignored and could not be fixed
+#   removed-ignores.md - one bullet per ignore removed from `deny.toml`
 #   failed-upgrades.md - one bullet per direct dependency whose upgrade broke the build
-#   changes.patch      - the changes to the manifests and lockfile, if any advisory was fixed
+#   changes.patch      - the changes to the manifests, lockfile, and `deny.toml`, if any
 # When $GITHUB_OUTPUT is set, also emits: has_fixes, has_remaining, out_dir.
 
 set -Eeuo pipefail
@@ -43,17 +48,33 @@ mkdir -p "$OUT_DIR"
 FIXED_MD="$OUT_DIR/fixed.md"
 REMAINING_MD="$OUT_DIR/remaining.md"
 FAILED_UPGRADES_MD="$OUT_DIR/failed-upgrades.md"
+REMOVED_IGNORES_MD="$OUT_DIR/removed-ignores.md"
 : >"$FIXED_MD"
 : >"$REMAINING_MD"
 : >"$FAILED_UPGRADES_MD"
+: >"$REMOVED_IGNORES_MD"
 
 WORK_DIR="$(mktemp -d "$OUT_DIR/work.XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 
-# Prints one line per advisory error: "<advisory id>\t<crate>\t<version>".
+# Prints the advisory IDs in the `ignore` list of the given cargo-deny config.
+ignored_ids() {
+  awk '/^ignore = \[/ { in_list = 1; next } in_list && /^\]/ { exit } in_list' "$1" \
+    | grep -oE 'RUSTSEC-[0-9]{4}-[0-9]{4}' | sort -u || true
+}
+
+# A copy of `deny.toml` without the advisory ignores, so that ignored advisories are flagged too.
+NO_IGNORES_CONFIG="$WORK_DIR/deny.toml"
+awk '/^ignore = \[/ { print "ignore = []"; skip = 1; next }
+  skip && /^\]/ { skip = 0; next }
+  !skip' deny.toml >"$NO_IGNORES_CONFIG"
+IGNORED_IDS=$(ignored_ids deny.toml)
+
+# Prints one line per advisory error, including ignored ones: "<advisory id>\t<crate>\t<version>".
 flagged_advisories() {
   local json="$WORK_DIR/deny.jsonl"
-  if cargo deny --all-features --format json check advisories --hide-inclusion-graph 2>"$json"; then
+  if cargo deny --all-features --config "$NO_IGNORES_CONFIG" --format json check advisories \
+    --hide-inclusion-graph 2>"$json"; then
     return 0
   fi
   local flagged
@@ -279,6 +300,53 @@ write_fixed() {
   done <<<"$1" >"$FIXED_MD"
 }
 
+# Prints the advisory lines of $1 whose advisory is not ignored in `deny.toml`.
+not_ignored() {
+  awk -F'\t' -v ids="$(tr "\n" " " <<<"$IGNORED_IDS")" '
+    BEGIN { n = split(ids, list, " "); for (i = 1; i <= n; i++) ignored[list[i]] = 1 }
+    NF && !($1 in ignored)' <<<"$1"
+}
+
+# Removes the given advisory IDs from the `ignore` list in `deny.toml`, together with their comment
+# when no ID under it remains. A line with only `#` ends the comment that introduces the list.
+remove_ignores() {
+  awk -v ids="$(tr "\n" " " <<<"$1")" '
+    function flush() {
+      if (!seen_ids || kept != "") printf "%s%s", comments, kept
+      comments = ""; kept = ""; seen_ids = 0
+    }
+    BEGIN { n = split(ids, list, " "); for (i = 1; i <= n; i++) drop[list[i]] = 1 }
+    /^ignore = \[/ { in_list = 1; print; next }
+    !in_list { print; next }
+    /^\]/ { flush(); in_list = 0; print; next }
+    /^ *#/ {
+      if (seen_ids) flush()
+      comments = comments $0 "\n"
+      if ($0 ~ /^ *#$/) flush()
+      next
+    }
+    {
+      seen_ids = 1
+      id = $0
+      gsub(/[ ",]/, "", id)
+      if (!(id in drop)) kept = kept $0 "\n"
+    }' deny.toml >"$WORK_DIR/deny.toml.new"
+  mv "$WORK_DIR/deny.toml.new" deny.toml
+}
+
+# Removes the ignores whose advisory is no longer reported and lists them.
+remove_stale_ignores() {
+  local stale id
+  stale=$(comm -23 <(echo "$IGNORED_IDS") <(cut -f1 <<<"$1" | sort -u) | grep . || true)
+  if [[ -z "$stale" ]]; then
+    return 0
+  fi
+  remove_ignores "$stale"
+  while read -r id; do
+    echo "- [${id}](https://rustsec.org/advisories/${id}): no longer reported"
+  done <<<"$stale" >"$REMOVED_IGNORES_MD"
+}
+
 # Writes one bullet per advisory line of $1, formatted like Sui's.
 write_remaining() {
   local id name version
@@ -297,21 +365,22 @@ if [[ -n "$initial" ]]; then
   echo "==> Updating flagged crates"
   update_flagged_crates "$initial"
   remaining=$(flagged_advisories)
-  if [[ -n "$remaining" ]]; then
+  if [[ -n "$(not_ignored "$remaining")" ]]; then
     echo "==> Upgrading direct dependencies"
-    upgrade_direct_dependencies "$remaining"
+    upgrade_direct_dependencies "$(not_ignored "$remaining")"
     remaining=$(flagged_advisories)
   fi
 fi
 
 write_fixed "$initial" "$remaining"
-write_remaining "$remaining"
-if [[ -s "$FIXED_MD" ]]; then
+write_remaining "$(not_ignored "$remaining")"
+remove_stale_ignores "$remaining"
+if [[ -s "$FIXED_MD" || -s "$REMOVED_IGNORES_MD" ]]; then
   git diff --binary >"$OUT_DIR/changes.patch"
 fi
 
 has_fixes=false
-[[ -s "$FIXED_MD" ]] && has_fixes=true
+[[ -s "$FIXED_MD" || -s "$REMOVED_IGNORES_MD" ]] && has_fixes=true
 has_remaining=false
 [[ -s "$REMAINING_MD" ]] && has_remaining=true
 
@@ -320,6 +389,8 @@ echo "    Fixed:"
 sed 's/^/      /' "$FIXED_MD"
 echo "    Remaining (need manual attention):"
 sed 's/^/      /' "$REMAINING_MD"
+echo "    Ignores removed from deny.toml:"
+sed 's/^/      /' "$REMOVED_IGNORES_MD"
 echo "    Upgrades that broke the build:"
 sed 's/^/      /' "$FAILED_UPGRADES_MD"
 
