@@ -36,9 +36,9 @@ answer: >-
   downtime.
 ---
 
-Guide for migrating a Walrus storage node to new hardware with minimal downtime.
+To migrate a Walrus storage node to new hardware with minimal downtime, copy `/opt/walrus` from the old host to the new host with `rsync` while the old node still runs. Then stop the services on the old host, run a second `rsync`, and start the services on the new host.
 
-This guide covers migrating a Walrus storage node to new hardware. It assumes you run the node (and optionally an aggregator and publisher) on the same host.
+These steps assume you run the node (and optionally an aggregator and publisher) on the same host.
 
 <div className="outlined-tabs">
 
@@ -91,11 +91,13 @@ sudo systemctl stop walrus-publisher.service     # if applicable
 
 :::caution
 
-Stopping the node cleanly is critical. Wait for each stop command to finish before proceeding, so no writes are still in flight: running `rsync` against a database that is still being written to might result in a corrupted copy.
+Stopping the node cleanly is critical. Running `rsync` against a database that the node is still writing to might result in a corrupted copy.
 
 :::
 
 ##### Step 2: Run a second `rsync` to synchronize changes.
+
+This command uses the `OLD_HOST` and `OLD_USER` variables from the first transfer. If you use a new shell session, set them again before you run it.
 
 Use `--delete` to synchronize any changes made after the first transfer:
 
@@ -113,7 +115,7 @@ Download the latest `walrus` and `walrus-node` binaries (see [Download binaries]
 
 ##### Step 5: Verify transferred data.
 
-Verify the contents of `/opt/walrus/config` and `/opt/walrus/wallets` (if you run a publisher) match the old host. For `/opt/walrus/db`, check that the directory structure and file sizes are consistent with the old host.
+Verify the contents of `/opt/walrus/config` and `/opt/walrus/wallets` (if you run a publisher) match the old host. For `/opt/walrus/db`, check that the directory structure and file sizes are consistent with the old host, and check that file permissions on the transferred files (including the key files under `/opt/walrus/config`) are correct.
 
 ##### Step 6: Update the hostname (if changed).
 
@@ -132,11 +134,11 @@ sudo systemctl enable --now walrus-publisher.service     # if applicable
 
 If you had a reverse proxy (for example, nginx) on the old host, migrate that configuration as well and start the proxy.
 
-## Verify the migration
+## How to verify the migration
 
 ##### Step 1: Check the health endpoint.
 
-Run the following command from a different machine:
+Run the following command from a different machine. Replace `PUBLIC_ADDRESS` with the public hostname or IP address of your node.
 
 ```sh
 curl https://PUBLIC_ADDRESS:9185/v1/health | jq
@@ -145,6 +147,8 @@ curl https://PUBLIC_ADDRESS:9185/v1/health | jq
 The response should show `"nodeStatus": "Active"` and a `persisted` events count in the order of tens of millions.
 
 ##### Step 2: Verify the onchain key.
+
+Replace `YOUR_NODE_ID` with the ID of your storage node.
 
 ```sh
 /opt/walrus/bin/walrus --config /opt/walrus/config/client_config.yaml health --node-id YOUR_NODE_ID
@@ -169,6 +173,8 @@ If the database is corrupted, try the following steps in order:
 1. If the main database is corrupted, try running `/opt/walrus/bin/walrus-node db-tool repair-db --db-path /opt/walrus/db`.
 
 ##### Step 4: (Optional) Test your aggregator.
+
+Replace `AGGREGATOR_ADDRESS` with the address of your aggregator and `BLOB_ID` with the ID of a blob stored on Walrus.
 
 ```sh
 curl https://AGGREGATOR_ADDRESS/v1/blobs/BLOB_ID
