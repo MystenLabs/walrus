@@ -15,6 +15,7 @@ use std::{
 use anyhow::{Context, Result, bail};
 use bincode::Options;
 use clap::{Subcommand, ValueEnum};
+use futures::StreamExt as _;
 use rocksdb::{
     BottommostLevelCompaction,
     ColumnFamilyDescriptor,
@@ -30,7 +31,21 @@ use rocksdb::{
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use sui_types::base_types::ObjectID;
+use sui_rpc::{
+    field::{FieldMask, FieldMaskUtil as _},
+    proto::sui::rpc::v2::{
+        EventFilter,
+        EventLiteral,
+        EventTerm,
+        EventTypeFilter,
+        GetObjectRequest,
+        ListEventsRequest,
+    },
+};
+use sui_types::{
+    base_types::{ObjectID, TransactionDigest},
+    event::EventID,
+};
 use typed_store::{
     TypedStoreError,
     rocks::{MetricConf, be_fix_int_ser},
@@ -43,6 +58,7 @@ use walrus_core::{
     encoding::{EncodingConfig, EncodingFactory as _},
     metadata::{BlobMetadata, BlobMetadataApi},
 };
+use walrus_sui::types::{EventEnvelope, InvalidBlobId};
 use walrus_utils::metrics::Registry;
 
 use super::DatabaseTableOptionsFactory;
@@ -71,6 +87,7 @@ use crate::{
             Storage,
             blob_info::{
                 BlobInfo,
+                BlobInfoApi as _,
                 CertifiedBlobInfoApi,
                 PerObjectBlobInfo,
                 blob_info_cf_options,
@@ -445,6 +462,43 @@ pub enum DbToolCommands {
         #[arg(long)]
         input: PathBuf,
     },
+
+    /// Fetch every `InvalidBlobID` event of a Walrus system from a Sui RPC node and write them to
+    /// a JSON file, the input of `load-invalid-blob-marks`.
+    ///
+    /// Lists the events by type with `LedgerService.ListEvents` from genesis to the ledger tip, so
+    /// the RPC node must index the full event history, as the Sui archive does
+    /// (`https://archive.testnet.sui.io:443`, `https://archive.mainnet.sui.io:443`). The event
+    /// type is taken from the type of the System object, which names the package that defines the
+    /// event (the original package), not the latest upgrade.
+    FetchInvalidBlobEvents {
+        /// URL of the Sui RPC node (gRPC).
+        #[arg(long)]
+        rpc_url: String,
+        /// Object ID of the Walrus System object.
+        #[arg(long)]
+        #[serde_as(as = "DisplayFromStr")]
+        system_object_id: ObjectID,
+        /// Path of the JSON file to write.
+        #[arg(long)]
+        output: PathBuf,
+    },
+
+    /// Mark the blob IDs of a file written by `fetch-invalid-blob-events` as invalid in a stopped
+    /// node's database.
+    ///
+    /// Applies the update the node applies when it processes an `InvalidBlobID` event, for the
+    /// first event of each blob ID, in one atomic write. An existing mark is kept. Neither the
+    /// event cursor nor the node status changes. Run it after `load-blob-info-snapshot`, which
+    /// clears the aggregate blob info table. The node must be stopped; back up the database first.
+    LoadInvalidBlobMarks {
+        /// Path to the RocksDB database directory; must exist.
+        #[arg(long)]
+        db_path: PathBuf,
+        /// Path to the JSON file written by `fetch-invalid-blob-events`.
+        #[arg(long)]
+        input: PathBuf,
+    },
 }
 
 /// Commands for reading event blob writer metadata.
@@ -581,6 +635,14 @@ impl DbToolCommands {
             } => verify_blob_info_snapshot(input, blob_id, n_shards),
             Self::LoadBlobInfoSnapshot { db_path, input } => {
                 load_blob_info_snapshot(db_path, input)
+            }
+            Self::FetchInvalidBlobEvents {
+                rpc_url,
+                system_object_id,
+                output,
+            } => fetch_invalid_blob_events(rpc_url, system_object_id, output),
+            Self::LoadInvalidBlobMarks { db_path, input } => {
+                load_invalid_blob_marks(db_path, input)
             }
         }
     }
@@ -2203,6 +2265,221 @@ fn load_blob_info_snapshot(db_path: PathBuf, input: PathBuf) -> Result<()> {
         header.event_cursor.next_event_index().saturating_sub(1)
     );
     println!("  node status:         RecoveryCatchUp");
+    Ok(())
+}
+
+/// The file written by `fetch-invalid-blob-events` and read by `load-invalid-blob-marks`.
+#[derive(Debug, Serialize, Deserialize)]
+struct InvalidBlobEventsFile {
+    /// The Move type of the listed events.
+    event_type: String,
+    /// The last checkpoint the listing covered.
+    covered_checkpoint: Option<u64>,
+    /// The events, in ledger order.
+    events: Vec<InvalidBlobEventRecord>,
+}
+
+/// One `InvalidBlobID` event.
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize)]
+struct InvalidBlobEventRecord {
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    blob_id: BlobId,
+    epoch: Epoch,
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    tx_digest: TransactionDigest,
+    event_seq: u64,
+    checkpoint: u64,
+}
+
+fn fetch_invalid_blob_events(
+    rpc_url: String,
+    system_object_id: ObjectID,
+    output: PathBuf,
+) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let events_file = runtime.block_on(list_invalid_blob_events(&rpc_url, system_object_id))?;
+
+    let file = std::fs::File::create(&output)
+        .with_context(|| format!("failed to create {}", output.display()))?;
+    serde_json::to_writer_pretty(std::io::BufWriter::new(file), &events_file)
+        .with_context(|| format!("failed to write {}", output.display()))?;
+
+    let distinct_blob_ids = events_file
+        .events
+        .iter()
+        .map(|event| event.blob_id)
+        .collect::<BTreeSet<_>>()
+        .len();
+    println!("Fetched invalid blob events ({})", output.display());
+    println!("  event type:          {}", events_file.event_type);
+    println!(
+        "  events:              {} ({distinct_blob_ids} distinct blob IDs)",
+        events_file.events.len()
+    );
+    match events_file.covered_checkpoint {
+        Some(checkpoint) => println!("  covered up to:       checkpoint {checkpoint}"),
+        None => println!("  covered up to:       not reported by the RPC node"),
+    }
+    Ok(())
+}
+
+async fn list_invalid_blob_events(
+    rpc_url: &str,
+    system_object_id: ObjectID,
+) -> Result<InvalidBlobEventsFile> {
+    let mut client =
+        sui_rpc::Client::new(rpc_url).context("failed to create the Sui RPC client")?;
+
+    // The System object's type is defined in the original package, like the event.
+    let system_object = client
+        .ledger_client()
+        .get_object(
+            GetObjectRequest::default()
+                .with_object_id(system_object_id.to_string())
+                .with_read_mask(FieldMask::from_paths(["object_type"])),
+        )
+        .await
+        .context("failed to read the System object")?
+        .into_inner()
+        .object
+        .context("no object in the response")?;
+    let system_type = system_object
+        .object_type
+        .context("no type in the System object")?;
+    let package = system_type
+        .split_once("::")
+        .map(|(package, _)| package)
+        .context("the System object's type has no package")?;
+    let event_type = format!("{package}::events::InvalidBlobID");
+
+    let request = ListEventsRequest::default()
+        .with_read_mask(FieldMask::from_paths([
+            "event_type",
+            "contents",
+            "checkpoint",
+            "transaction_digest",
+            "event_index",
+        ]))
+        .with_filter(
+            EventFilter::default().with_terms(vec![
+                EventTerm::default()
+                    .with_literals(vec![EventLiteral::default().with_event_type(
+                        EventTypeFilter::default().with_event_type(&event_type),
+                    )]),
+            ]),
+        );
+    let mut pages = std::pin::pin!(client.list_events(request));
+    let mut events = Vec::new();
+    let mut covered_checkpoint = None;
+    while let Some(page) = pages.next().await {
+        let page = page.context("failed to list the events")?;
+        if let Some(checkpoint) = page.watermark.and_then(|watermark| watermark.checkpoint) {
+            covered_checkpoint = Some(checkpoint);
+        }
+        let Some(event) = page.event else {
+            continue;
+        };
+        let checkpoint = event.checkpoint.context("no checkpoint in the event")?;
+        let envelope = EventEnvelope {
+            id: EventID {
+                tx_digest: event
+                    .transaction_digest
+                    .as_deref()
+                    .context("no transaction digest in the event")?
+                    .parse()
+                    .context("failed to parse the transaction digest")?,
+                event_seq: event.event_index.context("no index in the event")?.into(),
+            },
+            type_: event
+                .event_type
+                .as_deref()
+                .context("no type in the event")?
+                .parse()
+                .context("failed to parse the event type")?,
+            bcs: event
+                .contents
+                .and_then(|contents| contents.value)
+                .context("no contents in the event")?
+                .to_vec(),
+        };
+        let invalid_blob_id = InvalidBlobId::try_from(envelope)?;
+        events.push(InvalidBlobEventRecord {
+            blob_id: invalid_blob_id.blob_id,
+            epoch: invalid_blob_id.epoch,
+            tx_digest: invalid_blob_id.event_id.tx_digest,
+            event_seq: invalid_blob_id.event_id.event_seq,
+            checkpoint,
+        });
+    }
+
+    Ok(InvalidBlobEventsFile {
+        event_type,
+        covered_checkpoint,
+        events,
+    })
+}
+
+fn load_invalid_blob_marks(db_path: PathBuf, input: PathBuf) -> Result<()> {
+    if !db_path.is_dir() {
+        bail!("database directory {} does not exist", db_path.display());
+    }
+    let file = std::fs::File::open(&input)
+        .with_context(|| format!("failed to open {}", input.display()))?;
+    let events_file: InvalidBlobEventsFile = serde_json::from_reader(std::io::BufReader::new(file))
+        .with_context(|| format!("failed to parse {}", input.display()))?;
+
+    // A node keeps the first invalidation of a blob ID and ignores the later ones.
+    let mut seen = BTreeSet::new();
+    let invalidations = events_file
+        .events
+        .iter()
+        .filter(|event| seen.insert(event.blob_id))
+        .map(|event| InvalidBlobId {
+            epoch: event.epoch,
+            blob_id: event.blob_id,
+            event_id: EventID {
+                tx_digest: event.tx_digest,
+                event_seq: event.event_seq,
+            },
+        })
+        .collect::<Vec<_>>();
+
+    // Opening the storage starts database metrics tasks, which need a runtime.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _runtime_guard = runtime.enter();
+    let storage = Storage::open(
+        &db_path,
+        DatabaseConfig::default(),
+        MetricConf::default(),
+        Registry::default(),
+    )
+    .with_context(|| format!("failed to open the database at {}", db_path.display()))?;
+
+    let (mut absent, mut valid, mut already_invalid) = (0, 0, 0);
+    for invalidation in &invalidations {
+        match storage.get_blob_info(&invalidation.blob_id)? {
+            None => absent += 1,
+            Some(blob_info) if blob_info.invalidation_event().is_some() => already_invalid += 1,
+            Some(_) => valid += 1,
+        }
+    }
+    storage.mark_blob_ids_invalid(&invalidations)?;
+
+    println!("Loaded invalid blob marks ({})", input.display());
+    println!("  event type:          {}", events_file.event_type);
+    println!(
+        "  events:              {} ({} distinct blob IDs)",
+        events_file.events.len(),
+        invalidations.len()
+    );
+    println!("  new marks:           {absent}");
+    println!("  valid, now invalid:  {valid}");
+    println!("  already invalid:     {already_invalid}");
     Ok(())
 }
 

@@ -31,7 +31,7 @@ use walrus_core::{
     messages::{SyncShardRequest, SyncShardResponse},
     metadata::{BlobMetadata, VerifiedBlobMetadataWithId},
 };
-use walrus_sui::types::{BlobEvent, GENESIS_EPOCH, StoragePoolEvent};
+use walrus_sui::types::{BlobEvent, GENESIS_EPOCH, InvalidBlobId, StoragePoolEvent};
 use walrus_utils::metrics::Registry;
 
 use self::{
@@ -718,6 +718,18 @@ impl Storage {
             .reposition_event_cursor(header.event_cursor.event_id(), boundary_event_index)?;
 
         Ok(aggregate_count)
+    }
+
+    /// Marks the blob IDs of `invalidations` as invalid, as processing their `InvalidBlobID`
+    /// events does, in one atomic write. An existing mark is kept.
+    pub(crate) fn mark_blob_ids_invalid(
+        &self,
+        invalidations: &[InvalidBlobId],
+    ) -> Result<(), TypedStoreError> {
+        let mut batch = self.node_status.batch();
+        self.blob_info
+            .schedule_invalid_marks(&mut batch, invalidations)?;
+        batch.write()
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.

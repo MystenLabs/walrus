@@ -13365,6 +13365,7 @@ dependencies = [
  "sui-macros",
  "sui-package-resolver",
  "sui-protocol-config",
+ "sui-rpc",
  "sui-rpc-api",
  "sui-sdk",
  "sui-simulator",

@@ -530,6 +530,26 @@ impl BlobInfoTable {
         Ok(aggregate.len())
     }
 
+    /// Adds to `batch` the merges that mark the blob IDs of `invalidations` as invalid, the update
+    /// that processing an `InvalidBlobID` event applies to the aggregate table. The merge keeps
+    /// an existing mark.
+    pub fn schedule_invalid_marks(
+        &self,
+        batch: &mut DBBatch,
+        invalidations: &[InvalidBlobId],
+    ) -> Result<(), TypedStoreError> {
+        batch.partial_merge_batch(
+            &self.aggregate_blob_info,
+            invalidations.iter().map(|invalidation| {
+                (
+                    invalidation.blob_id,
+                    BlobInfoMergeOperand::from(invalidation).to_bytes(),
+                )
+            }),
+        )?;
+        Ok(())
+    }
+
     /// Returns an iterator over all entries in the aggregate blob info table within the given
     /// range.
     pub fn aggregate_blob_info_range_iter(
