@@ -42,7 +42,7 @@ answer: >-
 
 An aggregator serves blob reads over HTTP, and a publisher accepts blob uploads over HTTP. Both roles run through the Walrus client's daemon mode: `walrus aggregator` for reads, `walrus publisher` for stores, or `walrus daemon` for both (see [Operate an Aggregator](/docs/operator-guide/aggregators/operating-aggregator) and [Operate a Publisher](/docs/operator-guide/publishers/operating-publisher)). You do not need to run your own daemon to get started: community operators expose public aggregator and publisher services that you can call directly with any HTTP client.
 
-## Using a public aggregator or publisher {#public-services}
+## How do I use a public aggregator or publisher? {#public-services}
 
 To read or store a blob through a public service:
 
@@ -66,11 +66,11 @@ The same services also expose the [quilt endpoints](/docs/http-api/quilt-http-ap
 
 Walrus aggregators and publishers expose their full API specifications at the path `/v1/api`. View this path in a browser, for example, at https://aggregator.walrus-testnet.walrus.space/v1/api. The [Walrus GitHub repository](https://github.com/MystenLabs/walrus/tree/main/crates/walrus-service) hosts the latest version of these specifications in HTML and YAML format.
 
-### Network availability
+### Is there a public publisher on Mainnet? {#network-availability}
 
 On Walrus Testnet, many entities run public aggregators and publishers. On Mainnet, community operators run public aggregators, but no one runs a public publisher without authentication, because a publisher consumes both SUI and WAL on the service side. For production upload options, see [Choose your upload path](/docs/getting-started#choose-your-upload-path) and the [Mainnet Publisher Production Guide](/docs/operator-guide/publishers/mainnet-production-guide).
 
-### Request size limits
+### What are the request size limits? {#request-size-limits}
 
 Most aggregators and publishers limit requests to 10 MiB by default. If you want to upload larger files, [run your own publisher](/docs/operator-guide/publishers/operating-publisher#local-daemon) or use the [CLI](/docs/walrus-client/storing-blobs).
 
