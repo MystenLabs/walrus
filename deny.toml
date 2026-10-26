@@ -4,40 +4,73 @@
 [advisories]
 version = 2
 ignore = [
-  # We depend on `rsa` via `fastcrypto` but don't actually use it.
+  # Each entry says what the issue is, whether it affects Walrus, and how to fix it. Remove an entry
+  # once its fix lands.
+  #
+  # Issue: Marvin timing attack on `rsa` private-key operations; no fixed release. Walrus: none.
+  # `rsa` comes in through `fastcrypto` and our `jsonwebtoken` (`rust_crypto`), and the publisher's
+  # JWT check only verifies signatures with public keys. Fix: a fixed `rsa` release.
   "RUSTSEC-2023-0071",
-  # `rust-yaml` is not maintained, but is a dependency in many of our packages.
+  # Issue: `yaml-rust` is unmaintained; no known vulnerability. Walrus: through `serde_yaml` 0.8 in
+  # Sui crates such as `sui-config`, which read local config files. Fix: Sui moves off `serde_yaml`
+  # 0.8.
   "RUSTSEC-2024-0320",
-  # `proc-macro-error` is not maintained, but is a dependency in many of our packages.
+  # Issue: `proc-macro-error` is unmaintained; no known vulnerability. Walrus: none at runtime; it
+  # is a proc macro used by `tabled` 0.12 in `sui-json-rpc-types`. Fix: Sui upgrades `tabled`.
   "RUSTSEC-2024-0370",
-  # `instance` is unmaintained; consider using `web-time`.
+  # Issue: `instant` is unmaintained; no known vulnerability. Walrus: none; outside WebAssembly it
+  # only wraps `std::time`. It comes in through `backoff` in Sui crates and `parking_lot` 0.11 in
+  # the Move VM and `fastcrypto-tbls`. Fix: Sui and fastcrypto move off `backoff` and `parking_lot`
+  # 0.11.
   "RUSTSEC-2024-0384",
-  # `derivative` is unmaintained.
+  # Issue: `derivative` is unmaintained; no known vulnerability. Walrus: none at runtime; it is a
+  # proc macro used by `ark-*` 0.4 in `fastcrypto` and by `starlark` in `sui-config`. Fix:
+  # fastcrypto upgrades `ark-*` and Sui upgrades `starlark`.
   "RUSTSEC-2024-0388",
-  # `paste` is unmaintained.
+  # Issue: `paste` is unmaintained; no known vulnerability. Walrus: none at runtime; it is a proc
+  # macro used by `ark-ff` 0.4 in `fastcrypto` and by `starlark` in `sui-config`. Fix: fastcrypto
+  # upgrades `ark-*` and Sui upgrades `starlark`.
   "RUSTSEC-2024-0436",
-  # `backoff` is unmaintained.
+  # Issue: `backoff` is unmaintained; no known vulnerability. Walrus: through Sui crates such as
+  # `typed-store` and `sui-storage`. Fix: Sui replaces `backoff`.
   "RUSTSEC-2025-0012",
-  # `fxhash` is unmaintained; it is used in `sui-config`.
+  # Issue: `fxhash` is unmaintained; no known vulnerability. Walrus: through `starlark` in
+  # `sui-config`. Fix: Sui upgrades or drops `starlark`.
   "RUSTSEC-2025-0057",
-  # `rustls-pemfile` is unmaintained; it is an indirect dependency through various crates.
+  # Issue: `rustls-pemfile` is unmaintained; no known vulnerability. Walrus: through `reqwest`
+  # 0.12.12, which `walrus-e2e-tests` pins with the internal feature `__internal_proxy_sys_no_cache`
+  # to keep simtests deterministic. Fix: keep simtests deterministic another way and update
+  # `reqwest`; 0.12.28 no longer uses `rustls-pemfile`.
   "RUSTSEC-2025-0134",
-  # Bincode is unmaintained (team ceased development); no safe upgrade; used by anemo/typed-store.
+  # Issue: `bincode` 1 is unmaintained; no known vulnerability and no fixed release. Walrus: our
+  # `typed-store` encodes RocksDB keys with it, and `anemo`, `fastcrypto`, `msim`, and Sui crates
+  # use it too. Fix: move our encoding to another crate, which changes the on-disk format; the
+  # others move too.
   "RUSTSEC-2025-0141",
-  # `unsafe-libyaml` is unmaintained; no safe upgrade; used by `serde_yaml`.
+  # Issue: `unsafe-libyaml` is unmaintained; no known vulnerability. Walrus: our `serde_yaml` 0.9
+  # uses it to parse config files, which operators control. Fix: replace `serde_yaml` with a
+  # maintained YAML crate such as `serde-saphyr`.
   "RUSTSEC-2024-0449",
-  # DoS on untrusted XML in `quick-xml` < 0.41, used by Sui's `object_store` 0.13 to parse responses
-  # from cloud storage APIs.
+  # Issue: CPU and memory exhaustion in `quick-xml` < 0.41 on crafted XML. Walrus: `object_store`
+  # 0.11 (our backup and backfill code) and 0.13 (Sui crates) parse cloud storage API responses with
+  # it; exploiting this needs a malicious storage endpoint. Fix: `object_store` 0.14 here and in
+  # Sui. With only the `ring` backend, its `reqwest` 0.13 client needs a rustls crypto provider
+  # installed at startup.
   "RUSTSEC-2026-0194",
   "RUSTSEC-2026-0195",
-  # `clear_on_drop` is unmaintained; no safe upgrade; used by `bulletproofs` via `fastcrypto`.
+  # Issue: `clear_on_drop` is unmaintained; no known vulnerability. Walrus: none; only
+  # `bulletproofs` in `fastcrypto` uses it, and Walrus doesn't use bulletproofs. Fix: fastcrypto
+  # drops or replaces `bulletproofs`.
   "RUSTSEC-2026-0283",
-  # Unsound `tokio::io::unix::AsyncFd` constructors, fixed in 1.53.3. Walrus code doesn't call
-  # `AsyncFd`, and `tokio` stays pinned at 1.52.1 to match the mysten-sim fork used by simtests.
+  # Issue: unsound `tokio::io::unix::AsyncFd` constructors, fixed in 1.51.6 and 1.53.3. Walrus:
+  # none; no crate in our dependency tree calls them. Fix: mysten-sim moves to `tokio` 1.53.3 or
+  # later, then we update our `=1.52.1` pin, which matches the mysten-sim fork used by simtests.
   "RUSTSEC-2026-0386",
-  # Timing side channels in `crypto-bigint` < 0.7.6, used by `elliptic-curve` 0.12 and 0.13. The fix
-  # needs the `p256` 0.14 line, and our `p256` keys are converted from `fastcrypto`'s, so
-  # `fastcrypto` has to upgrade first.
+  # Issue: timing side channels in `crypto-bigint` < 0.7.6 in operations meant to be constant-time.
+  # Walrus: through `elliptic-curve` 0.13 (`p256` 0.13 and `fastcrypto`) and 0.12 (`k256` 0.11 in
+  # `sui-keys`). Our P-256 network key only signs in TLS, where rustls uses `ring`. Fix: fastcrypto
+  # and Sui move to the `p256` 0.14 line, then we upgrade `p256`, whose keys we convert from
+  # `fastcrypto`'s.
   "RUSTSEC-2026-0387",
 ]
 

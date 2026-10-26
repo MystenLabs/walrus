@@ -42,7 +42,7 @@ use std::{
 use anyhow::{Context, Result};
 use axum::body::Bytes;
 use object_store::{
-    ObjectStoreExt,
+    ObjectStore,
     gcp::{GoogleCloudStorage, GoogleCloudStorageBuilder},
 };
 use walrus_core::{BlobId, EncodingType};
