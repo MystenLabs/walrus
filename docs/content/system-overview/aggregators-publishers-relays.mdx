@@ -48,13 +48,13 @@ Walrus exposes three HTTP services. Callers send requests to the wrong one more 
 
 The wallet column decides most integrations. A caller that cannot hold SUI and WAL needs a publisher. A caller that holds a wallet but cannot open hundreds of connections, such as a browser, needs a relay.
 
-## Aggregator
+## What does an aggregator do?
 
 An aggregator serves stored blobs over HTTP. It performs no Sui onchain actions and therefore consumes no gas, which makes it the cheapest component to run and the safest to expose publicly.
 
 Read a blob by blob ID at `/v1/blobs/<blobId>`, or by Sui object ID at `/v1/blobs/by-object-id/<objectId>`. Reading by object ID also returns the stored attributes as HTTP headers, so prefer it when the content type matters. See [Reading Blobs](/docs/http-api/reading-blobs).
 
-## Publisher
+## What does a publisher do?
 
 A publisher accepts a blob over HTTP PUT at `/v1/blobs` and does the onchain work itself: it registers the blob, certifies it, and pays the SUI gas and WAL storage cost from its own wallet. The caller sends bytes and needs no wallet at all.
 
@@ -62,7 +62,7 @@ That convenience is also the operational cost. Because the publisher pays, runni
 
 Pass `send_object_to` with a Sui address to transfer the created `Blob` object to the caller instead of leaving it with the publisher.
 
-## Upload relay
+## What does an upload relay do?
 
 An upload relay solves a different problem: a browser or mobile client cannot open enough connections to send slivers to every shard. The client sends the blob and a tip to the relay, the relay encodes the blob and distributes the slivers to storage nodes, collects the confirmations, and returns a certificate.
 
@@ -70,14 +70,14 @@ The client then registers, certifies, and pays on Sui itself, and keeps ownershi
 
 A relay exposes its tip configuration at `/v1/tip-config` and accepts blobs at `/v1/blob-upload-relay`. See [Operate an Upload Relay](/docs/operator-guide/upload-relay).
 
-## Pick a service
+## Which service should you use?
 
-Match the constraint you actually have:
+Check these conditions in order and use the first one that matches:
 
-- Your caller reads blobs: use an aggregator.
-- Your caller cannot hold SUI or WAL: use a publisher, and on Mainnet run and authenticate your own.
-- Your caller holds a wallet but runs in a browser or on mobile: use an upload relay.
-- Your caller runs server-side and holds a funded wallet: skip all three and write through the [TypeScript SDK](/docs/typescript-sdk/sdks), which talks to storage nodes directly.
+1. Your caller reads blobs: use an aggregator.
+2. Your caller cannot hold SUI or WAL: use a publisher, and on Mainnet run and authenticate your own.
+3. Your caller holds a wallet but runs in a browser or on mobile: use an upload relay.
+4. Your caller runs server-side and holds a funded wallet: skip all three and write through the [TypeScript SDK](/docs/typescript-sdk/sdks), which talks to storage nodes directly.
 
 For the patterns that combine these when your app pays on behalf of its users, see [Sponsored and Walletless Uploads](/docs/sponsored-uploads).
 
