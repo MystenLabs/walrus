@@ -56,6 +56,8 @@ Store blobs on Walrus with the following command:
 $ walrus store <FILES> --epochs <EPOCHS>
 ```
 
+Replace `<EPOCHS>` with the number of epochs for Walrus to store the blob. For other ways to set the lifetime, see [blob lifetime options](#how-to-set-a-blob-lifetime).
+
 <ImportContent source="blob-object-id" mode="snippet" />
 
 You can store a single file or multiple files, separated by spaces. This is compatible with glob patterns:
@@ -72,7 +74,7 @@ Every blob pays a fixed metadata overhead whatever its size, so storing many sma
 
 :::
 
-## Blob lifetimes
+## How to set a blob lifetime
 
 You must set a mandatory CLI argument to specify the lifetime for the blob. There are currently 3 methods for setting a blob's lifetime:
 
@@ -82,9 +84,19 @@ You must set a mandatory CLI argument to specify the lifetime for the blob. Ther
 
 3. The `--end-epoch <END_EPOCH>` option takes a specific end epoch for the blob.
 
+The following commands show the `--earliest-expiry-time` and `--end-epoch` options:
+
+```sh
+$ walrus store <FILES> --earliest-expiry-time 2024-03-20T15:00:00Z
+```
+
+```sh
+$ walrus store <FILES> --end-epoch <END_EPOCH>
+```
+
 A blob expires at the beginning of its end epoch. For example, a blob with end epoch `314` becomes unavailable at the beginning of epoch `314`. One consequence of this is that when you store a blob with `--epochs 1` immediately before an epoch change, it expires and becomes unavailable almost immediately. You can [extend](/docs/walrus-client/managing-blobs#extend-the-lifetime-of-a-blob) blobs only if they have not expired.
 
-## Blob permanence
+## How to choose deletable or permanent blobs
 
 You can specify whether a newly stored blob is deletable or permanent through the `--deletable` and `--permanent` options:
 
@@ -101,7 +113,7 @@ When storing a blob, the client performs a number of automatic optimizations, in
 - If your wallet has a storage resource of suitable size and duration, it is used instead of buying a new one.
 - If the blob is already certified on Walrus but is a deletable blob or is not stored for a sufficient number of epochs, the command skips sending encoded blob data to the storage nodes and just collects the availability certificate.
 
-## Store blobs in a storage pool
+## How to store blobs in a storage pool
 
 Every `walrus store` call buys a storage resource for that blob alone. If your application continuously writes and retires blobs against a stable total footprint, you can instead pre-purchase a shared reservation once, called a [storage pool](/docs/system-overview/storage-pools), and register each blob against it. Each store then pays only the one-off write fee, and deleting a deletable blob frees its capacity for the next store to reuse.
 
@@ -128,7 +140,7 @@ let results = client
 
 Pooled blobs get regular blob IDs, so [reading them](/docs/walrus-client/reading-blobs) works exactly like reading any other blob. Unlike blobs stored with `walrus store`, all blobs in a pool share the pool's expiry, and they cannot be transferred or extended individually. See [storage pools](/docs/system-overview/storage-pools) for the full lifecycle, cost breakdown, and guidance on when a pool is the right choice.
 
-## Use a Walrus upload relay
+## How to use a Walrus upload relay
 
 A Walrus upload relay is a third-party service that helps clients with limited bandwidth and networking capabilities, such as a browser, store blobs on Walrus.
 
