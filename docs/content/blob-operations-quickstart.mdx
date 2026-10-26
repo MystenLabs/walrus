@@ -41,7 +41,7 @@ Public aggregators and publishers limit requests to 10 MiB, and Walrus does not 
 
 :::
 
-## Store a blob
+## How to store a blob
 
 Store a file for a number of epochs. The store returns a blob ID.
 
@@ -94,7 +94,7 @@ print(f"stored blob {blob_id}")
 </TabItem>
 </Tabs>
 
-## Read a blob
+## How to read a blob
 
 Read a blob using its blob ID.
 
@@ -140,7 +140,7 @@ print(f"read {len(data)} bytes")
 
 When you read a blob immediately after certifying it, a public aggregator can briefly return `404` before its read path catches up. Retry with backoff in that window, as the [full Python example](#full-python-example) shows. See [Reading blobs after upload](/docs/troubleshooting/reading-blobs-after-upload) for more.
 
-## Check a blob's status
+## How to check a blob's status
 
 Check whether a blob is available and its registered onchain information.
 
