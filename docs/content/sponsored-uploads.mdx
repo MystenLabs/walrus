@@ -12,7 +12,7 @@ Most users do not hold SUI or WAL, and most apps do not want to ask them to. To 
 
 For the step-by-step operator instructions, see [Operate a Publisher](/docs/operator-guide/publishers/operating-publisher), [Use the Authenticated Publisher](/docs/operator-guide/publishers/auth-publisher), and [Operate an Upload Relay](/docs/operator-guide/upload-relay).
 
-## Sponsored compared with walletless
+## What is the difference between sponsored and walletless?
 
 These two properties are independent, and most apps want both:
 
@@ -33,7 +33,7 @@ There is no free storage tier. Sponsorship changes only who pays, not whether WA
 
 For the full onchain lifecycle, see [Operations](/docs/system-overview/operations).
 
-## Choose a pattern
+## Which upload pattern should you choose?
 
 | Pattern | Who signs onchain | Who pays | Walletless for the user | Best for |
 | --- | --- | --- | --- | --- |
@@ -59,7 +59,7 @@ Because the client does the onchain work, the upload relay is walletless only wh
 
 If your backend already runs application code, you can integrate a Walrus SDK and keep the funded signer in your backend. This gives you the most control over batching, retries, and error handling, but you implement the flow yourself. See [Software Development Kits (SDKs) and Other Tools](/docs/typescript-sdk/sdks).
 
-## Reference architecture: app backend sponsors storage
+## How does an app backend sponsor storage?
 
 A common production pattern puts an authenticated backend in front of a funded publisher:
 
