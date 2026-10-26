@@ -1,7 +1,21 @@
 ---
 title: Connect AI Clients with the MCP Server
 description: Install the Walrus Console MCP server, register it with Claude Code, Codex, Cursor, or Claude Desktop, and use the file and folder tools it exposes to your agent.
-keywords: [walrus console, mcp server, claude code, codex, cursor, api key, agent, tools, folders]
+keywords:
+  - walrus console
+  - mcp server
+  - claude code
+  - codex
+  - cursor
+  - api key
+  - agent
+  - tools
+  - folders
+  - claude desktop
+  - gemini cli
+  - service private key
+  - CONSOLE_CREDENTIAL_BUNDLE
+  - ping_console
 questions:
   - How do I connect Walrus Console to Claude Code?
   - How do I connect Walrus Console to Claude Desktop?
@@ -28,7 +42,7 @@ The package is `@mysten-incubation/walrus-console-mcp`, licensed MIT. The [serve
 - A Walrus Console account with an API key. Open [console.walrus.xyz](https://console.walrus.xyz), sign in, then click **Integrations** and **Create API Key** in the top-right corner. Name the key and give it the `read_write` role.
 - The values Console reveals. It shows them once: the `hbr_` API key, the `suiprivkey1` service private key, and a `CONSOLE_CREDENTIAL_BUNDLE` value that carries both keys plus two Sui addresses. Copy the bundle if you can. It is the installer's first prompt.
 
-The API key authorizes calls to Console. The service private key signs onchain access grants and unwraps [Seal](/docs/data-security) keys locally, which is why the server needs both. The two addresses in the bundle are your Console account address and the address of the space's Management API key signer, if any. `create_bucket` checks the transaction it signs against them and refuses to run without the account address.
+The API key authorizes calls to Console. The service private key signs onchain access grants and unwraps Seal keys locally, which is why the server needs both. The two addresses in the bundle are your Console account address and the address of the space's Management API key signer, if any. `create_bucket` checks the transaction it signs against them and refuses to run without the account address.
 
 ## Connect from the Walrus Console web app
 
