@@ -27,6 +27,8 @@ env:
 jobs:
   autofix:
     name: Fix cargo-deny advisories
+    # The fix PR always targets `main`, so only fix `main`.
+    if: github.ref == 'refs/heads/main'
     # This job compiles freshly upgraded crates, whose build scripts run arbitrary code, so it gets
     # no secrets (not even the sccache credentials). The `publish` job pushes the result.
     runs-on: ubuntu-ghcloud
@@ -75,7 +77,7 @@ jobs:
           OUT_DIR: ${{ runner.temp }}/cargo-deny-autofix
         run: ./scripts/cargo-deny-autofix.sh
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@v7.0.1
-        if: always() && steps.existing.outputs.open_pr == ''
+        if: ${{ !cancelled() && steps.existing.outputs.open_pr == '' }}
         with:
           name: cargo-deny-autofix
           path: ${{ runner.temp }}/cargo-deny-autofix
@@ -84,7 +86,7 @@ jobs:
   publish:
     name: Open PR and notify
     needs: autofix
-    if: always() && needs.autofix.outputs.open_pr == ''
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.autofix.outputs.open_pr == '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
@@ -96,6 +98,33 @@ jobs:
           name: cargo-deny-autofix
           path: ${{ runner.temp }}/cargo-deny-autofix
 
+      # The artifact comes from a job that ran code from upgraded crates, so accept only manifest
+      # and lockfile changes and summary lines in the format the script writes.
+      - name: Check the autofix output
+        id: check
+        env:
+          OUT_DIR: ${{ runner.temp }}/cargo-deny-autofix
+        run: |
+          link='\[RUSTSEC-[0-9]{4}-[0-9]{4}\]\(https://rustsec\.org/advisories/RUSTSEC-[0-9]{4}-[0-9]{4}\)'
+          crate='`[A-Za-z0-9_-]+`'
+          version='[0-9A-Za-z.+-]+'
+          check() {
+            if [[ -s "$1" ]] && grep -qvE "$2" "$1"; then
+              echo "::error::Unexpected line in $(basename "$1")"
+              exit 1
+            fi
+          }
+          check "$OUT_DIR/fixed.md" "^- ${link}: ${crate} ${version} → [0-9A-Za-z.,+ -]+$"
+          check "$OUT_DIR/remaining.md" \
+            "^- ${link}: ${crate} ${version} \(no fix without code changes; needs a manual upgrade or a \`deny\.toml\` ignore\)$"
+          check "$OUT_DIR/failed-upgrades.md" "^- ${crate}$"
+          if [[ -s "$OUT_DIR/changes.patch" ]] \
+            && git apply --numstat "$OUT_DIR/changes.patch" | cut -f3 \
+              | grep -qvE '^(Cargo\.lock|Cargo\.toml|crates/[A-Za-z0-9_-]+/Cargo\.toml)$'; then
+            echo "::error::changes.patch touches files other than manifests and the lockfile"
+            exit 1
+          fi
+
       # Pushes and PRs made with GITHUB_TOKEN do not trigger CI, so use the walrus-automerge app.
       - name: Generate automerge token
         id: app_token
@@ -104,6 +133,8 @@ jobs:
         with:
           app-id: ${{ secrets.WALRUS_AUTOMERGE_APP_ID }}
           private-key: ${{ secrets.WALRUS_AUTOMERGE_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Create fix PR
         id: pr
@@ -112,6 +143,11 @@ jobs:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
           OUT_DIR: ${{ runner.temp }}/cargo-deny-autofix
         run: |
+          if [[ ! -s "$OUT_DIR/changes.patch" ]]; then
+            echo "::notice::No changes to push, for example because an advisory was withdrawn."
+            exit 0
+          fi
+
           STAMP="$(date +%Y%m%d%H%M%S)"
           BRANCH="autofix/cargo-deny-advisories-${STAMP}"
           TITLE="chore: fix cargo-deny advisories"
@@ -123,13 +159,14 @@ jobs:
             -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -m "$TITLE"
 
-          # Pass the token through GIT_CONFIG_* rather than `git -c` so it stays out of the command
-          # line. `tr -d '\n'` keeps base64's line wrapping out of the header.
+          # Push with plain `git`, not a script from the patched tree. Pass the token through
+          # GIT_CONFIG_* rather than `git -c` so it stays out of the command line. `tr -d '\n'`
+          # keeps base64's line wrapping out of the header.
           auth_header="$(printf '%s' "x-access-token:${GH_TOKEN}" | base64 | tr -d '\n')"
           GIT_CONFIG_COUNT=1 \
           GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" \
           GIT_CONFIG_VALUE_0="Authorization: basic ${auth_header}" \
-            ./scripts/git_push_with_retry.sh -u origin "$BRANCH"
+            git push -u origin "$BRANCH"
 
           {
             echo "## Description"
@@ -161,11 +198,14 @@ jobs:
 
       - name: Build notification payload
         id: payload
+        if: ${{ !cancelled() }}
         env:
           OUT_DIR: ${{ runner.temp }}/cargo-deny-autofix
           PR_URL: ${{ steps.pr.outputs.pr_url }}
           HAS_REMAINING: ${{ needs.autofix.outputs.has_remaining }}
           AUTOFIX_RESULT: ${{ needs.autofix.result }}
+          CHECK_OUTCOME: ${{ steps.check.outcome }}
+          PR_OUTCOME: ${{ steps.pr.outcome }}
         run: |
           # Slack mrkdwn links are `<url|text>`, not Markdown's `[text](url)`.
           slack() {
@@ -173,14 +213,6 @@ jobs:
               sed -E 's/\[([^]]+)\]\(([^)]+)\)/<\2|\1>/g' "$1"
             fi
           }
-
-          remaining=$(slack "$OUT_DIR/remaining.md")
-          if [[ "$AUTOFIX_RESULT" != "success" ]]; then
-            remaining="The autofix job failed before it could report advisories. See the run log."
-          elif [[ -z "$PR_URL" && "$HAS_REMAINING" != "true" ]]; then
-            echo "notify=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
           fix_steps="1. Check the run log for what the workflow already tried: \`cargo update\` of"
           fix_steps+=" each flagged crate and its direct parents, then \`cargo upgrade --incompatible\`"
@@ -192,12 +224,29 @@ jobs:
           fix_steps+=" \`deny.toml\` with a comment explaining why. Then raise it with the team that"
           fix_steps+=" owns the dependency and open a Linear issue in Walrus Core to revisit the"
           fix_steps+=" ignore."
+
+          fixed=$(slack "$OUT_DIR/fixed.md")
+          remaining=$(slack "$OUT_DIR/remaining.md")
+          failed_upgrades=$(sed 's/^- //' "$OUT_DIR/failed-upgrades.md" 2>/dev/null \
+            | paste -sd, - | sed 's/,/, /g')
+          if [[ "$AUTOFIX_RESULT" != "success" || "$CHECK_OUTCOME" != "success" ]]; then
+            fixed=""
+            remaining="The workflow failed before it could report advisories."
+            failed_upgrades=""
+            fix_steps="See the run log."
+          elif [[ "$PR_OUTCOME" == "failure" ]]; then
+            remaining="Opening the fix PR failed; see the run log."$'\n'"${remaining}"
+          elif [[ -z "$PR_URL" && "$HAS_REMAINING" != "true" ]]; then
+            echo "notify=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           payload=$(jq -nc \
             --arg run_url "$RUN_URL" \
             --arg pr_url "$PR_URL" \
-            --arg fixed "$(slack "$OUT_DIR/fixed.md")" \
+            --arg fixed "$fixed" \
             --arg remaining "$remaining" \
-            --arg failed_upgrades "$(slack "$OUT_DIR/failed-upgrades.md")" \
+            --arg failed_upgrades "$failed_upgrades" \
             --arg fix_steps "$fix_steps" \
             '{run_url: $run_url, pr_url: $pr_url, fixed: $fixed, remaining: $remaining,
               failed_upgrades: $failed_upgrades, fix_steps: $fix_steps}')
@@ -207,7 +256,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Notify oncall through sui-operations
-        if: steps.payload.outputs.notify == 'true'
+        if: ${{ !cancelled() && steps.payload.outputs.notify == 'true' }}
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # pin@v4.0.1
         with:
           token: ${{ secrets.SUI_OPS_DISPATCH_TOKEN }}

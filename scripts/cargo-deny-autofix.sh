@@ -24,6 +24,13 @@
 
 set -Eeuo pipefail
 
+# The script parses cargo's output, which color codes would break.
+export CARGO_TERM_COLOR=never
+
+# Each upgrade attempt compiles the workspace. Stop trying new ones after this many seconds, so the
+# job finishes within its timeout and still reports what it fixed.
+UPGRADE_DEADLINE=$((SECONDS + 7200))
+
 for cmd in cargo cargo-deny cargo-upgrade curl git jq; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     echo "Error: required command '$cmd' not found in PATH." >&2
@@ -65,7 +72,7 @@ flagged_advisories() {
 # Prints the number of flagged advisories.
 flagged_count() {
   local flagged
-  flagged=$(flagged_advisories)
+  flagged=$(flagged_advisories) || return 1
   grep -c . <<<"$flagged" || true
 }
 
@@ -78,19 +85,25 @@ crate_specs() {
 # and, with `--build` as the first argument, the workspace still compiles. Returns 1 if the changes
 # broke the build.
 try_change() {
-  local build=false status=0 count before="$WORK_DIR/before.patch"
+  local build=false status=0 count after before="$WORK_DIR/before.patch"
   if [[ "$1" == --build ]]; then
     build=true
     shift
   fi
   git diff --binary >"$before"
-  count=$(flagged_count)
+  if ! count=$(flagged_count); then
+    echo "Warning: cargo-deny failed before '$*'; skipping it" >&2
+    return 0
+  fi
   if ! "$@"; then
     # A spec stops matching once an earlier change has moved the same crate.
     echo "Warning: '$*' failed" >&2
   elif cmp -s "$before" <(git diff --binary); then
     return 0
-  elif (($(flagged_count) >= count)); then
+  elif ! after=$(flagged_count); then
+    # For example, a raised requirement that cargo cannot resolve.
+    echo "Warning: cargo-deny failed after '$*'; reverting" >&2
+  elif ((after >= count)); then
     echo "Note: '$*' fixes no advisory; reverting" >&2
   elif ! $build || cargo check --workspace --all-features --tests; then
     return 0
@@ -98,9 +111,10 @@ try_change() {
     echo "Warning: '$*' breaks the build; reverting" >&2
     status=1
   fi
-  git checkout -- .
+  # Callers run this in a condition, where `set -e` is off; a failed revert must not go unnoticed.
+  git checkout -- . || exit 1
   if [[ -s "$before" ]]; then
-    git apply "$before"
+    git apply "$before" || exit 1
   fi
   return "$status"
 }
@@ -155,6 +169,9 @@ update_crate() {
     conflict=$(sed -n 's/.*previously selected package `\([^ ]*\) v\([^`]*\)`.*/\1@\2/p' <<<"$log" \
       | head -n 1)
     if [[ -z "$conflict" ]]; then
+      # `--precise` can also fail because a dependent caps the version below the target; a plain
+      # update may still reach a fixed release.
+      cargo update -p "${name}@${version}" || true
       return 0
     fi
     log=$(cargo update -p "${name}@${version}" -p "$conflict" 2>&1) || true
@@ -211,6 +228,10 @@ upgrade_candidates() {
 upgrade_direct_dependencies() {
   local spec dependency
   while read -r -u 3 dependency; do
+    if ((SECONDS > UPGRADE_DEADLINE)); then
+      echo "Warning: out of time; skipping the remaining upgrades" >&2
+      break
+    fi
     # `--recursive false` leaves the lockfile to cargo; cargo-upgrade's own lockfile update fails on
     # yanked crates elsewhere in the lockfile.
     if ! try_change --build cargo upgrade --incompatible --recursive false -p "$dependency"; then
@@ -243,15 +264,17 @@ compatible_versions() {
 # Writes one bullet per advisory line of $1 whose advisory and crate version are not in $2,
 # formatted like Sui's: "- [<id>](<url>): `<crate>` <old> → <new>".
 write_fixed() {
-  local id name version new
+  local id name version added new
   while IFS=$'\t' read -r id name version; do
     [[ -n "$id" ]] || continue
-    if grep -qF "${id}"$'\t'"${name}"$'\t'"${version}" <<<"$2"; then
+    if grep -qxF "${id}"$'\t'"${name}"$'\t'"${version}" <<<"$2"; then
       continue
     fi
-    new=$(comm -13 <(locked_versions "$WORK_DIR/Cargo.lock.before" "$name") \
-      <(locked_versions Cargo.lock "$name") | compatible_versions "$version" | paste -sd, - \
-      | sed 's/,/, /g')
+    added=$(comm -13 <(locked_versions "$WORK_DIR/Cargo.lock.before" "$name") \
+      <(locked_versions Cargo.lock "$name"))
+    # Prefer the version in the same compatible line; an upgraded requirement adds a newer line.
+    new=$(compatible_versions "$version" <<<"$added")
+    new=$(paste -sd, - <<<"${new:-$added}" | sed 's/,/, /g')
     echo "- [${id}](https://rustsec.org/advisories/${id}): \`${name}\` ${version} → ${new:-removed}"
   done <<<"$1" >"$FIXED_MD"
 }
