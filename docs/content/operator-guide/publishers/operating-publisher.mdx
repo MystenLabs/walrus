@@ -41,7 +41,7 @@ Run a local Walrus daemon through the `walrus` binary using one of the following
 
 :::tip
 
-If you run the publisher without a reverse proxy, open **port 9001** on your firewall. With a reverse proxy (such as the [nginx caching setup](/docs/operator-guide/limitations#nginx-caching)), only **port 443** needs to be open.
+If you run the publisher without a reverse proxy, open **port 9001** on your firewall. With a reverse proxy (such as the [nginx caching setup](/docs/operator-guide/limitations#nginx-caching)), only **port 443** needs to be open. The metrics endpoint set with `--metrics-address` in the sample `systemd` configuration binds to `127.0.0.1:27183`, so it is reachable only from the local host and needs no open firewall port.
 
 :::
 
@@ -72,7 +72,7 @@ curl "https://docs.wal.app/setup/client_config_testnet.yaml" -o /opt/walrus/conf
 
 For the canonical configuration snippets and the object IDs they contain, see the [Network Reference](/docs/network-reference#configuration-snippets).
 
-## Create and fund the publisher wallet {#fund-publisher}
+## How to create and fund the publisher wallet {#fund-publisher}
 
 The publisher needs a **separate wallet** from the storage node, even if it runs on the same host. See the [storage node FAQ](/docs/operator-guide/storage-nodes/storage-node-faq#wallets) for details on wallet requirements.
 
@@ -132,7 +132,7 @@ This exchanges SUI for 5 WAL. Adjust the amount based on the number of sub-walle
 
 If the publisher wallet does not have sufficient WAL, the publisher fails to start with an error like `could not find WAL coins with sufficient balance`. Ensure you fund the wallet **before** starting the service.
 
-## Run a publisher manually for testing
+## How to run a publisher manually for testing
 
 To run a publisher with a single sub-wallet stored in the Walrus configuration directory:
 
@@ -144,6 +144,8 @@ walrus publisher \
   --sub-wallets-dir "$PUBLISHER_WALLETS_DIR" \
   --n-clients 1
 ```
+
+To use the publisher-specific client configuration, pass `--config /opt/walrus/config/publisher/client_config.yaml` before the `publisher` subcommand, as the sample `systemd` configuration does.
 
 Replace `publisher` with `daemon` to run both an aggregator and publisher on the same address and port.
 
@@ -181,7 +183,7 @@ To operate a high-performance publisher with higher concurrency, use the followi
 
 ## Manage SUI coins in sub-wallets {#manage-sub-wallets}
 
-Each sub-wallet requires funds to interact with the chain and purchase storage. A background process periodically checks whether the sub-wallets have enough funds. In steady state, each sub-wallet has a balance of 0.5 to 1.0 SUI and WAL.
+Each sub-wallet requires funds to interact with the chain and purchase storage. The publisher distributes funds from the main wallet to the sub-wallets at startup, and a background process then periodically checks, once per `--refill-interval`, whether the sub-wallets still hold at least `--sub-wallets-min-balance`, refilling them during operation. Because the check runs on this interval rather than on every request, a busy sub-wallet can temporarily drop below the target balance before the next refill. In steady state, each sub-wallet has a balance of 0.5 to 1.0 SUI and WAL.
 
 To adjust how refills are handled, use the following arguments: `--refill-interval REFILL_INTERVAL`, `--gas-refill-amount GAS_REFILL_AMOUNT`, `--wal-refill-amount WAL_REFILL_AMOUNT`, and `--sub-wallets-min-balance SUB_WALLETS_MIN_BALANCE`.
 
