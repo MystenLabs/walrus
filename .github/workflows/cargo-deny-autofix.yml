@@ -65,10 +65,13 @@ jobs:
       - name: Install cargo-edit
         if: steps.existing.outputs.open_pr == ''
         run: cargo install cargo-edit@0.13.13 --locked --no-default-features --features upgrade
-      - uses: taiki-e/install-action@a2352fc6ce487f030a3aa709482d57823eadfb37 # pin@v2.75.16
+      # The script needs cargo-deny 0.20, which takes `--config` before the subcommand; 0.18 only
+      # accepts it after `check`. install-action before v2.87 has no prebuilt 0.20 and would fall
+      # back to cargo-binstall with github.token.
+      - uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8 # pin@v2.87.28
         if: steps.existing.outputs.open_pr == ''
         with:
-          tool: cargo-deny@0.18.4
+          tool: cargo-deny@0.20.2
 
       - name: Detect and fix advisories
         if: steps.existing.outputs.open_pr == ''

@@ -43,6 +43,13 @@ for cmd in cargo cargo-deny cargo-upgrade curl git jq; do
   fi
 done
 
+# Passing `--config` before the subcommand needs cargo-deny 0.20 or later.
+deny_version=$(cargo deny --version | awk '{ print $2 }')
+if [[ "$(printf '%s\n' 0.20.0 "$deny_version" | sort -V | head -n 1)" != 0.20.0 ]]; then
+  echo "Error: cargo-deny ${deny_version} is too old; this script needs 0.20 or later." >&2
+  exit 1
+fi
+
 OUT_DIR="${OUT_DIR:-$(mktemp -d)}"
 mkdir -p "$OUT_DIR"
 FIXED_MD="$OUT_DIR/fixed.md"
