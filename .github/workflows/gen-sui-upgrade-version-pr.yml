@@ -72,6 +72,8 @@ jobs:
 
       - name: Install ${{ env.NEW_TAG }} sui binary for move builds
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
           suiup install sui@${{ env.NEW_TAG }} -y
