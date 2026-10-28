@@ -1,22 +1,11 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
 
-use chrono::{DateTime, Utc};
-use reqwest::header::{HeaderMap, RETRY_AFTER};
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
-use tokio::{
-    sync::{Mutex, RwLock},
-    task::JoinHandle,
-};
-use walrus_utils::backoff::ExponentialBackoffState;
+use tokio::{sync::RwLock, task::JoinHandle};
 
 use crate::node::metrics::NodeMetricSet;
 
@@ -45,9 +34,6 @@ const PYTH_HERMES_API_URL: &str = concat!(
 /// CoinMarketCap API URL for fetching WAL price
 const COINMARKETCAP_API_URL: &str =
     "https://pro-api.coinmarketcap.com/public-api/v2/simple/price?id=36119&convert=USD";
-
-/// Maximum fallback delay when CoinMarketCap omits a valid `Retry-After` header.
-const COINMARKETCAP_MAX_RETRY_DELAY: Duration = Duration::from_secs(60 * 60);
 
 /// Trait for fetching WAL token prices from different data sources
 trait WalPriceFetcher: Send + Sync {
@@ -282,142 +268,12 @@ impl WalPriceFetcher for PythHermesPriceFetcher {
 struct CoinMarketCapPriceFetcher {
     metrics: Arc<NodeMetricSet>,
     timeout: Duration,
-    api_url: String,
-    backoff: Arc<Mutex<CoinMarketCapBackoff>>,
-}
-
-#[derive(Debug)]
-struct CoinMarketCapBackoff {
-    fallback: ExponentialBackoffState,
-    initial_delay: Duration,
-    retry_not_before: Option<Instant>,
-}
-
-impl CoinMarketCapBackoff {
-    fn new(check_interval: Duration) -> Self {
-        let initial_delay = check_interval.saturating_mul(2);
-        Self {
-            fallback: ExponentialBackoffState::new_infinite(
-                initial_delay,
-                COINMARKETCAP_MAX_RETRY_DELAY,
-            ),
-            initial_delay,
-            retry_not_before: None,
-        }
-    }
-
-    fn remaining_delay(&self, now: Instant) -> Option<Duration> {
-        self.retry_not_before
-            .and_then(|deadline| deadline.checked_duration_since(now))
-            .filter(|delay| !delay.is_zero())
-    }
-
-    fn record_rate_limit(&mut self, retry_after: Option<Duration>, now: Instant) -> Duration {
-        let delay = retry_after.unwrap_or_else(|| {
-            self.fallback
-                .next_delay(&mut rand::thread_rng())
-                .unwrap_or(COINMARKETCAP_MAX_RETRY_DELAY)
-        });
-        self.retry_not_before = now.checked_add(delay);
-        delay
-    }
-
-    fn reset(&mut self) {
-        self.fallback = ExponentialBackoffState::new_infinite(
-            self.initial_delay,
-            COINMARKETCAP_MAX_RETRY_DELAY,
-        );
-        self.retry_not_before = None;
-    }
 }
 
 impl CoinMarketCapPriceFetcher {
-    #[cfg(test)]
     fn new(metrics: Arc<NodeMetricSet>, timeout: Duration) -> Self {
-        Self::new_with_check_interval(
-            metrics,
-            timeout,
-            WalPriceMonitorConfig::default().check_interval,
-        )
+        Self { metrics, timeout }
     }
-
-    fn new_with_check_interval(
-        metrics: Arc<NodeMetricSet>,
-        timeout: Duration,
-        check_interval: Duration,
-    ) -> Self {
-        Self {
-            metrics,
-            timeout,
-            api_url: COINMARKETCAP_API_URL.to_owned(),
-            backoff: Arc::new(Mutex::new(CoinMarketCapBackoff::new(check_interval))),
-        }
-    }
-
-    #[cfg(test)]
-    fn new_with_api_url(
-        metrics: Arc<NodeMetricSet>,
-        timeout: Duration,
-        check_interval: Duration,
-        api_url: String,
-    ) -> Self {
-        Self {
-            metrics,
-            timeout,
-            api_url,
-            backoff: Arc::new(Mutex::new(CoinMarketCapBackoff::new(check_interval))),
-        }
-    }
-
-    async fn send_respecting_rate_limit(
-        &self,
-        client: &reqwest::Client,
-    ) -> Result<reqwest::Response, anyhow::Error> {
-        if let Some(delay) = self.backoff.lock().await.remaining_delay(Instant::now()) {
-            anyhow::bail!("CoinMarketCap rate limit active for another {delay:?}");
-        }
-
-        let response = client
-            .get(&self.api_url)
-            .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
-            .send()
-            .await?;
-
-        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            let delay = self.backoff.lock().await.record_rate_limit(
-                retry_after_delay(response.headers(), Utc::now()),
-                Instant::now(),
-            );
-            tracing::debug!(
-                source = self.source(),
-                ?delay,
-                "price source rate limited; deferring future requests"
-            );
-            return response.error_for_status().map_err(anyhow::Error::from);
-        }
-
-        self.backoff.lock().await.reset();
-        response.error_for_status().map_err(anyhow::Error::from)
-    }
-}
-
-/// Parses a `Retry-After` header as either delay seconds or an HTTP date.
-fn retry_after_delay(headers: &HeaderMap, now: DateTime<Utc>) -> Option<Duration> {
-    let value = headers.get(RETRY_AFTER)?.to_str().ok()?.trim();
-
-    if let Ok(seconds) = value.parse::<u64>() {
-        return Some(Duration::from_secs(seconds));
-    }
-
-    let retry_at = DateTime::parse_from_rfc2822(value)
-        .ok()?
-        .with_timezone(&Utc);
-    Some(
-        retry_at
-            .signed_duration_since(now)
-            .to_std()
-            .unwrap_or_default(),
-    )
 }
 
 impl WalPriceFetcher for CoinMarketCapPriceFetcher {
@@ -428,7 +284,12 @@ impl WalPriceFetcher for CoinMarketCapPriceFetcher {
     fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
         Box::pin(async move {
             let client = reqwest::Client::builder().timeout(self.timeout).build()?;
-            let response = self.send_respecting_rate_limit(&client).await?;
+            let response = client
+                .get(COINMARKETCAP_API_URL)
+                .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
+                .send()
+                .await?
+                .error_for_status()?;
 
             let json_response: serde_json::Value = response.json().await?;
 
@@ -602,13 +463,10 @@ impl WalPriceMonitor {
             )));
         }
         if config.enable_coinmarketcap {
-            fetchers.push(Box::new(
-                CoinMarketCapPriceFetcher::new_with_check_interval(
-                    metrics.clone(),
-                    timeout,
-                    config.check_interval,
-                ),
-            ));
+            fetchers.push(Box::new(CoinMarketCapPriceFetcher::new(
+                metrics.clone(),
+                timeout,
+            )));
         }
 
         tracing::info!(
@@ -748,89 +606,54 @@ impl Drop for WalPriceMonitor {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    use axum::{
-        Json,
-        Router,
-        extract::State,
-        http::StatusCode,
-        response::{IntoResponse, Response},
-        routing::get,
-    };
-    use chrono::TimeZone;
-    use reqwest::header::HeaderValue;
+    use walrus_utils::backoff::ExponentialBackoffState;
 
     use super::*;
 
-    #[derive(Clone)]
-    struct CoinMarketCapTestServerState {
-        attempts: Arc<AtomicUsize>,
-        succeed_after: Option<usize>,
-        retry_after: Option<HeaderValue>,
+    const LIVE_API_MAX_RATE_LIMIT_RETRIES: u32 = 6;
+    const LIVE_API_MIN_RETRY_DELAY: Duration = Duration::from_secs(1);
+    const LIVE_API_MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
+
+    fn is_rate_limit_error(error: &anyhow::Error) -> bool {
+        error
+            .downcast_ref::<reqwest::Error>()
+            .and_then(reqwest::Error::status)
+            == Some(reqwest::StatusCode::TOO_MANY_REQUESTS)
     }
 
-    async fn coinmarketcap_test_handler(
-        State(state): State<CoinMarketCapTestServerState>,
-    ) -> Response {
-        let attempt = state.attempts.fetch_add(1, Ordering::SeqCst);
-        if state
-            .succeed_after
-            .is_none_or(|succeed_after| attempt < succeed_after)
-        {
-            let mut response = StatusCode::TOO_MANY_REQUESTS.into_response();
-            if let Some(retry_after) = &state.retry_after {
-                response
-                    .headers_mut()
-                    .insert(RETRY_AFTER, retry_after.clone());
+    async fn fetch_with_rate_limit_retries(
+        fetcher: &impl WalPriceFetcher,
+    ) -> Result<f64, anyhow::Error> {
+        let mut backoff = ExponentialBackoffState::new(
+            LIVE_API_MIN_RETRY_DELAY,
+            LIVE_API_MAX_RETRY_DELAY,
+            Some(LIVE_API_MAX_RATE_LIMIT_RETRIES),
+        );
+
+        loop {
+            match fetcher.fetch().await {
+                Err(error) if is_rate_limit_error(&error) => {
+                    let Some(delay) = backoff.next_delay(&mut rand::thread_rng()) else {
+                        return Err(error);
+                    };
+                    tracing::info!(
+                        source = fetcher.source(),
+                        ?delay,
+                        "live price-source test rate limited; retrying"
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+                result => return result,
             }
-            return response;
         }
-
-        Json(serde_json::json!({
-            "data": [{
-                "quotes": [{
-                    "price": 0.42
-                }]
-            }]
-        }))
-        .into_response()
-    }
-
-    async fn start_coinmarketcap_test_server(
-        succeed_after: Option<usize>,
-        retry_after: Option<HeaderValue>,
-    ) -> (String, Arc<AtomicUsize>, JoinHandle<()>) {
-        let attempts = Arc::new(AtomicUsize::new(0));
-        let state = CoinMarketCapTestServerState {
-            attempts: attempts.clone(),
-            succeed_after,
-            retry_after,
-        };
-        let app = Router::new()
-            .route("/", get(coinmarketcap_test_handler))
-            .with_state(state);
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("binding a loopback test server should succeed");
-        let address = listener
-            .local_addr()
-            .expect("the loopback test server should have a local address");
-        let server = tokio::spawn(async move {
-            axum::serve(listener, app)
-                .await
-                .expect("the loopback test server should run successfully");
-        });
-
-        (format!("http://{address}/"), attempts, server)
     }
 
     /// Expands to a #[tokio::test] that fetches WAL price from a source and checks that the
     /// associated metric was updated correctly.
-    /// Note: this test is ignored by default because it hits external APIs. They will be run
-    /// in CI to make sure that the output from these data sources are parsed correctly.
+    /// Note: this test is ignored by default because it hits external APIs. Dedicated CI workflows
+    /// run these tests to make sure that the output from these data sources is parsed correctly.
     macro_rules! test_fetch_from_source {
-        ($test_name:ident, $fetcher_type:ty, $source:expr) => {
+        ($test_name:ident, $fetcher_type:ty, $source:expr, $retry_rate_limits:expr) => {
             #[tokio::test]
             #[ignore = "ignore tests that hit external APIs"]
             async fn $test_name() {
@@ -842,7 +665,11 @@ mod tests {
                 let metrics = Arc::new(NodeMetricSet::new(&registry));
 
                 let fetcher = <$fetcher_type>::new(metrics.clone(), Duration::from_secs(60));
-                let result = fetcher.fetch().await;
+                let result = if $retry_rate_limits {
+                    fetch_with_rate_limit_retries(&fetcher).await
+                } else {
+                    fetcher.fetch().await
+                };
 
                 assert!(
                     result.is_ok(),
@@ -882,196 +709,29 @@ mod tests {
     test_fetch_from_source!(
         test_fetch_from_coingecko,
         CoinGeckoPriceFetcher,
-        "coingecko"
+        "coingecko",
+        false
     );
-    test_fetch_from_source!(test_fetch_from_coinbase, CoinbasePriceFetcher, "coinbase");
+    test_fetch_from_source!(
+        test_fetch_from_coinbase,
+        CoinbasePriceFetcher,
+        "coinbase",
+        false
+    );
     // Skip testing for Pyth Hermes because the price feed is disabled by default.
     // Re-enable this test if the Pyth Hermes price feed is enabled again.
     // test_fetch_from_source!(
     //     test_fetch_from_pyth_hermes,
     //     PythHermesPriceFetcher,
-    //     "pyth_hermes"
+    //     "pyth_hermes",
+    //     false
     // );
     test_fetch_from_source!(
         test_fetch_from_coinmarketcap,
         CoinMarketCapPriceFetcher,
-        "coinmarketcap"
+        "coinmarketcap",
+        true
     );
-
-    #[test]
-    fn retry_after_delay_parses_seconds_and_http_dates() {
-        let now = Utc
-            .with_ymd_and_hms(2026, 10, 27, 12, 0, 0)
-            .single()
-            .expect("the test timestamp should be valid");
-        let mut headers = HeaderMap::new();
-
-        headers.insert(RETRY_AFTER, HeaderValue::from_static("7"));
-        assert_eq!(
-            retry_after_delay(&headers, now),
-            Some(Duration::from_secs(7))
-        );
-
-        headers.insert(
-            RETRY_AFTER,
-            HeaderValue::from_static("Tue, 27 Oct 2026 12:00:45 GMT"),
-        );
-        assert_eq!(
-            retry_after_delay(&headers, now),
-            Some(Duration::from_secs(45))
-        );
-    }
-
-    #[test]
-    fn retry_after_delay_treats_past_dates_as_immediate() {
-        let now = Utc
-            .with_ymd_and_hms(2026, 10, 27, 12, 0, 0)
-            .single()
-            .expect("the test timestamp should be valid");
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            RETRY_AFTER,
-            HeaderValue::from_static("Tue, 27 Oct 2026 11:59:00 GMT"),
-        );
-
-        assert_eq!(retry_after_delay(&headers, now), Some(Duration::ZERO));
-    }
-
-    #[test]
-    fn coinmarketcap_fallback_backoff_scales_with_check_interval() {
-        let check_interval = Duration::from_secs(10 * 60);
-        let now = Instant::now();
-        let mut backoff = CoinMarketCapBackoff::new(check_interval);
-
-        let first_delay = backoff.record_rate_limit(None, now);
-        assert!(first_delay >= check_interval.saturating_mul(2));
-        assert!(first_delay < check_interval.saturating_mul(2) + Duration::from_secs(2));
-
-        let second_delay = backoff.record_rate_limit(None, now);
-        assert!(second_delay >= check_interval.saturating_mul(4));
-        assert!(second_delay < check_interval.saturating_mul(4) + Duration::from_secs(2));
-
-        let capped_delay = backoff.record_rate_limit(None, now);
-        assert_eq!(capped_delay, COINMARKETCAP_MAX_RETRY_DELAY);
-    }
-
-    #[tokio::test]
-    async fn coinmarketcap_defers_rate_limit_to_next_fetch_and_updates_metric() {
-        use walrus_utils::metrics::Registry;
-
-        let (api_url, attempts, server) =
-            start_coinmarketcap_test_server(Some(1), Some(HeaderValue::from_static("0"))).await;
-        let registry = Registry::default();
-        let metrics = Arc::new(NodeMetricSet::new(&registry));
-        let fetcher = CoinMarketCapPriceFetcher::new_with_api_url(
-            metrics.clone(),
-            Duration::from_secs(5),
-            Duration::from_secs(10),
-            api_url,
-        );
-
-        let error = fetcher
-            .fetch()
-            .await
-            .expect_err("the first response should return the rate-limit error");
-        assert_eq!(attempts.load(Ordering::SeqCst), 1);
-        assert_eq!(
-            error
-                .downcast_ref::<reqwest::Error>()
-                .and_then(reqwest::Error::status),
-            Some(reqwest::StatusCode::TOO_MANY_REQUESTS)
-        );
-
-        let price = fetcher
-            .fetch()
-            .await
-            .expect("the next fetch cycle should return a valid price");
-        server.abort();
-
-        assert_eq!(attempts.load(Ordering::SeqCst), 2);
-        assert_eq!(price, 0.42);
-        assert_eq!(
-            metrics
-                .current_monitored_wal_price
-                .with_label_values(&[fetcher.source()])
-                .get(),
-            price
-        );
-    }
-
-    #[tokio::test]
-    async fn coinmarketcap_skips_requests_until_retry_after_expires() {
-        use walrus_utils::metrics::Registry;
-
-        let (api_url, attempts, server) =
-            start_coinmarketcap_test_server(None, Some(HeaderValue::from_static("60"))).await;
-        let registry = Registry::default();
-        let metrics = Arc::new(NodeMetricSet::new(&registry));
-        let fetcher = CoinMarketCapPriceFetcher::new_with_api_url(
-            metrics,
-            Duration::from_secs(5),
-            Duration::from_secs(10),
-            api_url,
-        );
-
-        let error = fetcher
-            .fetch()
-            .await
-            .expect_err("the first response should return the rate-limit error");
-        assert_eq!(attempts.load(Ordering::SeqCst), 1);
-        assert_eq!(
-            error
-                .downcast_ref::<reqwest::Error>()
-                .and_then(reqwest::Error::status),
-            Some(reqwest::StatusCode::TOO_MANY_REQUESTS)
-        );
-
-        let error = fetcher
-            .fetch()
-            .await
-            .expect_err("the next fetch cycle should honor Retry-After");
-        server.abort();
-
-        assert_eq!(attempts.load(Ordering::SeqCst), 1);
-        assert!(error.to_string().contains("rate limit active"));
-    }
-
-    #[tokio::test]
-    async fn coinmarketcap_persists_fallback_backoff_across_fetches() {
-        use walrus_utils::metrics::Registry;
-
-        let (api_url, attempts, server) = start_coinmarketcap_test_server(None, None).await;
-        let registry = Registry::default();
-        let metrics = Arc::new(NodeMetricSet::new(&registry));
-        let check_interval = Duration::from_secs(10);
-        let fetcher = CoinMarketCapPriceFetcher::new_with_api_url(
-            metrics,
-            Duration::from_secs(5),
-            check_interval,
-            api_url,
-        );
-
-        fetcher
-            .fetch()
-            .await
-            .expect_err("the first response should return the rate-limit error");
-        let remaining_delay = fetcher
-            .backoff
-            .lock()
-            .await
-            .remaining_delay(Instant::now())
-            .expect("a missing Retry-After header should use fallback backoff");
-        assert!(remaining_delay > check_interval);
-        assert!(remaining_delay <= COINMARKETCAP_MAX_RETRY_DELAY);
-
-        fetcher
-            .fetch()
-            .await
-            .expect_err("the next fetch cycle should honor fallback backoff");
-        server.abort();
-
-        assert_eq!(attempts.load(Ordering::SeqCst), 1);
-    }
 
     #[test]
     fn test_any_source_enabled() {
