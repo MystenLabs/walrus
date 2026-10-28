@@ -46,11 +46,8 @@ const PYTH_HERMES_API_URL: &str = concat!(
 const COINMARKETCAP_API_URL: &str =
     "https://pro-api.coinmarketcap.com/public-api/v2/simple/price?id=36119&convert=USD";
 
-/// Minimum fallback delay when CoinMarketCap omits a valid `Retry-After` header.
-const COINMARKETCAP_MIN_RETRY_DELAY: Duration = Duration::from_secs(1);
-
 /// Maximum fallback delay when CoinMarketCap omits a valid `Retry-After` header.
-const COINMARKETCAP_MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
+const COINMARKETCAP_MAX_RETRY_DELAY: Duration = Duration::from_secs(60 * 60);
 
 /// Trait for fetching WAL token prices from different data sources
 trait WalPriceFetcher: Send + Sync {
@@ -292,16 +289,19 @@ struct CoinMarketCapPriceFetcher {
 #[derive(Debug)]
 struct CoinMarketCapBackoff {
     fallback: ExponentialBackoffState,
+    initial_delay: Duration,
     retry_not_before: Option<Instant>,
 }
 
 impl CoinMarketCapBackoff {
-    fn new() -> Self {
+    fn new(check_interval: Duration) -> Self {
+        let initial_delay = check_interval.saturating_mul(2);
         Self {
             fallback: ExponentialBackoffState::new_infinite(
-                COINMARKETCAP_MIN_RETRY_DELAY,
+                initial_delay,
                 COINMARKETCAP_MAX_RETRY_DELAY,
             ),
+            initial_delay,
             retry_not_before: None,
         }
     }
@@ -323,27 +323,49 @@ impl CoinMarketCapBackoff {
     }
 
     fn reset(&mut self) {
-        *self = Self::new();
+        self.fallback = ExponentialBackoffState::new_infinite(
+            self.initial_delay,
+            COINMARKETCAP_MAX_RETRY_DELAY,
+        );
+        self.retry_not_before = None;
     }
 }
 
 impl CoinMarketCapPriceFetcher {
+    #[cfg(test)]
     fn new(metrics: Arc<NodeMetricSet>, timeout: Duration) -> Self {
+        Self::new_with_check_interval(
+            metrics,
+            timeout,
+            WalPriceMonitorConfig::default().check_interval,
+        )
+    }
+
+    fn new_with_check_interval(
+        metrics: Arc<NodeMetricSet>,
+        timeout: Duration,
+        check_interval: Duration,
+    ) -> Self {
         Self {
             metrics,
             timeout,
             api_url: COINMARKETCAP_API_URL.to_owned(),
-            backoff: Arc::new(Mutex::new(CoinMarketCapBackoff::new())),
+            backoff: Arc::new(Mutex::new(CoinMarketCapBackoff::new(check_interval))),
         }
     }
 
     #[cfg(test)]
-    fn new_with_api_url(metrics: Arc<NodeMetricSet>, timeout: Duration, api_url: String) -> Self {
+    fn new_with_api_url(
+        metrics: Arc<NodeMetricSet>,
+        timeout: Duration,
+        check_interval: Duration,
+        api_url: String,
+    ) -> Self {
         Self {
             metrics,
             timeout,
             api_url,
-            backoff: Arc::new(Mutex::new(CoinMarketCapBackoff::new())),
+            backoff: Arc::new(Mutex::new(CoinMarketCapBackoff::new(check_interval))),
         }
     }
 
@@ -580,10 +602,13 @@ impl WalPriceMonitor {
             )));
         }
         if config.enable_coinmarketcap {
-            fetchers.push(Box::new(CoinMarketCapPriceFetcher::new(
-                metrics.clone(),
-                timeout,
-            )));
+            fetchers.push(Box::new(
+                CoinMarketCapPriceFetcher::new_with_check_interval(
+                    metrics.clone(),
+                    timeout,
+                    config.check_interval,
+                ),
+            ));
         }
 
         tracing::info!(
@@ -912,6 +937,24 @@ mod tests {
         assert_eq!(retry_after_delay(&headers, now), Some(Duration::ZERO));
     }
 
+    #[test]
+    fn coinmarketcap_fallback_backoff_scales_with_check_interval() {
+        let check_interval = Duration::from_secs(10 * 60);
+        let now = Instant::now();
+        let mut backoff = CoinMarketCapBackoff::new(check_interval);
+
+        let first_delay = backoff.record_rate_limit(None, now);
+        assert!(first_delay >= check_interval.saturating_mul(2));
+        assert!(first_delay < check_interval.saturating_mul(2) + Duration::from_secs(2));
+
+        let second_delay = backoff.record_rate_limit(None, now);
+        assert!(second_delay >= check_interval.saturating_mul(4));
+        assert!(second_delay < check_interval.saturating_mul(4) + Duration::from_secs(2));
+
+        let capped_delay = backoff.record_rate_limit(None, now);
+        assert_eq!(capped_delay, COINMARKETCAP_MAX_RETRY_DELAY);
+    }
+
     #[tokio::test]
     async fn coinmarketcap_defers_rate_limit_to_next_fetch_and_updates_metric() {
         use walrus_utils::metrics::Registry;
@@ -923,6 +966,7 @@ mod tests {
         let fetcher = CoinMarketCapPriceFetcher::new_with_api_url(
             metrics.clone(),
             Duration::from_secs(5),
+            Duration::from_secs(10),
             api_url,
         );
 
@@ -963,8 +1007,12 @@ mod tests {
             start_coinmarketcap_test_server(None, Some(HeaderValue::from_static("60"))).await;
         let registry = Registry::default();
         let metrics = Arc::new(NodeMetricSet::new(&registry));
-        let fetcher =
-            CoinMarketCapPriceFetcher::new_with_api_url(metrics, Duration::from_secs(5), api_url);
+        let fetcher = CoinMarketCapPriceFetcher::new_with_api_url(
+            metrics,
+            Duration::from_secs(5),
+            Duration::from_secs(10),
+            api_url,
+        );
 
         let error = fetcher
             .fetch()
@@ -995,8 +1043,13 @@ mod tests {
         let (api_url, attempts, server) = start_coinmarketcap_test_server(None, None).await;
         let registry = Registry::default();
         let metrics = Arc::new(NodeMetricSet::new(&registry));
-        let fetcher =
-            CoinMarketCapPriceFetcher::new_with_api_url(metrics, Duration::from_secs(5), api_url);
+        let check_interval = Duration::from_secs(10);
+        let fetcher = CoinMarketCapPriceFetcher::new_with_api_url(
+            metrics,
+            Duration::from_secs(5),
+            check_interval,
+            api_url,
+        );
 
         fetcher
             .fetch()
@@ -1008,6 +1061,7 @@ mod tests {
             .await
             .remaining_delay(Instant::now())
             .expect("a missing Retry-After header should use fallback backoff");
+        assert!(remaining_delay > check_interval);
         assert!(remaining_delay <= COINMARKETCAP_MAX_RETRY_DELAY);
 
         fetcher
