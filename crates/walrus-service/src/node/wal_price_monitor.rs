@@ -1,13 +1,21 @@
 // Copyright (c) Walrus Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use chrono::{DateTime, Utc};
 use reqwest::header::{HeaderMap, RETRY_AFTER};
 use serde::{Deserialize, Serialize};
 use serde_with::{DurationSeconds, serde_as};
-use tokio::{sync::RwLock, task::JoinHandle};
+use tokio::{
+    sync::{Mutex, RwLock},
+    task::JoinHandle,
+};
 use walrus_utils::backoff::ExponentialBackoffState;
 
 use crate::node::metrics::NodeMetricSet;
@@ -38,16 +46,10 @@ const PYTH_HERMES_API_URL: &str = concat!(
 const COINMARKETCAP_API_URL: &str =
     "https://pro-api.coinmarketcap.com/public-api/v2/simple/price?id=36119&convert=USD";
 
-/// Maximum number of times to retry a rate-limited CoinMarketCap request.
-const COINMARKETCAP_MAX_RETRIES: u32 = 3;
-
 /// Minimum fallback delay when CoinMarketCap omits a valid `Retry-After` header.
 const COINMARKETCAP_MIN_RETRY_DELAY: Duration = Duration::from_secs(1);
 
-/// Maximum time to wait before retrying a CoinMarketCap request.
-///
-/// Longer `Retry-After` values are left for the next price-monitor cycle so one source cannot
-/// block aggregation from all other sources for too long.
+/// Maximum fallback delay when CoinMarketCap omits a valid `Retry-After` header.
 const COINMARKETCAP_MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
 
 /// Trait for fetching WAL token prices from different data sources
@@ -284,6 +286,45 @@ struct CoinMarketCapPriceFetcher {
     metrics: Arc<NodeMetricSet>,
     timeout: Duration,
     api_url: String,
+    backoff: Arc<Mutex<CoinMarketCapBackoff>>,
+}
+
+#[derive(Debug)]
+struct CoinMarketCapBackoff {
+    fallback: ExponentialBackoffState,
+    retry_not_before: Option<Instant>,
+}
+
+impl CoinMarketCapBackoff {
+    fn new() -> Self {
+        Self {
+            fallback: ExponentialBackoffState::new_infinite(
+                COINMARKETCAP_MIN_RETRY_DELAY,
+                COINMARKETCAP_MAX_RETRY_DELAY,
+            ),
+            retry_not_before: None,
+        }
+    }
+
+    fn remaining_delay(&self, now: Instant) -> Option<Duration> {
+        self.retry_not_before
+            .and_then(|deadline| deadline.checked_duration_since(now))
+            .filter(|delay| !delay.is_zero())
+    }
+
+    fn record_rate_limit(&mut self, retry_after: Option<Duration>, now: Instant) -> Duration {
+        let delay = retry_after.unwrap_or_else(|| {
+            self.fallback
+                .next_delay(&mut rand::thread_rng())
+                .unwrap_or(COINMARKETCAP_MAX_RETRY_DELAY)
+        });
+        self.retry_not_before = now.checked_add(delay);
+        delay
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new();
+    }
 }
 
 impl CoinMarketCapPriceFetcher {
@@ -292,6 +333,7 @@ impl CoinMarketCapPriceFetcher {
             metrics,
             timeout,
             api_url: COINMARKETCAP_API_URL.to_owned(),
+            backoff: Arc::new(Mutex::new(CoinMarketCapBackoff::new())),
         }
     }
 
@@ -301,58 +343,39 @@ impl CoinMarketCapPriceFetcher {
             metrics,
             timeout,
             api_url,
+            backoff: Arc::new(Mutex::new(CoinMarketCapBackoff::new())),
         }
     }
 
-    async fn send_with_rate_limit_retries(
+    async fn send_respecting_rate_limit(
         &self,
         client: &reqwest::Client,
     ) -> Result<reqwest::Response, anyhow::Error> {
-        let mut retry_count = 0;
-        let mut backoff = ExponentialBackoffState::new_infinite(
-            COINMARKETCAP_MIN_RETRY_DELAY,
-            COINMARKETCAP_MAX_RETRY_DELAY,
-        );
+        if let Some(delay) = self.backoff.lock().await.remaining_delay(Instant::now()) {
+            anyhow::bail!("CoinMarketCap rate limit active for another {delay:?}");
+        }
 
-        loop {
-            let response = client
-                .get(&self.api_url)
-                .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
-                .send()
-                .await?;
+        let response = client
+            .get(&self.api_url)
+            .header(reqwest::header::USER_AGENT, "Walrus (walrus.xyz)")
+            .send()
+            .await?;
 
-            if response.status() != reqwest::StatusCode::TOO_MANY_REQUESTS {
-                return response.error_for_status().map_err(anyhow::Error::from);
-            }
-
-            if retry_count >= COINMARKETCAP_MAX_RETRIES {
-                return response.error_for_status().map_err(anyhow::Error::from);
-            }
-
-            let delay = match retry_after_delay(response.headers(), Utc::now()) {
-                Some(delay) if delay <= COINMARKETCAP_MAX_RETRY_DELAY => delay,
-                Some(delay) => {
-                    tracing::debug!(
-                        source = self.source(),
-                        ?delay,
-                        "rate limit exceeds maximum retry delay; deferring to next fetch cycle"
-                    );
-                    return response.error_for_status().map_err(anyhow::Error::from);
-                }
-                None => backoff
-                    .next_delay(&mut rand::thread_rng())
-                    .unwrap_or(COINMARKETCAP_MAX_RETRY_DELAY),
-            };
-
-            retry_count += 1;
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let delay = self.backoff.lock().await.record_rate_limit(
+                retry_after_delay(response.headers(), Utc::now()),
+                Instant::now(),
+            );
             tracing::debug!(
                 source = self.source(),
-                retry_count,
                 ?delay,
-                "price source rate limited; retrying"
+                "price source rate limited; deferring future requests"
             );
-            tokio::time::sleep(delay).await;
+            return response.error_for_status().map_err(anyhow::Error::from);
         }
+
+        self.backoff.lock().await.reset();
+        response.error_for_status().map_err(anyhow::Error::from)
     }
 }
 
@@ -383,7 +406,7 @@ impl WalPriceFetcher for CoinMarketCapPriceFetcher {
     fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<f64, anyhow::Error>> + Send + '_>> {
         Box::pin(async move {
             let client = reqwest::Client::builder().timeout(self.timeout).build()?;
-            let response = self.send_with_rate_limit_retries(&client).await?;
+            let response = self.send_respecting_rate_limit(&client).await?;
 
             let json_response: serde_json::Value = response.json().await?;
 
@@ -719,6 +742,7 @@ mod tests {
     struct CoinMarketCapTestServerState {
         attempts: Arc<AtomicUsize>,
         succeed_after: Option<usize>,
+        retry_after: Option<HeaderValue>,
     }
 
     async fn coinmarketcap_test_handler(
@@ -729,11 +753,13 @@ mod tests {
             .succeed_after
             .is_none_or(|succeed_after| attempt < succeed_after)
         {
-            return (
-                StatusCode::TOO_MANY_REQUESTS,
-                [(RETRY_AFTER, HeaderValue::from_static("0"))],
-            )
-                .into_response();
+            let mut response = StatusCode::TOO_MANY_REQUESTS.into_response();
+            if let Some(retry_after) = &state.retry_after {
+                response
+                    .headers_mut()
+                    .insert(RETRY_AFTER, retry_after.clone());
+            }
+            return response;
         }
 
         Json(serde_json::json!({
@@ -748,11 +774,13 @@ mod tests {
 
     async fn start_coinmarketcap_test_server(
         succeed_after: Option<usize>,
+        retry_after: Option<HeaderValue>,
     ) -> (String, Arc<AtomicUsize>, JoinHandle<()>) {
         let attempts = Arc::new(AtomicUsize::new(0));
         let state = CoinMarketCapTestServerState {
             attempts: attempts.clone(),
             succeed_after,
+            retry_after,
         };
         let app = Router::new()
             .route("/", get(coinmarketcap_test_handler))
@@ -885,10 +913,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn coinmarketcap_retries_rate_limit_and_updates_metric() {
+    async fn coinmarketcap_defers_rate_limit_to_next_fetch_and_updates_metric() {
         use walrus_utils::metrics::Registry;
 
-        let (api_url, attempts, server) = start_coinmarketcap_test_server(Some(1)).await;
+        let (api_url, attempts, server) =
+            start_coinmarketcap_test_server(Some(1), Some(HeaderValue::from_static("0"))).await;
         let registry = Registry::default();
         let metrics = Arc::new(NodeMetricSet::new(&registry));
         let fetcher = CoinMarketCapPriceFetcher::new_with_api_url(
@@ -897,10 +926,22 @@ mod tests {
             api_url,
         );
 
+        let error = fetcher
+            .fetch()
+            .await
+            .expect_err("the first response should return the rate-limit error");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            error
+                .downcast_ref::<reqwest::Error>()
+                .and_then(reqwest::Error::status),
+            Some(reqwest::StatusCode::TOO_MANY_REQUESTS)
+        );
+
         let price = fetcher
             .fetch()
             .await
-            .expect("the second response should return a valid price");
+            .expect("the next fetch cycle should return a valid price");
         server.abort();
 
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
@@ -915,10 +956,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn coinmarketcap_stops_after_maximum_rate_limit_retries() {
+    async fn coinmarketcap_skips_requests_until_retry_after_expires() {
         use walrus_utils::metrics::Registry;
 
-        let (api_url, attempts, server) = start_coinmarketcap_test_server(None).await;
+        let (api_url, attempts, server) =
+            start_coinmarketcap_test_server(None, Some(HeaderValue::from_static("60"))).await;
         let registry = Registry::default();
         let metrics = Arc::new(NodeMetricSet::new(&registry));
         let fetcher =
@@ -927,21 +969,54 @@ mod tests {
         let error = fetcher
             .fetch()
             .await
-            .expect_err("persistent rate limiting should be returned after bounded retries");
-        server.abort();
-
-        assert_eq!(
-            attempts.load(Ordering::SeqCst),
-            usize::try_from(COINMARKETCAP_MAX_RETRIES)
-                .expect("the retry count should fit in usize")
-                + 1
-        );
+            .expect_err("the first response should return the rate-limit error");
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
         assert_eq!(
             error
                 .downcast_ref::<reqwest::Error>()
                 .and_then(reqwest::Error::status),
             Some(reqwest::StatusCode::TOO_MANY_REQUESTS)
         );
+
+        let error = fetcher
+            .fetch()
+            .await
+            .expect_err("the next fetch cycle should honor Retry-After");
+        server.abort();
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert!(error.to_string().contains("rate limit active"));
+    }
+
+    #[tokio::test]
+    async fn coinmarketcap_persists_fallback_backoff_across_fetches() {
+        use walrus_utils::metrics::Registry;
+
+        let (api_url, attempts, server) = start_coinmarketcap_test_server(None, None).await;
+        let registry = Registry::default();
+        let metrics = Arc::new(NodeMetricSet::new(&registry));
+        let fetcher =
+            CoinMarketCapPriceFetcher::new_with_api_url(metrics, Duration::from_secs(5), api_url);
+
+        fetcher
+            .fetch()
+            .await
+            .expect_err("the first response should return the rate-limit error");
+        let remaining_delay = fetcher
+            .backoff
+            .lock()
+            .await
+            .remaining_delay(Instant::now())
+            .expect("a missing Retry-After header should use fallback backoff");
+        assert!(remaining_delay <= COINMARKETCAP_MAX_RETRY_DELAY);
+
+        fetcher
+            .fetch()
+            .await
+            .expect_err("the next fetch cycle should honor fallback backoff");
+        server.abort();
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 
     #[test]
