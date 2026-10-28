@@ -606,14 +606,54 @@ impl Drop for WalPriceMonitor {
 
 #[cfg(test)]
 mod tests {
+    use walrus_utils::backoff::ExponentialBackoffState;
+
     use super::*;
+
+    const LIVE_API_MAX_RATE_LIMIT_RETRIES: u32 = 6;
+    const LIVE_API_MIN_RETRY_DELAY: Duration = Duration::from_secs(1);
+    const LIVE_API_MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
+
+    fn is_rate_limit_error(error: &anyhow::Error) -> bool {
+        error
+            .downcast_ref::<reqwest::Error>()
+            .and_then(reqwest::Error::status)
+            == Some(reqwest::StatusCode::TOO_MANY_REQUESTS)
+    }
+
+    async fn fetch_with_rate_limit_retries(
+        fetcher: &impl WalPriceFetcher,
+    ) -> Result<f64, anyhow::Error> {
+        let mut backoff = ExponentialBackoffState::new(
+            LIVE_API_MIN_RETRY_DELAY,
+            LIVE_API_MAX_RETRY_DELAY,
+            Some(LIVE_API_MAX_RATE_LIMIT_RETRIES),
+        );
+
+        loop {
+            match fetcher.fetch().await {
+                Err(error) if is_rate_limit_error(&error) => {
+                    let Some(delay) = backoff.next_delay(&mut rand::thread_rng()) else {
+                        return Err(error);
+                    };
+                    tracing::info!(
+                        source = fetcher.source(),
+                        ?delay,
+                        "live price-source test rate limited; retrying"
+                    );
+                    tokio::time::sleep(delay).await;
+                }
+                result => return result,
+            }
+        }
+    }
 
     /// Expands to a #[tokio::test] that fetches WAL price from a source and checks that the
     /// associated metric was updated correctly.
-    /// Note: this test is ignored by default because it hits external APIs. They will be run
-    /// in CI to make sure that the output from these data sources are parsed correctly.
+    /// Note: this test is ignored by default because it hits external APIs. Dedicated CI workflows
+    /// run these tests to make sure that the output from these data sources is parsed correctly.
     macro_rules! test_fetch_from_source {
-        ($test_name:ident, $fetcher_type:ty, $source:expr) => {
+        ($test_name:ident, $fetcher_type:ty, $source:expr, $retry_rate_limits:expr) => {
             #[tokio::test]
             #[ignore = "ignore tests that hit external APIs"]
             async fn $test_name() {
@@ -625,7 +665,11 @@ mod tests {
                 let metrics = Arc::new(NodeMetricSet::new(&registry));
 
                 let fetcher = <$fetcher_type>::new(metrics.clone(), Duration::from_secs(60));
-                let result = fetcher.fetch().await;
+                let result = if $retry_rate_limits {
+                    fetch_with_rate_limit_retries(&fetcher).await
+                } else {
+                    fetcher.fetch().await
+                };
 
                 assert!(
                     result.is_ok(),
@@ -665,20 +709,28 @@ mod tests {
     test_fetch_from_source!(
         test_fetch_from_coingecko,
         CoinGeckoPriceFetcher,
-        "coingecko"
+        "coingecko",
+        false
     );
-    test_fetch_from_source!(test_fetch_from_coinbase, CoinbasePriceFetcher, "coinbase");
+    test_fetch_from_source!(
+        test_fetch_from_coinbase,
+        CoinbasePriceFetcher,
+        "coinbase",
+        false
+    );
     // Skip testing for Pyth Hermes because the price feed is disabled by default.
     // Re-enable this test if the Pyth Hermes price feed is enabled again.
     // test_fetch_from_source!(
     //     test_fetch_from_pyth_hermes,
     //     PythHermesPriceFetcher,
-    //     "pyth_hermes"
+    //     "pyth_hermes",
+    //     false
     // );
     test_fetch_from_source!(
         test_fetch_from_coinmarketcap,
         CoinMarketCapPriceFetcher,
-        "coinmarketcap"
+        "coinmarketcap",
+        true
     );
 
     #[test]
