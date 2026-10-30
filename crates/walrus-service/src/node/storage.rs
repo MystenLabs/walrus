@@ -539,7 +539,7 @@ impl Storage {
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
         let snapshot_publication = SnapshotPublicationTable::reopen(&database)?;
-        let blob_info = BlobInfoTable::reopen(&database)?;
+        let blob_info = BlobInfoTable::reopen(&database, &metrics_registry)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -1165,7 +1165,7 @@ impl Storage {
         // after it, can be ordered before the deletion below and erased by it, while its event
         // counts as handled. Event updates hold this blob ID's lock for their whole write, so
         // holding it here keeps the two apart.
-        let _blob_updates = self.blob_info.lock_blob_updates(blob_id);
+        let _blob_updates = self.blob_info.lock_blob_updates(blob_id, "deletion");
         let transaction = optimistic_handle.transaction();
         let Some(blob_info) = self
             .blob_info
@@ -2080,7 +2080,9 @@ pub(crate) mod tests {
         other_bytes[31] = 1;
         let other_blob_id = BlobId(other_bytes);
 
-        let _deletion = storage.blob_info.lock_blob_updates(&locked_blob_id);
+        let _deletion = storage
+            .blob_info
+            .lock_blob_updates(&locked_blob_id, "deletion");
         let (sender, receiver) = std::sync::mpsc::channel();
         std::thread::spawn({
             let storage = storage.clone();
