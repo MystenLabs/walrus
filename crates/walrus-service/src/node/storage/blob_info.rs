@@ -238,9 +238,13 @@ impl BlobInfoTable {
     /// Event updates take this lock for their whole write, before `latest_handled_event_index`, so
     /// a caller that holds it knows that no event write for `blob_id` is in flight. Blob IDs are
     /// spread across [`BLOB_UPDATE_LOCK_COUNT`] locks, so holding one rarely blocks updates for
-    /// other blob IDs.
+    /// other blob IDs. The lock is chosen by the last bytes of the blob ID, because GC visits blob
+    /// IDs in sorted order: consecutive deletions share a prefix but not a suffix, so they take
+    /// different locks.
     pub(super) fn lock_blob_updates(&self, blob_id: &BlobId) -> MutexGuard<'_, ()> {
-        let index = usize::from(blob_id.first_two_bytes()) % self.blob_update_locks.len();
+        let [.., second_to_last, last] = blob_id.0;
+        let index =
+            usize::from(u16::from_be_bytes([second_to_last, last])) % self.blob_update_locks.len();
         self.blob_update_locks[index]
             .lock()
             .expect("mutex should not be poisoned")

@@ -2077,7 +2077,7 @@ pub(crate) mod tests {
         let storage = storage.as_ref().clone();
         let locked_blob_id = BlobId([0; 32]);
         let mut other_bytes = [0; 32];
-        other_bytes[1] = 1;
+        other_bytes[31] = 1;
         let other_blob_id = BlobId(other_bytes);
 
         let _deletion = storage.blob_info.lock_blob_updates(&locked_blob_id);
