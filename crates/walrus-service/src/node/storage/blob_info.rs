@@ -92,7 +92,11 @@ pub(super) struct BlobInfoTable {
     per_object_pooled_blob_info: DBMap<ObjectID, PerObjectPooledBlobInfo>,
     storage_pool_info: DBMap<ObjectID, StoragePoolInfo>,
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
+    blob_update_locks: Arc<[Mutex<()>]>,
 }
+
+/// The number of locks that the blob info updates of all blob IDs are spread across.
+const BLOB_UPDATE_LOCK_COUNT: usize = 1024;
 
 /// Returns the options for the aggregate blob info column family.
 pub(crate) fn blob_info_cf_options(db_table_opts_factory: &DatabaseTableOptionsFactory) -> Options {
@@ -181,6 +185,9 @@ impl BlobInfoTable {
             per_object_pooled_blob_info,
             storage_pool_info,
             latest_handled_event_index,
+            blob_update_locks: (0..BLOB_UPDATE_LOCK_COUNT)
+                .map(|_| Mutex::new(()))
+                .collect(),
         })
     }
 
@@ -226,12 +233,15 @@ impl BlobInfoTable {
         ]
     }
 
-    /// Blocks blob info updates from events until the returned guard is dropped.
+    /// Blocks blob info updates from events for `blob_id` until the returned guard is dropped.
     ///
-    /// Event updates take this lock for their whole write, so a caller that holds it knows that no
-    /// event write is in flight.
-    pub(super) fn lock_event_updates(&self) -> MutexGuard<'_, DBMap<(), u64>> {
-        self.latest_handled_event_index
+    /// Event updates take this lock for their whole write, before `latest_handled_event_index`, so
+    /// a caller that holds it knows that no event write for `blob_id` is in flight. Blob IDs are
+    /// spread across [`BLOB_UPDATE_LOCK_COUNT`] locks, so holding one rarely blocks updates for
+    /// other blob IDs.
+    pub(super) fn lock_blob_updates(&self, blob_id: &BlobId) -> MutexGuard<'_, ()> {
+        let index = usize::from(blob_id.first_two_bytes()) % self.blob_update_locks.len();
+        self.blob_update_locks[index]
             .lock()
             .expect("mutex should not be poisoned")
     }
@@ -245,6 +255,7 @@ impl BlobInfoTable {
         event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
+        let _blob_updates = self.lock_blob_updates(&event.blob_id());
         let latest_handled_event_index = self
             .latest_handled_event_index
             .lock()
@@ -387,6 +398,7 @@ impl BlobInfoTable {
             return self.update_blob_info(event_index, event);
         }
 
+        let _blob_updates = self.lock_blob_updates(&extension_event.blob_id);
         let latest_handled_event_index = self
             .latest_handled_event_index
             .lock()

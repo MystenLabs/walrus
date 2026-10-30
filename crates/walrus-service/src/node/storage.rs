@@ -1163,9 +1163,9 @@ impl Storage {
         // validation checks for conflicts before the transaction's write joins the write queue
         // (facebook/rocksdb#14168), so a batch that is in flight at the check, or starts right
         // after it, can be ordered before the deletion below and erased by it, while its event
-        // counts as handled. Event updates hold this lock for their whole write, so holding it
-        // here keeps the two apart.
-        let _event_updates = self.blob_info.lock_event_updates();
+        // counts as handled. Event updates hold this blob ID's lock for their whole write, so
+        // holding it here keeps the two apart.
+        let _blob_updates = self.blob_info.lock_blob_updates(blob_id);
         let transaction = optimistic_handle.transaction();
         let Some(blob_info) = self
             .blob_info
@@ -2066,6 +2066,33 @@ pub(crate) mod tests {
             }
         }
         assert_eq!(lost, 0, "registrations lost to the deletion out of {RACES}");
+        Ok(())
+    }
+
+    /// A data deletion that holds a blob ID's update lock doesn't block event updates for blob IDs
+    /// on other locks.
+    #[tokio::test]
+    async fn blob_update_lock_does_not_block_other_blob_ids() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref().clone();
+        let locked_blob_id = BlobId([0; 32]);
+        let mut other_bytes = [0; 32];
+        other_bytes[1] = 1;
+        let other_blob_id = BlobId(other_bytes);
+
+        let _deletion = storage.blob_info.lock_blob_updates(&locked_blob_id);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn({
+            let storage = storage.clone();
+            move || {
+                let registered =
+                    BlobRegistered::for_testing_with_object_id(other_blob_id, ObjectID::random());
+                let _ = sender.send(storage.update_blob_info(0, &registered.into()));
+            }
+        });
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the update should not wait for the other blob ID's lock")?;
         Ok(())
     }
 
