@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use core::fmt;
+use std::num::NonZeroUsize;
 
 use rocksdb::{Cache, DBCompressionType, Options, statistics::StatsLevel};
 use serde::{Deserialize, Serialize};
@@ -236,6 +237,10 @@ pub struct GlobalDatabaseOptions {
     /// This enables optimistic transactions for write paths that need transactional semantics,
     /// including garbage collection. If this is disabled, some operations may not be available.
     pub use_optimistic_transaction_db: bool,
+    /// The number of locks that blob info updates from events and garbage collection data deletion
+    /// are spread across by blob ID. A deletion delays an event update only when both use the same
+    /// lock, so more locks make that rarer.
+    pub blob_update_lock_count: NonZeroUsize,
 }
 
 impl Default for GlobalDatabaseOptions {
@@ -249,6 +254,7 @@ impl Default for GlobalDatabaseOptions {
             max_background_jobs: Some(16),
             enable_statistics: true,
             use_optimistic_transaction_db: true,
+            blob_update_lock_count: NonZeroUsize::new(1024).expect("1024 is non-zero"),
         }
     }
 }

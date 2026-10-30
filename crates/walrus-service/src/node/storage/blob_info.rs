@@ -12,6 +12,7 @@ mod storage_pool_info;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
+    num::NonZeroUsize,
     ops::Bound::{self, Unbounded},
     sync::{Arc, Mutex, MutexGuard, TryLockError},
 };
@@ -98,9 +99,6 @@ pub(super) struct BlobInfoTable {
     blob_update_lock_metrics: BlobUpdateLockMetrics,
 }
 
-/// The number of locks that the blob info updates of all blob IDs are spread across.
-const BLOB_UPDATE_LOCK_COUNT: usize = 1024;
-
 /// Returns the options for the aggregate blob info column family.
 pub(crate) fn blob_info_cf_options(db_table_opts_factory: &DatabaseTableOptionsFactory) -> Options {
     let mut options = db_table_opts_factory.blob_info();
@@ -150,7 +148,11 @@ pub(crate) fn storage_pool_info_cf_options(
 }
 
 impl BlobInfoTable {
-    pub fn reopen(database: &Arc<RocksDB>, registry: &Registry) -> Result<Self, TypedStoreError> {
+    pub fn reopen(
+        database: &Arc<RocksDB>,
+        blob_update_lock_count: NonZeroUsize,
+        registry: &Registry,
+    ) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
             Some(constants::aggregate_blob_info_cf_name()),
@@ -188,7 +190,7 @@ impl BlobInfoTable {
             per_object_pooled_blob_info,
             storage_pool_info,
             latest_handled_event_index,
-            blob_update_locks: (0..BLOB_UPDATE_LOCK_COUNT)
+            blob_update_locks: (0..blob_update_lock_count.get())
                 .map(|_| Mutex::new(()))
                 .collect(),
             blob_update_lock_metrics: BlobUpdateLockMetrics::new(registry),
@@ -241,7 +243,7 @@ impl BlobInfoTable {
     ///
     /// Event updates take this lock for their whole write, before `latest_handled_event_index`, so
     /// a caller that holds it knows that no event write for `blob_id` is in flight. Blob IDs are
-    /// spread across [`BLOB_UPDATE_LOCK_COUNT`] locks, so holding one rarely blocks updates for
+    /// spread across `blob_update_lock_count` locks, so holding one rarely blocks updates for
     /// other blob IDs. The lock is chosen by the last bytes of the blob ID, because GC visits blob
     /// IDs in sorted order: consecutive deletions share a prefix but not a suffix, so they take
     /// different locks.

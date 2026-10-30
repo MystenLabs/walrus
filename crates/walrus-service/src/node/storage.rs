@@ -539,7 +539,11 @@ impl Storage {
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
         let snapshot_publication = SnapshotPublicationTable::reopen(&database)?;
-        let blob_info = BlobInfoTable::reopen(&database, &metrics_registry)?;
+        let blob_info = BlobInfoTable::reopen(
+            &database,
+            db_config.global.blob_update_lock_count,
+            &metrics_registry,
+        )?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
