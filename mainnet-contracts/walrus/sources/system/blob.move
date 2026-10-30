@@ -234,7 +234,7 @@ public(package) fun certify_with_certified_msg(
 /// Aborts if the Blob is not deletable or already expired.
 /// Also removes any metadata associated with the blob.
 public(package) fun delete(mut self: Blob, epoch: u32): Storage {
-    dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
+    dynamic_field::remove_opt<_, Metadata>(&mut self.id, METADATA_DF);
     let Blob {
         id,
         storage,
@@ -259,7 +259,7 @@ public use fun walrus::shared_blob::new as Blob.share;
 ///
 /// This function also burns any [`Metadata`] associated with the blob, if present.
 public fun burn(mut self: Blob) {
-    dynamic_field::remove_if_exists<_, Metadata>(&mut self.id, METADATA_DF);
+    dynamic_field::remove_opt<_, Metadata>(&mut self.id, METADATA_DF);
     let Blob { id, storage, .. } = self;
 
     id.delete();
@@ -309,7 +309,7 @@ public(package) fun emit_certified(self: &Blob, is_extension: bool) {
 ///
 /// Aborts if the metadata is already present.
 public fun add_metadata(self: &mut Blob, metadata: Metadata) {
-    assert!(!dynamic_field::exists_(&self.id, METADATA_DF), EDuplicateMetadata);
+    assert!(!dynamic_field::exists(&self.id, METADATA_DF), EDuplicateMetadata);
     dynamic_field::add(&mut self.id, METADATA_DF, metadata)
 }
 
@@ -317,7 +317,7 @@ public fun add_metadata(self: &mut Blob, metadata: Metadata) {
 ///
 /// Returns the replaced metadata if present.
 public fun add_or_replace_metadata(self: &mut Blob, metadata: Metadata): option::Option<Metadata> {
-    let old_metadata = if (dynamic_field::exists_(&self.id, METADATA_DF)) {
+    let old_metadata = if (dynamic_field::exists(&self.id, METADATA_DF)) {
         option::some(self.take_metadata())
     } else {
         option::none()
@@ -330,7 +330,7 @@ public fun add_or_replace_metadata(self: &mut Blob, metadata: Metadata): option:
 ///
 /// Aborts if the metadata does not exist.
 public fun take_metadata(self: &mut Blob): Metadata {
-    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
+    assert!(dynamic_field::exists(&self.id, METADATA_DF), EMissingMetadata);
     dynamic_field::remove(&mut self.id, METADATA_DF)
 }
 
@@ -338,7 +338,7 @@ public fun take_metadata(self: &mut Blob): Metadata {
 ///
 /// Aborts if the metadata does not exist.
 fun metadata(self: &mut Blob): &mut Metadata {
-    assert!(dynamic_field::exists_(&self.id, METADATA_DF), EMissingMetadata);
+    assert!(dynamic_field::exists(&self.id, METADATA_DF), EMissingMetadata);
     dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
 }
 
@@ -346,7 +346,7 @@ fun metadata(self: &mut Blob): &mut Metadata {
 ///
 /// Creates new metadata if it does not exist.
 fun metadata_or_create(self: &mut Blob): &mut Metadata {
-    if (!dynamic_field::exists_(&self.id, METADATA_DF)) {
+    if (!dynamic_field::exists(&self.id, METADATA_DF)) {
         self.add_metadata(metadata::new());
     };
     dynamic_field::borrow_mut(&mut self.id, METADATA_DF)
@@ -369,7 +369,7 @@ public fun remove_metadata_pair(self: &mut Blob, key: &String): (String, String)
 
 /// Removes and returns the metadata associated with the given key, if it exists.
 public fun remove_metadata_pair_if_exists(self: &mut Blob, key: &String): option::Option<String> {
-    if (!dynamic_field::exists_(&self.id, METADATA_DF)) {
+    if (!dynamic_field::exists(&self.id, METADATA_DF)) {
         option::none()
     } else {
         self.metadata().remove_if_exists(key)

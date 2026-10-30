@@ -48,10 +48,13 @@ all_wal_coins_for_addr() {
     | jq -r '[.[0][].coins[]] | sort_by(-(.balance | tonumber)) | .[].coinObjectId'
 }
 
+# Newer CLIs wrap the coin list as `{"gasCoins": [...], ...}`; older ones return the bare array.
+GAS_COINS_JQ='if type == "object" then .gasCoins else . end'
+
 gas_obj_for_addr() {
   ADDRESS=$1
   if [[ -z $GAS_OBJECT_ID ]]; then
-    sui client gas "$ADDRESS" --json | jq -r 'max_by(.mistBalance) | .gasCoinId'
+    sui client gas "$ADDRESS" --json | jq -r "$GAS_COINS_JQ"' | max_by(.mistBalance) | .gasCoinId'
   else
     echo "$GAS_OBJECT_ID"
   fi
@@ -61,7 +64,7 @@ gas_budget_for_addr() {
   ADDRESS=$1
   GAS_COIN=$2
   sui client gas "$ADDRESS" --json \
-    | jq -r --arg g "$GAS_COIN" '.[] | select(.gasCoinId == $g) | .mistBalance'
+    | jq -r --arg g "$GAS_COIN" "$GAS_COINS_JQ"' | .[] | select(.gasCoinId == $g) | .mistBalance'
 }
 
 subsidies_pkg() {
