@@ -188,37 +188,9 @@ https://github.com/MystenLabs/sui-rust-sdk/tree/master/crates/sui-rpc/vendored/p
 
 ## Documentation
 
-Documentation files live under `docs/content/` and use MDX (Docusaurus) format. The site is built
-from `docs/site/` using pnpm:
-
-```bash
-cd docs/site
-pnpm install   # install dependencies (only needed once)
-pnpm build     # production build (checks broken links/anchors)
-pnpm start     # local dev server with hot reload
-```
-
-### Style
-
-All documentation
-must follow the [Sui Documentation Style Guide](https://docs.sui.io/style-guide). The most
-important rules are:
-
-- **Language:** US English, second person ("you"), present tense, active voice.
-- **Page titles:** Title case. **Headings:** Sentence case.
-- **Latin abbreviations:** Do not use `e.g.`, `i.e.`, or `etc.` — write "for example", "that is",
-  or rephrase.
-- **Word choices:** Use "might" (not "may"), "through" (not "via"), "because" (not causal "since").
-- **Punctuation:** Oxford commas are mandatory. No exclamation marks.
-- **Sentence starters:** Do not begin sentences with "Note" or "Please note".
-- **Admonitions:** Use `:::info`, `:::tip`, `:::warning` (Docusaurus syntax). Content must be
-  complete sentences.
-- **Code blocks:** Use triple backticks with a language identifier. Introduce with descriptive text.
-  Align inline comments within code blocks.
-- **Links:** Use relative paths for internal links (for example, `/docs/operator-guide/storage-node`).
-- **Tabs:** Use `<Tabs>` and `<TabItem>` (globally available, no import needed) for
-  Testnet/Mainnet differences or prerequisites checklists. Wrap in
-  `<div className="outlined-tabs">` for the outlined style.
+The documentation lives in [MystenLabs/walrus-documentation](https://github.com/MystenLabs/walrus-documentation)
+and is published at https://docs.wal.app. A change that affects documented behavior still needs a
+docs change; open it as a pull request in that repository.
 
 ## Key Patterns
 

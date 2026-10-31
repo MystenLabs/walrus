@@ -21,19 +21,12 @@ build/
 # Walrus binary and configuration
 ./walrus
 ./client_config.yaml
-docs/examples/CONFIG/bin/walrus
-docs/examples/CONFIG/config_dir/client_config.yaml
 
 # Misc
 *.key
 .env
 working_dir/
 
-# Fetched external docs
-docs/walrus-memory-content/
-docs/oyster-content/
-docs/site/.cache-oyster/
-docs/site/static/oyster/
 *.log
 venv/
 **/tmp
@@ -44,4 +37,3 @@ out/
 crates/walrus-orchestrator/assets/
 !crates/walrus-orchestrator/assets/dashboard-template.json
 !crates/walrus-orchestrator/assets/settings-template.yaml
-docs/site/package-lock.json
