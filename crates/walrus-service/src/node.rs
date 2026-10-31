@@ -212,6 +212,7 @@ pub mod server;
 pub mod system_events;
 
 pub(crate) mod blob_event_processor;
+mod blob_info_snapshot_bootstrap;
 pub(crate) mod blob_info_snapshot_writer;
 pub(crate) mod consistency_check;
 pub(crate) mod db_checkpoint;
@@ -476,7 +477,6 @@ impl StorageNodeBuilder {
     }
 
     /// Sets the number of checkpoints to use per event blob.
-    #[cfg(any(test, feature = "test-utils"))]
     pub fn with_num_checkpoints_per_blob(mut self, num_checkpoints_per_blob: u32) -> Self {
         self.num_checkpoints_per_blob = Some(num_checkpoints_per_blob);
         self
@@ -798,6 +798,18 @@ impl StorageNode {
             )?
         };
         tracing::info!("successfully opened the node database");
+
+        // Before any component that reads or writes the blob info tables starts, a brand-new node
+        // whose event replay is not covered loads the latest certified snapshot.
+        blob_info_snapshot_bootstrap::bootstrap_from_snapshot_if_needed(
+            config.blob_info_snapshot.bootstrap,
+            &storage,
+            event_manager.as_ref(),
+            contract_service.as_ref(),
+            config.sui.as_ref(),
+        )
+        .await
+        .context("failed to bootstrap the blob info tables from a certified snapshot")?;
 
         // General thread pool: used for metadata verification and other high-priority CPU work.
         // Runs at the default OS scheduling priority (nice=0).
@@ -1242,12 +1254,17 @@ impl StorageNode {
             return Ok(());
         }
         if next_event_index != 0 {
-            // TODO(WAL-894): Implement recovery with incomplete event history for nodes that are
-            // not new.
-            unimplemented!(
-                "the node is too far behind for normal recovery and recovery with incomplete event \
-                history is only implemented for fresh nodes; \
-                please wipe the DB and restart the node"
+            // A node that has processed events before is not rebuilt automatically: replacing its
+            // blob info tables is the operator's decision. Wiping the database makes it a
+            // brand-new node, which loads the latest certified blob info snapshot at startup.
+            // TODO(WAL-894): Recover such nodes automatically, first on testnet, where a node is
+            // more likely to be down longer than the event-blob retention; on mainnet only once
+            // there is a real need.
+            bail!(
+                "the node is too far behind to catch up: its next event is {next_event_index}, but \
+                the first event still available is {first_available_event_index}; stop the node, \
+                delete the contents of its storage path, and start it again, so that it loads \
+                the latest certified blob info snapshot"
             );
         }
 

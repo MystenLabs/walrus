@@ -621,6 +621,12 @@ impl From<tonic::Status> for RetriableClientError {
 }
 
 impl RetriableClientError {
+    /// Returns `true` if the full node answered that the requested entity does not exist, as
+    /// opposed to a failure to get an answer (timeout, rate limiting, failover exhausted).
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, Self::RpcError(rpc_error) if rpc_error.status.code() == tonic::Code::NotFound)
+    }
+
     /// Returns `true` if the error is eligible for fallback.
     ///
     /// For pruned checkpoints (indicated by a `NotFound` error and sequence number <= height),
