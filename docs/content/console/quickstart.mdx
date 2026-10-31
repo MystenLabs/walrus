@@ -45,7 +45,7 @@ A `read_only` key (listing, status, and download only) is also available for dow
 
 ## Create an encrypted folder and upload a file
 
-Private folders are encrypted client-side, so Console stores ciphertext only and never sees your plaintext or decryption material. With your key in hand, creation goes through a reserve, sign, and finalize handshake, then a local encrypt on upload and decrypt on download:
+Private folders are encrypted client-side, so Console stores ciphertext only. Your plaintext and decrypted keys never reach Console: key requests pass through Console's proxy, but the key material comes back encrypted to a session key only you hold. With your key in hand, creation goes through a reserve, sign, and finalize handshake, then a local encrypt on upload and decrypt on download:
 
 ```
 get space → reserve → sign → finalize → encrypt → upload → poll → download → decrypt
@@ -85,9 +85,11 @@ Response (`201`):
 
 ### The helper code
 
-The signing, encryption, and decryption steps below share two files. `config.ts` holds the Mainnet constants: the Console API host, the Sui full node, the bucket-policy package IDs, the bucket registry, and the Seal committee object. `seal.ts` wraps the signing and Seal encrypt and decrypt helpers. Put both in a working directory next to a `.env` file that sets `CONSOLE_API_KEY` and `CONSOLE_SERVICE_PRIVATE_KEY`.
+The signing, encryption, and decryption steps below share two files. `config.ts` holds the Mainnet constants: the Console API host, the Sui full node, the bucket-policy package IDs, the bucket registry, and the Seal committee object. `seal.ts` wraps the signing and Seal encrypt and decrypt helpers. Put both in a working directory next to a `.env` file that sets `CONSOLE_API_KEY` and `CONSOLE_SERVICE_PRIVATE_KEY`, and add `.env` to your `.gitignore` so the two secrets never reach version control.
 
-```ts title="config.ts"
+Each file's title links to the maintained version in the [`walrus-console-quickstart`](https://github.com/MystenLabs/walrus-console-quickstart) reference app. The copies on this page are flattened into one directory and inline the Mainnet constants, while the reference app reads them from a `NETWORK` object, so the two differ in layout but not in behavior.
+
+```ts title="github.com/MystenLabs/walrus-console-quickstart/app/src/config.ts"
 export const API_BASE = 'https://api.console.walrus.xyz';
 export const SUI_NETWORK = 'mainnet' as const;
 export const FULLNODE_URL = 'https://fullnode.mainnet.sui.io:443';
@@ -110,7 +112,9 @@ export const BUCKET_REGISTRY_ID =
 export const SEAL_COMMITTEE_OBJECT_ID =
   '0x686098f1439237fff9f36b99c7329683c22979d2005c2465cb891acb012a7595';
 
-export const SEAL_THRESHOLD = 2;
+// One committee entry with weight 1, so the client-side threshold is 1. The
+// real threshold is enforced inside the committee.
+export const SEAL_THRESHOLD = 1;
 
 // Seal key fetches go through Console's fetch_key proxy, which authenticates
 // the API key and relays the request to the aggregator.
@@ -125,7 +129,7 @@ export function requireEnv(name: string): string {
 }
 ```
 
-```ts title="seal.ts"
+```ts title="github.com/MystenLabs/walrus-console-quickstart/app/src/lib/seal.ts"
 import { bcs } from '@mysten/sui/bcs';
 import { decodeSuiPrivateKey } from '@mysten/sui/cryptography';
 import { SuiGrpcClient } from '@mysten/sui/grpc';
@@ -255,11 +259,19 @@ export async function decryptBytes(
 }
 ```
 
+#### About `verifyKeyServers`
+
+`makeSealClient` passes `verifyKeyServers: false`. That is correct here, but do not carry the flag into other Seal code without knowing what it turns off.
+
+With `verifyKeyServers: true`, the SDK runs one proof-of-possession check per key server the first time it loads the server list: it calls the server's URL and verifies a signature against the public key recorded in that server's onchain object, proving the host behind the URL holds the key the chain says it should. That check does not fit this setup. The aggregator URL here is Console's key-fetch proxy, not a URL registered for the committee, and the SDK skips the check for committee servers anyway. What you rely on instead is the committee object ID pinned in `config.ts`: the SDK verifies every key share it receives against that object's onchain public key, whichever setting you pass.
+
+When you configure independent key servers by their own URLs, keep `verifyKeyServers: true` unless you have a reason not to.
+
 ### Step 3: Sign the bytes with the service key
 
 Sign the reserved `bytes` with your service key. The script loads the key with `loadKeypair` and calls `signReserveBytes`, then prints the base64 signature you pass to finalize:
 
-```ts title="sign-reserve.ts"
+```ts title="github.com/MystenLabs/walrus-console-quickstart/app/src/scripts/sign-reserve.ts"
 import { fromBase64 } from '@mysten/sui/utils';
 import { requireEnv } from './config.js';
 import { loadKeypair, signReserveBytes } from './seal.js';
@@ -308,7 +320,7 @@ Console combines your signature with the gas-sponsor signature and broadcasts th
 
 Encrypt locally against the `seal_policy_id` from finalize. `encryptBytes` (in `seal.ts`) derives a per-file Seal identity and encrypts against the folder policy using `ORIGINAL_PACKAGE_ID` from `config.ts`. Seal pins identity derivation to the original package ID, so this value must stay fixed across package upgrades, otherwise an upgrade would invalidate every previously encrypted blob's key. This script wires it up:
 
-```ts title="encrypt-file.ts"
+```ts title="github.com/MystenLabs/walrus-console-quickstart/app/src/scripts/encrypt-file.ts"
 import { readFile, writeFile } from 'node:fs/promises';
 import { requireEnv } from './config.js';
 import { encryptBytes, makeSealClient, makeSuiClient } from './seal.js';
@@ -371,7 +383,7 @@ GET /api/v1/buckets/{bucketId}/files/{fileId}/download
 
 The response is a `307` redirect to a short-lived signed URL on the user-content host. Most HTTP clients follow it automatically, and `curl` needs `-L`. The bytes you receive are the raw Seal ciphertext. `decryptBytes` (in `seal.ts`) builds the `seal_approve` access-check transaction, signs it with a short-lived session key, and decrypts client-side. The Seal SDK fetches the decryption key through Console's [key-fetch proxy](./api-reference#fetch-a-seal-key) with your API key, so you need no aggregator credential. This script runs the ciphertext-to-plaintext round trip and compares the result against the original when you pass its path:
 
-```ts title="decrypt-file.ts"
+```ts title="github.com/MystenLabs/walrus-console-quickstart/app/src/scripts/decrypt-file.ts"
 import { readFile, writeFile } from 'node:fs/promises';
 import { timingSafeEqual } from 'node:crypto';
 import { requireEnv } from './config.js';
@@ -417,7 +429,21 @@ Run it with the ciphertext path, the policy ID, and optionally the original file
 $ node --env-file=.env --import tsx decrypt-file.ts <ciphertextPath> <sealPolicyId> [originalPath]
 ```
 
-Decryption is fully client-side and never touches Console's backend.
+Decryption happens on your machine: the plaintext and the decrypted key never reach Console. The Seal SDK requests the key share through Console's key-fetch proxy with your API key; the proxy checks the key and relays the request, and the share it passes back is encrypted to your session key, so the proxy cannot read it.
+
+The download redirect in this step points at a short-lived signed URL. Anyone holding it can fetch the ciphertext until it expires, so do not log or share it.
+
+## When a key stops working
+
+A key that stops authenticating gets a `401` whose `code` says why:
+
+| **`code`** | **What happened** | **What to do** |
+| --- | --- | --- |
+| `api_key_revoked` | The key was revoked. | Create a new key in Console. |
+| `api_key_rotation_incomplete` | The key was revoked by a rotation that has not finished. | Create a new key in Console. |
+| `api_key_replaced` | The key was rotated and a new key replaces it. | Install the new `hbr_…` key and service private key. |
+
+You revoke and rotate keys from **Integrations**. Rotating revokes the old key before the new one is shown, so there is no window where both work.
 
 ## Get help
 
