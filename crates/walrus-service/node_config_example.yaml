@@ -11,6 +11,7 @@ db_config:
     max_background_jobs: 16
     enable_statistics: true
     use_optimistic_transaction_db: true
+    blob_update_lock_count: 1024
   standard:
     enable_blob_files: false
     min_blob_size: 0

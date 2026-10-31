@@ -26,6 +26,18 @@ walrus_utils::metrics::define_metric_set! {
     }
 }
 
+walrus_utils::metrics::define_metric_set! {
+    #[namespace = "walrus"]
+    /// Metrics for the locks that keep blob info updates from events and data deletion apart.
+    pub(super) struct BlobUpdateLockMetrics {
+        #[help = "Time (in seconds) spent waiting for a blob update lock held by another caller."]
+        blob_update_lock_wait_seconds: HistogramVec {
+            labels: ["caller"],
+            buckets: vec![1e-5, 5e-5, 1e-4, 5e-4, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5],
+        }
+    }
+}
+
 impl CommonDatabaseMetrics {
     pub fn observe_operation_duration(&self, labels: Labels, duration: Duration) {
         walrus_utils::with_label!(
