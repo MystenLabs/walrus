@@ -12,8 +12,9 @@ mod storage_pool_info;
 use std::{
     collections::{HashMap, HashSet},
     fmt::Debug,
+    num::NonZeroUsize,
     ops::Bound::{self, Unbounded},
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard, TryLockError},
 };
 
 use anyhow::Context as _;
@@ -41,6 +42,7 @@ use walrus_sui::types::{
     PooledBlobRegistered,
     StoragePoolEvent,
 };
+use walrus_utils::metrics::Registry;
 
 #[cfg(test)]
 pub(crate) use self::blob_info_v1::ValidBlobInfoV1;
@@ -61,6 +63,7 @@ use super::{
     DatabaseTableOptionsFactory,
     blob_info_snapshot::{self, SnapshotError, SnapshotHeader, SnapshotStats},
     constants,
+    metrics::BlobUpdateLockMetrics,
 };
 use crate::{
     node::metrics::NodeMetricSet,
@@ -92,6 +95,8 @@ pub(super) struct BlobInfoTable {
     per_object_pooled_blob_info: DBMap<ObjectID, PerObjectPooledBlobInfo>,
     storage_pool_info: DBMap<ObjectID, StoragePoolInfo>,
     latest_handled_event_index: Arc<Mutex<DBMap<(), u64>>>,
+    blob_update_locks: Arc<[Mutex<()>]>,
+    blob_update_lock_metrics: BlobUpdateLockMetrics,
 }
 
 /// Returns the options for the aggregate blob info column family.
@@ -143,7 +148,11 @@ pub(crate) fn storage_pool_info_cf_options(
 }
 
 impl BlobInfoTable {
-    pub fn reopen(database: &Arc<RocksDB>) -> Result<Self, TypedStoreError> {
+    pub fn reopen(
+        database: &Arc<RocksDB>,
+        blob_update_lock_count: NonZeroUsize,
+        registry: &Registry,
+    ) -> Result<Self, TypedStoreError> {
         let aggregate_blob_info = DBMap::reopen(
             database,
             Some(constants::aggregate_blob_info_cf_name()),
@@ -181,6 +190,10 @@ impl BlobInfoTable {
             per_object_pooled_blob_info,
             storage_pool_info,
             latest_handled_event_index,
+            blob_update_locks: (0..blob_update_lock_count.get())
+                .map(|_| Mutex::new(()))
+                .collect(),
+            blob_update_lock_metrics: BlobUpdateLockMetrics::new(registry),
         })
     }
 
@@ -226,6 +239,42 @@ impl BlobInfoTable {
         ]
     }
 
+    /// Blocks blob info updates from events for `blob_id` until the returned guard is dropped.
+    ///
+    /// Event updates take this lock for their whole write, before `latest_handled_event_index`, so
+    /// a caller that holds it knows that no event write for `blob_id` is in flight. Blob IDs are
+    /// spread across `blob_update_lock_count` locks, so holding one rarely blocks updates for
+    /// other blob IDs. The lock is chosen by the last bytes of the blob ID, because GC visits blob
+    /// IDs in sorted order: consecutive deletions share a prefix but not a suffix, so they take
+    /// different locks.
+    ///
+    /// When the lock is held by another caller, the time spent waiting for it is recorded under
+    /// `caller`, which is `"event"` for event updates and `"deletion"` for data deletion.
+    pub(super) fn lock_blob_updates(
+        &self,
+        blob_id: &BlobId,
+        caller: &'static str,
+    ) -> MutexGuard<'_, ()> {
+        let [.., second_to_last, last] = blob_id.0;
+        let index =
+            usize::from(u16::from_be_bytes([second_to_last, last])) % self.blob_update_locks.len();
+        let lock = &self.blob_update_locks[index];
+        match lock.try_lock() {
+            Ok(guard) => guard,
+            Err(TryLockError::WouldBlock) => {
+                let start = Instant::now();
+                let guard = lock.lock().expect("mutex should not be poisoned");
+                walrus_utils::with_label!(
+                    self.blob_update_lock_metrics.blob_update_lock_wait_seconds,
+                    caller
+                )
+                .observe(start.elapsed().as_secs_f64());
+                guard
+            }
+            Err(TryLockError::Poisoned(_)) => panic!("mutex should not be poisoned"),
+        }
+    }
+
     /// Updates the blob info for a blob based on the [`BlobEvent`].
     ///
     /// Only updates the info if the provided `event_index` hasn't been processed yet.
@@ -235,6 +284,7 @@ impl BlobInfoTable {
         event_index: u64,
         event: &BlobEvent,
     ) -> Result<(), TypedStoreError> {
+        let _blob_updates = self.lock_blob_updates(&event.blob_id(), "event");
         let latest_handled_event_index = self
             .latest_handled_event_index
             .lock()
@@ -377,6 +427,7 @@ impl BlobInfoTable {
             return self.update_blob_info(event_index, event);
         }
 
+        let _blob_updates = self.lock_blob_updates(&extension_event.blob_id, "event");
         let latest_handled_event_index = self
             .latest_handled_event_index
             .lock()
