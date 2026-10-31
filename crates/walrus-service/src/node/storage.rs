@@ -539,7 +539,11 @@ impl Storage {
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
         let snapshot_publication = SnapshotPublicationTable::reopen(&database)?;
-        let blob_info = BlobInfoTable::reopen(&database)?;
+        let blob_info = BlobInfoTable::reopen(
+            &database,
+            db_config.global.blob_update_lock_count,
+            &metrics_registry,
+        )?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -1159,6 +1163,13 @@ impl Storage {
         shards: &[Arc<ShardStorage>],
         node_metrics: &NodeMetricSet,
     ) -> anyhow::Result<bool> {
+        // Event updates write the blob info with plain write batches. RocksDB's default optimistic
+        // validation checks for conflicts before the transaction's write joins the write queue
+        // (facebook/rocksdb#14168), so a batch that is in flight at the check, or starts right
+        // after it, can be ordered before the deletion below and erased by it, while its event
+        // counts as handled. Event updates hold this blob ID's lock for their whole write, so
+        // holding it here keeps the two apart.
+        let _blob_updates = self.blob_info.lock_blob_updates(blob_id, "deletion");
         let transaction = optimistic_handle.transaction();
         let Some(blob_info) = self
             .blob_info
@@ -1931,6 +1942,163 @@ pub(crate) mod tests {
         assert!(storage.get_metadata(&blob_id)?.is_none());
         assert!(!shard_storage.is_sliver_stored::<walrus_core::encoding::Primary>(&blob_id)?);
 
+        Ok(())
+    }
+
+    /// A registration of an expired blob ID that races the deletion of that blob ID's data is never
+    /// lost: either the deletion sees it and keeps the entry, or the registration lands after the
+    /// deletion and recreates it.
+    #[tokio::test]
+    async fn expired_data_deletion_does_not_lose_a_concurrent_registration() -> TestResult {
+        const CALIBRATION_RUNS: u32 = 100;
+        const RACES: u32 = 1_000;
+
+        let storage = empty_storage().await;
+        let storage = storage.as_ref().clone();
+        storage.set_node_status(NodeStatus::Active)?;
+        let node_metrics = NodeMetricSet::new(&Registry::default());
+        let blob_id = |index: u32| {
+            let mut bytes = [0; 32];
+            bytes[..4].copy_from_slice(&index.to_be_bytes());
+            BlobId(bytes)
+        };
+
+        let registered_epoch = 1;
+        let expired_epoch = 3;
+        let total = CALIBRATION_RUNS + RACES;
+        for index in 0..total {
+            let registered = BlobRegistered {
+                epoch: registered_epoch,
+                end_epoch: expired_epoch - 1,
+                ..BlobRegistered::for_testing_with_object_id(blob_id(index), ObjectID::random())
+            };
+            storage.update_blob_info(u64::from(index), &registered.into())?;
+        }
+        // GC phase 1 releases the expired objects, so the deletion removes the aggregate entries.
+        storage
+            .process_expired_blob_objects(expired_epoch, &node_metrics, 1_000)
+            .await?;
+        let shards = storage.existing_shard_storages().await;
+
+        // Time uncontended deletions, so the registrations below can be spread across the
+        // deletion's whole duration.
+        let optimistic_handle = storage
+            .database
+            .as_optimistic()
+            .expect("the test database supports transactions");
+        let mut durations = Vec::new();
+        for index in 0..CALIBRATION_RUNS {
+            let start = std::time::Instant::now();
+            assert!(storage.attempt_to_delete_blob_data_inner(
+                &optimistic_handle,
+                &blob_id(index),
+                expired_epoch,
+                &shards,
+                &node_metrics,
+            )?);
+            durations.push(start.elapsed());
+            assert!(storage.get_blob_info(&blob_id(index))?.is_none());
+        }
+        durations.sort();
+        let max_delay_nanos = u64::try_from(durations[durations.len() / 2].as_nanos() * 3 / 2)?;
+
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let deleter = {
+            let storage = storage.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || -> anyhow::Result<()> {
+                let optimistic_handle = storage
+                    .database
+                    .as_optimistic()
+                    .expect("the test database supports transactions");
+                for index in CALIBRATION_RUNS..total {
+                    barrier.wait();
+                    storage.attempt_to_delete_blob_data_inner(
+                        &optimistic_handle,
+                        &blob_id(index),
+                        expired_epoch,
+                        &shards,
+                        &node_metrics,
+                    )?;
+                    barrier.wait();
+                }
+                Ok(())
+            })
+        };
+        let new_objects: Vec<_> = (CALIBRATION_RUNS..total)
+            .map(|_| ObjectID::random())
+            .collect();
+        let registerer = {
+            let storage = storage.clone();
+            let barrier = barrier.clone();
+            let new_objects = new_objects.clone();
+            std::thread::spawn(move || -> anyhow::Result<()> {
+                // A fixed-seed linear congruential generator keeps the delays reproducible.
+                let mut state: u64 = 0x2545_f491_4f6c_dd1d;
+                for (index, object_id) in (CALIBRATION_RUNS..total).zip(new_objects) {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1_442_695_040_888_963_407);
+                    let delay =
+                        std::time::Duration::from_nanos((state >> 33) % max_delay_nanos.max(1));
+                    let registered = BlobRegistered {
+                        epoch: expired_epoch,
+                        end_epoch: expired_epoch + 5,
+                        ..BlobRegistered::for_testing_with_object_id(blob_id(index), object_id)
+                    };
+                    barrier.wait();
+                    let until = std::time::Instant::now() + delay;
+                    while std::time::Instant::now() < until {
+                        std::hint::spin_loop();
+                    }
+                    storage.update_blob_info(u64::from(total + index), &registered.into())?;
+                    barrier.wait();
+                }
+                Ok(())
+            })
+        };
+        deleter.join().expect("the deleter should not panic")?;
+        registerer
+            .join()
+            .expect("the registerer should not panic")?;
+
+        let mut lost = 0;
+        for (index, object_id) in (CALIBRATION_RUNS..total).zip(new_objects) {
+            assert!(storage.get_per_object_info(&object_id)?.is_some());
+            if storage.get_blob_info(&blob_id(index))?.is_none() {
+                lost += 1;
+            }
+        }
+        assert_eq!(lost, 0, "registrations lost to the deletion out of {RACES}");
+        Ok(())
+    }
+
+    /// A data deletion that holds a blob ID's update lock doesn't block event updates for blob IDs
+    /// on other locks.
+    #[tokio::test]
+    async fn blob_update_lock_does_not_block_other_blob_ids() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref().clone();
+        let locked_blob_id = BlobId([0; 32]);
+        let mut other_bytes = [0; 32];
+        other_bytes[31] = 1;
+        let other_blob_id = BlobId(other_bytes);
+
+        let _deletion = storage
+            .blob_info
+            .lock_blob_updates(&locked_blob_id, "deletion");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn({
+            let storage = storage.clone();
+            move || {
+                let registered =
+                    BlobRegistered::for_testing_with_object_id(other_blob_id, ObjectID::random());
+                let _ = sender.send(storage.update_blob_info(0, &registered.into()));
+            }
+        });
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the update should not wait for the other blob ID's lock")?;
         Ok(())
     }
 
