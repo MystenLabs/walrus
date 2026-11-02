@@ -210,6 +210,6 @@ overflow-checks = true
 panic = 'abort'
 
 [profile.release-antithesis]
-debug = 1 # Keep debug symbols
+debug = "line-tables-only" # Keep file and line info only, to limit binary size
 inherits = "release"
 strip = 'none' # Preserve source locations for Antithesis symbolization

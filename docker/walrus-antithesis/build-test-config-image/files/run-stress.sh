@@ -23,9 +23,9 @@ cp /opt/walrus/outputs/stress.aliases /root/.sui/sui_config/sui.aliases
 echo "Disk space usage:"
 df -h
 
-# copy binaries
-cp /root/sui_bin/sui /usr/local/bin/
-cp /opt/walrus/bin/walrus /usr/local/bin/
+# link binaries instead of copying them so each container does not store its own copy
+ln -sf /root/sui_bin/sui /usr/local/bin/sui
+ln -sf /opt/walrus/bin/walrus /usr/local/bin/walrus
 
 echo "WAL balance"
 while ! sui client balance; do

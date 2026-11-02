@@ -25,9 +25,9 @@ EXCHANGE_OBJECT=$(grep "exchange_object" /opt/walrus/outputs/deploy | awk '{prin
 echo "Disk space usage:"
 df -h
 
-# copy binaries
-cp /root/sui_bin/sui /usr/local/bin/
-cp /opt/walrus/bin/walrus /usr/local/bin/
+# link binaries instead of copying them so each container does not store its own copy
+ln -sf /root/sui_bin/sui /usr/local/bin/sui
+ln -sf /opt/walrus/bin/walrus /usr/local/bin/walrus
 
 cat <<EOF >/root/.config/walrus/client_config.yaml
 system_object: ${SYSTEM_OBJECT}
