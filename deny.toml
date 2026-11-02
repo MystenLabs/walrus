@@ -83,15 +83,6 @@ ignore = [
   # - Fix: fastcrypto and Sui move to the `p256` 0.14 line, then we upgrade `p256`, whose keys we
   #   convert from `fastcrypto`'s.
   "RUSTSEC-2026-0387",
-  # - Issue: `zstd` < 0.14.3 and `zstd-safe` < 8.2.0 can leak data between streams on a reused
-  #   context, overrun a `Vec` in `Seekable::decompress`, and expose stale memory when streaming
-  #   decompression of a legacy frame fails.
-  # - Walrus: none found. Our code only calls `zstd::decode_all`, which none of these affect, the
-  #   `seekable` feature is off, and our servers add no `tower-http` decompression layer.
-  # - Fix: `zstd` 0.14 here and in Sui crates, `tonic`, and `async-compression`.
-  "RUSTSEC-2026-0391",
-  "RUSTSEC-2026-0398",
-  "RUSTSEC-2026-0403",
 ]
 
 
