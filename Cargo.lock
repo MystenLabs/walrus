@@ -13433,6 +13433,7 @@ dependencies = [
  "http-body-util",
  "http-range-header",
  "humantime",
+ "index",
  "indexmap 2.14.0",
  "indicatif",
  "indoc",

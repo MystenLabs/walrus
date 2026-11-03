@@ -98,7 +98,6 @@ pub fn pending_recover_blobs_cf_name() -> &'static str {
 pub fn blob_info_snapshot_publication_cf_name() -> &'static str {
     BLOB_INFO_SNAPSHOT_PUBLICATION_COLUMN_FAMILY_NAME
 }
-
 /// Returns the column family name for primary slivers of a shard.
 pub fn primary_slivers_column_family_name(id: ShardIndex) -> String {
     format!(
