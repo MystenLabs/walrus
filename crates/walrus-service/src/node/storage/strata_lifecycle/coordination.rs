@@ -9,7 +9,7 @@ use std::{
 };
 
 use sui_types::base_types::ObjectID;
-use tokio::sync::{OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio::sync::{OwnedMutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
 use typed_store::TypedStoreError;
 
 use super::{StrataLifecycle, metrics::LifecycleMetrics};
@@ -33,6 +33,7 @@ struct KeyLock {
     key: LockKey,
     lock: Arc<RwLock<()>>,
     put_admission: Arc<RwLock<()>>,
+    lifetime_submission: Arc<tokio::sync::Mutex<()>>,
     owner: Weak<Coordination>,
 }
 
@@ -78,6 +79,18 @@ pub struct SharedLockedBlobs {
 }
 
 impl SharedLockedBlobs {
+    /// Serialize cache misses through submission, never through the durability wait.
+    /// Entries are sorted and deduplicated, as with the outer blob locks.
+    pub async fn lock_lifetime_submission(&self) -> Vec<OwnedMutexGuard<()>> {
+        let mut guards = Vec::with_capacity(self.entries.len());
+        for entry in &self.entries {
+            let wait = self.metrics.lock_wait("lifetime_submission", "exclusive");
+            guards.push(entry.lifetime_submission.clone().lock_owned().await);
+            drop(wait);
+        }
+        guards
+    }
+
     /// Check delete markers concurrently, waiting for any cancellation still being synced.
     pub async fn lock_put_admission_shared(&self) -> Vec<OwnedRwLockReadGuard<()>> {
         let mut guards = Vec::with_capacity(self.entries.len());
@@ -198,6 +211,7 @@ impl StrataLifecycle {
                         key: key.clone(),
                         lock: Arc::default(),
                         put_admission: Arc::default(),
+                        lifetime_submission: Arc::default(),
                         owner: Arc::downgrade(&self.coordination),
                     });
                     registry.insert(key, Arc::downgrade(&entry));

@@ -96,7 +96,7 @@ pub(crate) struct SliverStore {
 
 #[derive(Debug)]
 enum SliverStoreBackend {
-    RocksDb(RocksDbSliverStore),
+    RocksDb(Box<RocksDbSliverStore>),
     Strata(StrataSliverStore),
 }
 
@@ -112,10 +112,10 @@ impl SliverStore {
         table_options: DatabaseTableOptionsFactory,
     ) -> Self {
         Self {
-            backend: Arc::new(SliverStoreBackend::RocksDb(RocksDbSliverStore {
+            backend: Arc::new(SliverStoreBackend::RocksDb(Box::new(RocksDbSliverStore {
                 database,
                 table_options,
-            })),
+            }))),
         }
     }
 
@@ -125,6 +125,7 @@ impl SliverStore {
         database: Arc<dyn strata_index::port::IndexDb>,
         lifecycle: Arc<super::strata_lifecycle::StrataLifecycle>,
         blob_info: super::blob_info::BlobInfoTable,
+        block_cache_capacity_bytes: Option<usize>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             backend: Arc::new(SliverStoreBackend::Strata(StrataSliverStore::open(
@@ -133,12 +134,23 @@ impl SliverStore {
                 database,
                 lifecycle,
                 blob_info,
+                block_cache_capacity_bytes,
             )?)),
         })
     }
 
     pub(crate) fn is_strata(&self) -> bool {
         matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
+    }
+
+    /// Deletes both sliver-axis keys for a blob from the node-wide Strata store.
+    pub(crate) async fn delete_blob(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
+        match self.backend.as_ref() {
+            SliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
+                "node-wide RocksDB sliver deletion is not supported".to_owned(),
+            )),
+            SliverStoreBackend::Strata(store) => store.delete_blob(blob_id).await,
+        }
     }
 
     pub(super) async fn reconcile_epoch(
@@ -294,12 +306,12 @@ impl RocksDbSliverStore {
 
         Ok(ShardSliverStore {
             metrics,
-            backend: ShardSliverStoreBackend::RocksDb(RocksDbShardSliverStore {
+            backend: ShardSliverStoreBackend::RocksDb(Box::new(RocksDbShardSliverStore {
                 primary_slivers,
                 secondary_slivers,
                 sst_primary_buffer: Arc::new(OnceLock::new()),
                 sst_secondary_buffer: Arc::new(OnceLock::new()),
-            }),
+            })),
         })
     }
 }
@@ -313,7 +325,7 @@ pub(crate) struct ShardSliverStore {
 
 #[derive(Debug, Clone)]
 enum ShardSliverStoreBackend {
-    RocksDb(RocksDbShardSliverStore),
+    RocksDb(Box<RocksDbShardSliverStore>),
     Strata(StrataShardSliverStore),
 }
 
@@ -363,15 +375,6 @@ impl ShardSliverStore {
         match &self.backend {
             ShardSliverStoreBackend::RocksDb(_) => Ok(()),
             ShardSliverStoreBackend::Strata(store) => store.drop_shard(),
-        }
-    }
-
-    pub(crate) async fn delete_pair(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
-        match &self.backend {
-            ShardSliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
-                "standalone RocksDB sliver deletion is not supported".to_owned(),
-            )),
-            ShardSliverStoreBackend::Strata(store) => store.delete_pair(blob_id).await,
         }
     }
 
