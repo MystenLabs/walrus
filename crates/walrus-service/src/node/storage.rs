@@ -89,6 +89,7 @@ use blob_info_snapshot_publication::SnapshotPublicationTable;
 
 mod shard;
 mod sliver_store;
+mod strata_database;
 
 pub(crate) use shard::{ShardStatus, ShardStorage};
 use sliver_store::SliverStore;
@@ -103,7 +104,7 @@ pub enum SliverStoreBackendKind {
     /// Store slivers in the node's RocksDB column families.
     #[default]
     RocksDb,
-    /// Store slivers in a separate Strata store; only supported on clean nodes.
+    /// Store slivers in Strata, sharing the node RocksDB for Strata's index.
     Strata,
 }
 
@@ -496,6 +497,19 @@ impl Storage {
         let garbage_collector_table_cf_name = garbage_collector_table_cf_name();
         let garbage_collector_table_options = db_table_opts_factory.garbage_collector();
 
+        let strata_config = strata::StrataStoreConfig::new(path, "slivers");
+        if sliver_backend == SliverStoreBackendKind::Strata
+            && strata_config.standalone_index_dir().exists()
+        {
+            anyhow::bail!(
+                "standalone Strata index found; create a fresh shared-index Strata store"
+            );
+        }
+        let mut strata_column_families = if sliver_backend == SliverStoreBackendKind::Strata {
+            strata_index::cf_options_for_prefix(&strata_config.index_cf_prefix())
+        } else {
+            Vec::new()
+        };
         let expected_column_families: Vec<_> = shard_column_families
             .iter_mut()
             .map(|(name, opts)| (name.as_str(), std::mem::take(opts)))
@@ -512,6 +526,11 @@ impl Storage {
                 ),
             ])
             .chain(blob_info_column_families)
+            .chain(
+                strata_column_families
+                    .iter_mut()
+                    .map(|(name, opts)| (name.as_str(), std::mem::take(opts))),
+            )
             .collect::<Vec<_>>();
 
         let database = if db_config.use_optimistic_transaction_db() {
@@ -553,7 +572,11 @@ impl Storage {
             SliverStoreBackendKind::RocksDb => {
                 SliverStore::new_rocksdb(Arc::clone(&database), db_table_opts_factory.clone())
             }
-            SliverStoreBackendKind::Strata => SliverStore::new_strata(path, &metrics_registry)?,
+            SliverStoreBackendKind::Strata => SliverStore::new_strata(
+                path,
+                &metrics_registry,
+                strata_database::database(&database),
+            )?,
         };
         // Strata's shard registry is the authority for which control-table shards are active.
         // A crash may interrupt creation before registration or deletion after a durable drop.
@@ -1965,6 +1988,19 @@ pub(crate) mod tests {
             .create_storage_for_shards_for_testing(&[SHARD_INDEX, OTHER_SHARD_INDEX])
             .await?;
         assert!(temp_dir.path().join("slivers").exists());
+        let strata_config = strata::StrataStoreConfig::new(temp_dir.path(), "slivers");
+        assert!(
+            !strata_config.standalone_index_dir().exists(),
+            "Strata must use the Walrus RocksDB instead of opening a standalone index"
+        );
+        for (column_family, _) in
+            strata_index::cf_options_for_prefix(&strata_config.index_cf_prefix())
+        {
+            assert!(
+                storage.database.cf_handle(&column_family).is_some(),
+                "shared Strata column family {column_family} is not open"
+            );
+        }
         for shard in [SHARD_INDEX, OTHER_SHARD_INDEX] {
             assert!(
                 storage

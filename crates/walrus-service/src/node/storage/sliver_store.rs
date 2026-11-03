@@ -122,11 +122,13 @@ impl SliverStore {
     pub(crate) fn new_strata(
         path: &Path,
         metrics_registry: &walrus_utils::metrics::Registry,
+        database: Arc<dyn strata_index::port::IndexDb>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             backend: Arc::new(SliverStoreBackend::Strata(StrataSliverStore::open(
                 path,
                 metrics_registry,
+                database,
             )?)),
         })
     }

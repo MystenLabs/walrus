@@ -6,6 +6,7 @@
 use std::{path::Path, sync::Arc, time::Duration};
 
 use strata::{BlobKey, ShardState, StrataLsn, StrataStore, StrataStoreConfig, StrataStoreMetrics};
+use strata_index::{StrataIndex, port::IndexDb};
 use typed_store::TypedStoreError;
 use walrus_core::{BlobId, ShardIndex, Sliver, SliverType};
 use walrus_utils::metrics::Registry;
@@ -30,14 +31,22 @@ pub(super) struct StrataShardSliverStore {
 }
 
 impl StrataSliverStore {
-    pub(super) fn open(path: &Path, metrics_registry: &Registry) -> anyhow::Result<Self> {
+    pub(super) fn open(
+        path: &Path,
+        metrics_registry: &Registry,
+        database: Arc<dyn IndexDb>,
+    ) -> anyhow::Result<Self> {
         let config = StrataStoreConfig::new(path, "slivers");
         let store_label = format!("slivers:{}", path.display());
         let metrics = metrics_registry.get_or_try_insert_extension(store_label.clone(), || {
             StrataStoreMetrics::new(metrics_registry.prometheus_registry(), store_label)
         })?;
         Ok(Self {
-            store: Arc::new(StrataStore::open(config, metrics)?),
+            store: Arc::new(StrataStore::from_index(
+                config.clone(),
+                StrataIndex::from_db(database, config.index_cf_prefix())?,
+                metrics,
+            )?),
         })
     }
 
