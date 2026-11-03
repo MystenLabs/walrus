@@ -125,6 +125,7 @@ impl SliverStore {
         database: Arc<dyn strata_index::port::IndexDb>,
         lifecycle: Arc<super::strata_lifecycle::StrataLifecycle>,
         blob_info: super::blob_info::BlobInfoTable,
+        block_cache_capacity_bytes: Option<usize>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             backend: Arc::new(SliverStoreBackend::Strata(StrataSliverStore::open(
@@ -133,6 +134,7 @@ impl SliverStore {
                 database,
                 lifecycle,
                 blob_info,
+                block_cache_capacity_bytes,
             )?)),
         })
     }
@@ -141,28 +143,13 @@ impl SliverStore {
         matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
     }
 
-    /// Deletes both sliver types for `blob_id` from every provided Strata shard in one batch.
-    pub(crate) async fn delete_all_pairs(
-        &self,
-        blob_id: BlobId,
-        shards: Vec<ShardSliverStore>,
-    ) -> Result<(), TypedStoreError> {
+    /// Deletes both sliver-axis keys for a blob from the node-wide Strata store.
+    pub(crate) async fn delete_blob(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
         match self.backend.as_ref() {
             SliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
                 "node-wide RocksDB sliver deletion is not supported".to_owned(),
             )),
-            SliverStoreBackend::Strata(store) => {
-                let shards = shards
-                    .into_iter()
-                    .map(|shard| match shard.backend {
-                        ShardSliverStoreBackend::Strata(store) => Ok(store),
-                        ShardSliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
-                            "cannot delete RocksDB slivers with the Strata backend".to_owned(),
-                        )),
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                store.delete_all_pairs(blob_id, shards).await
-            }
+            SliverStoreBackend::Strata(store) => store.delete_blob(blob_id).await,
         }
     }
 

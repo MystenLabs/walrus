@@ -2,6 +2,7 @@
 # Copyright (c) Walrus Foundation
 # SPDX-License-Identifier: Apache-2.0
 # shellcheck disable=SC2155
+# Set SLIVER_STORE_BACKEND=strata to run the storage nodes with Strata-backed slivers.
 
 msg() {
   echo "$0: note: $*" >&2
@@ -66,6 +67,7 @@ run-pipeline() {
     --env-file <(
       echo WALRUS_IMAGE_NAME="$WALRUS_IMAGE_NAME"
       echo SUI_IMAGE_NAME="$SUI_IMAGE_NAME"
+      echo SLIVER_STORE_BACKEND="${SLIVER_STORE_BACKEND:-rocks-db}"
     ) \
     -f "$build_dir"/docker-compose.yaml \
     up \

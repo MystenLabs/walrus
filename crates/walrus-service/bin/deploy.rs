@@ -16,9 +16,12 @@ use clap::{Parser, Subcommand};
 use sui_types::base_types::{ObjectID, SuiAddress};
 use walrus_core::EpochCount;
 use walrus_service::{
-    node::config::{
-        self,
-        defaults::{METRICS_PORT, REST_API_PORT},
+    node::{
+        SliverStoreBackendKind,
+        config::{
+            self,
+            defaults::{METRICS_PORT, REST_API_PORT},
+        },
     },
     testbed,
 };
@@ -197,6 +200,9 @@ struct GenerateDryRunConfigsArgs {
     /// will be located in the config directory and have the same name as the node it belongs to.
     #[arg(long)]
     set_db_path: Option<PathBuf>,
+    /// Backend used for primary and secondary sliver storage.
+    #[arg(long, value_enum, default_value = "rocks-db")]
+    sliver_store_backend: SliverStoreBackendKind,
     /// Cooldown duration for the faucet.
     ///
     /// Setting this makes sure that we wait at least this duration after a faucet request, before
@@ -474,6 +480,7 @@ mod commands {
             set_config_dir,
             listening_ips,
             set_db_path,
+            sliver_store_backend,
             faucet_cooldown,
             disable_event_blob_writer,
             backup_database_url,
@@ -568,6 +575,7 @@ mod commands {
             metrics_port,
             set_config_dir.as_deref(),
             set_db_path.as_deref(),
+            sliver_store_backend,
             faucet_cooldown,
             rpc_fallback_config_args
                 .as_ref()
