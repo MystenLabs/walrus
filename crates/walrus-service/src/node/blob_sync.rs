@@ -1181,9 +1181,15 @@ impl BlobSynchronizer {
 
             match sliver_or_proof {
                 Ok(sliver) => {
-                    shard_storage.put_sliver(self.blob_id, sliver).await?;
+                    let written = shard_storage
+                        .put_registered_sliver(
+                            self.blob_id,
+                            sliver,
+                            self.node.current_committee_epoch(),
+                        )
+                        .await?;
                     tracing::debug!("sliver successfully synced");
-                    Ok(true)
+                    Ok(written)
                 }
                 Err(proof) => {
                     tracing::debug!("sliver inconsistent");
