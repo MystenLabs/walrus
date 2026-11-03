@@ -40,7 +40,7 @@ use encoding::{
 };
 use fastcrypto::{
     bls12381::min_pk::{BLS12381PublicKey, BLS12381Signature},
-    hash::{Blake2b256, HashFunction},
+    hash::HashFunction,
     secp256r1::Secp256r1PublicKey,
 };
 use inconsistency::{
@@ -56,11 +56,12 @@ use serde_with::{DeserializeAs, DisplayFromStr, SerializeAs};
 use sui_types::base_types::ObjectID;
 use thiserror::Error;
 
-use crate::metadata::BlobMetadataApi as _;
+use crate::{hash::Blake2b256, metadata::BlobMetadataApi as _};
 
 pub mod bft;
 pub mod by_axis;
 pub mod encoding;
+pub mod hash;
 pub mod inconsistency;
 pub mod keys;
 pub mod merkle;

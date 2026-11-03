@@ -5,12 +5,12 @@
 use alloc::{format, vec::Vec};
 use core::{fmt::Debug, marker::PhantomData};
 
-use fastcrypto::hash::{Blake2b256, Digest, HashFunction};
+use fastcrypto::hash::{Digest, HashFunction};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::Level;
 
-use crate::ensure;
+use crate::{ensure, hash::Blake2b256};
 
 /// The length of the digests used in the merkle tree.
 pub const DIGEST_LEN: usize = 32;
@@ -185,7 +185,7 @@ impl<T> PartialEq for MerkleProof<T> {
 
 impl Eq for MerkleProof {}
 
-/// Merkle tree using a hash function `T` (default: [`Blake2b256`]) from the [`fastcrypto`] crate.
+/// Merkle tree using a hash function `T` (default: [`Blake2b256`]).
 ///
 /// The data of the leaves is prefixed with `0x00` before hashing and hashes of inner nodes are
 /// computed over the concatenation of their children prefixed with `0x01`. Hashes of empty
@@ -359,6 +359,47 @@ mod test {
     const TEST_INPUT: [&[u8]; 9] = [
         b"foo", b"bar", b"fizz", b"baz", b"buzz", b"fizz", b"foobar", b"walrus", b"fizz",
     ];
+
+    #[test]
+    fn roots_and_serialized_proofs_match_reference_backend() {
+        use fastcrypto::hash::Blake2b256 as Reference;
+
+        for leaf_count in [0, 1, 2, 3, 5, 33, 100, 101, 1000] {
+            let leaves: Vec<Vec<u8>> = (0..leaf_count)
+                .map(|index| (0..=255).cycle().skip(index).take(index % 257).collect())
+                .collect();
+            let optimized = MerkleTree::<Blake2b256>::build(&leaves);
+            let reference = MerkleTree::<Reference>::build(&leaves);
+            assert_eq!(optimized.root(), reference.root());
+            assert_eq!(
+                bcs::to_bytes(&optimized).unwrap(),
+                bcs::to_bytes(&reference).unwrap()
+            );
+            for (index, leaf) in leaves.iter().enumerate() {
+                let optimized_proof = optimized.get_proof(index).unwrap();
+                let reference_proof = reference.get_proof(index).unwrap();
+                let bytes = bcs::to_bytes(&reference_proof).unwrap();
+                assert_eq!(bcs::to_bytes(&optimized_proof).unwrap(), bytes);
+                let decoded: MerkleProof<Blake2b256> = bcs::from_bytes(&bytes).unwrap();
+                assert!(
+                    decoded
+                        .verify_proof(&reference.root(), leaf_count, leaf, index)
+                        .is_ok()
+                );
+                let decoded: MerkleProof<Reference> = bcs::from_bytes(&bytes).unwrap();
+                assert!(
+                    decoded
+                        .verify_proof(&optimized.root(), leaf_count, leaf, index)
+                        .is_ok()
+                );
+                assert!(
+                    optimized_proof
+                        .verify_proof(&reference.root(), leaf_count, b"wrong leaf", index)
+                        .is_err()
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_n_nodes() {

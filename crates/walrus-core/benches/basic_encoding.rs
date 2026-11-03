@@ -9,9 +9,9 @@
 use core::time::Duration;
 
 use criterion::{AxisScale, BatchSize, BenchmarkId, Criterion, PlotConfiguration};
-use fastcrypto::hash::Blake2b256;
 use walrus_core::{
     encoding::{Decoder as _, DecodingSymbol, Primary, ReedSolomonDecoder, ReedSolomonEncoder},
+    hash::Blake2b256,
     merkle::MerkleTree,
 };
 use walrus_test_utils::{random_data, random_subset};
