@@ -35,6 +35,29 @@ fn open(path: &Path, optimistic: bool) -> anyhow::Result<Storage> {
     Ok(storage)
 }
 
+#[tokio::test]
+async fn strata_block_cache_budget_is_configurable() -> TestResult {
+    let dir = TempDir::new()?;
+    typed_store::DBMetrics::get();
+    let mut config = DatabaseConfig::default_for_test();
+    config.strata_block_cache_capacity_bytes = Some(1024 * 1024);
+    let storage = Storage::open_with_sliver_backend(
+        dir.path(),
+        config,
+        MetricConf::default(),
+        Registry::default(),
+        SliverStoreBackendKind::Strata,
+    )?;
+    assert_eq!(
+        strata(&storage)
+            .store
+            .config()
+            .lsm_block_cache_capacity_bytes,
+        1024 * 1024
+    );
+    close(storage).await
+}
+
 fn strata(storage: &Storage) -> &StrataSliverStore {
     let SliverStoreBackend::Strata(store) = storage.sliver_store.backend.as_ref() else {
         panic!("Strata backend expected");
@@ -273,6 +296,118 @@ async fn explicit_delete_is_deferred_and_survives_restart() -> TestResult {
         );
         close(storage).await?;
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn invalid_blob_delete_clears_all_shards_with_two_durable_operations() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let shards = [SHARD, ShardIndex(8)];
+        storage
+            .create_storage_for_shards_for_testing(&shards)
+            .await?;
+        for id in [X, Y] {
+            storage
+                .update_blob_info_coordinated(
+                    if id == X { 0 } else { 1 },
+                    &registration(id, 20).into(),
+                )
+                .await?;
+            for shard in shards {
+                let writer = strata(&storage).open_shard(shard)?;
+                writer
+                    .write(
+                        vec![
+                            (id, get_sliver(SliverType::Primary, 2)),
+                            (id, get_sliver(SliverType::Secondary, 2)),
+                        ],
+                        Some(1),
+                        None,
+                    )
+                    .await?;
+            }
+        }
+        let before = strata(&storage).store.index().get_next_lsn()?;
+        storage.delete_blob_data(&X).await?;
+        assert_eq!(strata(&storage).store.index().get_next_lsn()? - before, 2);
+        for shard in shards {
+            for axis in [SliverType::Primary, SliverType::Secondary] {
+                assert!(strata(&storage).open_shard(shard)?.get(&X, axis)?.is_none());
+                assert!(strata(&storage).open_shard(shard)?.get(&Y, axis)?.is_some());
+            }
+        }
+        close(storage).await?;
+        let storage = open(dir.path(), optimistic)?;
+        for shard in shards {
+            for axis in [SliverType::Primary, SliverType::Secondary] {
+                assert!(strata(&storage).open_shard(shard)?.get(&X, axis)?.is_none());
+                assert!(strata(&storage).open_shard(shard)?.get(&Y, axis)?.is_some());
+            }
+        }
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn delete_key_does_not_reuse_a_legacy_tombstone_binding() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), true)?;
+    storage
+        .create_storage_for_shards_for_testing(&[SHARD])
+        .await?;
+    let registered = registration(X, 20);
+    storage
+        .update_blob_info_coordinated(0, &registered.clone().into())
+        .await?;
+    put(&storage, X).await?;
+    storage
+        .update_blob_info_coordinated(
+            1,
+            &registered
+                .into_corresponding_deleted_event_for_testing(false)
+                .into(),
+        )
+        .await?;
+    let mut start = strata(&storage).lifecycle.progress.batch();
+    start.insert_batch(
+        &strata(&storage).lifecycle.progress,
+        [((), ReconciliationProgress::Applying(2))],
+    )?;
+    start.write_with_sync(true)?;
+
+    // Model a crash after the old per-shard tombstone protocol recorded its submission binding
+    // but before the reconciliation marker was acknowledged.
+    let legacy_identity = bcs::to_bytes(&(X, 20_u32, true, Some(1_u64)))?;
+    let legacy_key = [
+        b"walrus-epoch/".as_slice(),
+        &2_u32.to_be_bytes(),
+        legacy_identity.as_slice(),
+    ]
+    .concat();
+    strata(&storage)
+        .store
+        .index()
+        .submitted_batch_lsns()
+        .insert(&legacy_key, &1)?;
+
+    let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
+    strata(&storage).reconcile_blobs(2, &snapshot, true).await?;
+
+    assert!(!stored(&storage, X)?);
+    assert_eq!(
+        strata(&storage)
+            .store
+            .index()
+            .submitted_batch_lsns()
+            .safe_iter()?
+            .count(),
+        2
+    );
+    run_until(&storage, 2, true).await?;
+    close(storage).await?;
     Ok(())
 }
 
@@ -1632,6 +1767,10 @@ async fn strata_adapter_metrics_cover_put_reconciliation_and_sync() -> TestResul
         .update_blob_info_coordinated(0, &registration(X, 3).into())
         .await?;
     put(&storage, X).await?;
+    // An unsubmitted lifetime still exercises reconciliation; X is now a cache hit.
+    storage
+        .update_blob_info_coordinated(1, &registration(Y, 20).into())
+        .await?;
     reconcile(&storage, 2, 2, true).await?;
     let node_metrics = crate::node::metrics::NodeMetricSet::new(&Registry::default());
     storage
@@ -1648,6 +1787,15 @@ async fn strata_adapter_metrics_cover_put_reconciliation_and_sync() -> TestResul
     assert_eq!(metrics.reconciliation_requested_epoch.get(), 3);
     assert_eq!(metrics.reconciliation_completed_epoch.get(), 3);
     assert_eq!(metrics.put_duration_seconds.get_sample_count(), 2);
+    for phase in ["prepare_queue", "prepare", "submit_queue"] {
+        assert_eq!(
+            metrics
+                .put_phase_duration_seconds
+                .with_label_values(&[phase])
+                .get_sample_count(),
+            2
+        );
+    }
     assert_eq!(
         metrics.durability_wait_duration_seconds.get_sample_count(),
         2
@@ -1701,4 +1849,213 @@ async fn strata_adapter_metrics_cover_put_reconciliation_and_sync() -> TestResul
         2
     );
     close(storage).await
+}
+
+#[tokio::test]
+async fn waiting_lifetime_cache_hit_releases_submission_lock() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), false)?;
+    let node = strata(&storage);
+    let guard = node.lifecycle.lock_blobs_shared(&[&X.0]).await?;
+    let key = sliver_key(&X, SliverType::Primary);
+    let (first, updates) = node
+        .lock_missing_lifetimes(&guard, HashMap::from([(key.clone(), 20)]))
+        .await;
+    assert_eq!(first.len(), 1);
+    assert_eq!(updates.len(), 1);
+
+    let (second, updates) = {
+        let waiting = node.lock_missing_lifetimes(&guard, HashMap::from([(key.clone(), 20)]));
+        tokio::pin!(waiting);
+        assert!(futures::poll!(&mut waiting).is_pending());
+        // Model the first upload's successful submission while the second waits on its lock.
+        node.submitted_lifetimes
+            .lock()
+            .unwrap()
+            .record(key.clone(), 20);
+        drop(first);
+        waiting.await
+    };
+    assert!(updates.is_empty());
+    assert!(
+        second.is_empty(),
+        "a resolved miss must not serialize payload I/O"
+    );
+    // Keep the second upload alive: another submitter must not wait for its payload or sync.
+    let third =
+        tokio::time::timeout(Duration::from_secs(1), guard.lock_lifetime_submission()).await?;
+    drop(third);
+    // A different expiry still requires a serialized lifetime update.
+    let (extended, updates) = node
+        .lock_missing_lifetimes(&guard, HashMap::from([(key, 21)]))
+        .await;
+    assert_eq!(extended.len(), 1);
+    assert_eq!(updates.len(), 1);
+    drop(extended);
+    drop(guard);
+    close(storage).await
+}
+
+#[tokio::test]
+async fn lifetime_cache_coalesces_concurrent_shards_and_reconciliation() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        let shards: Vec<_> = (0..25).map(ShardIndex).collect();
+        storage
+            .create_storage_for_shards_for_testing(&shards)
+            .await?;
+        storage
+            .update_blob_info_coordinated(0, &registration(X, 20).into())
+            .await?;
+        let node = strata(&storage);
+        let before = node.store.index().get_next_lsn()?;
+        let writes = shards.iter().map(|shard| {
+            let writer = node.open_shard(*shard).unwrap();
+            async move {
+                writer
+                    .write(
+                        vec![
+                            (X, get_sliver(SliverType::Primary, 2)),
+                            (X, get_sliver(SliverType::Secondary, 2)),
+                        ],
+                        Some(1),
+                        None,
+                    )
+                    .await
+            }
+        });
+        let counts = futures::future::try_join_all(writes).await?;
+        assert!(counts.iter().all(|count| *count == 2));
+        // Fifty payloads share exactly two lifetimes (one per sliver type).
+        assert_eq!(node.store.index().get_next_lsn()? - before, 52);
+        assert_eq!(
+            node.lifecycle
+                .metrics
+                .lifetime_updates_submitted_total
+                .get(),
+            2
+        );
+        assert_eq!(
+            node.lifecycle.metrics.lifetime_updates_skipped_total.get(),
+            48
+        );
+        let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
+        let before = node.store.index().get_next_lsn()?;
+        node.reconcile_blobs(1, &snapshot, true).await?;
+        assert_eq!(node.store.index().get_next_lsn()?, before);
+        assert!(node.contains_sliver_pairs_in_all(X, &shards)?);
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn lifetime_cache_tracks_extensions_and_starts_empty_on_reopen() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        storage
+            .create_storage_for_shards_for_testing(&[SHARD])
+            .await?;
+        storage
+            .update_blob_info_coordinated(0, &registration(X, 3).into())
+            .await?;
+        put(&storage, X).await?;
+        let node = strata(&storage);
+        let before = node.store.index().get_next_lsn()?;
+        put(&storage, X).await?;
+        assert_eq!(node.store.index().get_next_lsn()? - before, 2);
+        storage
+            .update_blob_info_coordinated(1, &registration(X, 20).into())
+            .await?;
+        // Reconciliation installs the new lifetime in both Strata and the cache.
+        let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
+        node.reconcile_blobs(2, &snapshot, true).await?;
+        let before = node.store.index().get_next_lsn()?;
+        put(&storage, X).await?;
+        assert_eq!(node.store.index().get_next_lsn()? - before, 2);
+        reconcile(&storage, 3, 3, true).await?;
+        assert!(stored(&storage, X)?);
+        close(storage).await?;
+        let storage = open(dir.path(), optimistic)?;
+        let node = strata(&storage);
+        let before = node.store.index().get_next_lsn()?;
+        put(&storage, X).await?;
+        assert_eq!(node.store.index().get_next_lsn()? - before, 4);
+        assert!(stored(&storage, X)?);
+        reconcile(&storage, 20, 20, true).await?;
+        assert!(!stored(&storage, X)?);
+        close(storage).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn lifetime_cache_handles_repeated_keys_in_one_batch_and_failed_preparation() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), true)?;
+    storage
+        .create_storage_for_shards_for_testing(&[SHARD])
+        .await?;
+    storage
+        .update_blob_info_coordinated(0, &registration(X, 20).into())
+        .await?;
+    let node = strata(&storage);
+    let writer = node.open_shard(SHARD)?;
+    let before = node.store.index().get_next_lsn()?;
+    writer
+        .write(
+            vec![
+                (X, get_sliver(SliverType::Primary, 2)),
+                (X, get_sliver(SliverType::Primary, 2)),
+            ],
+            Some(1),
+            None,
+        )
+        .await?;
+    assert_eq!(node.store.index().get_next_lsn()? - before, 3);
+    assert!(
+        !node
+            .submitted_lifetimes
+            .lock()
+            .unwrap()
+            .contains(&sliver_key(&X, SliverType::Secondary), 20)
+    );
+    node.delete_blob(X).await?;
+    assert!(!stored(&storage, X)?);
+    assert!(
+        !node
+            .submitted_lifetimes
+            .lock()
+            .unwrap()
+            .contains(&sliver_key(&X, SliverType::Primary), 20)
+    );
+    let before = node.store.index().get_next_lsn()?;
+    put(&storage, X).await?;
+    assert_eq!(node.store.index().get_next_lsn()? - before, 4);
+    assert!(stored(&storage, X)?);
+    storage
+        .update_blob_info_coordinated(1, &registration(Y, 20).into())
+        .await?;
+    // Invalid generation fails preparation and must not install any cache knowledge.
+    let mut invalid = node.open_shard(SHARD)?;
+    invalid.generation += 1;
+    assert!(
+        invalid
+            .write(vec![(Y, get_sliver(SliverType::Primary, 2))], Some(1), None)
+            .await
+            .is_err()
+    );
+    assert!(
+        !node
+            .submitted_lifetimes
+            .lock()
+            .unwrap()
+            .contains(&sliver_key(&Y, SliverType::Primary), 20)
+    );
+    drop(invalid);
+    drop(writer);
+    close(storage).await?;
+    Ok(())
 }

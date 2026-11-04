@@ -22,6 +22,8 @@ use super::DatabaseTableOptionsFactory;
 mod coordination;
 mod metrics;
 
+pub(super) use coordination::SharedLockedBlobs;
+
 pub(super) use super::strata_database::TypedBatchExt;
 
 pub(super) const DIRTY_BLOBS_CF: &str = "strata_dirty_blobs";

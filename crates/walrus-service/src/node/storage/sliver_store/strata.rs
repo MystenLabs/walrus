@@ -3,10 +3,16 @@
 
 //! Strata implementation of primary and secondary sliver storage.
 
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use strata::{BlobKey, ShardState, StrataLsn, StrataStore, StrataStoreConfig, StrataStoreMetrics};
 use strata_index::{StrataIndex, port::IndexDb};
+use tokio::sync::OwnedMutexGuard;
 use typed_store::{Map, TypedStoreError, rocks::DBBatch};
 use walrus_core::{BlobId, Epoch, ShardIndex, Sliver, SliverType};
 use walrus_utils::metrics::{OwnedGaugeGuard, Registry};
@@ -18,6 +24,7 @@ use super::{
             HaltOnIncompleteWrite,
             ReconcileBlob,
             ReconciliationProgress,
+            SharedLockedBlobs,
             StrataLifecycle,
             TypedBatchExt,
             error,
@@ -28,10 +35,14 @@ use super::{
 };
 use crate::utils;
 
+mod lifetime_cache;
+use lifetime_cache::LifetimeCache;
+
 // Time in seconds to wait for data to be fsynced when writing slivers into Strata.
 const SYNC_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 const BLOB_CHUNK_SIZE: usize = 256;
 const POOL_CHUNK_SIZE: usize = 256;
+const DELETE_KEY_BINDING_VERSION: u8 = 1;
 
 /// Strata store for slivers. Walrus control tables remain in RocksDB.
 #[derive(Debug, Clone)]
@@ -39,6 +50,8 @@ pub(super) struct StrataSliverStore {
     pub(super) store: Arc<StrataStore>,
     lifecycle: Arc<StrataLifecycle>,
     blob_info: Arc<BlobInfoTable>,
+    // Empty on reopen. Primary/secondary are distinct Strata keys, shared by all shards.
+    submitted_lifetimes: Arc<Mutex<LifetimeCache>>,
 }
 
 /// One Walrus shard within the Strata store, holding both primary and secondary slivers.
@@ -50,14 +63,46 @@ pub(super) struct StrataShardSliverStore {
 }
 
 impl StrataSliverStore {
+    /// Only the first submission of a lifetime needs serialization. A waiting cache miss
+    /// becomes a hit once another upload submits it, so release its lock before payload I/O.
+    /// The outer shared blob guards keep this knowledge valid even if the cache evicts it.
+    async fn lock_missing_lifetimes(
+        &self,
+        guard: &SharedLockedBlobs,
+        mut updates: HashMap<BlobKey, Epoch>,
+    ) -> (Vec<OwnedMutexGuard<()>>, HashMap<BlobKey, Epoch>) {
+        let remove_submitted = |updates: &mut HashMap<BlobKey, Epoch>| {
+            let cache = self
+                .submitted_lifetimes
+                .lock()
+                .expect("lifetime cache poisoned");
+            updates.retain(|key, end| !cache.contains(key, *end));
+        };
+        remove_submitted(&mut updates);
+        let mut locks = if updates.is_empty() {
+            Vec::new()
+        } else {
+            guard.lock_lifetime_submission().await
+        };
+        remove_submitted(&mut updates);
+        if updates.is_empty() {
+            locks.clear();
+        }
+        (locks, updates)
+    }
+
     pub(super) fn open(
         path: &Path,
         metrics_registry: &Registry,
         database: Arc<dyn IndexDb>,
         lifecycle: Arc<StrataLifecycle>,
         blob_info: BlobInfoTable,
+        block_cache_capacity_bytes: Option<usize>,
     ) -> anyhow::Result<Self> {
-        let config = StrataStoreConfig::new(path, "slivers");
+        let mut config = StrataStoreConfig::new(path, "slivers");
+        if let Some(bytes) = block_cache_capacity_bytes {
+            config.lsm_block_cache_capacity_bytes = bytes;
+        }
         let store_label = format!("slivers:{}", path.display());
         let metrics = metrics_registry.get_or_try_insert_extension(store_label.clone(), || {
             StrataStoreMetrics::new(metrics_registry.prometheus_registry(), store_label)
@@ -70,6 +115,7 @@ impl StrataSliverStore {
             )?),
             lifecycle,
             blob_info: Arc::new(blob_info),
+            submitted_lifetimes: Arc::default(),
         })
     }
 
@@ -381,25 +427,32 @@ impl StrataSliverStore {
                 }
                 let mut ack = writer.lifecycle.dirty_blobs.batch();
                 let prefix = [b"walrus-epoch/".as_slice(), &epoch.to_be_bytes()].concat();
-                let shards = writer
-                    .store
-                    .index()
-                    .shards()
-                    .safe_iter()?
-                    .collect::<Result<Vec<_>, _>>()?;
                 let mut submitted = false;
+                let mut cache_updates = Vec::new();
                 for (id, end, unchanged, delete, registered, event_index) in &work {
                     let mut batch = writer.store.batch();
+                    let mut needs_submission = false;
                     for axis in [SliverType::Primary, SliverType::Secondary] {
                         let key = sliver_key(id, axis);
                         if *delete {
-                            for (shard, info) in &shards {
-                                if info.is_active() {
-                                    batch.tombstone(*shard, key.clone());
-                                }
-                            }
-                        } else if *registered && u64::from(*end) > writer.store.current_epoch()? {
-                            batch.set_blob_lifetime(key, u64::from(*end));
+                            writer
+                                .submitted_lifetimes
+                                .lock()
+                                .expect("lifetime cache poisoned")
+                                .invalidate(&key);
+                            batch.delete_key(key);
+                            needs_submission = true;
+                        } else if *registered
+                            && u64::from(*end) > writer.store.current_epoch()?
+                            && !writer
+                                .submitted_lifetimes
+                                .lock()
+                                .expect("lifetime cache poisoned")
+                                .contains(&key, *end)
+                        {
+                            batch.set_blob_lifetime(key.clone(), u64::from(*end));
+                            needs_submission = true;
+                            cache_updates.push((key, *end));
                         }
                     }
                     // Identity describes the actual operation, not its scan position.
@@ -407,14 +460,15 @@ impl StrataSliverStore {
                     // repeated after a crash even after individual dirty IDs were acked.
                     // A later registration/delete can occur while this pass is running. It
                     // must not reuse an earlier delete's binding after writing a new payload.
-                    let lsn_key = [
-                        prefix.as_slice(),
-                        &bcs::to_bytes(&(id, end, delete, event_index))?,
-                    ]
-                    .concat();
-                    if (*delete && shards.iter().any(|(_, info)| info.is_active()))
-                        || (*registered && u64::from(*end) > writer.store.current_epoch()?)
-                    {
+                    // A legacy per-shard tombstone binding does not prove the whole key and
+                    // lifetime were cleared. Reissue that pending delete once after upgrading.
+                    let identity = if *delete {
+                        bcs::to_bytes(&(id, end, delete, event_index, DELETE_KEY_BINDING_VERSION))?
+                    } else {
+                        bcs::to_bytes(&(id, end, delete, event_index))?
+                    };
+                    let lsn_key = [prefix.as_slice(), identity.as_slice()].concat();
+                    if needs_submission {
                         if writer
                             .store
                             .index()
@@ -458,6 +512,13 @@ impl StrataSliverStore {
                         .with_label_values(&["rocksdb", "blob_ack"])
                         .start_timer();
                     ack.write_with_sync(true)?;
+                }
+                let mut cache = writer
+                    .submitted_lifetimes
+                    .lock()
+                    .expect("lifetime cache poisoned");
+                for (key, end) in cache_updates {
+                    cache.record(key, end);
                 }
                 Ok(())
             })
@@ -526,34 +587,25 @@ impl StrataSliverStore {
         Ok(true)
     }
 
-    pub(super) async fn delete_all_pairs(
-        &self,
-        blob_id: BlobId,
-        shards: Vec<StrataShardSliverStore>,
-    ) -> Result<(), TypedStoreError> {
-        if shards.is_empty() {
-            return Ok(());
-        }
+    pub(super) async fn delete_blob(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
         let this = self.clone();
         utils::unwrap_or_resume_unwind(
             tokio::spawn(async move {
                 let _guard = this.lifecycle.lock_blobs(&[&blob_id.0]).await?;
-                for shard in &shards {
-                    shard.check_generation()?;
-                }
                 let mut completion =
-                    HaltOnIncompleteWrite::new(this.lifecycle.clone(), "delete_all_sliver_pairs");
+                    HaltOnIncompleteWrite::new(this.lifecycle.clone(), "delete_blob");
                 let writer = this.clone();
                 let lsn = utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
                         let mut batch = writer.store.batch();
-                        for shard in shards {
-                            for sliver_type in [SliverType::Primary, SliverType::Secondary] {
-                                batch.tombstone(
-                                    u32::from(shard.shard.0),
-                                    sliver_key(&blob_id, sliver_type),
-                                );
-                            }
+                        for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                            let key = sliver_key(&blob_id, sliver_type);
+                            writer
+                                .submitted_lifetimes
+                                .lock()
+                                .expect("lifetime cache poisoned")
+                                .invalidate(&key);
+                            batch.delete_key(key);
                         }
                         let _operation = writer
                             .lifecycle
@@ -720,11 +772,15 @@ impl StrataShardSliverStore {
                 this.node.lifecycle.check_running()?;
                 // Declare before completion so a panic halts admission before either lock drops.
                 let mut exclusive_admission = None;
+                let lifetime_submission;
                 let mut completion =
                     HaltOnIncompleteWrite::new(this.node.lifecycle.clone(), "put_slivers");
                 let prepare = this.clone();
+                let prepare_queue = this.node.lifecycle.metrics.put_phase("prepare_queue");
                 let (payloads, pending_deletes) = utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
+                        drop(prepare_queue);
+                        let _prepare = prepare.node.lifecycle.metrics.put_phase("prepare");
                         prepare.check_generation()?;
                         let mut payloads = Vec::new();
                         let mut pending_deletes = Vec::new();
@@ -819,19 +875,33 @@ impl StrataShardSliverStore {
                 // On failure, halt admission before releasing the exclusive guard.
                 drop(exclusive_admission);
                 let count = payloads.len();
+                // The outer blob guards prevent reconciliation/registration from changing the
+                // lifetime. A hit needs no extra lock. Misses serialize only the check+submit,
+                // then recheck below so concurrent shard uploads share one lifetime write.
+                let lifetime_count = payloads.iter().filter(|(_, _, end)| end.is_some()).count();
+                let pending = payloads
+                    .iter()
+                    .filter_map(|(key, _, end)| end.map(|end| (key.clone(), end)))
+                    .collect();
+                let cache_updates;
+                (lifetime_submission, cache_updates) =
+                    this.node.lock_missing_lifetimes(&guard, pending).await;
+                let skipped = lifetime_count - cache_updates.len();
+                this.node.lifecycle.check_running()?;
                 let writer = this.clone();
+                let submit_queue = this.node.lifecycle.metrics.put_phase("submit_queue");
                 let lsn = utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
+                        drop(submit_queue);
                         if payloads.is_empty() {
                             return Ok(0);
                         }
                         let mut batch = writer.node.store.batch();
-                        for (key, payload, end_epoch) in payloads {
-                            if let Some(end_epoch) = end_epoch {
-                                // Initialize the admitted registration in the same write as its
-                                // payload, also protecting puts while Strata's epoch lags Walrus.
-                                batch.set_blob_lifetime(key.clone(), u64::from(end_epoch));
-                            }
+                        // Initialize each missing registration in the same write as its payload.
+                        for (key, end_epoch) in &cache_updates {
+                            batch.set_blob_lifetime(key.clone(), u64::from(*end_epoch));
+                        }
+                        for (key, payload, _) in payloads {
                             batch.put(u32::from(writer.shard.0), key, Arc::<[u8]>::from(payload));
                         }
                         let _operation = writer
@@ -842,11 +912,36 @@ impl StrataShardSliverStore {
                             .with_label_values(&["put"])
                             .start_timer();
                         let result = batch.write().map_err(store_error)?;
+                        // Submission is ordered by the Strata writer. Every later put waits for
+                        // its own (higher) LSN, covering this lifetime too. A failed submission
+                        // never enters the cache; uncertain durability halts admission. Reopen
+                        // starts empty, so no cache fact can outlive the WAL it depended on.
+                        writer
+                            .node
+                            .lifecycle
+                            .metrics
+                            .lifetime_updates_submitted_total
+                            .inc_by(cache_updates.len() as u64);
+                        writer
+                            .node
+                            .lifecycle
+                            .metrics
+                            .lifetime_updates_skipped_total
+                            .inc_by(skipped as u64);
+                        let mut cache = writer
+                            .node
+                            .submitted_lifetimes
+                            .lock()
+                            .expect("lifetime cache poisoned");
+                        for (key, end) in cache_updates {
+                            cache.record(key, end);
+                        }
                         Ok::<_, TypedStoreError>(result.last_lsn().unwrap_or(0))
                     })
                     .await,
                 )
                 .inspect_err(|error| completion.record_error(error))?;
+                drop(lifetime_submission);
                 this.node
                     .wait_durable_lsn(lsn)
                     .await
