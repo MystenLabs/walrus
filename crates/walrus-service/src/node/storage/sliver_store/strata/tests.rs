@@ -59,10 +59,10 @@ async fn strata_block_cache_budget_is_configurable() -> TestResult {
 }
 
 fn strata(storage: &Storage) -> &StrataSliverStore {
-    let SliverStoreBackend::Strata(store) = storage.sliver_store.backend.as_ref() else {
+    let SliverStoreBackend::Strata(backend) = storage.sliver_store.backend.as_ref() else {
         panic!("Strata backend expected");
     };
-    store
+    &backend.store
 }
 
 async fn run_until(storage: &Storage, epoch: Epoch, delete_data: bool) -> TestResult {
