@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use rocksdb::{BoundColumnFamily, Options, ReadOptions, WriteOptions};
 use strata_index::{
-    Error, Result,
+    Error,
+    Result,
     port::{IndexDb, IndexSnapshot, IndexWriteBatch, RowCursor},
 };
 use typed_store::rocks::{RocksDB, RocksDBBatch, RocksDBRawIter};

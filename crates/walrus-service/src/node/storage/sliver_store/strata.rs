@@ -109,10 +109,8 @@ impl StrataSliverStore {
                 let mut batch = this.store.batch();
                 for shard in shards {
                     for sliver_type in [SliverType::Primary, SliverType::Secondary] {
-                        batch.tombstone(
-                            u32::from(shard.shard.0),
-                            sliver_key(&blob_id, sliver_type),
-                        );
+                        batch
+                            .tombstone(u32::from(shard.shard.0), sliver_key(&blob_id, sliver_type));
                     }
                 }
                 let result = batch.write().map_err(store_error)?;
@@ -231,7 +229,6 @@ impl StrataShardSliverStore {
             .contains_in_shards(&key, &[u32::from(self.shard.0)])
             .map_err(store_error)
     }
-
 }
 
 fn sliver_key(blob_id: &BlobId, sliver_type: SliverType) -> BlobKey {
