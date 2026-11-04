@@ -137,6 +137,31 @@ impl SliverStore {
         matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
     }
 
+    /// Deletes both sliver types for `blob_id` from every provided Strata shard in one batch.
+    pub(crate) async fn delete_all_pairs(
+        &self,
+        blob_id: BlobId,
+        shards: Vec<ShardSliverStore>,
+    ) -> Result<(), TypedStoreError> {
+        match self.backend.as_ref() {
+            SliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
+                "node-wide RocksDB sliver deletion is not supported".to_owned(),
+            )),
+            SliverStoreBackend::Strata(store) => {
+                let shards = shards
+                    .into_iter()
+                    .map(|shard| match shard.backend {
+                        ShardSliverStoreBackend::Strata(store) => Ok(store),
+                        ShardSliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
+                            "cannot delete RocksDB slivers with the Strata backend".to_owned(),
+                        )),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                store.delete_all_pairs(blob_id, shards).await
+            }
+        }
+    }
+
     /// Reads Strata's shard registry to distinguish active, dropped, and interrupted creations.
     pub(crate) fn strata_shard_state(
         &self,
@@ -345,15 +370,6 @@ impl ShardSliverStore {
         match &self.backend {
             ShardSliverStoreBackend::RocksDb(_) => Ok(()),
             ShardSliverStoreBackend::Strata(store) => store.drop_shard(),
-        }
-    }
-
-    pub(crate) async fn delete_pair(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
-        match &self.backend {
-            ShardSliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
-                "standalone RocksDB sliver deletion is not supported".to_owned(),
-            )),
-            ShardSliverStoreBackend::Strata(store) => store.delete_pair(blob_id).await,
         }
     }
 

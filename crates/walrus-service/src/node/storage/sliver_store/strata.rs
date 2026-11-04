@@ -95,6 +95,34 @@ impl StrataSliverStore {
         Ok(true)
     }
 
+    pub(super) async fn delete_all_pairs(
+        &self,
+        blob_id: BlobId,
+        shards: Vec<StrataShardSliverStore>,
+    ) -> Result<(), TypedStoreError> {
+        if shards.is_empty() {
+            return Ok(());
+        }
+        let this = self.clone();
+        let lsn = utils::unwrap_or_resume_unwind(
+            tokio::task::spawn_blocking(move || {
+                let mut batch = this.store.batch();
+                for shard in shards {
+                    for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                        batch.tombstone(
+                            u32::from(shard.shard.0),
+                            sliver_key(&blob_id, sliver_type),
+                        );
+                    }
+                }
+                let result = batch.write().map_err(store_error)?;
+                Ok::<_, TypedStoreError>(result.op_lsns().last().copied().unwrap_or(0))
+            })
+            .await,
+        )?;
+        self.wait_durable_lsn(lsn).await
+    }
+
     /// Waits until the Strata checkpoint makes `lsn` crash safe, not merely visible to reads.
     pub(super) async fn wait_durable_lsn(&self, lsn: StrataLsn) -> Result<(), TypedStoreError> {
         if lsn == 0 {
@@ -204,21 +232,6 @@ impl StrataShardSliverStore {
             .map_err(store_error)
     }
 
-    pub(super) async fn delete_pair(&self, blob_id: BlobId) -> Result<(), TypedStoreError> {
-        let this = self.clone();
-        let lsn = utils::unwrap_or_resume_unwind(
-            tokio::task::spawn_blocking(move || {
-                let mut batch = this.node.store.batch();
-                for sliver_type in [SliverType::Primary, SliverType::Secondary] {
-                    batch.tombstone(u32::from(this.shard.0), sliver_key(&blob_id, sliver_type));
-                }
-                let result = batch.write().map_err(store_error)?;
-                Ok::<_, TypedStoreError>(result.op_lsns().last().copied().unwrap_or(0))
-            })
-            .await,
-        )?;
-        self.node.wait_durable_lsn(lsn).await
-    }
 }
 
 fn sliver_key(blob_id: &BlobId, sliver_type: SliverType) -> BlobKey {
