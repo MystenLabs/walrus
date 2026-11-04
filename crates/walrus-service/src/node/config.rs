@@ -226,8 +226,9 @@ pub struct StorageNodeConfig {
     /// Optional "config" to tune storage database.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub db_config: DatabaseConfig,
-    /// Backend for primary and secondary slivers only. Changing this on an existing node is
-    /// rejected; migration between backends is not yet supported.
+    /// Backend for primary and secondary slivers only. Switching an existing RocksDB node to
+    /// Strata keeps its RocksDB sliver tables as a read fallback until they are migrated;
+    /// switching from Strata back to RocksDB is rejected.
     #[serde(default, skip_serializing_if = "defaults::is_default")]
     pub sliver_store_backend: SliverStoreBackendKind,
     /// Configuration for deferring recovery while uploads are in progress.

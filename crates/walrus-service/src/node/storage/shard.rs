@@ -1576,6 +1576,7 @@ impl ShardStorage {
     pub fn delete_shard_storage(&self) -> Result<(), TypedStoreError> {
         self.slivers.drop_shard()?;
         // Drop column families in reverse order of creation in ShardStorage::create_or_reopen.
+        // A Strata shard that still has legacy RocksDB sliver tables drops those too.
         if self.slivers.uses_rocksdb_column_families() {
             self.database
                 .drop_cf(&self.cf_names.secondary_slivers)
@@ -1584,6 +1585,7 @@ impl ShardStorage {
                 .drop_cf(&self.cf_names.primary_slivers)
                 .map_err(typed_store_err_from_rocks_err)?;
         }
+        self.slivers.forget_legacy_shard()?;
         self.database
             .drop_cf(&self.cf_names.pending_recover_slivers)
             .map_err(typed_store_err_from_rocks_err)?;

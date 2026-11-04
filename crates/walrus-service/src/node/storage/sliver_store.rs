@@ -5,7 +5,11 @@
 
 use std::{
     path::Path,
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc,
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Instant,
 };
 
@@ -39,6 +43,7 @@ use super::{
     DatabaseTableOptionsFactory,
     constants,
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
+    strata_migration::StrataMigrationTable,
 };
 use crate::utils;
 
@@ -97,7 +102,16 @@ pub(crate) struct SliverStore {
 #[derive(Debug)]
 enum SliverStoreBackend {
     RocksDb(Box<RocksDbSliverStore>),
-    Strata(StrataSliverStore),
+    Strata(Box<StrataBackend>),
+}
+
+/// Slivers live in Strata. Shards that still have RocksDB sliver column families from before the
+/// switch keep them as a read fallback until their migration row says otherwise.
+#[derive(Debug)]
+struct StrataBackend {
+    store: StrataSliverStore,
+    legacy: RocksDbSliverStore,
+    migration: StrataMigrationTable,
 }
 
 #[derive(Debug)]
@@ -105,6 +119,11 @@ struct RocksDbSliverStore {
     database: Arc<RocksDB>,
     table_options: DatabaseTableOptionsFactory,
 }
+
+type LegacySliverTables = (
+    DBMap<BlobId, PrimarySliverData>,
+    DBMap<BlobId, SecondarySliverData>,
+);
 
 impl SliverStore {
     pub(crate) fn new_rocksdb(
@@ -119,28 +138,55 @@ impl SliverStore {
         }
     }
 
+    /// Opens the Strata backend. `blob_info` must have its Strata lifecycle tables open.
+    /// `database` and `table_options` give access to the RocksDB sliver column families of shards
+    /// recorded in `migration`, which still serve reads while their slivers are copied into Strata.
     pub(super) fn new_strata(
         path: &Path,
         metrics_registry: &walrus_utils::metrics::Registry,
-        database: Arc<dyn strata_index::port::IndexDb>,
-        lifecycle: Arc<super::strata_lifecycle::StrataLifecycle>,
+        database: Arc<RocksDB>,
+        table_options: DatabaseTableOptionsFactory,
+        migration: StrataMigrationTable,
         blob_info: super::blob_info::BlobInfoTable,
         block_cache_capacity_bytes: Option<usize>,
     ) -> anyhow::Result<Self> {
+        let lifecycle = blob_info
+            .strata_lifecycle
+            .clone()
+            .expect("Strata lifecycle tables are open");
+        let store = StrataSliverStore::open(
+            path,
+            metrics_registry,
+            super::strata_database::database(&database),
+            lifecycle,
+            blob_info,
+            block_cache_capacity_bytes,
+        )?;
         Ok(Self {
-            backend: Arc::new(SliverStoreBackend::Strata(StrataSliverStore::open(
-                path,
-                metrics_registry,
-                database,
-                lifecycle,
-                blob_info,
-                block_cache_capacity_bytes,
-            )?)),
+            backend: Arc::new(SliverStoreBackend::Strata(Box::new(StrataBackend {
+                store,
+                legacy: RocksDbSliverStore {
+                    database,
+                    table_options,
+                },
+                migration,
+            }))),
         })
     }
 
     pub(crate) fn is_strata(&self) -> bool {
         matches!(self.backend.as_ref(), SliverStoreBackend::Strata(_))
+    }
+
+    /// The migration bookkeeping for legacy RocksDB sliver column families, if slivers are stored
+    /// in Strata.
+    // The background migration job will read this; until it lands only tests do.
+    #[cfg(test)]
+    pub(crate) fn migration_table(&self) -> Option<&StrataMigrationTable> {
+        match self.backend.as_ref() {
+            SliverStoreBackend::RocksDb(_) => None,
+            SliverStoreBackend::Strata(backend) => Some(&backend.migration),
+        }
     }
 
     /// Deletes both sliver-axis keys for a blob from the node-wide Strata store.
@@ -149,7 +195,7 @@ impl SliverStore {
             SliverStoreBackend::RocksDb(_) => Err(TypedStoreError::TaskError(
                 "node-wide RocksDB sliver deletion is not supported".to_owned(),
             )),
-            SliverStoreBackend::Strata(store) => store.delete_blob(blob_id).await,
+            SliverStoreBackend::Strata(backend) => backend.store.delete_blob(blob_id).await,
         }
     }
 
@@ -159,7 +205,9 @@ impl SliverStore {
         delete_data: bool,
     ) -> anyhow::Result<()> {
         match self.backend.as_ref() {
-            SliverStoreBackend::Strata(store) => store.reconcile_epoch(epoch, delete_data).await,
+            SliverStoreBackend::Strata(backend) => {
+                backend.store.reconcile_epoch(epoch, delete_data).await
+            }
             SliverStoreBackend::RocksDb(_) => Ok(()),
         }
     }
@@ -171,7 +219,7 @@ impl SliverStore {
     ) -> Result<Option<::strata::ShardState>, TypedStoreError> {
         match self.backend.as_ref() {
             SliverStoreBackend::RocksDb(_) => Ok(None),
-            SliverStoreBackend::Strata(store) => store.shard_state(shard),
+            SliverStoreBackend::Strata(backend) => backend.store.shard_state(shard),
         }
     }
 
@@ -183,10 +231,32 @@ impl SliverStore {
     ) -> Result<ShardSliverStore, TypedStoreError> {
         match self.backend.as_ref() {
             SliverStoreBackend::RocksDb(store) => store.open_shard(shard, metrics),
-            SliverStoreBackend::Strata(store) => Ok(ShardSliverStore {
-                metrics,
-                backend: ShardSliverStoreBackend::Strata(store.open_shard(shard)?),
-            }),
+            SliverStoreBackend::Strata(backend) => {
+                // Register the shard in Strata before attaching the legacy tables: a legacy
+                // shard is served by Strata from its first open in Strata mode.
+                let strata = backend.store.open_shard(shard)?;
+                let legacy = match backend.migration.get(shard)? {
+                    None => None,
+                    Some(state) => backend.legacy.open_legacy_shard(shard)?.map(
+                        |(primary_slivers, secondary_slivers)| {
+                            Arc::new(LegacyShardSlivers {
+                                shard,
+                                primary_slivers,
+                                secondary_slivers,
+                                fallback_enabled: AtomicBool::new(state.serves_reads()),
+                                migration: backend.migration.clone(),
+                            })
+                        },
+                    ),
+                };
+                Ok(ShardSliverStore {
+                    metrics,
+                    backend: ShardSliverStoreBackend::Strata {
+                        store: strata,
+                        legacy,
+                    },
+                })
+            }
         }
     }
 
@@ -221,12 +291,11 @@ impl SliverStore {
                 .await?
                 .is_none())
             }
-            SliverStoreBackend::Strata(store) => {
-                let shard_ids = shards.iter().map(|(shard, _)| *shard).collect::<Vec<_>>();
-                let store = store.clone();
+            SliverStoreBackend::Strata(backend) => {
+                let store = backend.store.clone();
                 utils::unwrap_or_resume_unwind(
                     tokio::task::spawn_blocking(move || {
-                        store.contains_sliver_pairs_in_all(blob_id, &shard_ids)
+                        strata_contains_sliver_pairs_in_all(&store, blob_id, &shards)
                     })
                     .await,
                 )
@@ -257,15 +326,68 @@ impl SliverStore {
                 }
                 Ok(true)
             }
-            SliverStoreBackend::Strata(store) => {
-                let shard_ids = shards.iter().map(|(shard, _)| *shard).collect::<Vec<_>>();
-                store.contains_sliver_pairs_in_all(*blob_id, &shard_ids)
+            SliverStoreBackend::Strata(backend) => {
+                strata_contains_sliver_pairs_in_all(&backend.store, *blob_id, shards)
             }
         }
     }
 }
 
+/// Strata answers the cross-shard check in one lookup. While a shard still serves reads from its
+/// legacy RocksDB tables, a sliver missing from Strata may be there instead, so a negative answer
+/// is rechecked shard by shard with the fallback applied.
+fn strata_contains_sliver_pairs_in_all(
+    store: &StrataSliverStore,
+    blob_id: BlobId,
+    shards: &[(ShardIndex, ShardSliverStore)],
+) -> Result<bool, TypedStoreError> {
+    let shard_ids = shards.iter().map(|(shard, _)| *shard).collect::<Vec<_>>();
+    if store.contains_sliver_pairs_in_all(blob_id, &shard_ids)? {
+        return Ok(true);
+    }
+    if !shards.iter().any(|(_, store)| store.serves_legacy_reads()) {
+        return Ok(false);
+    }
+    for (_, store) in shards {
+        if !store.is_sliver_pair_stored(&blob_id)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 impl RocksDbSliverStore {
+    /// Opens the sliver column families left behind by the RocksDB backend for `shard`, if both
+    /// still exist. Never creates them: Strata is the only writer for new shards.
+    fn open_legacy_shard(
+        &self,
+        shard: ShardIndex,
+    ) -> Result<Option<LegacySliverTables>, TypedStoreError> {
+        let primary_name = constants::primary_slivers_column_family_name(shard);
+        let secondary_name = constants::secondary_slivers_column_family_name(shard);
+        if self.database.cf_handle(&primary_name).is_none()
+            || self.database.cf_handle(&secondary_name).is_none()
+        {
+            return Ok(None);
+        }
+        let rw_options = ReadWriteOptions::default();
+        let primary = DBMap::reopen_with_class(
+            &self.database,
+            Some(&primary_name),
+            Some("primary_slivers"),
+            &rw_options,
+            false,
+        )?;
+        let secondary = DBMap::reopen_with_class(
+            &self.database,
+            Some(&secondary_name),
+            Some("secondary_slivers"),
+            &rw_options,
+            false,
+        )?;
+        Ok(Some((primary, secondary)))
+    }
+
     fn open_shard(
         &self,
         shard: ShardIndex,
@@ -326,7 +448,29 @@ pub(crate) struct ShardSliverStore {
 #[derive(Debug, Clone)]
 enum ShardSliverStoreBackend {
     RocksDb(Box<RocksDbShardSliverStore>),
-    Strata(StrataShardSliverStore),
+    Strata {
+        store: StrataShardSliverStore,
+        legacy: Option<Arc<LegacyShardSlivers>>,
+    },
+}
+
+/// The RocksDB sliver column families of a shard whose slivers are being moved into Strata.
+///
+/// Writes never touch these tables. Reads consult them only for keys absent from Strata and only
+/// while `fallback_enabled` is set, which mirrors the shard's persisted migration state.
+#[derive(Debug)]
+struct LegacyShardSlivers {
+    shard: ShardIndex,
+    primary_slivers: DBMap<BlobId, PrimarySliverData>,
+    secondary_slivers: DBMap<BlobId, SecondarySliverData>,
+    fallback_enabled: AtomicBool,
+    migration: StrataMigrationTable,
+}
+
+impl LegacyShardSlivers {
+    fn serves_reads(&self) -> bool {
+        self.fallback_enabled.load(Ordering::Acquire)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -363,8 +507,33 @@ impl SliverSyncBatch {
 }
 
 impl ShardSliverStore {
+    /// Whether the shard has RocksDB sliver column families to drop with the shard: either as its
+    /// backend or as the legacy fallback of a Strata shard.
     pub(crate) fn uses_rocksdb_column_families(&self) -> bool {
-        matches!(self.backend, ShardSliverStoreBackend::RocksDb(_))
+        match &self.backend {
+            ShardSliverStoreBackend::RocksDb(_) => true,
+            ShardSliverStoreBackend::Strata { legacy, .. } => legacy.is_some(),
+        }
+    }
+
+    /// Whether reads for keys missing from Strata still fall back to legacy RocksDB tables.
+    pub(crate) fn serves_legacy_reads(&self) -> bool {
+        self.legacy().is_some_and(LegacyShardSlivers::serves_reads)
+    }
+
+    fn legacy(&self) -> Option<&LegacyShardSlivers> {
+        match &self.backend {
+            ShardSliverStoreBackend::RocksDb(_) => None,
+            ShardSliverStoreBackend::Strata { legacy, .. } => legacy.as_deref(),
+        }
+    }
+
+    /// Removes the migration row of a Strata shard whose legacy column families were dropped.
+    pub(crate) fn forget_legacy_shard(&self) -> Result<(), TypedStoreError> {
+        match self.legacy() {
+            Some(legacy) => legacy.migration.remove(legacy.shard),
+            None => Ok(()),
+        }
     }
 
     pub(crate) fn supports_sst_ingestion(&self) -> bool {
@@ -374,7 +543,7 @@ impl ShardSliverStore {
     pub(crate) fn drop_shard(&self) -> Result<(), TypedStoreError> {
         match &self.backend {
             ShardSliverStoreBackend::RocksDb(_) => Ok(()),
-            ShardSliverStoreBackend::Strata(store) => store.drop_shard(),
+            ShardSliverStoreBackend::Strata { store, .. } => store.drop_shard(),
         }
     }
 
@@ -420,7 +589,9 @@ impl ShardSliverStore {
                 }
             })
             .map(|_| true),
-            ShardSliverStoreBackend::Strata(store) => store.put(blob_id, sliver, epoch).await,
+            ShardSliverStoreBackend::Strata { store, .. } => {
+                store.put(blob_id, sliver, epoch).await
+            }
         };
         self.metrics.observe_operation_duration(
             sliver_labels(
@@ -467,13 +638,20 @@ impl ShardSliverStore {
                 .primary_slivers
                 .get(blob_id)
                 .map(|sliver| sliver.map(Into::into)),
-            ShardSliverStoreBackend::Strata(store) => {
-                store.get(blob_id, SliverType::Primary).map(|sliver| {
-                    sliver.map(|sliver| match sliver {
+            ShardSliverStoreBackend::Strata { store, legacy } => {
+                let sliver = store
+                    .get(blob_id, SliverType::Primary)?
+                    .map(|sliver| match sliver {
                         Sliver::Primary(primary) => primary,
                         Sliver::Secondary(_) => unreachable!("requested a primary sliver"),
-                    })
-                })
+                    });
+                match (sliver, legacy) {
+                    (None, Some(legacy)) if legacy.serves_reads() => legacy
+                        .primary_slivers
+                        .get(blob_id)
+                        .map(|sliver| sliver.map(Into::into)),
+                    (sliver, _) => Ok(sliver),
+                }
             }
         }
     }
@@ -484,14 +662,41 @@ impl ShardSliverStore {
                 .secondary_slivers
                 .get(blob_id)
                 .map(|sliver| sliver.map(Into::into)),
-            ShardSliverStoreBackend::Strata(store) => {
-                store.get(blob_id, SliverType::Secondary).map(|sliver| {
-                    sliver.map(|sliver| match sliver {
-                        Sliver::Secondary(secondary) => secondary,
-                        Sliver::Primary(_) => unreachable!("requested a secondary sliver"),
-                    })
-                })
+            ShardSliverStoreBackend::Strata { store, legacy } => {
+                let sliver =
+                    store
+                        .get(blob_id, SliverType::Secondary)?
+                        .map(|sliver| match sliver {
+                            Sliver::Secondary(secondary) => secondary,
+                            Sliver::Primary(_) => unreachable!("requested a secondary sliver"),
+                        });
+                match (sliver, legacy) {
+                    (None, Some(legacy)) if legacy.serves_reads() => legacy
+                        .secondary_slivers
+                        .get(blob_id)
+                        .map(|sliver| sliver.map(Into::into)),
+                    (sliver, _) => Ok(sliver),
+                }
             }
+        }
+    }
+
+    /// Whether the legacy tables hold the sliver. `exact` distinguishes a definite lookup from a
+    /// bloom-filter check, matching the two RocksDB membership queries.
+    fn legacy_contains(
+        legacy: &LegacyShardSlivers,
+        blob_id: &BlobId,
+        sliver_type: SliverType,
+        exact: bool,
+    ) -> Result<bool, TypedStoreError> {
+        if !legacy.serves_reads() {
+            return Ok(false);
+        }
+        match (sliver_type, exact) {
+            (SliverType::Primary, true) => legacy.primary_slivers.contains_key(blob_id),
+            (SliverType::Primary, false) => legacy.primary_slivers.may_contain_key(blob_id),
+            (SliverType::Secondary, true) => legacy.secondary_slivers.contains_key(blob_id),
+            (SliverType::Secondary, false) => legacy.secondary_slivers.may_contain_key(blob_id),
         }
     }
 
@@ -513,7 +718,14 @@ impl ShardSliverStore {
             (ShardSliverStoreBackend::RocksDb(store), SliverType::Secondary) => {
                 store.secondary_slivers.may_contain_key(blob_id)
             }
-            (ShardSliverStoreBackend::Strata(store), _) => store.contains(blob_id, sliver_type),
+            (ShardSliverStoreBackend::Strata { store, legacy }, _) => {
+                match (store.contains(blob_id, sliver_type)?, legacy) {
+                    (false, Some(legacy)) => {
+                        Self::legacy_contains(legacy, blob_id, sliver_type, false)
+                    }
+                    (contains, _) => Ok(contains),
+                }
+            }
         };
         self.metrics.observe_operation_duration(
             sliver_labels(
@@ -545,7 +757,14 @@ impl ShardSliverStore {
             (ShardSliverStoreBackend::RocksDb(store), SliverType::Secondary) => {
                 store.secondary_slivers.contains_key(blob_id)
             }
-            (ShardSliverStoreBackend::Strata(store), _) => store.contains(blob_id, sliver_type),
+            (ShardSliverStoreBackend::Strata { store, legacy }, _) => {
+                match (store.contains(blob_id, sliver_type)?, legacy) {
+                    (false, Some(legacy)) => {
+                        Self::legacy_contains(legacy, blob_id, sliver_type, true)
+                    }
+                    (contains, _) => Ok(contains),
+                }
+            }
         };
         self.metrics.observe_operation_duration(
             sliver_labels(
@@ -565,11 +784,11 @@ impl ShardSliverStore {
         blob_ids: &[BlobId],
     ) -> Result<Vec<(BlobId, Sliver)>, TypedStoreError> {
         let start = Instant::now();
-        if let ShardSliverStoreBackend::Strata(store) = &self.backend {
+        if let ShardSliverStoreBackend::Strata { .. } = &self.backend {
             let response = blob_ids
                 .iter()
                 .try_fold(Vec::new(), |mut slivers, blob_id| {
-                    if let Some(sliver) = store.get(blob_id, sliver_type)? {
+                    if let Some(sliver) = self.get(blob_id, sliver_type)? {
                         slivers.push((*blob_id, sliver));
                     }
                     Ok::<_, TypedStoreError>(slivers)
@@ -592,7 +811,7 @@ impl ShardSliverStore {
                     |_| store.secondary_slivers.multi_get(blob_ids),
                 )
                 .transpose(),
-            ShardSliverStoreBackend::Strata(_) => unreachable!("handled above"),
+            ShardSliverStoreBackend::Strata { .. } => unreachable!("handled above"),
         };
 
         self.metrics.observe_operation_duration(
@@ -633,7 +852,7 @@ impl ShardSliverStore {
     ) -> SliverSyncBatch {
         let strata = match &self.backend {
             ShardSliverStoreBackend::RocksDb(_) => None,
-            ShardSliverStoreBackend::Strata(store) => Some((store.clone(), Vec::new())),
+            ShardSliverStoreBackend::Strata { store, .. } => Some((store.clone(), Vec::new())),
         };
         SliverSyncBatch {
             control_batch,
@@ -663,7 +882,7 @@ impl ShardSliverStore {
                     [(blob_id, &SecondarySliverData::from(secondary.clone()))],
                 )
                 .map(|_| ()),
-            (ShardSliverStoreBackend::Strata(_), _) => {
+            (ShardSliverStoreBackend::Strata { .. }, _) => {
                 let (_, slivers) = batch.strata.as_mut().expect("Strata batch required");
                 slivers.push((*blob_id, sliver.clone()));
                 Ok(())
@@ -702,7 +921,7 @@ impl ShardSliverStore {
                     .expect("lock should succeed")
                     .push(blob_id, SecondarySliverData::from(secondary.clone()))
             }
-            (ShardSliverStoreBackend::Strata(_), _) => Err(TypedStoreError::TaskError(
+            (ShardSliverStoreBackend::Strata { .. }, _) => Err(TypedStoreError::TaskError(
                 "SST ingestion is only supported by RocksDB sliver storage".to_owned(),
             )),
         }
@@ -723,7 +942,7 @@ impl ShardSliverStore {
                 }
                 Ok(())
             }
-            ShardSliverStoreBackend::Strata(_) => Ok(()),
+            ShardSliverStoreBackend::Strata { .. } => Ok(()),
         }
     }
 
@@ -749,7 +968,7 @@ impl ShardSliverStore {
                 sst_file_threshold,
                 compact_after_sync,
             ),
-            (ShardSliverStoreBackend::Strata(_), _) => Ok(false),
+            (ShardSliverStoreBackend::Strata { .. }, _) => Ok(false),
         }
     }
 
@@ -764,7 +983,7 @@ impl ShardSliverStore {
                 batch.delete_batch(&store.secondary_slivers, std::iter::once(blob_id))?;
                 Ok(())
             }
-            ShardSliverStoreBackend::Strata(_) => Err(TypedStoreError::TaskError(
+            ShardSliverStoreBackend::Strata { .. } => Err(TypedStoreError::TaskError(
                 "Strata slivers cannot be deleted in a RocksDB batch".to_owned(),
             )),
         }
@@ -783,7 +1002,7 @@ impl ShardSliverStore {
                 }
                 Ok(())
             }
-            ShardSliverStoreBackend::Strata(_) => {
+            ShardSliverStoreBackend::Strata { .. } => {
                 anyhow::bail!("Strata slivers cannot be deleted in a RocksDB transaction")
             }
         }
@@ -800,7 +1019,7 @@ impl ShardSliverStore {
                 .secondary_slivers
                 .safe_iter()?
                 .try_fold(0, |count, entry| entry.map(|_| count + 1)),
-            (ShardSliverStoreBackend::Strata(_), _) => Err(TypedStoreError::TaskError(
+            (ShardSliverStoreBackend::Strata { .. }, _) => Err(TypedStoreError::TaskError(
                 "sliver count is not available in Strata".to_owned(),
             )),
         }
