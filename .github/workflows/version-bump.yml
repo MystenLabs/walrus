@@ -108,7 +108,7 @@ jobs:
       - name: Generate automerge token
         if: inputs.delivery == 'pr'
         id: automerge_token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # pin@v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # pin@v3.3.0
         with:
           app-id: ${{ secrets.WALRUS_AUTOMERGE_APP_ID }}
           private-key: ${{ secrets.WALRUS_AUTOMERGE_PRIVATE_KEY }}
