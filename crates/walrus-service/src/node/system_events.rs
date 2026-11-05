@@ -262,7 +262,15 @@ impl SystemEventProvider for EventProcessor {
             .map(|element| element.init_state);
 
         let mut pinned_stream: Pin<Box<dyn Stream<Item = _> + Send>> = Box::pin(stream);
-        Ok(pinned_stream.next().await.flatten())
+        // A brand-new node waits here for the first stored event; if the processor stopped (for
+        // example, it failed to start), no event will ever be stored.
+        tokio::select! {
+            next = pinned_stream.next() => Ok(next.flatten()),
+            _ = self.stopped.cancelled() => Err(anyhow::anyhow!(
+                "the event processor stopped before the event at index {} was stored",
+                cursor.element_index
+            )),
+        }
     }
 
     fn as_event_processor(&self) -> Option<&EventProcessor> {
