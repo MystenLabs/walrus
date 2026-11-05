@@ -7,7 +7,15 @@
 //! boundary (after garbage-collection phase 1): `per_object_blob_info`,
 //! `per_object_pooled_blob_info`, and `storage_pool_info`. These are event-derived, so honest nodes
 //! serialize identical bytes. `aggregate_blob_info` is excluded because it carries node-local state
-//! (`is_metadata_stored`) and so differs across nodes.
+//! (`is_metadata_stored`) and so differs across nodes, with one exception from format version 2
+//! on: the set of invalidated blob IDs, each with the epoch and event of its `InvalidBlobID` event.
+//! An invalidation is recorded only in the aggregate table (the per-object tables ignore it) and
+//! is never removed. Without it, a node that loads the snapshot would rebuild an invalidated blob
+//! with live objects as certified and try to recover data that every other node has deleted.
+//!
+//! The version a node writes is chosen per boundary through [`SnapshotFormat`], from an
+//! activation epoch in the writer's configuration, so that every node of a network switches at
+//! the same boundary. Version 1 never reads the aggregate table.
 //!
 //! This module contains only the writer; deserialization belongs to the (not yet implemented)
 //! recovery workflow.
@@ -30,6 +38,8 @@
 //! +----------------------+
 //! |  Section (tag = 3)   |  per_object_pooled_blob_info
 //! +----------------------+
+//! |  Section (tag = 4)   |  invalidated blob IDs (version 2 and later only)
+//! +----------------------+
 //!
 //! Section := tag (1 B)
 //!            entry count (8 B, BE)
@@ -42,8 +52,8 @@
 //! fixed-width.
 //!
 //! Entries within a section are in strictly increasing key order (the natural RocksDB iteration
-//! order). The serialized bytes are consensus-critical. [`SNAPSHOT_FORMAT_VERSION`] versions only
-//! the framing (magic, header, sections, ordering, length encoding), not the value schema: each
+//! order). The serialized bytes are consensus-critical. The version ([`SnapshotFormat`]) covers
+//! only the framing (magic, header, sections, ordering, length encoding), not the value schema: each
 //! value is BCS of an append-only versioned enum (`PerObjectBlobInfoV1`, ...), so the leading
 //! variant tag identifies the version per entry and newer software still decodes older variants (as
 //! the on-disk tables already do). Adding a variant needs no format bump but must be epoch-gated so
@@ -60,7 +70,7 @@ use integer_encoding::VarIntWriter;
 use serde::{Deserialize, Serialize};
 use sui_types::{base_types::ObjectID, event::EventID};
 use typed_store::TypedStoreError;
-use walrus_core::Epoch;
+use walrus_core::{BlobId, Epoch};
 
 use super::{
     blob_info::{PerObjectBlobInfo, PerObjectPooledBlobInfo, StoragePoolInfo},
@@ -69,15 +79,33 @@ use super::{
 
 /// The magic bytes at the start of a blob info snapshot.
 pub(crate) const SNAPSHOT_MAGIC: u32 = 0xB10B1F05;
-/// Version of the snapshot framing: the envelope layout (magic, header, section set, order, and
-/// tags, count and length encoding, key ordering), not the value schema. Bump it when that layout
-/// changes. A new blob info value variant does not bump it, because values are append-only
-/// versioned enums that are self-describing per entry; see the module docs.
-pub(crate) const SNAPSHOT_FORMAT_VERSION: u32 = 1;
+
+/// The version of the snapshot framing: the envelope layout (magic, header, section set, order,
+/// and tags, count and length encoding, key ordering), not the value schema. A new version is
+/// added when that layout changes. A new blob info value variant does not need one, because values
+/// are append-only versioned enums that are self-describing per entry; see the module docs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SnapshotFormat {
+    /// The three event-derived tables.
+    V1,
+    /// [`V1`](Self::V1) plus the invalidated blob IDs in a fourth section.
+    V2,
+}
+
+impl SnapshotFormat {
+    /// Returns the version number written to the file.
+    pub fn version(self) -> u32 {
+        match self {
+            Self::V1 => 1,
+            Self::V2 => 2,
+        }
+    }
+}
 
 const SECTION_TAG_PER_OBJECT: u8 = 1;
 const SECTION_TAG_STORAGE_POOL: u8 = 2;
 const SECTION_TAG_PER_OBJECT_POOLED: u8 = 3;
+const SECTION_TAG_INVALID_BLOB: u8 = 4;
 
 /// Errors occurring during blob info snapshot serialization.
 #[derive(Debug, thiserror::Error)]
@@ -132,24 +160,52 @@ pub(crate) struct SnapshotStats {
     pub per_object_pooled_count: u64,
     /// The number of entries serialized from `storage_pool_info`.
     pub storage_pool_count: u64,
+    /// The number of invalidated blob IDs serialized from `aggregate_blob_info`; `None` for a
+    /// format that has no such section.
+    pub invalid_blob_count: Option<u64>,
 }
 
-/// A fallible `(ObjectID, value)` entry, as yielded by a RocksDB column-family iterator.
-type Entry<V> = Result<(ObjectID, V), TypedStoreError>;
+/// The invalidation of a blob ID, as recorded in a snapshot.
+///
+/// Only the invalidation, not the rest of the aggregate blob info entry, which is node-local.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) enum InvalidBlobInfo {
+    V1(InvalidBlobInfoV1),
+}
 
-/// Serializes a blob info snapshot to `writer`.
+/// Version 1 of [`InvalidBlobInfo`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct InvalidBlobInfoV1 {
+    /// The epoch of the `InvalidBlobID` event.
+    pub epoch: Epoch,
+    /// The `InvalidBlobID` event through which the blob ID was marked invalid.
+    pub event: EventID,
+}
+
+/// A fallible `(key, value)` entry, as yielded by a RocksDB column-family iterator.
+type Entry<V, K = ObjectID> = Result<(K, V), TypedStoreError>;
+
+/// Serializes a blob info snapshot in `format` to `writer`.
 ///
 /// The entry iterators must yield entries in strictly increasing key order, as produced by
 /// RocksDB iteration; this is checked and [`SnapshotError::UnsortedKeys`] is returned otherwise.
-pub(crate) fn write_snapshot<W: Write + Seek>(
+/// `invalid_blobs` is called only for a format with an invalidated-blob section, so a format
+/// without one never reads its source.
+pub(crate) fn write_snapshot<W, I>(
     mut writer: W,
     header: &SnapshotHeader,
+    format: SnapshotFormat,
     per_object: impl IntoIterator<Item = Entry<PerObjectBlobInfo>>,
     per_object_pooled: impl IntoIterator<Item = Entry<PerObjectPooledBlobInfo>>,
     storage_pools: impl IntoIterator<Item = Entry<StoragePoolInfo>>,
-) -> Result<SnapshotStats, SnapshotError> {
+    invalid_blobs: impl FnOnce() -> Result<I, TypedStoreError>,
+) -> Result<SnapshotStats, SnapshotError>
+where
+    W: Write + Seek,
+    I: IntoIterator<Item = Entry<InvalidBlobInfo, BlobId>>,
+{
     writer.write_u32::<BigEndian>(SNAPSHOT_MAGIC)?;
-    writer.write_u32::<BigEndian>(SNAPSHOT_FORMAT_VERSION)?;
+    writer.write_u32::<BigEndian>(format.version())?;
     let header_bytes = bcs::to_bytes(header)?;
     writer.write_varint(header_bytes.len())?;
     writer.write_all(&header_bytes)?;
@@ -161,6 +217,14 @@ pub(crate) fn write_snapshot<W: Write + Seek>(
         SECTION_TAG_PER_OBJECT_POOLED,
         per_object_pooled,
     )?;
+    let invalid_blob_count = match format {
+        SnapshotFormat::V1 => None,
+        SnapshotFormat::V2 => Some(write_section(
+            &mut writer,
+            SECTION_TAG_INVALID_BLOB,
+            invalid_blobs()?,
+        )?),
+    };
 
     writer.flush()?;
 
@@ -168,13 +232,14 @@ pub(crate) fn write_snapshot<W: Write + Seek>(
         per_object_count,
         per_object_pooled_count,
         storage_pool_count,
+        invalid_blob_count,
     })
 }
 
-fn write_section<W: Write + Seek, V: Serialize>(
+fn write_section<W: Write + Seek, K: Serialize + Ord + Copy, V: Serialize>(
     writer: &mut W,
     tag: u8,
-    entries: impl IntoIterator<Item = Entry<V>>,
+    entries: impl IntoIterator<Item = Entry<V, K>>,
 ) -> Result<u64, SnapshotError> {
     writer.write_u8(tag)?;
     // The entry count leads the section, but it is only known after the streamed source is
@@ -185,7 +250,7 @@ fn write_section<W: Write + Seek, V: Serialize>(
     writer.write_u64::<BigEndian>(0)?;
 
     let mut count: u64 = 0;
-    let mut previous_key: Option<ObjectID> = None;
+    let mut previous_key: Option<K> = None;
 
     for entry in entries {
         let (key, value) = entry?;
@@ -274,16 +339,30 @@ mod tests {
         ]
     }
 
-    fn serialize_sample() -> Vec<u8> {
+    type InvalidBlobEntries = Vec<Result<(BlobId, InvalidBlobInfo), TypedStoreError>>;
+
+    fn sample_invalid_blobs() -> Result<InvalidBlobEntries, TypedStoreError> {
+        Ok(vec![Ok((
+            blob_id_from_u64(30),
+            InvalidBlobInfo::V1(InvalidBlobInfoV1 {
+                epoch: 6,
+                event: fixed_event_id_for_testing(6),
+            }),
+        ))])
+    }
+
+    fn serialize_sample(format: SnapshotFormat) -> Vec<u8> {
         // `write_snapshot` back-patches the section counts, so it needs a seekable sink; `Vec` is
         // `Write` but not `Seek`, so wrap it in a `Cursor`.
         let mut cursor = std::io::Cursor::new(Vec::new());
         write_snapshot(
             &mut cursor,
             &sample_header(),
+            format,
             sample_per_object(),
             sample_pooled(),
             sample_pools(),
+            sample_invalid_blobs,
         )
         .expect("serialization should succeed");
         cursor.into_inner()
@@ -294,7 +373,9 @@ mod tests {
     /// unordered collection (for example a `HashMap`), whose per-instance iteration order diverges.
     #[test]
     fn serialization_is_deterministic_across_independent_instances() {
-        assert_eq!(serialize_sample(), serialize_sample());
+        for format in [SnapshotFormat::V1, SnapshotFormat::V2] {
+            assert_eq!(serialize_sample(format), serialize_sample(format));
+        }
     }
 
     // TODO: this checks only that the bytes are stable, not that they decode back correctly. Add a
@@ -302,31 +383,60 @@ mod tests {
     // table once the reader/decoder lands in a following PR (the round-trip exists on a separate
     // branch and passes on testnet data).
     /// Byte-stability: the on-disk encoding is consensus-critical, so any change to it must be a
-    /// deliberate act. If this golden digest changes, update it here and, once a reader exists,
-    /// bump `SNAPSHOT_FORMAT_VERSION`.
+    /// deliberate act. If a golden digest changes, the change belongs in a new format version and
+    /// the released versions must keep their goldens.
     #[test]
     fn serialization_is_byte_stable() {
-        let mut hasher = XxHash64::with_seed(0);
-        hasher.write(&serialize_sample());
-        assert_eq!(
-            hasher.finish(),
-            0x17cf49e2fd041371,
-            "blob info snapshot encoding changed; if intentional, update this golden digest",
-        );
+        for (format, golden) in [
+            (SnapshotFormat::V1, 0x17cf49e2fd041371),
+            (SnapshotFormat::V2, 0x0e8c2c7389687df5),
+        ] {
+            let mut hasher = XxHash64::with_seed(0);
+            hasher.write(&serialize_sample(format));
+            assert_eq!(
+                hasher.finish(),
+                golden,
+                "blob info snapshot encoding of {format:?} changed; a released version must \
+                keep its bytes, so put the change in a new version",
+            );
+        }
     }
 
     /// The file opens with the magic and version a reader keys off.
     #[test]
     fn serialization_starts_with_magic_and_version() {
-        let bytes = serialize_sample();
-        assert_eq!(
-            u32::from_be_bytes(bytes[0..4].try_into().expect("4 bytes")),
-            SNAPSHOT_MAGIC,
-        );
-        assert_eq!(
-            u32::from_be_bytes(bytes[4..8].try_into().expect("4 bytes")),
-            SNAPSHOT_FORMAT_VERSION,
-        );
+        for format in [SnapshotFormat::V1, SnapshotFormat::V2] {
+            let bytes = serialize_sample(format);
+            assert_eq!(
+                u32::from_be_bytes(bytes[0..4].try_into().expect("4 bytes")),
+                SNAPSHOT_MAGIC,
+            );
+            assert_eq!(
+                u32::from_be_bytes(bytes[4..8].try_into().expect("4 bytes")),
+                format.version(),
+            );
+        }
+    }
+
+    /// Version 1 has no invalidated-blob section and must not read its source, so that a node
+    /// writing it never scans the aggregate table.
+    #[test]
+    fn version_1_does_not_read_invalid_blobs() {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        let stats = write_snapshot(
+            &mut cursor,
+            &sample_header(),
+            SnapshotFormat::V1,
+            sample_per_object(),
+            sample_pooled(),
+            sample_pools(),
+            || -> Result<InvalidBlobEntries, TypedStoreError> {
+                panic!("version 1 must not read the invalidated blob IDs")
+            },
+        )
+        .expect("serialization should succeed");
+        assert_eq!(stats.invalid_blob_count, None);
+        assert_eq!(cursor.into_inner(), serialize_sample(SnapshotFormat::V1));
     }
 
     /// Strictly ascending key order is what makes the encoding a pure function of the table
@@ -343,11 +453,62 @@ mod tests {
         let err = write_snapshot(
             &mut buf,
             &sample_header(),
+            SnapshotFormat::V2,
             no_per_object,
             no_pooled,
             unsorted_pools,
+            sample_invalid_blobs,
         )
         .expect_err("unsorted keys must be rejected");
         assert!(matches!(err, SnapshotError::UnsortedKeys(_)));
+    }
+
+    /// The invalidated blob IDs are keyed by blob ID, and their section rejects unsorted keys too.
+    #[test]
+    fn unsorted_invalid_blob_ids_are_rejected() {
+        let invalid = |blob_id| {
+            Ok((
+                blob_id_from_u64(blob_id),
+                InvalidBlobInfo::V1(InvalidBlobInfoV1 {
+                    epoch: 1,
+                    event: fixed_event_id_for_testing(1),
+                }),
+            ))
+        };
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let err = write_snapshot(
+            &mut buf,
+            &sample_header(),
+            SnapshotFormat::V2,
+            sample_per_object(),
+            sample_pooled(),
+            sample_pools(),
+            || Ok(vec![invalid(31), invalid(30)]),
+        )
+        .expect_err("unsorted keys must be rejected");
+        assert!(matches!(
+            err,
+            SnapshotError::UnsortedKeys(SECTION_TAG_INVALID_BLOB)
+        ));
+    }
+
+    /// A failure to read the invalidated blob IDs fails the snapshot instead of dropping the
+    /// section, so a node never writes a file that silently lacks marks.
+    #[test]
+    fn invalid_blob_read_error_fails_the_snapshot() {
+        let mut buf = std::io::Cursor::new(Vec::new());
+        let err = write_snapshot(
+            &mut buf,
+            &sample_header(),
+            SnapshotFormat::V2,
+            sample_per_object(),
+            sample_pooled(),
+            sample_pools(),
+            || -> Result<InvalidBlobEntries, TypedStoreError> {
+                Err(TypedStoreError::RocksDBError("read failed".to_string()))
+            },
+        )
+        .expect_err("a read error must fail the snapshot");
+        assert!(matches!(err, SnapshotError::Storage(_)));
     }
 }
