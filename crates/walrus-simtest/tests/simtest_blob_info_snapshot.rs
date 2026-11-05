@@ -19,18 +19,37 @@ mod tests {
     };
 
     use sui_macros::{clear_fail_point, register_fail_point, register_fail_point_arg};
-    use sui_types::base_types::ObjectID;
+    use sui_types::{base_types::ObjectID, event::EventID};
     use tokio::sync::RwLock;
     use twox_hash::XxHash64;
-    use walrus_core::{BlobId, Epoch, EpochCount, encoding::Primary};
+    use walrus_core::{
+        BlobId,
+        DEFAULT_ENCODING,
+        Epoch,
+        EpochCount,
+        encoding::{EncodingFactory as _, Primary},
+        merkle::Node,
+        messages::BlobPersistenceType,
+        metadata::VerifiedBlobMetadataWithId,
+    };
     use walrus_proc_macros::walrus_simtest;
+    use walrus_sdk::{
+        node_client::WalrusNodeClient,
+        store_optimizations::StoreOptimizations,
+        uploader::TailHandling,
+    };
     use walrus_service::{
         event::event_processor::config::EventProcessorConfig,
-        node::config::StorageNodeConfig,
-        test_utils::{SimStorageNodeHandle, TestNodesConfig, test_cluster},
+        node::{BootstrapLoadedSnapshot, config::StorageNodeConfig},
+        test_utils::{SimStorageNodeHandle, TestCluster, TestNodesConfig, test_cluster},
     };
     use walrus_simtest::test_utils::simtest_utils::{self, BlobInfoConsistencyCheck};
-    use walrus_sui::client::ReadClient;
+    use walrus_storage_node_client::api::BlobStatus;
+    use walrus_sui::{
+        client::{BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
+        types::move_structs::BlobWithAttribute,
+    };
+    use walrus_test_utils::WithTempDir;
 
     const EPOCH_DURATION: Duration = Duration::from_secs(30);
 
@@ -77,6 +96,19 @@ mod tests {
                     .with_blob_info_snapshot_certify(certify)
                     .build(),
             )
+    }
+
+    /// Returns a client for the REST API of a simulated node, which has no pre-built one.
+    fn node_client(node: &SimStorageNodeHandle) -> walrus_storage_node_client::StorageNodeClient {
+        walrus_storage_node_client::StorageNodeClient::builder()
+            .authenticate_with_public_key(node.network_public_key.clone())
+            // Disable proxy and root certs from the OS for tests.
+            .no_proxy()
+            .tls_built_in_root_certs(false)
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(10))
+            .build_for_remote_ip(node.rest_api_address)
+            .expect("creating a node client should succeed")
     }
 
     fn node_capability_id(node: &SimStorageNodeHandle) -> ObjectID {
@@ -588,6 +620,22 @@ mod tests {
     #[ignore = "ignore integration simtests by default"]
     #[walrus_simtest]
     async fn test_new_node_bootstraps_from_certified_snapshot() {
+        bootstrap_scenario(None).await;
+    }
+
+    /// Checks that a brand-new node bootstrapped from a certified format-2 snapshot holds the
+    /// invalidation of a blob that was invalidated before its event history starts, with the
+    /// event the other nodes processed, and serves afterwards.
+    #[ignore = "ignore integration simtests by default"]
+    #[walrus_simtest]
+    async fn test_new_node_bootstraps_invalidations_from_certified_snapshot() {
+        bootstrap_scenario(Some(1)).await;
+    }
+
+    /// Runs a cluster whose first event blobs expire, invalidates a blob first if the snapshots
+    /// carry invalidations from `include_invalid_blobs_from_epoch` on, then starts a sixth node
+    /// and checks that it bootstraps from the certified snapshot and agrees with the others.
+    async fn bootstrap_scenario(include_invalid_blobs_from_epoch: Option<Epoch>) {
         walrus_test_utils::init_tracing();
         const MAX_EPOCHS_AHEAD: EpochCount = 3;
         // The first event blob expires after `MAX_EPOCHS_AHEAD + 1` epochs, and it may only be
@@ -599,6 +647,7 @@ mod tests {
         const NUM_CHECKPOINTS_PER_BLOB: u32 = 20;
 
         let bootstrap_loaded = Arc::new(AtomicBool::new(false));
+        let loaded_snapshot = Arc::new(Mutex::new(None::<BootstrapLoadedSnapshot>));
         let incomplete_history_entered = Arc::new(AtomicBool::new(false));
         // Per node, the IDs of the event blobs it attested that were then certified on chain.
         let certified_event_blobs = Arc::new(Mutex::new(HashMap::<ObjectID, Vec<BlobId>>::new()));
@@ -617,6 +666,13 @@ mod tests {
                     bootstrap_loaded.store(true, Ordering::SeqCst);
                 },
             );
+            let loaded_snapshot = loaded_snapshot.clone();
+            register_fail_point_arg(
+                "fail_point_blob_info_snapshot_bootstrap_decoded",
+                move || -> Option<Arc<Mutex<Option<BootstrapLoadedSnapshot>>>> {
+                    Some(loaded_snapshot.clone())
+                },
+            );
             let incomplete_history_entered = incomplete_history_entered.clone();
             register_fail_point("fail_point_recovery_with_incomplete_history", move || {
                 incomplete_history_entered.store(true, Ordering::SeqCst);
@@ -624,22 +680,32 @@ mod tests {
         }
 
         // The sixth node has no weight and is only started once the first event blobs expired.
-        let (_sui_cluster, mut walrus_cluster, client, _, _) =
+        let mut test_nodes_config = TestNodesConfig::builder()
+            .with_node_weights(&[1, 2, 3, 3, 4, 0])
+            .with_blob_info_snapshot_certify(&[true; 6])
+            .with_enable_event_blob_writer();
+        if let Some(epoch) = include_invalid_blobs_from_epoch {
+            test_nodes_config =
+                test_nodes_config.with_blob_info_snapshot_include_invalid_blobs_from_epoch(epoch);
+        }
+        let (_sui_cluster, mut walrus_cluster, mut client, _, _) =
             test_cluster::E2eTestSetupBuilder::new()
                 .with_epoch_duration(EPOCH_DURATION)
                 .with_max_epochs_ahead(MAX_EPOCHS_AHEAD)
-                .with_test_nodes_config(
-                    TestNodesConfig::builder()
-                        .with_node_weights(&[1, 2, 3, 3, 4, 0])
-                        .with_blob_info_snapshot_certify(&[true; 6])
-                        .with_enable_event_blob_writer()
-                        .build(),
-                )
+                .with_test_nodes_config(test_nodes_config.build())
                 .with_num_checkpoints_per_blob(NUM_CHECKPOINTS_PER_BLOB)
                 .build_generic::<SimStorageNodeHandle>()
                 .await
                 .unwrap();
         assert!(walrus_cluster.nodes[5].node_id.is_none());
+
+        // Invalidate a blob before any snapshot that the new node may load, so that the new
+        // node can only know the invalidation from the snapshot.
+        let invalidated = if include_invalid_blobs_from_epoch.is_some() {
+            Some(store_inconsistent_blob(&mut client, &walrus_cluster).await)
+        } else {
+            None
+        };
 
         let consistency_check = BlobInfoConsistencyCheck::new();
         let client = Arc::new(client);
@@ -706,10 +772,41 @@ mod tests {
             !incomplete_history_entered.load(Ordering::SeqCst),
             "the new node must not enter recovery with incomplete history"
         );
+        let loaded = loaded_snapshot
+            .lock()
+            .unwrap()
+            .expect("the bootstrap reports what it loaded");
+        match include_invalid_blobs_from_epoch {
+            Some(_) => {
+                assert_eq!(loaded.format_version, 2, "{loaded:?}");
+                assert!(
+                    loaded.invalid_blob_count.is_some_and(|count| count >= 1),
+                    "the certified snapshot should carry the invalidation: {loaded:?}"
+                );
+            }
+            None => {
+                assert_eq!(loaded.format_version, 1, "{loaded:?}");
+                assert_eq!(loaded.invalid_blob_count, None, "{loaded:?}");
+            }
+        }
 
         let node_health_info = simtest_utils::get_nodes_health_info(&walrus_cluster.nodes).await;
         assert_eq!(node_health_info[5].node_status, "Active");
         consistency_check.check_storage_node_consistency_from_epoch(new_node_starting_epoch);
+
+        if let Some((blob_id, invalidation_event)) = invalidated {
+            let status = node_client(&walrus_cluster.nodes[5])
+                .get_blob_status(&blob_id)
+                .await
+                .expect("the new node answers status requests");
+            assert_eq!(
+                status,
+                BlobStatus::Invalid {
+                    event: invalidation_event
+                },
+                "the new node holds the invalidation with the event the other nodes processed"
+            );
+        }
 
         // The new node's writer started right after the latest certified event blob. Its blobs
         // are certified only if their IDs equal the committee's, so a non-empty list shows that
@@ -731,7 +828,96 @@ mod tests {
         );
 
         clear_fail_point("fail_point_blob_info_snapshot_bootstrap_loaded");
+        clear_fail_point("fail_point_blob_info_snapshot_bootstrap_decoded");
         clear_fail_point("fail_point_recovery_with_incomplete_history");
         clear_fail_point("event_blob_writer_certified_own_blob");
+    }
+
+    /// Stores and certifies a blob whose metadata carries a wrong hash for one sliver pair, so
+    /// that the nodes find the blob inconsistent when they recover that sliver and invalidate it
+    /// on chain. Returns the blob ID and the invalidation event once a node reports the blob
+    /// invalid.
+    async fn store_inconsistent_blob(
+        client: &mut WithTempDir<WalrusNodeClient<SuiContractClient>>,
+        cluster: &TestCluster<SimStorageNodeHandle>,
+    ) -> (BlobId, EventID) {
+        let committees = client
+            .as_ref()
+            .get_committees()
+            .await
+            .expect("committees should be available");
+        let (pairs, metadata) = client
+            .as_ref()
+            .encoding_config()
+            .get_for_type(DEFAULT_ENCODING)
+            .encode_with_metadata(walrus_test_utils::random_data(31415))
+            .expect("encoding should succeed");
+        let mut metadata = metadata.metadata().to_owned();
+        metadata.mut_inner().hashes[1].primary_hash = Node::Digest([0; 32]);
+        let blob_id = BlobId::from_sliver_pair_metadata(&metadata);
+        let metadata = VerifiedBlobMetadataWithId::new_verified_unchecked(blob_id, metadata);
+
+        let (blob_object, _) = client
+            .as_ref()
+            .resource_manager(&committees)
+            .get_existing_or_register(
+                &[&metadata],
+                1,
+                BlobPersistence::Permanent,
+                StoreOptimizations::none(),
+            )
+            .await
+            .expect("registration should succeed")
+            .into_iter()
+            .next()
+            .expect("one blob is registered");
+        let certificate = client
+            .as_ref()
+            .send_blob_data_and_get_certificate(
+                &metadata,
+                Arc::new(pairs),
+                &BlobPersistenceType::Permanent,
+                None,
+                TailHandling::Blocking,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("the upload should be confirmed");
+        let blob_with_attribute = BlobWithAttribute {
+            blob: blob_object,
+            attribute: None,
+        };
+        client
+            .as_mut()
+            .sui_client()
+            .certify_blobs(
+                &[(&blob_with_attribute, certificate)],
+                PostStoreAction::Keep,
+            )
+            .await
+            .expect("certification should succeed");
+
+        // A node that recovers the inconsistent sliver proves the inconsistency, the nodes attest
+        // it, and the contract emits `InvalidBlobID`; each node reports the blob invalid once it
+        // has processed that event.
+        let event = tokio::time::timeout(Duration::from_secs(180), async {
+            loop {
+                for node in &cluster.nodes[..5] {
+                    if let Ok(BlobStatus::Invalid { event }) =
+                        node_client(node).get_blob_status(&blob_id).await
+                    {
+                        return event;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        })
+        .await
+        .expect("the blob should be invalidated");
+        tracing::info!(%blob_id, ?event, "the inconsistent blob is invalidated");
+        (blob_id, event)
     }
 }

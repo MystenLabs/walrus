@@ -31,10 +31,7 @@ use rocksdb::{
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
-use typed_store::{
-    TypedStoreError,
-    rocks::{MetricConf, be_fix_int_ser},
-};
+use typed_store::rocks::{MetricConf, be_fix_int_ser};
 use walrus_core::{
     BlobId,
     DEFAULT_ENCODING,
@@ -442,8 +439,9 @@ pub enum DbToolCommands {
     /// boundary event, sets the garbage collector's progress to the snapshot's epoch, and sets
     /// the node status to `RecoveryCatchUp`, all in one atomic write. On its next start, the
     /// node replays events from the snapshot's epoch boundary and then recovers any missing data
-    /// through the regular recovery path. Metadata and slivers are not touched. The node must be
-    /// stopped; back up the database first.
+    /// through the regular recovery path. Metadata and slivers are not touched, except those of
+    /// the blobs a format-2 snapshot marks invalid, which are deleted together with their
+    /// pending-recovery records. The node must be stopped; back up the database first.
     LoadBlobInfoSnapshot {
         /// Path to the RocksDB database directory; must exist.
         #[arg(long)]
@@ -2142,24 +2140,17 @@ fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
 fn decode_blob_info_snapshot(input: PathBuf) -> Result<()> {
     let bytes = std::fs::read(&input)
         .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
-    let (header, per_object, pooled, pools) = blob_info_snapshot::read_snapshot(&bytes)?;
-    let (per_object_count, pooled_count, pools_count) =
-        (per_object.len(), pooled.len(), pools.len());
+    let snapshot = blob_info_snapshot::read_snapshot(&bytes)?;
 
+    // Re-encode in the input's own format, so that a version-1 file stays a version-1 file.
     let mut cursor = Cursor::new(Vec::with_capacity(bytes.len()));
-    blob_info_snapshot::write_snapshot(
-        &mut cursor,
-        &header,
-        blob_info_snapshot::SnapshotFormat::V1,
-        per_object.into_iter().map(Ok::<_, TypedStoreError>),
-        pooled.into_iter().map(Ok::<_, TypedStoreError>),
-        pools.into_iter().map(Ok::<_, TypedStoreError>),
-        || Ok(std::iter::empty()),
-    )?;
+    snapshot.write(&mut cursor)?;
     let reencoded = cursor.into_inner();
 
+    let header = &snapshot.header;
     let event_id = header.event_cursor.event_id();
     println!("Blob info snapshot ({})", input.display());
+    println!("  format version:   {}", snapshot.format.version());
     println!("  epoch in header:  {}", header.epoch);
     println!(
         "  event cursor:     tx {} seq {}, next event index {}",
@@ -2168,8 +2159,11 @@ fn decode_blob_info_snapshot(input: PathBuf) -> Result<()> {
         header.event_cursor.next_event_index()
     );
     println!(
-        "  decoded entries:  per_object {per_object_count}, pooled {pooled_count}, \
-        pool {pools_count}"
+        "  decoded entries:  per_object {}, pooled {}, pool {}, invalid {}",
+        snapshot.per_object.len(),
+        snapshot.per_object_pooled.len(),
+        snapshot.storage_pools.len(),
+        invalid_blobs_summary(&snapshot),
     );
     println!("  input size:       {} bytes", bytes.len());
     println!("  re-encoded size:  {} bytes", reencoded.len());
@@ -2182,6 +2176,17 @@ fn decode_blob_info_snapshot(input: PathBuf) -> Result<()> {
             reencoded.len(),
             bytes.len()
         )
+    }
+}
+
+/// Describes a decoded snapshot's invalidated blob IDs: their count, or that the format omits them.
+fn invalid_blobs_summary(snapshot: &blob_info_snapshot::DecodedSnapshot) -> String {
+    match &snapshot.invalid_blobs {
+        Some(invalid_blobs) => invalid_blobs.len().to_string(),
+        None => format!(
+            "omitted (format version {} carries no invalidation history)",
+            snapshot.format.version()
+        ),
     }
 }
 
@@ -2221,7 +2226,7 @@ fn load_blob_info_snapshot(db_path: PathBuf, input: PathBuf) -> Result<()> {
     }
     let bytes = std::fs::read(&input)
         .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
-    let (header, per_object, pooled, pools) = blob_info_snapshot::read_snapshot(&bytes)?;
+    let snapshot = blob_info_snapshot::read_snapshot(&bytes)?;
 
     // Opening the storage starts database metrics tasks, which need a runtime.
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -2235,16 +2240,30 @@ fn load_blob_info_snapshot(db_path: PathBuf, input: PathBuf) -> Result<()> {
         Registry::default(),
     )
     .with_context(|| format!("failed to open the database at {}", db_path.display()))?;
-    let aggregate_count = storage.load_blob_info_snapshot(&header, &per_object, &pooled, &pools)?;
+    let aggregate_count = storage.load_blob_info_snapshot(&snapshot)?;
 
+    let header = &snapshot.header;
     println!("Loaded blob info snapshot ({})", input.display());
+    println!("  format version:      {}", snapshot.format.version());
     println!("  epoch in header:     {}", header.epoch);
     println!(
         "  loaded entries:      per_object {}, pooled {}, pool {}",
-        per_object.len(),
-        pooled.len(),
-        pools.len()
+        snapshot.per_object.len(),
+        snapshot.per_object_pooled.len(),
+        snapshot.storage_pools.len()
     );
+    match &snapshot.invalid_blobs {
+        Some(invalid_blobs) => println!(
+            "  invalid blobs:       {} marked; their metadata, slivers, and pending-recovery \
+            records are deleted",
+            invalid_blobs.len()
+        ),
+        None => println!(
+            "  invalid blobs:       invalidation history omitted (format version {}); blobs \
+            invalidated before the boundary are not marked until a later event for them",
+            snapshot.format.version()
+        ),
+    }
     println!("  rebuilt aggregate:   {aggregate_count} entries");
     println!(
         "  event cursor:        next event index {} (the boundary event)",

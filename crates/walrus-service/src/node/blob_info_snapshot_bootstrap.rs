@@ -35,6 +35,19 @@ use crate::{
 const READ_RETRY_DELAY: Duration = Duration::from_secs(10);
 const READ_ATTEMPTS: u32 = 30;
 
+/// What the bootstrap loaded, reported to simtests through a fail point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BootstrapLoadedSnapshot {
+    /// The format version of the certified snapshot.
+    pub format_version: u32,
+    /// The number of invalidated blob IDs it carried, or `None` if its format omits them.
+    pub invalid_blob_count: Option<usize>,
+    /// The index of the first event the node's local event store holds.
+    pub first_available_event_index: u64,
+    /// The index of the snapshot's boundary event, from which the node replays.
+    pub boundary_event_index: u64,
+}
+
 /// Loads the latest certified blob info snapshot into a brand-new node whose event replay is not
 /// covered by its local event store.
 ///
@@ -169,17 +182,29 @@ pub(super) async fn bootstrap_from_snapshot_if_needed(
         "read the certified blob info snapshot, verified against its blob ID"
     );
 
-    let (header, per_object, pooled, pools) = blob_info_snapshot::read_snapshot(&bytes)
+    let decoded = blob_info_snapshot::read_snapshot(&bytes)
         .context("failed to decode the certified blob info snapshot")?;
+    let header = &decoded.header;
     tracing::info!(
         header_epoch = header.epoch,
         boundary_event_id = ?header.event_cursor.event_id(),
         next_event_index = header.event_cursor.next_event_index(),
-        per_object_count = per_object.len(),
-        pooled_count = pooled.len(),
-        storage_pool_count = pools.len(),
+        format_version = decoded.format.version(),
+        per_object_count = decoded.per_object.len(),
+        pooled_count = decoded.per_object_pooled.len(),
+        storage_pool_count = decoded.storage_pools.len(),
+        invalid_blob_count = ?decoded.invalid_blobs.as_ref().map(Vec::len),
         "decoded the certified blob info snapshot"
     );
+    if decoded.invalid_blobs.is_none() {
+        tracing::warn!(
+            snapshot_epoch = snapshot.epoch,
+            format_version = decoded.format.version(),
+            "invalidation history omitted: the certified blob info snapshot's format carries no \
+            invalidated blob IDs, so blobs invalidated before its boundary are not marked \
+            invalid on this node until it processes a later event for them"
+        );
+    }
     if header.epoch != snapshot.epoch {
         bail!(
             "the certified blob info snapshot of epoch {} has epoch {} in its header",
@@ -201,15 +226,32 @@ pub(super) async fn bootstrap_from_snapshot_if_needed(
         "the local event store covers the replay from the snapshot boundary"
     );
 
-    let aggregate_count = storage.load_blob_info_snapshot(&header, &per_object, &pooled, &pools)?;
+    let aggregate_count = storage.load_blob_info_snapshot(&decoded)?;
     #[cfg(msim)]
     sui_macros::fail_point!("fail_point_blob_info_snapshot_bootstrap_loaded");
+    // Reports what was loaded to a simtest. No-op outside of simtest.
+    sui_macros::fail_point_arg!(
+        "fail_point_blob_info_snapshot_bootstrap_decoded",
+        |loaded: std::sync::Arc<std::sync::Mutex<Option<BootstrapLoadedSnapshot>>>| {
+            *loaded
+                .lock()
+                .expect("failed to lock the loaded snapshot slot") =
+                Some(BootstrapLoadedSnapshot {
+                    format_version: decoded.format.version(),
+                    invalid_blob_count: decoded.invalid_blobs.as_ref().map(Vec::len),
+                    first_available_event_index,
+                    boundary_event_index,
+                });
+        }
+    );
     tracing::info!(
         snapshot_epoch = snapshot.epoch,
         blob_id = %snapshot.blob_id,
-        per_object_count = per_object.len(),
-        pooled_count = pooled.len(),
-        storage_pool_count = pools.len(),
+        format_version = decoded.format.version(),
+        per_object_count = decoded.per_object.len(),
+        pooled_count = decoded.per_object_pooled.len(),
+        storage_pool_count = decoded.storage_pools.len(),
+        invalid_blob_count = ?decoded.invalid_blobs.as_ref().map(Vec::len),
         aggregate_count,
         boundary_event_index,
         boundary_event_id = ?header.event_cursor.event_id(),

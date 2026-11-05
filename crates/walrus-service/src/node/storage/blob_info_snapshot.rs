@@ -101,6 +101,15 @@ impl SnapshotFormat {
             Self::V2 => 2,
         }
     }
+
+    /// Returns the format with the given version number, if there is one.
+    pub fn from_version(version: u32) -> Option<Self> {
+        match version {
+            1 => Some(Self::V1),
+            2 => Some(Self::V2),
+            _ => None,
+        }
+    }
 }
 
 const SECTION_TAG_PER_OBJECT: u8 = 1;
@@ -276,16 +285,51 @@ fn write_section<W: Write + Seek, K: Serialize + Ord + Copy, V: Serialize>(
     Ok(count)
 }
 
-/// The decoded contents of a blob info snapshot: the header and the three sections' entries.
-pub(crate) type DecodedSnapshot = (
-    SnapshotHeader,
-    Vec<(ObjectID, PerObjectBlobInfo)>,
-    Vec<(ObjectID, PerObjectPooledBlobInfo)>,
-    Vec<(ObjectID, StoragePoolInfo)>,
-);
+/// The decoded contents of a blob info snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DecodedSnapshot {
+    /// The format version the file was written in.
+    pub format: SnapshotFormat,
+    /// The header.
+    pub header: SnapshotHeader,
+    /// The `per_object_blob_info` entries.
+    pub per_object: Vec<(ObjectID, PerObjectBlobInfo)>,
+    /// The `per_object_pooled_blob_info` entries.
+    pub per_object_pooled: Vec<(ObjectID, PerObjectPooledBlobInfo)>,
+    /// The `storage_pool_info` entries.
+    pub storage_pools: Vec<(ObjectID, StoragePoolInfo)>,
+    /// The invalidated blob IDs, or `None` for a format whose files omit the invalidation
+    /// history ([`SnapshotFormat::V1`]).
+    pub invalid_blobs: Option<Vec<(BlobId, InvalidBlobInfo)>>,
+}
 
-/// Decodes a blob info snapshot file (the count-prefixed format) into its header and three
-/// sections, mirroring [`write_snapshot`].
+impl DecodedSnapshot {
+    /// Returns the invalidated blob IDs, empty for a format that omits them.
+    pub fn invalid_blobs(&self) -> &[(BlobId, InvalidBlobInfo)] {
+        self.invalid_blobs.as_deref().unwrap_or_default()
+    }
+
+    /// Re-encodes the snapshot in its own format. A snapshot read with [`read_snapshot`] encodes
+    /// to the bytes it was read from.
+    pub fn write<W: Write + Seek>(&self, writer: W) -> Result<SnapshotStats, SnapshotError> {
+        write_snapshot(
+            writer,
+            &self.header,
+            self.format,
+            self.per_object.iter().cloned().map(Ok),
+            self.per_object_pooled.iter().cloned().map(Ok),
+            self.storage_pools.iter().cloned().map(Ok),
+            || Ok(self.invalid_blobs().iter().cloned().map(Ok)),
+        )
+    }
+}
+
+/// Decodes a blob info snapshot file into its header and sections, mirroring [`write_snapshot`].
+///
+/// Every version is decoded with its own framing: a version-2 file must have the
+/// invalidated-blob section, a version-1 file must not. Within a section, keys must be strictly
+/// increasing, as the writer emits them, so no entry can appear twice; a file that violates this,
+/// or that has trailing bytes, is rejected.
 pub(crate) fn read_snapshot(bytes: &[u8]) -> anyhow::Result<DecodedSnapshot> {
     let mut reader = Cursor::new(bytes);
     let magic = reader.read_u32::<BigEndian>()?;
@@ -293,17 +337,23 @@ pub(crate) fn read_snapshot(bytes: &[u8]) -> anyhow::Result<DecodedSnapshot> {
         bail!("unexpected magic {magic:#010x}");
     }
     let version = reader.read_u32::<BigEndian>()?;
-    if version != SnapshotFormat::V1.version() {
-        bail!("unsupported snapshot version {version}");
-    }
+    let format = SnapshotFormat::from_version(version)
+        .with_context(|| format!("unsupported snapshot version {version}"))?;
     let header_len: u64 = reader.read_varint()?;
     let header_bytes = read_snapshot_bytes(&mut reader, header_len)?;
     let header: SnapshotHeader =
         bcs::from_bytes(&header_bytes).context("failed to decode the snapshot header")?;
 
     let per_object = read_snapshot_section(&mut reader, SECTION_TAG_PER_OBJECT)?;
-    let pools = read_snapshot_section(&mut reader, SECTION_TAG_STORAGE_POOL)?;
-    let pooled = read_snapshot_section(&mut reader, SECTION_TAG_PER_OBJECT_POOLED)?;
+    let storage_pools = read_snapshot_section(&mut reader, SECTION_TAG_STORAGE_POOL)?;
+    let per_object_pooled = read_snapshot_section(&mut reader, SECTION_TAG_PER_OBJECT_POOLED)?;
+    let invalid_blobs = match format {
+        SnapshotFormat::V1 => None,
+        SnapshotFormat::V2 => Some(read_snapshot_section(
+            &mut reader,
+            SECTION_TAG_INVALID_BLOB,
+        )?),
+    };
 
     let position = reader.position();
     let length = u64::try_from(bytes.len()).expect("snapshot length fits in u64");
@@ -313,24 +363,38 @@ pub(crate) fn read_snapshot(bytes: &[u8]) -> anyhow::Result<DecodedSnapshot> {
             length - position
         );
     }
-    Ok((header, per_object, pooled, pools))
+    Ok(DecodedSnapshot {
+        format,
+        header,
+        per_object,
+        per_object_pooled,
+        storage_pools,
+        invalid_blobs,
+    })
 }
 
-fn read_snapshot_section<V: serde::de::DeserializeOwned>(
+fn read_snapshot_section<K, V>(
     reader: &mut Cursor<&[u8]>,
     expected_tag: u8,
-) -> anyhow::Result<Vec<(ObjectID, V)>> {
+) -> anyhow::Result<Vec<(K, V)>>
+where
+    K: serde::de::DeserializeOwned + Ord,
+    V: serde::de::DeserializeOwned,
+{
     let tag = reader.read_u8()?;
     if tag != expected_tag {
         bail!("expected section tag {expected_tag}, found {tag}");
     }
     let count = reader.read_u64::<BigEndian>()?;
     // The count comes from the file, so it must not size an allocation.
-    let mut entries = Vec::new();
+    let mut entries: Vec<(K, V)> = Vec::new();
     for _ in 0..count {
         let key_len: u64 = reader.read_varint()?;
         let key_bytes = read_snapshot_bytes(reader, key_len)?;
-        let key: ObjectID = bcs::from_bytes(&key_bytes).context("failed to decode an entry key")?;
+        let key: K = bcs::from_bytes(&key_bytes).context("failed to decode an entry key")?;
+        if entries.last().is_some_and(|(previous, _)| *previous >= key) {
+            bail!("keys are not in strictly increasing order in section with tag {expected_tag}");
+        }
         let value_len: u64 = reader.read_varint()?;
         let value_bytes = read_snapshot_bytes(reader, value_len)?;
         let value: V = bcs::from_bytes(&value_bytes).context("failed to decode an entry value")?;
@@ -589,5 +653,130 @@ mod tests {
         )
         .expect_err("a read error must fail the snapshot");
         assert!(matches!(err, SnapshotError::Storage(_)));
+    }
+
+    fn unwrap_entries<K, V>(entries: Vec<Result<(K, V), TypedStoreError>>) -> Vec<(K, V)> {
+        entries
+            .into_iter()
+            .map(|entry| entry.expect("sample entries are Ok"))
+            .collect()
+    }
+
+    /// Overwrites the version field of a serialized snapshot.
+    fn with_version(mut bytes: Vec<u8>, version: u32) -> Vec<u8> {
+        bytes[4..8].copy_from_slice(&version.to_be_bytes());
+        bytes
+    }
+
+    /// Encodes a section the way the writer does, without its key-order check.
+    fn raw_section<K: Serialize, V: Serialize>(tag: u8, entries: &[(K, V)]) -> Vec<u8> {
+        let mut bytes = vec![tag];
+        bytes.extend_from_slice(&u64::try_from(entries.len()).expect("fits").to_be_bytes());
+        for (key, value) in entries {
+            for field in [bcs::to_bytes(key), bcs::to_bytes(value)] {
+                let field = field.expect("sample entries serialize");
+                bytes
+                    .write_varint(field.len())
+                    .expect("writing to a vector succeeds");
+                bytes.extend_from_slice(&field);
+            }
+        }
+        bytes
+    }
+
+    /// A snapshot decodes to the entries it was written from, in its own format, and re-encodes
+    /// to the same bytes; a version-1 file reports its invalidation history as omitted.
+    #[test]
+    fn snapshots_round_trip_in_their_own_format() {
+        for format in [SnapshotFormat::V1, SnapshotFormat::V2] {
+            let bytes = serialize_sample(format);
+            let decoded = read_snapshot(&bytes).expect("decoding should succeed");
+            assert_eq!(decoded.format, format);
+            assert_eq!(decoded.header, sample_header());
+            assert_eq!(decoded.per_object, unwrap_entries(sample_per_object()));
+            assert_eq!(decoded.per_object_pooled, unwrap_entries(sample_pooled()));
+            assert_eq!(decoded.storage_pools, unwrap_entries(sample_pools()));
+            let expected_invalid_blobs = match format {
+                SnapshotFormat::V1 => None,
+                SnapshotFormat::V2 => Some(unwrap_entries(
+                    sample_invalid_blobs().expect("sample entries are Ok"),
+                )),
+            };
+            assert_eq!(decoded.invalid_blobs, expected_invalid_blobs);
+
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            decoded
+                .write(&mut cursor)
+                .expect("re-encoding should succeed");
+            assert_eq!(
+                cursor.into_inner(),
+                bytes,
+                "{format:?} re-encodes to its own bytes"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_version_is_rejected() {
+        let error = read_snapshot(&with_version(serialize_sample(SnapshotFormat::V2), 3))
+            .expect_err("version 3 must be rejected");
+        assert!(
+            error.to_string().contains("unsupported snapshot version 3"),
+            "{error:#}"
+        );
+    }
+
+    /// The version decides the section set: a version-1 file followed by an invalidated-blob
+    /// section has trailing bytes, and a version-2 file without one is truncated.
+    #[test]
+    fn section_set_follows_the_version() {
+        let error = read_snapshot(&with_version(serialize_sample(SnapshotFormat::V2), 1))
+            .expect_err("a version-1 file with a fourth section must be rejected");
+        assert!(error.to_string().contains("trailing bytes"), "{error:#}");
+
+        read_snapshot(&with_version(serialize_sample(SnapshotFormat::V1), 2))
+            .expect_err("a version-2 file without the fourth section must be rejected");
+    }
+
+    /// The reader checks the key order of every section, so a file that did not come from the
+    /// writer cannot load an entry twice or out of order.
+    #[test]
+    fn reader_rejects_unsorted_and_duplicate_keys() {
+        let invalid = |blob_id| {
+            (
+                blob_id_from_u64(blob_id),
+                InvalidBlobInfo::V1(InvalidBlobInfoV1 {
+                    epoch: 1,
+                    event: fixed_event_id_for_testing(1),
+                }),
+            )
+        };
+        // The version-1 bytes are the version-2 bytes without the fourth section.
+        let prefix = with_version(serialize_sample(SnapshotFormat::V1), 2);
+        for (label, entries) in [
+            ("unsorted", vec![invalid(31), invalid(30)]),
+            ("duplicate", vec![invalid(30), invalid(30)]),
+        ] {
+            let mut bytes = prefix.clone();
+            bytes.extend_from_slice(&raw_section(SECTION_TAG_INVALID_BLOB, &entries));
+            let error = read_snapshot(&bytes).expect_err(label);
+            assert!(
+                error.to_string().contains("strictly increasing"),
+                "{label}: {error:#}"
+            );
+        }
+        // The same bytes in order decode.
+        let mut bytes = prefix;
+        bytes.extend_from_slice(&raw_section(
+            SECTION_TAG_INVALID_BLOB,
+            &[invalid(30), invalid(31)],
+        ));
+        assert_eq!(
+            read_snapshot(&bytes)
+                .expect("ordered keys decode")
+                .invalid_blobs()
+                .len(),
+            2
+        );
     }
 }
