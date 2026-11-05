@@ -227,6 +227,7 @@ pub struct TestNodesConfig {
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
     blob_info_snapshot_certify: Vec<bool>,
+    blob_info_snapshot_include_invalid_blobs_from_epoch: Option<Epoch>,
 }
 
 impl TestNodesConfig {
@@ -262,6 +263,12 @@ impl TestNodesConfig {
         &self.blob_info_snapshot_certify
     }
 
+    /// Returns the first boundary epoch at which the nodes' blob info snapshots carry the
+    /// invalidated blob IDs, if set.
+    pub fn blob_info_snapshot_include_invalid_blobs_from_epoch(&self) -> Option<Epoch> {
+        self.blob_info_snapshot_include_invalid_blobs_from_epoch
+    }
+
     /// Creates a new builder for `TestNodesConfig`.
     pub fn builder() -> TestNodesConfigBuilder {
         TestNodesConfigBuilder::new()
@@ -283,6 +290,7 @@ pub struct TestNodesConfigBuilder {
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
     blob_info_snapshot_certify: Vec<bool>,
+    blob_info_snapshot_include_invalid_blobs_from_epoch: Option<Epoch>,
 }
 
 impl Default for TestNodesConfigBuilder {
@@ -305,6 +313,7 @@ impl TestNodesConfigBuilder {
             enable_node_config_synchronizer: false,
             node_recovery_config: None,
             blob_info_snapshot_certify: vec![],
+            blob_info_snapshot_include_invalid_blobs_from_epoch: None,
         }
     }
 
@@ -355,6 +364,16 @@ impl TestNodesConfigBuilder {
         self
     }
 
+    /// Sets the first boundary epoch at which every node's blob info snapshot carries the
+    /// invalidated blob IDs (snapshot format version 2).
+    pub fn with_blob_info_snapshot_include_invalid_blobs_from_epoch(
+        mut self,
+        epoch: Epoch,
+    ) -> Self {
+        self.blob_info_snapshot_include_invalid_blobs_from_epoch = Some(epoch);
+        self
+    }
+
     /// Builds the [`TestNodesConfig`], validating constraints.
     ///
     /// # Panics
@@ -388,6 +407,8 @@ impl TestNodesConfigBuilder {
             enable_node_config_synchronizer: self.enable_node_config_synchronizer,
             node_recovery_config: self.node_recovery_config,
             blob_info_snapshot_certify: self.blob_info_snapshot_certify,
+            blob_info_snapshot_include_invalid_blobs_from_epoch: self
+                .blob_info_snapshot_include_invalid_blobs_from_epoch,
         }
     }
 }
@@ -674,11 +695,11 @@ impl SimStorageNodeHandle {
                                 // Do not put any code after this point, as it won't be executed.
                                 // kill_current_node is implemented using a panic.
                             } else {
-                                tracing::error!("node stopped with error: {e}");
+                                tracing::error!("node stopped with error: {e:#}");
 
                                 // In simtest, we don't expect node to exit with an error. Panic
                                 // the test process to fail the test early.
-                                panic!("node stopped with error: {e}");
+                                panic!("node stopped with error: {e:#}");
                             }
                         }
                         Ok(()) => {
@@ -902,6 +923,7 @@ pub struct StorageNodeHandleBuilder {
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
     max_epochs_ahead: Option<u32>,
     blob_info_snapshot_certify: bool,
+    blob_info_snapshot_include_invalid_blobs_from_epoch: Option<Epoch>,
 }
 
 impl StorageNodeHandleBuilder {
@@ -985,6 +1007,16 @@ impl StorageNodeHandleBuilder {
     /// Enable or disable certifying blob info snapshots on chain.
     pub fn with_blob_info_snapshot_certify(mut self, certify: bool) -> Self {
         self.blob_info_snapshot_certify = certify;
+        self
+    }
+
+    /// Sets the first boundary epoch at which the node's blob info snapshots carry the
+    /// invalidated blob IDs (snapshot format version 2); `None` keeps format version 1.
+    pub fn with_blob_info_snapshot_include_invalid_blobs_from_epoch(
+        mut self,
+        epoch: Option<Epoch>,
+    ) -> Self {
+        self.blob_info_snapshot_include_invalid_blobs_from_epoch = epoch;
         self
     }
 
@@ -1152,6 +1184,8 @@ impl StorageNodeHandleBuilder {
             disable_event_blob_writer: self.disable_event_blob_writer,
             blob_info_snapshot: BlobInfoSnapshotWriterConfig {
                 certify: self.blob_info_snapshot_certify,
+                include_invalid_blobs_from_epoch: self
+                    .blob_info_snapshot_include_invalid_blobs_from_epoch,
                 ..Default::default()
             },
             config_synchronizer: ConfigSynchronizerConfig {
@@ -1337,6 +1371,8 @@ impl StorageNodeHandleBuilder {
             disable_event_blob_writer,
             blob_info_snapshot: BlobInfoSnapshotWriterConfig {
                 certify: self.blob_info_snapshot_certify,
+                include_invalid_blobs_from_epoch: self
+                    .blob_info_snapshot_include_invalid_blobs_from_epoch,
                 ..Default::default()
             },
             sui: Some(SuiConfig {
@@ -1452,6 +1488,7 @@ impl Default for StorageNodeHandleBuilder {
             event_stream_catchup_min_checkpoint_lag: None,
             max_epochs_ahead: None,
             blob_info_snapshot_certify: false,
+            blob_info_snapshot_include_invalid_blobs_from_epoch: None,
         }
     }
 }
@@ -2115,6 +2152,7 @@ pub struct TestClusterBuilder {
     blocklist_files: Vec<Option<PathBuf>>,
     disable_event_blob_writer: Vec<bool>,
     blob_info_snapshot_certify: Vec<bool>,
+    blob_info_snapshot_include_invalid_blobs_from_epoch: Option<Epoch>,
     enable_node_config_synchronizer: bool,
     node_recovery_config: Option<NodeRecoveryConfig>,
     event_stream_catchup_min_checkpoint_lag: Option<u64>,
@@ -2306,6 +2344,16 @@ impl TestClusterBuilder {
         self
     }
 
+    /// Sets the first boundary epoch at which every node's blob info snapshot carries the
+    /// invalidated blob IDs (snapshot format version 2); `None` keeps format version 1.
+    pub fn with_blob_info_snapshot_include_invalid_blobs_from_epoch(
+        mut self,
+        epoch: Option<Epoch>,
+    ) -> Self {
+        self.blob_info_snapshot_include_invalid_blobs_from_epoch = epoch;
+        self
+    }
+
     /// Sets the sui wallet config directory for each storage node.
     pub fn with_blocklist_files(mut self, blocklist_files: Vec<PathBuf>) -> Self {
         self.blocklist_files = blocklist_files.into_iter().map(Some).collect();
@@ -2414,6 +2462,9 @@ impl TestClusterBuilder {
                 .with_shard_sync_config(self.shard_sync_config.clone().unwrap_or_default())
                 .with_disabled_event_blob_writer(node_setup.disable_event_blob_writer)
                 .with_blob_info_snapshot_certify(node_setup.blob_info_snapshot_certify)
+                .with_blob_info_snapshot_include_invalid_blobs_from_epoch(
+                    self.blob_info_snapshot_include_invalid_blobs_from_epoch,
+                )
                 .with_enable_node_config_synchronizer(self.enable_node_config_synchronizer)
                 .with_node_recovery_config(self.node_recovery_config.clone().unwrap_or_default())
                 .with_event_stream_catchup_min_checkpoint_lag(
@@ -2626,6 +2677,7 @@ impl Default for TestClusterBuilder {
             blocklist_files: shard_assignment.iter().map(|_| None).collect(),
             disable_event_blob_writer: shard_assignment.iter().map(|_| false).collect(),
             blob_info_snapshot_certify: shard_assignment.iter().map(|_| false).collect(),
+            blob_info_snapshot_include_invalid_blobs_from_epoch: None,
             storage_node_configs: shard_assignment
                 .into_iter()
                 .map(|shards| StorageNodeTestConfig::new(shards, false))
@@ -3141,6 +3193,9 @@ pub mod test_cluster {
                 )
                 .with_disable_event_blob_writer(disable_event_blob_writers)
                 .with_blob_info_snapshot_certify(blob_info_snapshot_certify)
+                .with_blob_info_snapshot_include_invalid_blobs_from_epoch(
+                    test_nodes_config.blob_info_snapshot_include_invalid_blobs_from_epoch,
+                )
                 .with_blocklist_files(blocklist_files)
                 .with_enable_node_config_synchronizer(
                     test_nodes_config.enable_node_config_synchronizer,
@@ -3414,6 +3469,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             event_processor_config: Default::default(),
             pending_sliver_cache: Default::default(),
             disable_event_blob_writer: false,
+            num_checkpoints_per_blob: None,
             commission_rate: 0,
             voting_params: VotingParamsConfig {
                 voting_prices: VotingPrices {

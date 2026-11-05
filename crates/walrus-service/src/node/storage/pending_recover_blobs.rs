@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{DBMap, ReadWriteOptions, RocksDB},
+    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 use walrus_core::{BlobId, Epoch};
 
@@ -137,6 +137,33 @@ impl PendingRecoverBlobsTable {
             self.count.fetch_sub(1, Ordering::SeqCst);
         }
         Ok(self.count.load(Ordering::SeqCst))
+    }
+
+    /// Adds to `batch` the deletion of the records of `blob_ids`. The cached count is left as it
+    /// is; call [`Self::recount`] once the batch is written.
+    pub fn schedule_delete<'a>(
+        &self,
+        batch: &mut DBBatch,
+        blob_ids: impl IntoIterator<Item = &'a BlobId>,
+    ) -> Result<(), TypedStoreError> {
+        batch.delete_batch(&self.inner, blob_ids)?;
+        Ok(())
+    }
+
+    /// Counts the records in the table and resets the cached count to it, after a write that
+    /// did not go through [`Self::insert`] or [`Self::delete`].
+    pub fn recount(&self) -> Result<u64, TypedStoreError> {
+        let _guard = self
+            .mutation_lock
+            .lock()
+            .expect("mutex should not be poisoned");
+        let mut count: u64 = 0;
+        for entry in self.inner.safe_iter()? {
+            entry?;
+            count += 1;
+        }
+        self.count.store(count, Ordering::SeqCst);
+        Ok(count)
     }
 
     /// Returns all pending-recovery records.

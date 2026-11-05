@@ -75,6 +75,12 @@ pub struct BlobInfoSnapshotWriterConfig {
     /// snapshot blob through the system contract from a background task. Has no effect if
     /// `enabled` is false.
     pub certify: bool,
+    /// Whether a brand-new node whose event replay is not covered by its local event store loads
+    /// the latest certified snapshot at startup.
+    ///
+    /// Defaults to `true`. When disabled, such a node starts with incomplete event history
+    /// instead, which misses pooled blobs registered before its first available event.
+    pub bootstrap: bool,
     /// The first boundary epoch at which the snapshot carries the invalidated blob IDs (snapshot
     /// format version 2). Before it, and when unset, the snapshot is written in format version 1,
     /// without them.
@@ -91,6 +97,7 @@ impl Default for BlobInfoSnapshotWriterConfig {
         Self {
             enabled: true,
             certify: false,
+            bootstrap: true,
             include_invalid_blobs_from_epoch: None,
         }
     }
@@ -148,6 +155,22 @@ fn snapshot_file_epoch(file_name: &str) -> Option<Epoch> {
         .strip_suffix(".bin")?
         .parse()
         .ok()
+}
+
+/// Returns the epoch and path of the newest complete snapshot file in `base_dir`, if any.
+pub(super) fn latest_snapshot_file(base_dir: &Path) -> Option<(Epoch, PathBuf)> {
+    fs::read_dir(base_dir)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            if name.ends_with(".tmp") {
+                return None;
+            }
+            Some((snapshot_file_epoch(name)?, entry.path()))
+        })
+        .max_by_key(|(epoch, _)| *epoch)
 }
 
 fn saturating_i64(value: u64) -> i64 {

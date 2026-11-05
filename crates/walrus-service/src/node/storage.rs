@@ -45,7 +45,14 @@ use self::{
         PerObjectPooledBlobInfo,
         PerObjectPooledBlobInfoIterator,
     },
-    blob_info_snapshot::{SnapshotError, SnapshotFormat, SnapshotHeader, SnapshotStats},
+    blob_info_snapshot::{
+        DecodedSnapshot,
+        InvalidBlobInfo,
+        SnapshotError,
+        SnapshotFormat,
+        SnapshotHeader,
+        SnapshotStats,
+    },
     constants::{
         garbage_collector_last_completed_epoch_key,
         garbage_collector_last_started_epoch_key,
@@ -339,6 +346,18 @@ impl Display for NodeStatus {
             ),
         }
     }
+}
+
+/// What repairing a node's invalidated blob IDs from a certified snapshot changed; see
+/// [`Storage::repair_invalid_blobs_from_certified_snapshot`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct InvalidBlobRepair {
+    /// The blobs the certified snapshot marks that the node did not.
+    pub added: usize,
+    /// The blobs the node marked with another epoch or event than the certified snapshot.
+    pub replaced: usize,
+    /// The blobs the node marks that the certified snapshot does not; they are left as they are.
+    pub extra: usize,
 }
 
 /// Storage backing a [`StorageNode`][crate::node::StorageNode].
@@ -673,6 +692,232 @@ impl Storage {
         writer: W,
     ) -> Result<SnapshotStats, SnapshotError> {
         self.blob_info.write_snapshot(header, format, writer)
+    }
+
+    /// Replaces the blob info tables with the contents of a blob info snapshot, deletes the data
+    /// of the blobs it marks invalid, repositions the event cursor, sets the garbage collector's
+    /// progress to the snapshot's epoch, and sets the node status to `RecoveryCatchUp`, all in
+    /// one atomic write.
+    ///
+    /// See also [`Self::repair_invalid_blobs_from_certified_snapshot`].
+    ///
+    /// Only while no component that reads or writes the blob info tables or processes events is
+    /// running: offline, or while the node is being constructed. The cursor is placed on the
+    /// snapshot's boundary `EpochChangeStart` event rather than after it, so the node processes
+    /// that event once more; for a snapshot of the current epoch this lets the node leave catch-up
+    /// right away instead of at the next epoch change.
+    ///
+    /// A blob the snapshot marks invalid loses its metadata, its slivers on every shard of this
+    /// node, and its pending-recovery record, as processing its `InvalidBlobID` event would. A
+    /// snapshot in a format without invalidated blob IDs marks nothing, so a node loaded from one
+    /// keeps the data of blobs invalidated before its boundary until it processes a later event
+    /// for them.
+    ///
+    /// The other blob data stays, and so does the node's record of it: a blob whose aggregate
+    /// entry says its metadata is stored keeps an entry, with that flag on the entry the snapshot
+    /// rebuilds, or as an untracked blob with metadata stored when the snapshot lists no object
+    /// for it, so that garbage collection deletes its data as on a replayed node (see
+    /// [`BlobInfoTable::schedule_snapshot_load`]). The data of a blob without such an entry, in a
+    /// database whose aggregate table was dropped instead of kept, stays out of reach.
+    ///
+    /// Returns the number of rebuilt aggregate blob info entries.
+    pub(crate) fn load_blob_info_snapshot(
+        &self,
+        snapshot: &DecodedSnapshot,
+    ) -> anyhow::Result<usize> {
+        let header = &snapshot.header;
+        let boundary_event_index = header
+            .event_cursor
+            .next_event_index()
+            .checked_sub(1)
+            .context("the snapshot cursor must be after the boundary event")?;
+        // Nothing holds the shard map while no other component runs, which this function
+        // requires; a held map therefore means the requirement is not met.
+        let shards: Vec<Arc<ShardStorage>> = self
+            .shards
+            .try_read()
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "the shard map is in use; a blob info snapshot can only be loaded while no \
+                    other component runs"
+                )
+            })?
+            .values()
+            .cloned()
+            .collect();
+
+        let mut batch = self.node_status.batch();
+        let aggregate_count = self.blob_info.schedule_snapshot_load(
+            &mut batch,
+            header.epoch,
+            boundary_event_index,
+            &snapshot.per_object,
+            &snapshot.per_object_pooled,
+            &snapshot.storage_pools,
+            snapshot.invalid_blobs(),
+        )?;
+        for (blob_id, _) in snapshot.invalid_blobs() {
+            self.delete_metadata(&mut batch, blob_id, false)?;
+            for shard in &shards {
+                shard.delete_sliver_pair(&mut batch, blob_id)?;
+            }
+        }
+        self.pending_recover_blobs.schedule_delete(
+            &mut batch,
+            snapshot.invalid_blobs().iter().map(|(blob_id, _)| blob_id),
+        )?;
+        self.event_cursor.schedule_reposition_event_cursor(
+            &mut batch,
+            header.event_cursor.event_id(),
+            boundary_event_index,
+        )?;
+        batch.insert_batch(&self.node_status, [(&(), &NodeStatus::RecoveryCatchUp)])?;
+        // The garbage collector's progress belongs to the replaced state. The snapshot was
+        // written after the blob info cleanup of its boundary, and a cleanup of a later epoch
+        // that the startup check would otherwise rerun must not run on the loaded state before
+        // the events in between are replayed.
+        batch.insert_batch(
+            &self.garbage_collector_table,
+            [
+                (&garbage_collector_last_started_epoch_key(), &header.epoch),
+                (&garbage_collector_last_completed_epoch_key(), &header.epoch),
+            ],
+        )?;
+        batch.write()?;
+
+        // The batch updates neither the in-memory event sequencer nor the cached pending-recovery
+        // count; bring both to the new state so that this storage can serve right away, as during
+        // the startup bootstrap.
+        self.event_cursor
+            .reposition_event_cursor(header.event_cursor.event_id(), boundary_event_index)?;
+        self.pending_recover_blobs.recount()?;
+
+        Ok(aggregate_count)
+    }
+
+    /// Reduces the aggregate blob info table to this node's record of the blobs it holds data
+    /// for, in writes of `batch_size` entries; see
+    /// [`BlobInfoTable::reduce_to_stored_metadata`]. Only while no component that reads or
+    /// writes the blob info tables or processes events is running.
+    ///
+    /// Returns the number of entries kept and deleted.
+    pub(crate) fn reduce_aggregate_blob_info_to_stored_metadata(
+        &self,
+        batch_size: usize,
+    ) -> Result<(usize, usize), TypedStoreError> {
+        self.blob_info.reduce_to_stored_metadata(batch_size)
+    }
+
+    /// Brings the node's invalidated blob IDs in line with `certified`, the certified snapshot of
+    /// the boundary at which the node wrote `own`, when the two differ only in them.
+    ///
+    /// A blob the certified snapshot marks and the node does not, or marks with another epoch or
+    /// event, gets the certified mark (a different mark is replaced), and its metadata, slivers,
+    /// and pending-recovery record are deleted, as in a load. Marks the node holds that the
+    /// certified snapshot lacks are left alone and counted. Fails without changing anything if
+    /// the snapshots are not both in a format with invalidated blob IDs, or differ in the header
+    /// or in the object and pool sections: such a node diverges for another reason and is not
+    /// touched here.
+    ///
+    /// Only while no component that reads or writes the blob info tables or processes events is
+    /// running, like [`Self::load_blob_info_snapshot`].
+    pub(crate) fn repair_invalid_blobs_from_certified_snapshot(
+        &self,
+        own: &DecodedSnapshot,
+        certified: &DecodedSnapshot,
+    ) -> anyhow::Result<InvalidBlobRepair> {
+        let (Some(own_marks), Some(certified_marks)) =
+            (&own.invalid_blobs, &certified.invalid_blobs)
+        else {
+            anyhow::bail!(
+                "both snapshots must carry invalidated blob IDs: the own one is in format version \
+                {}, the certified one in format version {}",
+                own.format.version(),
+                certified.format.version()
+            );
+        };
+        anyhow::ensure!(
+            own.header == certified.header,
+            "the snapshots have different headers: own {:?}, certified {:?}",
+            own.header,
+            certified.header
+        );
+        anyhow::ensure!(
+            own.per_object == certified.per_object
+                && own.per_object_pooled == certified.per_object_pooled
+                && own.storage_pools == certified.storage_pools,
+            "the snapshots differ in their object or pool sections, not only in the invalidated \
+            blob IDs"
+        );
+        let certified_ids: std::collections::HashSet<BlobId> = certified_marks
+            .iter()
+            .map(|(blob_id, _)| *blob_id)
+            .collect();
+        let extra = own_marks
+            .iter()
+            .filter(|(blob_id, _)| !certified_ids.contains(blob_id))
+            .count();
+
+        // The node's table may have moved on since it wrote `own`, so the marks to apply are
+        // decided against the table, not against the file.
+        let mut added = Vec::new();
+        let mut replaced = Vec::new();
+        for (blob_id, InvalidBlobInfo::V1(invalidation)) in certified_marks {
+            match self
+                .get_blob_info(blob_id)?
+                .and_then(|blob_info| blob_info.invalidation())
+            {
+                Some((epoch, event))
+                    if epoch == invalidation.epoch && event == invalidation.event => {}
+                Some(_) => replaced.push((*blob_id, invalidation)),
+                None => added.push((*blob_id, invalidation)),
+            }
+        }
+
+        let shards: Vec<Arc<ShardStorage>> = self
+            .shards
+            .try_read()
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "the shard map is in use; invalidated blob IDs can only be repaired while no \
+                    other component runs"
+                )
+            })?
+            .values()
+            .cloned()
+            .collect();
+        let mut batch = self.node_status.batch();
+        // A different mark is replaced by deleting the entry first, because the merge keeps an
+        // existing mark; a write batch applies its operations in order.
+        self.blob_info.schedule_aggregate_deletions(
+            &mut batch,
+            replaced.iter().map(|(blob_id, _)| blob_id),
+        )?;
+        self.blob_info.schedule_invalid_marks(
+            &mut batch,
+            added
+                .iter()
+                .chain(&replaced)
+                .map(|(blob_id, invalidation)| (blob_id, *invalidation)),
+        )?;
+        for (blob_id, _) in added.iter().chain(&replaced) {
+            self.delete_metadata(&mut batch, blob_id, false)?;
+            for shard in &shards {
+                shard.delete_sliver_pair(&mut batch, blob_id)?;
+            }
+        }
+        self.pending_recover_blobs.schedule_delete(
+            &mut batch,
+            added.iter().chain(&replaced).map(|(blob_id, _)| blob_id),
+        )?;
+        batch.write()?;
+        self.pending_recover_blobs.recount()?;
+
+        Ok(InvalidBlobRepair {
+            added: added.len(),
+            replaced: replaced.len(),
+            extra,
+        })
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
@@ -3282,5 +3527,766 @@ pub(crate) mod tests {
         );
 
         Ok(())
+    }
+
+    /// A node that loads the blob info snapshot of an epoch boundary and then processes the events
+    /// after it must end up with the same blob info as a node that processed every event.
+    mod blob_info_snapshot_load {
+        use std::io::Cursor;
+
+        use walrus_core::{DEFAULT_ENCODING, test_utils::blob_id_from_u64};
+        use walrus_storage_node_client::api::BlobStatus;
+        use walrus_sui::{
+            test_utils::fixed_event_id_for_testing,
+            types::{BlobDeleted, PooledBlobDeleted},
+        };
+
+        use super::*;
+        use crate::node::storage::{blob_info::CertifiedBlobInfoApi, blob_info_snapshot};
+
+        /// An event of a test scenario, applied the way the node applies it.
+        #[derive(Clone)]
+        enum Step {
+            Blob(BlobEvent),
+            Pool(StoragePoolEvent),
+            /// The change to the given epoch, with its garbage-collection phase 1.
+            EpochChange(Epoch),
+        }
+
+        fn object_id(object: u8) -> ObjectID {
+            ObjectID::from_single_byte(object)
+        }
+
+        fn pool_id(pool: u8) -> ObjectID {
+            ObjectID::from_single_byte(pool.wrapping_add(100))
+        }
+
+        fn epoch_change(epoch: Epoch) -> Step {
+            Step::EpochChange(epoch)
+        }
+
+        fn register(
+            epoch: Epoch,
+            blob: u64,
+            object: u8,
+            end_epoch: Epoch,
+            deletable: bool,
+        ) -> Step {
+            Step::Blob(BlobEvent::Registered(BlobRegistered {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                size: 1024,
+                encoding_type: DEFAULT_ENCODING,
+                end_epoch,
+                deletable,
+                object_id: object_id(object),
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn certify(epoch: Epoch, blob: u64, object: u8, end_epoch: Epoch, deletable: bool) -> Step {
+            certified(epoch, blob, object, end_epoch, deletable, false)
+        }
+
+        fn extend(epoch: Epoch, blob: u64, object: u8, end_epoch: Epoch, deletable: bool) -> Step {
+            certified(epoch, blob, object, end_epoch, deletable, true)
+        }
+
+        fn certified(
+            epoch: Epoch,
+            blob: u64,
+            object: u8,
+            end_epoch: Epoch,
+            deletable: bool,
+            is_extension: bool,
+        ) -> Step {
+            Step::Blob(BlobEvent::Certified(BlobCertified {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                end_epoch,
+                deletable,
+                object_id: object_id(object),
+                is_extension,
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn delete(
+            epoch: Epoch,
+            blob: u64,
+            object: u8,
+            end_epoch: Epoch,
+            was_certified: bool,
+        ) -> Step {
+            Step::Blob(BlobEvent::Deleted(BlobDeleted {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                end_epoch,
+                object_id: object_id(object),
+                was_certified,
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn invalidate(epoch: Epoch, blob: u64) -> Step {
+            invalidate_with_event(epoch, blob, 0)
+        }
+
+        /// An `InvalidBlobID` event with a distinguishable event ID, so that a test can tell
+        /// which of several invalidations of a blob a node holds.
+        fn invalidate_with_event(epoch: Epoch, blob: u64, event: u64) -> Step {
+            Step::Blob(BlobEvent::InvalidBlobID(InvalidBlobId {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                event_id: fixed_event_id_for_testing(event),
+            }))
+        }
+
+        fn pool_create(pool: u8, start_epoch: Epoch, end_epoch: Epoch) -> Step {
+            Step::Pool(StoragePoolEvent::created_for_testing(
+                pool_id(pool),
+                start_epoch,
+                end_epoch,
+            ))
+        }
+
+        fn pool_extend(pool: u8, end_epoch: Epoch) -> Step {
+            Step::Pool(StoragePoolEvent::extended_for_testing(
+                pool_id(pool),
+                end_epoch,
+            ))
+        }
+
+        fn pooled_register(epoch: Epoch, blob: u64, object: u8, pool: u8) -> Step {
+            Step::Blob(BlobEvent::PooledBlobRegistered(PooledBlobRegistered {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                unencoded_size: 1024,
+                encoding_type: DEFAULT_ENCODING,
+                deletable: true,
+                object_id: object_id(object),
+                storage_pool_id: pool_id(pool),
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn pooled_certify(epoch: Epoch, blob: u64, object: u8, pool: u8) -> Step {
+            Step::Blob(BlobEvent::PooledBlobCertified(PooledBlobCertified {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                deletable: true,
+                object_id: object_id(object),
+                storage_pool_id: pool_id(pool),
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        fn pooled_delete(
+            epoch: Epoch,
+            blob: u64,
+            object: u8,
+            pool: u8,
+            was_certified: bool,
+        ) -> Step {
+            Step::Blob(BlobEvent::PooledBlobDeleted(PooledBlobDeleted {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                object_id: object_id(object),
+                was_certified,
+                storage_pool_id: pool_id(pool),
+                event_id: fixed_event_id_for_testing(0),
+            }))
+        }
+
+        /// Permanent and deletable objects, sharing blob IDs, extended, deleted, expiring at
+        /// several boundaries, and certified after some of them.
+        fn permanent_and_deletable() -> Vec<Step> {
+            let mut steps = vec![
+                epoch_change(1),
+                register(1, 1, 1, 10, false),
+                certify(1, 1, 1, 10, false),
+                register(1, 2, 2, 6, true),
+                certify(1, 2, 2, 6, true),
+                register(1, 2, 3, 8, true),
+                epoch_change(2),
+                extend(2, 1, 1, 15, false),
+                register(2, 3, 4, 4, true),
+                certify(2, 3, 4, 4, true),
+                delete(2, 2, 3, 8, false),
+                register(2, 1, 5, 12, true),
+                certify(2, 1, 5, 12, true),
+                epoch_change(3),
+                register(3, 4, 6, 9, false),
+                epoch_change(4),
+                epoch_change(5),
+                certify(5, 4, 6, 9, false),
+                epoch_change(6),
+                delete(6, 1, 5, 12, true),
+            ];
+            steps.extend((7..=16).map(epoch_change));
+            steps
+        }
+
+        /// The first certified object of a blob expires before the boundary while a later one
+        /// stays, so the loaded node only knows the later certification epoch.
+        fn expired_first_certification() -> Vec<Step> {
+            let mut steps = vec![
+                epoch_change(1),
+                register(1, 1, 1, 4, false),
+                certify(1, 1, 1, 4, false),
+                register(1, 2, 3, 4, true),
+                certify(1, 2, 3, 4, true),
+                epoch_change(2),
+                register(2, 1, 2, 10, false),
+                register(2, 2, 4, 9, true),
+                epoch_change(3),
+                certify(3, 1, 2, 10, false),
+                certify(3, 2, 4, 9, true),
+            ];
+            steps.extend((4..=11).map(epoch_change));
+            steps
+        }
+
+        /// Pooled blobs alone and next to regular objects, a pool extended, pools expiring before
+        /// and after the boundary, and a blob whose only pooled reference is deleted.
+        fn pools() -> Vec<Step> {
+            let mut steps = vec![
+                pool_create(1, 1, 5),
+                pool_create(2, 1, 10),
+                pool_create(3, 1, 3),
+                epoch_change(1),
+                pooled_register(1, 1, 1, 1),
+                pooled_certify(1, 1, 1, 1),
+                pooled_register(1, 2, 2, 2),
+                pooled_certify(1, 2, 2, 2),
+                register(1, 2, 3, 8, false),
+                certify(1, 2, 3, 8, false),
+                register(1, 3, 5, 9, true),
+                certify(1, 3, 5, 9, true),
+                pooled_register(1, 3, 4, 2),
+                pooled_register(1, 4, 6, 3),
+                pooled_certify(1, 4, 6, 3),
+                epoch_change(2),
+                pooled_delete(2, 3, 4, 2, false),
+                pool_extend(1, 6),
+                epoch_change(3),
+                pooled_register(3, 5, 7, 2),
+                epoch_change(4),
+                pooled_certify(4, 5, 7, 2),
+            ];
+            steps.extend((5..=11).map(epoch_change));
+            steps
+        }
+
+        async fn apply(
+            storage: &Storage,
+            index: u64,
+            step: &Step,
+            metrics: &NodeMetricSet,
+        ) -> TestResult {
+            match step {
+                Step::Blob(event) => storage.update_blob_info(index, event)?,
+                Step::Pool(event) => storage.update_storage_pool_info(index, event)?,
+                Step::EpochChange(epoch) => {
+                    storage
+                        .process_expired_storage_pools(*epoch, metrics, 100)
+                        .await?;
+                    storage
+                        .process_expired_blob_objects(*epoch, metrics, 100)
+                        .await?;
+                }
+            }
+            Ok(())
+        }
+
+        /// The snapshot bytes in format version 2, so that they cover the invalidated blob IDs.
+        fn snapshot_bytes(storage: &Storage, header: &SnapshotHeader) -> TestResult<Vec<u8>> {
+            let mut buffer = Cursor::new(Vec::new());
+            storage.write_blob_info_snapshot(header, SnapshotFormat::V2, &mut buffer)?;
+            Ok(buffer.into_inner())
+        }
+
+        /// What the node reads from the aggregate entry of `blob_id` at `epoch`.
+        ///
+        /// A loaded node keeps two fields only as best knowledge, so they are normalized: the
+        /// status event, and the first certification epoch, which the node only ever compares
+        /// with the current epoch (both values are at most the snapshot epoch). An entry that
+        /// only waits for removal counts as absent.
+        fn observed(
+            storage: &Storage,
+            blob_id: &BlobId,
+            epoch: Epoch,
+        ) -> TestResult<(BlobStatus, bool, bool)> {
+            let Some(blob_info) = storage
+                .get_blob_info(blob_id)?
+                .filter(|blob_info| !blob_info.can_blob_info_be_deleted(epoch))
+            else {
+                return Ok((BlobStatus::Nonexistent, false, false));
+            };
+            let certified_by =
+                |first: Option<Epoch>| first.map(|first| Epoch::from(first <= epoch));
+            let status = match blob_info.to_blob_status(epoch) {
+                BlobStatus::Permanent {
+                    end_epoch,
+                    is_certified,
+                    deletable_counts,
+                    initial_certified_epoch,
+                    ..
+                } => BlobStatus::Permanent {
+                    end_epoch,
+                    is_certified,
+                    status_event: fixed_event_id_for_testing(0),
+                    deletable_counts,
+                    initial_certified_epoch: certified_by(initial_certified_epoch),
+                },
+                BlobStatus::Deletable {
+                    initial_certified_epoch,
+                    deletable_counts,
+                } => BlobStatus::Deletable {
+                    initial_certified_epoch: certified_by(initial_certified_epoch),
+                    deletable_counts,
+                },
+                status => status,
+            };
+            Ok((
+                status,
+                blob_info.is_certified(epoch),
+                blob_info.is_registered(epoch),
+            ))
+        }
+
+        fn certified_before(storage: &Storage, epoch: Epoch) -> TestResult<Vec<BlobId>> {
+            Ok(storage
+                .certified_blob_info_iter_before_epoch(epoch)
+                .map(|entry| entry.map(|(blob_id, _)| blob_id))
+                .collect::<Result<_, _>>()?)
+        }
+
+        fn assert_equivalent(replayed: &Storage, loaded: &Storage, epoch: Epoch) -> TestResult {
+            let header = SnapshotHeader::new(epoch, fixed_event_id_for_testing(0), 0);
+            assert!(
+                snapshot_bytes(replayed, &header)? == snapshot_bytes(loaded, &header)?,
+                "the per-object tables differ at epoch {epoch}"
+            );
+            for blob in 1..=10 {
+                let blob_id = blob_id_from_u64(blob);
+                assert_eq!(
+                    observed(replayed, &blob_id, epoch)?,
+                    observed(loaded, &blob_id, epoch)?,
+                    "blob {blob_id} differs at epoch {epoch}"
+                );
+            }
+            assert_eq!(
+                certified_before(replayed, epoch)?,
+                certified_before(loaded, epoch)?,
+                "the certified blobs differ at epoch {epoch}"
+            );
+            Ok(())
+        }
+
+        /// Invalidations of a certified blob with live objects, of a blob that is only
+        /// registered, of a blob with no objects at all, of a pooled blob, twice for one blob
+        /// (the second event is ignored), and before a re-registration of the same blob ID
+        /// (ignored too); the live objects of invalidated blobs expire at several boundaries.
+        fn invalidations() -> Vec<Step> {
+            let mut steps = vec![
+                pool_create(1, 1, 10),
+                epoch_change(1),
+                register(1, 1, 1, 10, false),
+                certify(1, 1, 1, 10, false),
+                register(1, 2, 2, 4, true),
+                register(1, 4, 3, 8, true),
+                certify(1, 4, 3, 8, true),
+                pooled_register(1, 5, 4, 1),
+                pooled_certify(1, 5, 4, 1),
+                invalidate(1, 1),
+                invalidate(1, 2),
+                invalidate(1, 3),
+                epoch_change(2),
+                invalidate_with_event(2, 4, 1),
+                invalidate_with_event(2, 4, 2),
+                invalidate(2, 5),
+                register(2, 6, 5, 9, true),
+                certify(2, 6, 5, 9, true),
+                epoch_change(3),
+                invalidate(3, 6),
+                register(3, 6, 6, 12, false),
+                certify(3, 6, 6, 12, false),
+                register(3, 7, 7, 12, false),
+                epoch_change(4),
+                invalidate(4, 7),
+            ];
+            steps.extend((5..=13).map(epoch_change));
+            steps
+        }
+
+        async_param_test! {
+            snapshot_load_matches_replay -> TestResult: [
+                permanent_and_deletable_at_2: (permanent_and_deletable(), 2),
+                permanent_and_deletable_at_4: (permanent_and_deletable(), 4),
+                permanent_and_deletable_at_6: (permanent_and_deletable(), 6),
+                expired_first_certification_at_5: (expired_first_certification(), 5),
+                pools_at_2: (pools(), 2),
+                pools_at_4: (pools(), 4),
+                pools_at_6: (pools(), 6),
+                invalidations_at_2: (invalidations(), 2),
+                invalidations_at_3: (invalidations(), 3),
+                invalidations_at_5: (invalidations(), 5),
+                invalidations_at_11: (invalidations(), 11),
+            ]
+        }
+        async fn snapshot_load_matches_replay(
+            steps: Vec<Step>,
+            snapshot_epoch: Epoch,
+        ) -> TestResult {
+            let metrics = NodeMetricSet::new(&Registry::default());
+            let replayed = empty_storage().await;
+            let replayed = replayed.as_ref();
+            let loaded = empty_storage().await;
+            let loaded = loaded.as_ref();
+
+            let boundary = steps
+                .iter()
+                .position(
+                    |step| matches!(step, Step::EpochChange(epoch) if *epoch == snapshot_epoch),
+                )
+                .expect("the scenario contains the snapshot boundary");
+            let boundary_index = u64::try_from(boundary)?;
+            for (index, step) in steps[..=boundary].iter().enumerate() {
+                apply(replayed, u64::try_from(index)?, step, &metrics).await?;
+            }
+
+            let header = SnapshotHeader::new(
+                snapshot_epoch,
+                fixed_event_id_for_testing(boundary_index),
+                boundary_index + 1,
+            );
+            let bytes = snapshot_bytes(replayed, &header)?;
+            let decoded = blob_info_snapshot::read_snapshot(&bytes)?;
+            assert_eq!(decoded.header, header);
+            assert_eq!(decoded.format, SnapshotFormat::V2);
+
+            // The load must replace whatever the tables held before: here the scenario's final
+            // state plus long-lived blobs (9 and 10) that the scenario never has, an invalidation
+            // of blob 9 that the snapshot does not carry, and an invalidation of blob 1 with a
+            // different event than any the snapshot may carry for it.
+            let divergent = [
+                register(1, 9, 90, 100, false),
+                certify(1, 9, 90, 100, false),
+                register(1, 10, 91, 100, true),
+                certify(1, 10, 91, 100, true),
+                pooled_register(1, 10, 92, 9),
+                invalidate_with_event(1, 9, 99),
+                invalidate_with_event(1, 1, 99),
+            ];
+            let prefill = std::iter::once(pool_create(9, 1, 100))
+                .chain(steps.iter().map(Step::clone))
+                .chain(divergent);
+            for (index, step) in prefill.enumerate() {
+                apply(loaded, u64::try_from(index)?, &step, &metrics).await?;
+            }
+            // The node holds metadata for every blob of the scenario, as one that stored them;
+            // the entries of valid blobs record it, those of invalidated blobs do not.
+            let metadata = walrus_core::test_utils::verified_blob_metadata();
+            let mut stored_before = Vec::new();
+            for blob in 1..=10 {
+                let blob_id = blob_id_from_u64(blob);
+                loaded.put_metadata(&blob_id, metadata.metadata()).await?;
+                if loaded
+                    .get_blob_info(&blob_id)?
+                    .is_some_and(|blob_info| blob_info.is_metadata_stored())
+                {
+                    stored_before.push(blob_id);
+                }
+            }
+            // Garbage collection started for a later epoch and did not complete.
+            loaded.set_garbage_collector_last_started_epoch(snapshot_epoch + 1)?;
+            loaded.set_garbage_collector_last_completed_epoch(snapshot_epoch)?;
+            loaded.load_blob_info_snapshot(&decoded)?;
+
+            assert_eq!(loaded.node_status()?, NodeStatus::RecoveryCatchUp);
+            assert_eq!(
+                loaded.garbage_collector_last_started_and_completed_epochs()?,
+                (snapshot_epoch, snapshot_epoch)
+            );
+            for blob_id in &stored_before {
+                assert!(
+                    loaded
+                        .get_blob_info(blob_id)?
+                        .is_some_and(|blob_info| blob_info.is_metadata_stored()),
+                    "blob {blob_id} lost its entry or its metadata-stored flag in the load"
+                );
+            }
+            assert_eq!(
+                loaded
+                    .get_event_cursor_and_next_index()?
+                    .map(|cursor| cursor.next_event_index()),
+                Some(boundary_index)
+            );
+
+            // The loaded node processes the boundary event once more.
+            apply(loaded, boundary_index, &steps[boundary], &metrics).await?;
+            assert_equivalent(replayed, loaded, snapshot_epoch)?;
+
+            let mut epoch = snapshot_epoch;
+            for (index, step) in steps.iter().enumerate().skip(boundary + 1) {
+                let index = u64::try_from(index)?;
+                apply(replayed, index, step, &metrics).await?;
+                apply(loaded, index, step, &metrics).await?;
+                if let Step::EpochChange(new_epoch) = step {
+                    epoch = *new_epoch;
+                    assert_equivalent(replayed, loaded, epoch)?;
+                }
+            }
+            assert_equivalent(replayed, loaded, epoch)
+        }
+
+        /// The repair applies the certified marks the node lacks or holds with a different pair,
+        /// deletes the data of those blobs, leaves equal and extra marks alone, and refuses
+        /// snapshots that differ anywhere else or carry no marks.
+        #[tokio::test]
+        async fn repair_applies_certified_invalidations_only() -> TestResult {
+            let blob = blob_id_from_u64;
+            let storage = populated_storage(&[(
+                SHARD_INDEX,
+                vec![(blob(1), WhichSlivers::Both), (blob(2), WhichSlivers::Both)],
+            )])
+            .await?;
+            let storage = storage.as_ref();
+            let metrics = NodeMetricSet::new(&Registry::default());
+            let metadata = walrus_core::test_utils::verified_blob_metadata();
+            for blob_id in [blob(1), blob(2)] {
+                storage.put_metadata(&blob_id, metadata.metadata()).await?;
+            }
+            // Blob 1 is not marked locally; blob 2 is marked with another event than the
+            // certified one; blob 3 is marked alike; blob 4 is marked only locally.
+            let local_steps = [
+                epoch_change(1),
+                invalidate_with_event(1, 2, 9),
+                invalidate(1, 3),
+                invalidate(1, 4),
+            ];
+            for (index, step) in local_steps.iter().enumerate() {
+                apply(storage, u64::try_from(index)?, step, &metrics).await?;
+            }
+
+            let invalidation = |blob_number| -> TestResult<Option<EventID>> {
+                Ok(storage
+                    .get_blob_info(&blob(blob_number))?
+                    .and_then(|blob_info| blob_info.invalidation_event()))
+            };
+            let mark = |blob_number, event| {
+                (
+                    blob(blob_number),
+                    InvalidBlobInfo::V1(blob_info_snapshot::InvalidBlobInfoV1 {
+                        epoch: 1,
+                        event: fixed_event_id_for_testing(event),
+                    }),
+                )
+            };
+            let own = DecodedSnapshot {
+                format: SnapshotFormat::V2,
+                header: SnapshotHeader::new(2, fixed_event_id_for_testing(4), 5),
+                per_object: vec![],
+                per_object_pooled: vec![],
+                storage_pools: vec![],
+                invalid_blobs: Some(vec![mark(2, 9), mark(3, 0), mark(4, 0)]),
+            };
+            let certified = DecodedSnapshot {
+                invalid_blobs: Some(vec![mark(1, 0), mark(2, 2), mark(3, 0)]),
+                ..own.clone()
+            };
+
+            // Snapshots that differ outside the marks, or without marks, are refused unchanged.
+            let other_header = DecodedSnapshot {
+                header: SnapshotHeader::new(3, fixed_event_id_for_testing(4), 5),
+                ..certified.clone()
+            };
+            let format_1 = DecodedSnapshot {
+                format: SnapshotFormat::V1,
+                invalid_blobs: None,
+                ..certified.clone()
+            };
+            for rejected in [&other_header, &format_1] {
+                assert!(
+                    storage
+                        .repair_invalid_blobs_from_certified_snapshot(&own, rejected)
+                        .is_err()
+                );
+            }
+            // Storing the metadata gave blob 1 an aggregate entry without objects; it is not
+            // marked.
+            assert_eq!(invalidation(1)?, None);
+            assert!(storage.get_metadata(&blob(1))?.is_some());
+
+            let repair = storage.repair_invalid_blobs_from_certified_snapshot(&own, &certified)?;
+            assert_eq!(
+                repair,
+                InvalidBlobRepair {
+                    added: 1,
+                    replaced: 1,
+                    extra: 1,
+                }
+            );
+            assert_eq!(invalidation(1)?, Some(fixed_event_id_for_testing(0)));
+            assert_eq!(invalidation(2)?, Some(fixed_event_id_for_testing(2)));
+            assert_eq!(invalidation(3)?, Some(fixed_event_id_for_testing(0)));
+            assert_eq!(invalidation(4)?, Some(fixed_event_id_for_testing(0)));
+            // The data of the newly marked blobs is gone.
+            let shard = storage
+                .shard_storage(SHARD_INDEX)
+                .await
+                .expect("the shard exists");
+            for blob_id in [blob(1), blob(2)] {
+                assert!(storage.get_metadata(&blob_id)?.is_none());
+                assert!(shard.get_sliver(&blob_id, SliverType::Primary)?.is_none());
+            }
+            // A second run finds the table in line with the certified marks.
+            assert_eq!(
+                storage.repair_invalid_blobs_from_certified_snapshot(&own, &certified)?,
+                InvalidBlobRepair {
+                    added: 0,
+                    replaced: 0,
+                    extra: 1,
+                }
+            );
+            Ok(())
+        }
+
+        /// Loading a snapshot deletes the metadata, the slivers, and the pending-recovery record
+        /// of every blob it marks invalid, and nothing of the other blobs.
+        #[tokio::test]
+        async fn snapshot_load_deletes_data_of_invalidated_blobs() -> TestResult {
+            let (invalid_blob, valid_blob) = (blob_id_from_u64(1), blob_id_from_u64(2));
+            let storage = populated_storage(&[(
+                SHARD_INDEX,
+                vec![
+                    (invalid_blob, WhichSlivers::Both),
+                    (valid_blob, WhichSlivers::Both),
+                ],
+            )])
+            .await?;
+            let storage = storage.as_ref();
+            let metadata = walrus_core::test_utils::verified_blob_metadata();
+            for blob_id in [&invalid_blob, &valid_blob] {
+                storage.put_metadata(blob_id, metadata.metadata()).await?;
+                storage.insert_pending_recover_blob(blob_id, 0, 1)?;
+            }
+            assert_eq!(storage.pending_recover_blob_count(), 2);
+
+            let invalidation_event = fixed_event_id_for_testing(3);
+            let snapshot = blob_info_snapshot::DecodedSnapshot {
+                format: SnapshotFormat::V2,
+                header: SnapshotHeader::new(2, fixed_event_id_for_testing(5), 6),
+                per_object: vec![],
+                per_object_pooled: vec![],
+                storage_pools: vec![],
+                invalid_blobs: Some(vec![(
+                    invalid_blob,
+                    blob_info_snapshot::InvalidBlobInfo::V1(
+                        blob_info_snapshot::InvalidBlobInfoV1 {
+                            epoch: 1,
+                            event: invalidation_event,
+                        },
+                    ),
+                )]),
+            };
+            storage.load_blob_info_snapshot(&snapshot)?;
+
+            assert!(storage.get_metadata(&invalid_blob)?.is_none());
+            assert!(storage.get_metadata(&valid_blob)?.is_some());
+            let shard = storage
+                .shard_storage(SHARD_INDEX)
+                .await
+                .expect("the shard exists");
+            for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                assert!(shard.get_sliver(&invalid_blob, sliver_type)?.is_none());
+                assert!(shard.get_sliver(&valid_blob, sliver_type)?.is_some());
+            }
+            assert_eq!(storage.pending_recover_blob_count(), 1);
+            assert_eq!(
+                storage
+                    .scan_pending_recover_blobs()?
+                    .into_iter()
+                    .map(|(blob_id, _)| blob_id)
+                    .collect::<Vec<_>>(),
+                vec![valid_blob]
+            );
+            assert_eq!(
+                storage
+                    .get_blob_info(&invalid_blob)?
+                    .map(|blob_info| blob_info.to_blob_status(2)),
+                Some(BlobStatus::Invalid {
+                    event: invalidation_event
+                })
+            );
+            // The valid blob keeps its data and the entry that keeps it known to garbage
+            // collection.
+            let valid_info = storage
+                .get_blob_info(&valid_blob)?
+                .expect("the blob with stored metadata keeps an entry");
+            assert!(valid_info.is_metadata_stored());
+            assert!(valid_info.can_blob_info_be_deleted(2));
+            Ok(())
+        }
+
+        /// A load keeps an entry for every blob whose metadata this node records as stored: as
+        /// an untracked blob with metadata stored when the snapshot lists no object for it, so
+        /// that data deletion removes its data together with the entry. Data stored without that
+        /// record is left alone.
+        #[tokio::test]
+        async fn snapshot_load_keeps_stored_blobs_known_to_garbage_collection() -> TestResult {
+            let (dead, unrecorded) = (blob_id_from_u64(1), blob_id_from_u64(2));
+            let storage = populated_storage(&[(
+                SHARD_INDEX,
+                vec![(dead, WhichSlivers::Both), (unrecorded, WhichSlivers::Both)],
+            )])
+            .await?;
+            let storage = storage.as_ref();
+            let metadata = walrus_core::test_utils::verified_blob_metadata();
+            storage.put_metadata(&dead, metadata.metadata()).await?;
+            storage.put_verified_metadata_without_blob_info(
+                &VerifiedBlobMetadataWithId::new_verified_unchecked(
+                    unrecorded,
+                    metadata.metadata().clone(),
+                ),
+            )?;
+            let node_metrics = NodeMetricSet::new(&Registry::default());
+
+            let snapshot = blob_info_snapshot::DecodedSnapshot {
+                format: SnapshotFormat::V2,
+                header: SnapshotHeader::new(2, fixed_event_id_for_testing(5), 6),
+                per_object: vec![],
+                per_object_pooled: vec![],
+                storage_pools: vec![],
+                invalid_blobs: Some(vec![]),
+            };
+            storage.load_blob_info_snapshot(&snapshot)?;
+
+            let dead_info = storage
+                .get_blob_info(&dead)?
+                .expect("the recorded blob keeps an entry");
+            assert!(dead_info.is_metadata_stored());
+            assert!(dead_info.can_blob_info_be_deleted(2));
+            assert!(storage.get_blob_info(&unrecorded)?.is_none());
+
+            assert!(
+                storage
+                    .attempt_to_delete_blob_data(&dead, 2, &node_metrics)
+                    .await?
+            );
+            assert!(storage.get_metadata(&dead)?.is_none());
+            let shard = storage
+                .shard_storage(SHARD_INDEX)
+                .await
+                .expect("the shard exists");
+            for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                assert!(shard.get_sliver(&dead, sliver_type)?.is_none());
+                assert!(shard.get_sliver(&unrecorded, sliver_type)?.is_some());
+            }
+            assert!(storage.get_blob_info(&dead)?.is_none());
+            assert!(storage.get_metadata(&unrecorded)?.is_some());
+            Ok(())
+        }
     }
 }
