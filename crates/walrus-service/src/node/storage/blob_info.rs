@@ -61,7 +61,15 @@ use self::{
 };
 use super::{
     DatabaseTableOptionsFactory,
-    blob_info_snapshot::{self, SnapshotError, SnapshotHeader, SnapshotStats},
+    blob_info_snapshot::{
+        self,
+        InvalidBlobInfo,
+        InvalidBlobInfoV1,
+        SnapshotError,
+        SnapshotFormat,
+        SnapshotHeader,
+        SnapshotStats,
+    },
     constants,
     metrics::BlobUpdateLockMetrics,
 };
@@ -499,29 +507,50 @@ impl BlobInfoTable {
         )
     }
 
-    /// Serializes a blob info snapshot of the three snapshotted column families into `writer`.
-    /// See [`super::blob_info_snapshot`] for the format. Must be called directly after GC phase 1
-    /// at the epoch boundary, before processing any further events.
+    /// Serializes a blob info snapshot in `format` into `writer`: the three snapshotted column
+    /// families and, for a format with an invalidated-blob section, the invalidated blob IDs from
+    /// the aggregate table. See [`super::blob_info_snapshot`] for the format. Must be called
+    /// directly after GC phase 1 at the epoch boundary, before processing any further events.
     ///
-    /// All three column families are read through a single RocksDB engine snapshot, so they are
-    /// captured at one consistent sequence number.
+    /// All column families are read through a single RocksDB engine snapshot, so they are
+    /// captured at one consistent sequence number. The aggregate table is only read for a format
+    /// that includes it.
     pub fn write_snapshot<W: std::io::Write + std::io::Seek>(
         &self,
         header: &SnapshotHeader,
+        format: SnapshotFormat,
         writer: W,
     ) -> Result<SnapshotStats, SnapshotError> {
-        // The three column families share one database instance, so one engine snapshot covers
-        // them all.
+        // The column families share one database instance, so one engine snapshot covers them
+        // all.
         let engine_snapshot = self.per_object_blob_info.rocksdb.snapshot();
         blob_info_snapshot::write_snapshot(
             writer,
             header,
+            format,
             self.per_object_blob_info
                 .safe_iter_with_snapshot(&engine_snapshot)?,
             self.per_object_pooled_blob_info
                 .safe_iter_with_snapshot(&engine_snapshot)?,
             self.storage_pool_info
                 .safe_iter_with_snapshot(&engine_snapshot)?,
+            || {
+                let invalid_blobs = self
+                    .aggregate_blob_info
+                    .safe_iter_with_snapshot(&engine_snapshot)?
+                    .filter_map(|entry| match entry {
+                        Ok((blob_id, blob_info)) => {
+                            blob_info.invalidation().map(|(epoch, event)| {
+                                Ok((
+                                    blob_id,
+                                    InvalidBlobInfo::V1(InvalidBlobInfoV1 { epoch, event }),
+                                ))
+                            })
+                        }
+                        Err(error) => Some(Err(error)),
+                    });
+                Ok(invalid_blobs)
+            },
         )
     }
 
@@ -1519,10 +1548,17 @@ pub(crate) trait BlobInfoApi: CertifiedBlobInfoApi {
     /// objects exist in the per-object blob info table.
     fn can_blob_info_be_deleted(&self, current_epoch: Epoch) -> bool;
 
+    /// Returns the epoch and the event through which this blob was marked invalid.
+    ///
+    /// Returns `None` if it isn't invalid.
+    fn invalidation(&self) -> Option<(Epoch, EventID)>;
+
     /// Returns the event through which this blob was marked invalid.
     ///
     /// Returns `None` if it isn't invalid.
-    fn invalidation_event(&self) -> Option<EventID>;
+    fn invalidation_event(&self) -> Option<EventID> {
+        self.invalidation().map(|(_, event)| event)
+    }
 
     /// Converts the blob information to a `BlobStatus` object.
     fn to_blob_status(&self, current_epoch: Epoch) -> BlobStatus;
