@@ -10,7 +10,7 @@ mod perm_blob_info;
 mod storage_pool_info;
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Debug,
     num::NonZeroUsize,
     ops::Bound::{self, Unbounded},
@@ -552,6 +552,76 @@ impl BlobInfoTable {
                 Ok(invalid_blobs)
             },
         )
+    }
+
+    /// Adds to `batch` the writes that replace the blob info tables with the entries of a blob
+    /// info snapshot taken at the boundary of `snapshot_epoch`.
+    ///
+    /// Every existing key of the four tables gets a point delete (a range delete would stay
+    /// visible, as reads ignore range tombstones), the three snapshotted tables are filled from
+    /// the snapshot, the aggregate table is rebuilt from them and from this node's record of the
+    /// blobs it holds metadata for (the entries' metadata-stored flags, read before the
+    /// deletion; see
+    /// [`rebuild_aggregate_blob_info`]), and `latest_handled_event_index` is set to
+    /// `boundary_event_index`. Nothing is written until the caller writes the batch.
+    ///
+    /// Returns the number of rebuilt aggregate entries.
+    #[allow(clippy::too_many_arguments)]
+    pub fn schedule_snapshot_load(
+        &self,
+        batch: &mut DBBatch,
+        snapshot_epoch: Epoch,
+        boundary_event_index: u64,
+        per_object: &[(ObjectID, PerObjectBlobInfo)],
+        per_object_pooled: &[(ObjectID, PerObjectPooledBlobInfo)],
+        storage_pools: &[(ObjectID, StoragePoolInfo)],
+    ) -> Result<usize, TypedStoreError> {
+        let stored_metadata = self.stored_metadata_blob_ids()?;
+        delete_all_keys(batch, &self.aggregate_blob_info)?;
+        delete_all_keys(batch, &self.per_object_blob_info)?;
+        delete_all_keys(batch, &self.per_object_pooled_blob_info)?;
+        delete_all_keys(batch, &self.storage_pool_info)?;
+
+        batch.insert_batch(
+            &self.per_object_blob_info,
+            per_object.iter().map(|(key, value)| (key, value)),
+        )?;
+        batch.insert_batch(
+            &self.per_object_pooled_blob_info,
+            per_object_pooled.iter().map(|(key, value)| (key, value)),
+        )?;
+        batch.insert_batch(
+            &self.storage_pool_info,
+            storage_pools.iter().map(|(key, value)| (key, value)),
+        )?;
+
+        let aggregate = rebuild_aggregate_blob_info(
+            snapshot_epoch,
+            per_object,
+            per_object_pooled,
+            &stored_metadata,
+        )?;
+        batch.insert_batch(&self.aggregate_blob_info, aggregate.iter())?;
+
+        let latest_handled_event_index = self
+            .latest_handled_event_index
+            .lock()
+            .expect("mutex should not be poisoned");
+        batch.insert_batch(&latest_handled_event_index, [(&(), boundary_event_index)])?;
+
+        Ok(aggregate.len())
+    }
+
+    /// Returns the IDs of the blobs whose aggregate entry says their metadata is stored: this
+    /// node's own record of the blobs it holds data for, which storing metadata maintains.
+    pub fn stored_metadata_blob_ids(&self) -> Result<HashSet<BlobId>, TypedStoreError> {
+        self.aggregate_blob_info
+            .safe_iter()?
+            .filter_map(|entry| match entry {
+                Ok((blob_id, blob_info)) => blob_info.is_metadata_stored().then_some(Ok(blob_id)),
+                Err(error) => Some(Err(error)),
+            })
+            .collect()
     }
 
     /// Returns an iterator over all entries in the aggregate blob info table within the given
@@ -1355,6 +1425,147 @@ impl BlobInfoTable {
         }
         Ok(())
     }
+}
+
+/// Adds a point delete for every key of `table` to `batch`.
+fn delete_all_keys<K, V>(batch: &mut DBBatch, table: &DBMap<K, V>) -> Result<(), TypedStoreError>
+where
+    K: Serialize + DeserializeOwned,
+    V: Serialize + DeserializeOwned,
+{
+    let keys = table
+        .safe_iter()?
+        .map(|entry| entry.map(|(key, _)| key))
+        .collect::<Result<Vec<_>, _>>()?;
+    batch.delete_batch(table, keys)?;
+    Ok(())
+}
+
+/// The aggregate entry of a blob this node holds metadata for but knows no object of: what
+/// marking metadata stored creates for an untracked blob (`BlobInfoV1::merge_new`), built
+/// directly so that its per-blob log line is not repeated.
+fn untracked_blob_info_with_metadata() -> BlobInfo {
+    BlobInfo::V1(
+        blob_info_v1::ValidBlobInfoV1 {
+            is_metadata_stored: true,
+            ..Default::default()
+        }
+        .into(),
+    )
+}
+
+/// Rebuilds the aggregate blob info entries from the per-object tables of a blob info snapshot
+/// taken at the boundary of `snapshot_epoch`.
+///
+/// Replays through the regular merge logic a registration, and a certification if certified, for
+/// every object registered at `snapshot_epoch` and every pooled blob (certifications in epoch
+/// order, after all registrations). The counters and the V1 permanent end epochs match event
+/// replay. Fields that remember objects no longer in the tables are best knowledge:
+/// `initial_certified_epoch` becomes the earliest certification among the remaining objects, the
+/// `latest_seen_deletable_*` end epochs the latest remaining ones, and a blob whose pooled
+/// references are all gone stays V1. Status events are the objects' latest events, as a
+/// per-object entry keeps no earlier one.
+///
+/// `stored_metadata` is this node's record of the blobs it holds metadata for. A rebuilt entry
+/// among them gets its metadata marked stored. A blob among them without objects, whose data
+/// garbage collection has not deleted yet while the snapshot lists no object for it, gets the
+/// entry that marking metadata stored creates for an untracked blob, so that the next data
+/// deletion removes its data together with the entry, as on a replayed node. Any other blob
+/// without objects gets no entry, and invalidated blobs are not reconstructed.
+fn rebuild_aggregate_blob_info(
+    snapshot_epoch: Epoch,
+    per_object: &[(ObjectID, PerObjectBlobInfo)],
+    per_object_pooled: &[(ObjectID, PerObjectPooledBlobInfo)],
+    stored_metadata: &HashSet<BlobId>,
+) -> Result<BTreeMap<BlobId, BlobInfo>, TypedStoreError> {
+    let mut registrations = Vec::new();
+    let mut certifications = Vec::new();
+
+    for (_, PerObjectBlobInfo::V1(object)) in per_object {
+        if !object.is_registered(snapshot_epoch) {
+            continue;
+        }
+        let change_info = BlobStatusChangeInfo {
+            blob_id: object.blob_id,
+            deletable: object.deletable,
+            epoch: object.registered_epoch,
+            end_epoch: object.end_epoch,
+            status_event: object.event,
+        };
+        if let Some(certified_epoch) = object.certified_epoch {
+            certifications.push((
+                certified_epoch,
+                object.blob_id,
+                BlobInfoMergeOperand::ChangeStatus {
+                    change_type: BlobStatusChangeType::Certify,
+                    change_info: BlobStatusChangeInfo {
+                        epoch: certified_epoch,
+                        ..change_info.clone()
+                    },
+                },
+            ));
+        }
+        registrations.push((
+            object.blob_id,
+            BlobInfoMergeOperand::ChangeStatus {
+                change_type: BlobStatusChangeType::Register,
+                change_info,
+            },
+        ));
+    }
+
+    for (_, PerObjectPooledBlobInfo::V1(object)) in per_object_pooled {
+        let change_info = PooledBlobChangeInfo {
+            blob_id: object.blob_id,
+            epoch: object.registered_epoch,
+            storage_pool_id: object.storage_pool_id,
+            status_event: object.event,
+        };
+        if let Some(certified_epoch) = object.certified_epoch {
+            certifications.push((
+                certified_epoch,
+                object.blob_id,
+                BlobInfoMergeOperand::PooledBlobChangeStatus {
+                    change_type: BlobStatusChangeType::Certify,
+                    change_info: PooledBlobChangeInfo {
+                        epoch: certified_epoch,
+                        ..change_info.clone()
+                    },
+                },
+            ));
+        }
+        registrations.push((
+            object.blob_id,
+            BlobInfoMergeOperand::PooledBlobChangeStatus {
+                change_type: BlobStatusChangeType::Register,
+                change_info,
+            },
+        ));
+    }
+
+    certifications.sort_by_key(|(certified_epoch, _, _)| *certified_epoch);
+
+    let mut aggregate: BTreeMap<BlobId, BlobInfo> = BTreeMap::new();
+    let operands = registrations.into_iter().chain(
+        certifications
+            .into_iter()
+            .map(|(_, blob_id, operand)| (blob_id, operand)),
+    );
+    for (blob_id, operand) in operands {
+        if let Some(merged) = BlobInfo::merge(aggregate.remove(&blob_id), operand) {
+            aggregate.insert(blob_id, merged);
+        }
+    }
+
+    for blob_id in stored_metadata {
+        let blob_info = match aggregate.remove(blob_id) {
+            Some(blob_info) => blob_info.merge_with(BlobInfoMergeOperand::MarkMetadataStored(true)),
+            None => untracked_blob_info_with_metadata(),
+        };
+        aggregate.insert(*blob_id, blob_info);
+    }
+
+    Ok(aggregate)
 }
 
 // TODO(#900): Rewrite other tests without relying on blob-info internals.
