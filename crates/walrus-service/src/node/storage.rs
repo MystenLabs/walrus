@@ -44,9 +44,14 @@ use self::{
         PerObjectBlobInfoIterator,
         PerObjectPooledBlobInfo,
         PerObjectPooledBlobInfoIterator,
-        StoragePoolInfo,
     },
-    blob_info_snapshot::{SnapshotError, SnapshotFormat, SnapshotHeader, SnapshotStats},
+    blob_info_snapshot::{
+        DecodedSnapshot,
+        SnapshotError,
+        SnapshotFormat,
+        SnapshotHeader,
+        SnapshotStats,
+    },
     constants::{
         garbage_collector_last_completed_epoch_key,
         garbage_collector_last_started_epoch_key,
@@ -676,9 +681,10 @@ impl Storage {
         self.blob_info.write_snapshot(header, format, writer)
     }
 
-    /// Replaces the blob info tables with the contents of a blob info snapshot, repositions the
-    /// event cursor, sets the garbage collector's progress to the snapshot's epoch, and sets the
-    /// node status to `RecoveryCatchUp`, all in one atomic write.
+    /// Replaces the blob info tables with the contents of a blob info snapshot, deletes the data
+    /// of the blobs it marks invalid, repositions the event cursor, sets the garbage collector's
+    /// progress to the snapshot's epoch, and sets the node status to `RecoveryCatchUp`, all in
+    /// one atomic write.
     ///
     /// Only while no component that reads or writes the blob info tables or processes events is
     /// running: offline, or while the node is being constructed. The cursor is placed on the
@@ -686,35 +692,64 @@ impl Storage {
     /// that event once more; for a snapshot of the current epoch this lets the node leave catch-up
     /// right away instead of at the next epoch change.
     ///
-    /// Blob data stays, and so does the node's record of it: a blob whose aggregate entry says
-    /// its metadata is stored keeps an entry, with that flag on the entry the snapshot rebuilds,
-    /// or as an untracked blob with metadata stored when the snapshot lists no object for it, so
-    /// that garbage collection deletes its data as on a replayed node (see
+    /// A blob the snapshot marks invalid loses its metadata, its slivers on every shard of this
+    /// node, and its pending-recovery record, as processing its `InvalidBlobID` event would. A
+    /// snapshot in a format without invalidated blob IDs marks nothing, so a node loaded from one
+    /// keeps the data of blobs invalidated before its boundary until it processes a later event
+    /// for them.
+    ///
+    /// The other blob data stays, and so does the node's record of it: a blob whose aggregate
+    /// entry says its metadata is stored keeps an entry, with that flag on the entry the snapshot
+    /// rebuilds, or as an untracked blob with metadata stored when the snapshot lists no object
+    /// for it, so that garbage collection deletes its data as on a replayed node (see
     /// [`BlobInfoTable::schedule_snapshot_load`]). The data of a blob without such an entry, in a
     /// database whose aggregate table was dropped instead of kept, stays out of reach.
     ///
     /// Returns the number of rebuilt aggregate blob info entries.
     pub(crate) fn load_blob_info_snapshot(
         &self,
-        header: &SnapshotHeader,
-        per_object: &[(ObjectID, PerObjectBlobInfo)],
-        per_object_pooled: &[(ObjectID, PerObjectPooledBlobInfo)],
-        storage_pools: &[(ObjectID, StoragePoolInfo)],
+        snapshot: &DecodedSnapshot,
     ) -> anyhow::Result<usize> {
+        let header = &snapshot.header;
         let boundary_event_index = header
             .event_cursor
             .next_event_index()
             .checked_sub(1)
             .context("the snapshot cursor must be after the boundary event")?;
+        // Nothing holds the shard map while no other component runs, which this function
+        // requires; a held map therefore means the requirement is not met.
+        let shards: Vec<Arc<ShardStorage>> = self
+            .shards
+            .try_read()
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "the shard map is in use; a blob info snapshot can only be loaded while no \
+                    other component runs"
+                )
+            })?
+            .values()
+            .cloned()
+            .collect();
 
         let mut batch = self.node_status.batch();
         let aggregate_count = self.blob_info.schedule_snapshot_load(
             &mut batch,
             header.epoch,
             boundary_event_index,
-            per_object,
-            per_object_pooled,
-            storage_pools,
+            &snapshot.per_object,
+            &snapshot.per_object_pooled,
+            &snapshot.storage_pools,
+            snapshot.invalid_blobs(),
+        )?;
+        for (blob_id, _) in snapshot.invalid_blobs() {
+            self.delete_metadata(&mut batch, blob_id, false)?;
+            for shard in &shards {
+                shard.delete_sliver_pair(&mut batch, blob_id)?;
+            }
+        }
+        self.pending_recover_blobs.schedule_delete(
+            &mut batch,
+            snapshot.invalid_blobs().iter().map(|(blob_id, _)| blob_id),
         )?;
         self.event_cursor.schedule_reposition_event_cursor(
             &mut batch,
@@ -735,10 +770,12 @@ impl Storage {
         )?;
         batch.write()?;
 
-        // The batch does not update the in-memory event sequencer; bring it to the new position so
-        // that this storage can process events right away, as during the startup bootstrap.
+        // The batch updates neither the in-memory event sequencer nor the cached pending-recovery
+        // count; bring both to the new state so that this storage can serve right away, as during
+        // the startup bootstrap.
         self.event_cursor
             .reposition_event_cursor(header.event_cursor.event_id(), boundary_event_index)?;
+        self.pending_recover_blobs.recount()?;
 
         Ok(aggregate_count)
     }
@@ -3464,6 +3501,20 @@ pub(crate) mod tests {
             }))
         }
 
+        fn invalidate(epoch: Epoch, blob: u64) -> Step {
+            invalidate_with_event(epoch, blob, 0)
+        }
+
+        /// An `InvalidBlobID` event with a distinguishable event ID, so that a test can tell
+        /// which of several invalidations of a blob a node holds.
+        fn invalidate_with_event(epoch: Epoch, blob: u64, event: u64) -> Step {
+            Step::Blob(BlobEvent::InvalidBlobID(InvalidBlobId {
+                epoch,
+                blob_id: blob_id_from_u64(blob),
+                event_id: fixed_event_id_for_testing(event),
+            }))
+        }
+
         fn pool_create(pool: u8, start_epoch: Epoch, end_epoch: Epoch) -> Step {
             Step::Pool(StoragePoolEvent::created_for_testing(
                 pool_id(pool),
@@ -3621,9 +3672,10 @@ pub(crate) mod tests {
             Ok(())
         }
 
+        /// The snapshot bytes in format version 2, so that they cover the invalidated blob IDs.
         fn snapshot_bytes(storage: &Storage, header: &SnapshotHeader) -> TestResult<Vec<u8>> {
             let mut buffer = Cursor::new(Vec::new());
-            storage.write_blob_info_snapshot(header, SnapshotFormat::V1, &mut buffer)?;
+            storage.write_blob_info_snapshot(header, SnapshotFormat::V2, &mut buffer)?;
             Ok(buffer.into_inner())
         }
 
@@ -3705,6 +3757,42 @@ pub(crate) mod tests {
             Ok(())
         }
 
+        /// Invalidations of a certified blob with live objects, of a blob that is only
+        /// registered, of a blob with no objects at all, of a pooled blob, twice for one blob
+        /// (the second event is ignored), and before a re-registration of the same blob ID
+        /// (ignored too); the live objects of invalidated blobs expire at several boundaries.
+        fn invalidations() -> Vec<Step> {
+            let mut steps = vec![
+                pool_create(1, 1, 10),
+                epoch_change(1),
+                register(1, 1, 1, 10, false),
+                certify(1, 1, 1, 10, false),
+                register(1, 2, 2, 4, true),
+                register(1, 4, 3, 8, true),
+                certify(1, 4, 3, 8, true),
+                pooled_register(1, 5, 4, 1),
+                pooled_certify(1, 5, 4, 1),
+                invalidate(1, 1),
+                invalidate(1, 2),
+                invalidate(1, 3),
+                epoch_change(2),
+                invalidate_with_event(2, 4, 1),
+                invalidate_with_event(2, 4, 2),
+                invalidate(2, 5),
+                register(2, 6, 5, 9, true),
+                certify(2, 6, 5, 9, true),
+                epoch_change(3),
+                invalidate(3, 6),
+                register(3, 6, 6, 12, false),
+                certify(3, 6, 6, 12, false),
+                register(3, 7, 7, 12, false),
+                epoch_change(4),
+                invalidate(4, 7),
+            ];
+            steps.extend((5..=13).map(epoch_change));
+            steps
+        }
+
         async_param_test! {
             snapshot_load_matches_replay -> TestResult: [
                 permanent_and_deletable_at_2: (permanent_and_deletable(), 2),
@@ -3714,6 +3802,10 @@ pub(crate) mod tests {
                 pools_at_2: (pools(), 2),
                 pools_at_4: (pools(), 4),
                 pools_at_6: (pools(), 6),
+                invalidations_at_2: (invalidations(), 2),
+                invalidations_at_3: (invalidations(), 3),
+                invalidations_at_5: (invalidations(), 5),
+                invalidations_at_11: (invalidations(), 11),
             ]
         }
         async fn snapshot_load_matches_replay(
@@ -3743,18 +3835,22 @@ pub(crate) mod tests {
                 boundary_index + 1,
             );
             let bytes = snapshot_bytes(replayed, &header)?;
-            let (decoded_header, per_object, pooled, pools) =
-                blob_info_snapshot::read_snapshot(&bytes)?;
-            assert_eq!(decoded_header, header);
+            let decoded = blob_info_snapshot::read_snapshot(&bytes)?;
+            assert_eq!(decoded.header, header);
+            assert_eq!(decoded.format, SnapshotFormat::V2);
 
             // The load must replace whatever the tables held before: here the scenario's final
-            // state plus long-lived blobs (9 and 10) that the scenario never has.
+            // state plus long-lived blobs (9 and 10) that the scenario never has, an invalidation
+            // of blob 9 that the snapshot does not carry, and an invalidation of blob 1 with a
+            // different event than any the snapshot may carry for it.
             let divergent = [
                 register(1, 9, 90, 100, false),
                 certify(1, 9, 90, 100, false),
                 register(1, 10, 91, 100, true),
                 certify(1, 10, 91, 100, true),
                 pooled_register(1, 10, 92, 9),
+                invalidate_with_event(1, 9, 99),
+                invalidate_with_event(1, 1, 99),
             ];
             let prefill = std::iter::once(pool_create(9, 1, 100))
                 .chain(steps.iter().map(Step::clone))
@@ -3779,7 +3875,7 @@ pub(crate) mod tests {
             // Garbage collection started for a later epoch and did not complete.
             loaded.set_garbage_collector_last_started_epoch(snapshot_epoch + 1)?;
             loaded.set_garbage_collector_last_completed_epoch(snapshot_epoch)?;
-            loaded.load_blob_info_snapshot(&header, &per_object, &pooled, &pools)?;
+            loaded.load_blob_info_snapshot(&decoded)?;
 
             assert_eq!(loaded.node_status()?, NodeStatus::RecoveryCatchUp);
             assert_eq!(
@@ -3818,6 +3914,83 @@ pub(crate) mod tests {
             assert_equivalent(replayed, loaded, epoch)
         }
 
+        /// Loading a snapshot deletes the metadata, the slivers, and the pending-recovery record
+        /// of every blob it marks invalid, and nothing of the other blobs.
+        #[tokio::test]
+        async fn snapshot_load_deletes_data_of_invalidated_blobs() -> TestResult {
+            let (invalid_blob, valid_blob) = (blob_id_from_u64(1), blob_id_from_u64(2));
+            let storage = populated_storage(&[(
+                SHARD_INDEX,
+                vec![
+                    (invalid_blob, WhichSlivers::Both),
+                    (valid_blob, WhichSlivers::Both),
+                ],
+            )])
+            .await?;
+            let storage = storage.as_ref();
+            let metadata = walrus_core::test_utils::verified_blob_metadata();
+            for blob_id in [&invalid_blob, &valid_blob] {
+                storage.put_metadata(blob_id, metadata.metadata()).await?;
+                storage.insert_pending_recover_blob(blob_id, 0, 1)?;
+            }
+            assert_eq!(storage.pending_recover_blob_count(), 2);
+
+            let invalidation_event = fixed_event_id_for_testing(3);
+            let snapshot = blob_info_snapshot::DecodedSnapshot {
+                format: SnapshotFormat::V2,
+                header: SnapshotHeader::new(2, fixed_event_id_for_testing(5), 6),
+                per_object: vec![],
+                per_object_pooled: vec![],
+                storage_pools: vec![],
+                invalid_blobs: Some(vec![(
+                    invalid_blob,
+                    blob_info_snapshot::InvalidBlobInfo::V1(
+                        blob_info_snapshot::InvalidBlobInfoV1 {
+                            epoch: 1,
+                            event: invalidation_event,
+                        },
+                    ),
+                )]),
+            };
+            storage.load_blob_info_snapshot(&snapshot)?;
+
+            assert!(storage.get_metadata(&invalid_blob)?.is_none());
+            assert!(storage.get_metadata(&valid_blob)?.is_some());
+            let shard = storage
+                .shard_storage(SHARD_INDEX)
+                .await
+                .expect("the shard exists");
+            for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                assert!(shard.get_sliver(&invalid_blob, sliver_type)?.is_none());
+                assert!(shard.get_sliver(&valid_blob, sliver_type)?.is_some());
+            }
+            assert_eq!(storage.pending_recover_blob_count(), 1);
+            assert_eq!(
+                storage
+                    .scan_pending_recover_blobs()?
+                    .into_iter()
+                    .map(|(blob_id, _)| blob_id)
+                    .collect::<Vec<_>>(),
+                vec![valid_blob]
+            );
+            assert_eq!(
+                storage
+                    .get_blob_info(&invalid_blob)?
+                    .map(|blob_info| blob_info.to_blob_status(2)),
+                Some(BlobStatus::Invalid {
+                    event: invalidation_event
+                })
+            );
+            // The valid blob keeps its data and the entry that keeps it known to garbage
+            // collection.
+            let valid_info = storage
+                .get_blob_info(&valid_blob)?
+                .expect("the blob with stored metadata keeps an entry");
+            assert!(valid_info.is_metadata_stored());
+            assert!(valid_info.can_blob_info_be_deleted(2));
+            Ok(())
+        }
+
         /// A load keeps an entry for every blob whose metadata this node records as stored: as
         /// an untracked blob with metadata stored when the snapshot lists no object for it, so
         /// that data deletion removes its data together with the entry. Data stored without that
@@ -3841,8 +4014,15 @@ pub(crate) mod tests {
             )?;
             let node_metrics = NodeMetricSet::new(&Registry::default());
 
-            let header = SnapshotHeader::new(2, fixed_event_id_for_testing(5), 6);
-            storage.load_blob_info_snapshot(&header, &[], &[], &[])?;
+            let snapshot = blob_info_snapshot::DecodedSnapshot {
+                format: SnapshotFormat::V2,
+                header: SnapshotHeader::new(2, fixed_event_id_for_testing(5), 6),
+                per_object: vec![],
+                per_object_pooled: vec![],
+                storage_pools: vec![],
+                invalid_blobs: Some(vec![]),
+            };
+            storage.load_blob_info_snapshot(&snapshot)?;
 
             let dead_info = storage
                 .get_blob_info(&dead)?

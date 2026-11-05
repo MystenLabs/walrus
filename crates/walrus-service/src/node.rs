@@ -213,6 +213,7 @@ pub mod system_events;
 
 pub(crate) mod blob_event_processor;
 mod blob_info_snapshot_bootstrap;
+pub use blob_info_snapshot_bootstrap::BootstrapLoadedSnapshot;
 pub(crate) mod blob_info_snapshot_writer;
 pub(crate) mod consistency_check;
 pub(crate) mod db_checkpoint;

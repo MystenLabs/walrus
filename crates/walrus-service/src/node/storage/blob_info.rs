@@ -559,9 +559,9 @@ impl BlobInfoTable {
     ///
     /// Every existing key of the four tables gets a point delete (a range delete would stay
     /// visible, as reads ignore range tombstones), the three snapshotted tables are filled from
-    /// the snapshot, the aggregate table is rebuilt from them and from this node's record of the
+    /// the snapshot, the aggregate table is rebuilt from them, from this node's record of the
     /// blobs it holds metadata for (the entries' metadata-stored flags, read before the
-    /// deletion; see
+    /// deletion), and from the snapshot's invalidated blob IDs (see
     /// [`rebuild_aggregate_blob_info`]), and `latest_handled_event_index` is set to
     /// `boundary_event_index`. Nothing is written until the caller writes the batch.
     ///
@@ -575,6 +575,7 @@ impl BlobInfoTable {
         per_object: &[(ObjectID, PerObjectBlobInfo)],
         per_object_pooled: &[(ObjectID, PerObjectPooledBlobInfo)],
         storage_pools: &[(ObjectID, StoragePoolInfo)],
+        invalid_blobs: &[(BlobId, InvalidBlobInfo)],
     ) -> Result<usize, TypedStoreError> {
         let stored_metadata = self.stored_metadata_blob_ids()?;
         delete_all_keys(batch, &self.aggregate_blob_info)?;
@@ -599,6 +600,7 @@ impl BlobInfoTable {
             snapshot_epoch,
             per_object,
             per_object_pooled,
+            invalid_blobs,
             &stored_metadata,
         )?;
         batch.insert_batch(&self.aggregate_blob_info, aggregate.iter())?;
@@ -1511,11 +1513,16 @@ fn untracked_blob_info_with_metadata() -> BlobInfo {
 /// garbage collection has not deleted yet while the snapshot lists no object for it, gets the
 /// entry that marking metadata stored creates for an untracked blob, so that the next data
 /// deletion removes its data together with the entry, as on a replayed node. Any other blob
-/// without objects gets no entry, and invalidated blobs are not reconstructed.
+/// without objects gets no entry.
+///
+/// The snapshot's invalidated blob IDs are then applied through `MarkInvalid`, as their
+/// `InvalidBlobID` events were, onto whatever the steps above built or onto no entry, so they
+/// hold the same epoch and event as on a replayed node.
 fn rebuild_aggregate_blob_info(
     snapshot_epoch: Epoch,
     per_object: &[(ObjectID, PerObjectBlobInfo)],
     per_object_pooled: &[(ObjectID, PerObjectPooledBlobInfo)],
+    invalid_blobs: &[(BlobId, InvalidBlobInfo)],
     stored_metadata: &HashSet<BlobId>,
 ) -> Result<BTreeMap<BlobId, BlobInfo>, TypedStoreError> {
     let mut registrations = Vec::new();
@@ -1603,6 +1610,16 @@ fn rebuild_aggregate_blob_info(
             None => untracked_blob_info_with_metadata(),
         };
         aggregate.insert(*blob_id, blob_info);
+    }
+
+    for (blob_id, InvalidBlobInfo::V1(invalidation)) in invalid_blobs {
+        let operand = BlobInfoMergeOperand::MarkInvalid {
+            epoch: invalidation.epoch,
+            status_event: invalidation.event,
+        };
+        if let Some(merged) = BlobInfo::merge(aggregate.remove(blob_id), operand) {
+            aggregate.insert(*blob_id, merged);
+        }
     }
 
     Ok(aggregate)
