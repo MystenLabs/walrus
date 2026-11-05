@@ -47,6 +47,7 @@ use self::{
     },
     blob_info_snapshot::{
         DecodedSnapshot,
+        InvalidBlobInfo,
         SnapshotError,
         SnapshotFormat,
         SnapshotHeader,
@@ -345,6 +346,18 @@ impl Display for NodeStatus {
             ),
         }
     }
+}
+
+/// What repairing a node's invalidated blob IDs from a certified snapshot changed; see
+/// [`Storage::repair_invalid_blobs_from_certified_snapshot`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct InvalidBlobRepair {
+    /// The blobs the certified snapshot marks that the node did not.
+    pub added: usize,
+    /// The blobs the node marked with another epoch or event than the certified snapshot.
+    pub replaced: usize,
+    /// The blobs the node marks that the certified snapshot does not; they are left as they are.
+    pub extra: usize,
 }
 
 /// Storage backing a [`StorageNode`][crate::node::StorageNode].
@@ -686,6 +699,8 @@ impl Storage {
     /// progress to the snapshot's epoch, and sets the node status to `RecoveryCatchUp`, all in
     /// one atomic write.
     ///
+    /// See also [`Self::repair_invalid_blobs_from_certified_snapshot`].
+    ///
     /// Only while no component that reads or writes the blob info tables or processes events is
     /// running: offline, or while the node is being constructed. The cursor is placed on the
     /// snapshot's boundary `EpochChangeStart` event rather than after it, so the node processes
@@ -791,6 +806,118 @@ impl Storage {
         batch_size: usize,
     ) -> Result<(usize, usize), TypedStoreError> {
         self.blob_info.reduce_to_stored_metadata(batch_size)
+    }
+
+    /// Brings the node's invalidated blob IDs in line with `certified`, the certified snapshot of
+    /// the boundary at which the node wrote `own`, when the two differ only in them.
+    ///
+    /// A blob the certified snapshot marks and the node does not, or marks with another epoch or
+    /// event, gets the certified mark (a different mark is replaced), and its metadata, slivers,
+    /// and pending-recovery record are deleted, as in a load. Marks the node holds that the
+    /// certified snapshot lacks are left alone and counted. Fails without changing anything if
+    /// the snapshots are not both in a format with invalidated blob IDs, or differ in the header
+    /// or in the object and pool sections: such a node diverges for another reason and is not
+    /// touched here.
+    ///
+    /// Only while no component that reads or writes the blob info tables or processes events is
+    /// running, like [`Self::load_blob_info_snapshot`].
+    pub(crate) fn repair_invalid_blobs_from_certified_snapshot(
+        &self,
+        own: &DecodedSnapshot,
+        certified: &DecodedSnapshot,
+    ) -> anyhow::Result<InvalidBlobRepair> {
+        let (Some(own_marks), Some(certified_marks)) =
+            (&own.invalid_blobs, &certified.invalid_blobs)
+        else {
+            anyhow::bail!(
+                "both snapshots must carry invalidated blob IDs: the own one is in format version \
+                {}, the certified one in format version {}",
+                own.format.version(),
+                certified.format.version()
+            );
+        };
+        anyhow::ensure!(
+            own.header == certified.header,
+            "the snapshots have different headers: own {:?}, certified {:?}",
+            own.header,
+            certified.header
+        );
+        anyhow::ensure!(
+            own.per_object == certified.per_object
+                && own.per_object_pooled == certified.per_object_pooled
+                && own.storage_pools == certified.storage_pools,
+            "the snapshots differ in their object or pool sections, not only in the invalidated \
+            blob IDs"
+        );
+        let certified_ids: std::collections::HashSet<BlobId> = certified_marks
+            .iter()
+            .map(|(blob_id, _)| *blob_id)
+            .collect();
+        let extra = own_marks
+            .iter()
+            .filter(|(blob_id, _)| !certified_ids.contains(blob_id))
+            .count();
+
+        // The node's table may have moved on since it wrote `own`, so the marks to apply are
+        // decided against the table, not against the file.
+        let mut added = Vec::new();
+        let mut replaced = Vec::new();
+        for (blob_id, InvalidBlobInfo::V1(invalidation)) in certified_marks {
+            match self
+                .get_blob_info(blob_id)?
+                .and_then(|blob_info| blob_info.invalidation())
+            {
+                Some((epoch, event))
+                    if epoch == invalidation.epoch && event == invalidation.event => {}
+                Some(_) => replaced.push((*blob_id, invalidation)),
+                None => added.push((*blob_id, invalidation)),
+            }
+        }
+
+        let shards: Vec<Arc<ShardStorage>> = self
+            .shards
+            .try_read()
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "the shard map is in use; invalidated blob IDs can only be repaired while no \
+                    other component runs"
+                )
+            })?
+            .values()
+            .cloned()
+            .collect();
+        let mut batch = self.node_status.batch();
+        // A different mark is replaced by deleting the entry first, because the merge keeps an
+        // existing mark; a write batch applies its operations in order.
+        self.blob_info.schedule_aggregate_deletions(
+            &mut batch,
+            replaced.iter().map(|(blob_id, _)| blob_id),
+        )?;
+        self.blob_info.schedule_invalid_marks(
+            &mut batch,
+            added
+                .iter()
+                .chain(&replaced)
+                .map(|(blob_id, invalidation)| (blob_id, *invalidation)),
+        )?;
+        for (blob_id, _) in added.iter().chain(&replaced) {
+            self.delete_metadata(&mut batch, blob_id, false)?;
+            for shard in &shards {
+                shard.delete_sliver_pair(&mut batch, blob_id)?;
+            }
+        }
+        self.pending_recover_blobs.schedule_delete(
+            &mut batch,
+            added.iter().chain(&replaced).map(|(blob_id, _)| blob_id),
+        )?;
+        batch.write()?;
+        self.pending_recover_blobs.recount()?;
+
+        Ok(InvalidBlobRepair {
+            added: added.len(),
+            replaced: replaced.len(),
+            extra,
+        })
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
@@ -3912,6 +4039,118 @@ pub(crate) mod tests {
                 }
             }
             assert_equivalent(replayed, loaded, epoch)
+        }
+
+        /// The repair applies the certified marks the node lacks or holds with a different pair,
+        /// deletes the data of those blobs, leaves equal and extra marks alone, and refuses
+        /// snapshots that differ anywhere else or carry no marks.
+        #[tokio::test]
+        async fn repair_applies_certified_invalidations_only() -> TestResult {
+            let blob = blob_id_from_u64;
+            let storage = populated_storage(&[(
+                SHARD_INDEX,
+                vec![(blob(1), WhichSlivers::Both), (blob(2), WhichSlivers::Both)],
+            )])
+            .await?;
+            let storage = storage.as_ref();
+            let metrics = NodeMetricSet::new(&Registry::default());
+            let metadata = walrus_core::test_utils::verified_blob_metadata();
+            for blob_id in [blob(1), blob(2)] {
+                storage.put_metadata(&blob_id, metadata.metadata()).await?;
+            }
+            // Blob 1 is not marked locally; blob 2 is marked with another event than the
+            // certified one; blob 3 is marked alike; blob 4 is marked only locally.
+            let local_steps = [
+                epoch_change(1),
+                invalidate_with_event(1, 2, 9),
+                invalidate(1, 3),
+                invalidate(1, 4),
+            ];
+            for (index, step) in local_steps.iter().enumerate() {
+                apply(storage, u64::try_from(index)?, step, &metrics).await?;
+            }
+
+            let invalidation = |blob_number| -> TestResult<Option<EventID>> {
+                Ok(storage
+                    .get_blob_info(&blob(blob_number))?
+                    .and_then(|blob_info| blob_info.invalidation_event()))
+            };
+            let mark = |blob_number, event| {
+                (
+                    blob(blob_number),
+                    InvalidBlobInfo::V1(blob_info_snapshot::InvalidBlobInfoV1 {
+                        epoch: 1,
+                        event: fixed_event_id_for_testing(event),
+                    }),
+                )
+            };
+            let own = DecodedSnapshot {
+                format: SnapshotFormat::V2,
+                header: SnapshotHeader::new(2, fixed_event_id_for_testing(4), 5),
+                per_object: vec![],
+                per_object_pooled: vec![],
+                storage_pools: vec![],
+                invalid_blobs: Some(vec![mark(2, 9), mark(3, 0), mark(4, 0)]),
+            };
+            let certified = DecodedSnapshot {
+                invalid_blobs: Some(vec![mark(1, 0), mark(2, 2), mark(3, 0)]),
+                ..own.clone()
+            };
+
+            // Snapshots that differ outside the marks, or without marks, are refused unchanged.
+            let other_header = DecodedSnapshot {
+                header: SnapshotHeader::new(3, fixed_event_id_for_testing(4), 5),
+                ..certified.clone()
+            };
+            let format_1 = DecodedSnapshot {
+                format: SnapshotFormat::V1,
+                invalid_blobs: None,
+                ..certified.clone()
+            };
+            for rejected in [&other_header, &format_1] {
+                assert!(
+                    storage
+                        .repair_invalid_blobs_from_certified_snapshot(&own, rejected)
+                        .is_err()
+                );
+            }
+            // Storing the metadata gave blob 1 an aggregate entry without objects; it is not
+            // marked.
+            assert_eq!(invalidation(1)?, None);
+            assert!(storage.get_metadata(&blob(1))?.is_some());
+
+            let repair = storage.repair_invalid_blobs_from_certified_snapshot(&own, &certified)?;
+            assert_eq!(
+                repair,
+                InvalidBlobRepair {
+                    added: 1,
+                    replaced: 1,
+                    extra: 1,
+                }
+            );
+            assert_eq!(invalidation(1)?, Some(fixed_event_id_for_testing(0)));
+            assert_eq!(invalidation(2)?, Some(fixed_event_id_for_testing(2)));
+            assert_eq!(invalidation(3)?, Some(fixed_event_id_for_testing(0)));
+            assert_eq!(invalidation(4)?, Some(fixed_event_id_for_testing(0)));
+            // The data of the newly marked blobs is gone.
+            let shard = storage
+                .shard_storage(SHARD_INDEX)
+                .await
+                .expect("the shard exists");
+            for blob_id in [blob(1), blob(2)] {
+                assert!(storage.get_metadata(&blob_id)?.is_none());
+                assert!(shard.get_sliver(&blob_id, SliverType::Primary)?.is_none());
+            }
+            // A second run finds the table in line with the certified marks.
+            assert_eq!(
+                storage.repair_invalid_blobs_from_certified_snapshot(&own, &certified)?,
+                InvalidBlobRepair {
+                    added: 0,
+                    replaced: 0,
+                    extra: 1,
+                }
+            );
+            Ok(())
         }
 
         /// Loading a snapshot deletes the metadata, the slivers, and the pending-recovery record

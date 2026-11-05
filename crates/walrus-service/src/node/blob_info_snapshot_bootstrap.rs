@@ -18,6 +18,7 @@ use std::{hash::Hasher as _, time::Duration};
 use anyhow::{Context as _, bail};
 use twox_hash::XxHash64;
 use walrus_core::encoding::{ConsistencyCheckType, Primary};
+use walrus_sui::types::move_structs::SnapshotBlob;
 
 use super::{
     contract_service::SystemContractService,
@@ -129,58 +130,7 @@ pub(super) async fn bootstrap_from_snapshot_if_needed(
 
     let sui_config =
         sui_config.context("reading the certified blob info snapshot needs a Sui config")?;
-    let walrus_client = create_walrus_client_with_refresher(
-        sui_config.contract_config.clone(),
-        sui_config.new_read_client().await?,
-    )
-    .await?;
-    tracing::info!(
-        snapshot_epoch = snapshot.epoch,
-        blob_id = %snapshot.blob_id,
-        "reading the certified blob info snapshot from the storage nodes"
-    );
-    let mut attempt = 1;
-    let bytes = loop {
-        match walrus_client
-            .read_blob_with_consistency_check_type::<Primary>(
-                &snapshot.blob_id,
-                ConsistencyCheckType::Strict,
-            )
-            .await
-        {
-            Ok(bytes) => break bytes,
-            Err(error) if attempt < READ_ATTEMPTS => {
-                tracing::warn!(
-                    ?error,
-                    attempt,
-                    blob_id = %snapshot.blob_id,
-                    "failed to read the certified blob info snapshot; retrying"
-                );
-                attempt += 1;
-                tokio::time::sleep(READ_RETRY_DELAY).await;
-            }
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "failed to read the certified blob info snapshot {} after {attempt} \
-                        attempts",
-                        snapshot.blob_id
-                    )
-                });
-            }
-        }
-    };
-
-    // The same digest the producing nodes log when serializing the snapshot of this epoch.
-    let mut hasher = XxHash64::with_seed(0);
-    hasher.write(&bytes);
-    tracing::info!(
-        blob_id = %snapshot.blob_id,
-        size_bytes = bytes.len(),
-        attempts = attempt,
-        digest = %format!("{:016x}", hasher.finish()),
-        "read the certified blob info snapshot, verified against its blob ID"
-    );
+    let bytes = read_certified_snapshot_bytes(&snapshot, sui_config, READ_ATTEMPTS).await?;
 
     let decoded = blob_info_snapshot::read_snapshot(&bytes)
         .context("failed to decode the certified blob info snapshot")?;
@@ -259,4 +209,66 @@ pub(super) async fn bootstrap_from_snapshot_if_needed(
         boundary event in status RecoveryCatchUp"
     );
     Ok(())
+}
+
+/// Reads the certified blob info snapshot `snapshot` from the storage nodes, verified against its
+/// blob ID, retrying a failed read up to `attempts` times.
+pub(super) async fn read_certified_snapshot_bytes(
+    snapshot: &SnapshotBlob,
+    sui_config: &SuiConfig,
+    attempts: u32,
+) -> anyhow::Result<Vec<u8>> {
+    let walrus_client = create_walrus_client_with_refresher(
+        sui_config.contract_config.clone(),
+        sui_config.new_read_client().await?,
+    )
+    .await?;
+    tracing::info!(
+        snapshot_epoch = snapshot.epoch,
+        blob_id = %snapshot.blob_id,
+        "reading the certified blob info snapshot from the storage nodes"
+    );
+    let mut attempt = 1;
+    let bytes = loop {
+        match walrus_client
+            .read_blob_with_consistency_check_type::<Primary>(
+                &snapshot.blob_id,
+                ConsistencyCheckType::Strict,
+            )
+            .await
+        {
+            Ok(bytes) => break bytes,
+            Err(error) if attempt < attempts => {
+                tracing::warn!(
+                    ?error,
+                    attempt,
+                    blob_id = %snapshot.blob_id,
+                    "failed to read the certified blob info snapshot; retrying"
+                );
+                attempt += 1;
+                tokio::time::sleep(READ_RETRY_DELAY).await;
+            }
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to read the certified blob info snapshot {} after {attempt} \
+                        attempts",
+                        snapshot.blob_id
+                    )
+                });
+            }
+        }
+    };
+
+    // The same digest the producing nodes log when serializing the snapshot of this epoch.
+    let mut hasher = XxHash64::with_seed(0);
+    hasher.write(&bytes);
+    tracing::info!(
+        blob_id = %snapshot.blob_id,
+        size_bytes = bytes.len(),
+        attempts = attempt,
+        digest = %format!("{:016x}", hasher.finish()),
+        "read the certified blob info snapshot, verified against its blob ID"
+    );
+    Ok(bytes)
 }

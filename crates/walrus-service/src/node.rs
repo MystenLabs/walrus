@@ -214,6 +214,7 @@ pub mod system_events;
 pub(crate) mod blob_event_processor;
 mod blob_info_snapshot_bootstrap;
 pub use blob_info_snapshot_bootstrap::BootstrapLoadedSnapshot;
+mod blob_info_snapshot_repair;
 pub(crate) mod blob_info_snapshot_writer;
 pub(crate) mod consistency_check;
 pub(crate) mod db_checkpoint;
@@ -811,6 +812,17 @@ impl StorageNode {
         )
         .await
         .context("failed to bootstrap the blob info tables from a certified snapshot")?;
+
+        // TEMPORARY, testnet only: a node that lacks the invalidated blob IDs of the certified
+        // snapshot takes them before any component uses the blob info tables.
+        blob_info_snapshot_repair::repair_invalid_blobs_if_needed(
+            &config.blob_info_snapshot,
+            config.storage_path.as_path(),
+            &storage,
+            contract_service.as_ref(),
+            config.sui.as_ref(),
+        )
+        .await;
 
         // General thread pool: used for metadata verification and other high-priority CPU work.
         // Runs at the default OS scheduling priority (nice=0).

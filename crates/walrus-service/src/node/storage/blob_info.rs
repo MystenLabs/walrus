@@ -614,6 +614,40 @@ impl BlobInfoTable {
         Ok(aggregate.len())
     }
 
+    /// Adds to `batch` the merges that mark the blobs of `invalidations` as invalid, the update
+    /// that processing an `InvalidBlobID` event applies to the aggregate table. The merge keeps
+    /// an existing mark.
+    pub fn schedule_invalid_marks<'a>(
+        &self,
+        batch: &mut DBBatch,
+        invalidations: impl IntoIterator<Item = (&'a BlobId, &'a InvalidBlobInfoV1)>,
+    ) -> Result<(), TypedStoreError> {
+        batch.partial_merge_batch(
+            &self.aggregate_blob_info,
+            invalidations.into_iter().map(|(blob_id, invalidation)| {
+                (
+                    blob_id,
+                    BlobInfoMergeOperand::MarkInvalid {
+                        epoch: invalidation.epoch,
+                        status_event: invalidation.event,
+                    }
+                    .to_bytes(),
+                )
+            }),
+        )?;
+        Ok(())
+    }
+
+    /// Adds to `batch` the deletion of the aggregate entries of `blob_ids`.
+    pub fn schedule_aggregate_deletions<'a>(
+        &self,
+        batch: &mut DBBatch,
+        blob_ids: impl IntoIterator<Item = &'a BlobId>,
+    ) -> Result<(), TypedStoreError> {
+        batch.delete_batch(&self.aggregate_blob_info, blob_ids)?;
+        Ok(())
+    }
+
     /// Returns the IDs of the blobs whose aggregate entry says their metadata is stored: this
     /// node's own record of the blobs it holds data for, which storing metadata maintains.
     pub fn stored_metadata_blob_ids(&self) -> Result<HashSet<BlobId>, TypedStoreError> {

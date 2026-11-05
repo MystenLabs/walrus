@@ -157,6 +157,22 @@ fn snapshot_file_epoch(file_name: &str) -> Option<Epoch> {
         .ok()
 }
 
+/// Returns the epoch and path of the newest complete snapshot file in `base_dir`, if any.
+pub(super) fn latest_snapshot_file(base_dir: &Path) -> Option<(Epoch, PathBuf)> {
+    fs::read_dir(base_dir)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            if name.ends_with(".tmp") {
+                return None;
+            }
+            Some((snapshot_file_epoch(name)?, entry.path()))
+        })
+        .max_by_key(|(epoch, _)| *epoch)
+}
+
 fn saturating_i64(value: u64) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
