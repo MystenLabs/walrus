@@ -743,6 +743,19 @@ impl Storage {
         Ok(aggregate_count)
     }
 
+    /// Reduces the aggregate blob info table to this node's record of the blobs it holds data
+    /// for, in writes of `batch_size` entries; see
+    /// [`BlobInfoTable::reduce_to_stored_metadata`]. Only while no component that reads or
+    /// writes the blob info tables or processes events is running.
+    ///
+    /// Returns the number of entries kept and deleted.
+    pub(crate) fn reduce_aggregate_blob_info_to_stored_metadata(
+        &self,
+        batch_size: usize,
+    ) -> Result<(usize, usize), TypedStoreError> {
+        self.blob_info.reduce_to_stored_metadata(batch_size)
+    }
+
     /// Returns lock write access to the shards map, and returns the underlying shard map.
     pub(crate) async fn lock_shards(&self) -> StorageShardLock {
         let shards_guard = self.shards.clone().write_owned().await;

@@ -53,6 +53,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
+        blob_info_snapshot_writer::snapshot_base_dir,
         event_blob_writer::{
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
@@ -80,6 +81,7 @@ use crate::{
             blob_info_snapshot,
             constants::{
                 aggregate_blob_info_cf_name,
+                blob_info_snapshot_publication_cf_name,
                 event_cursor_cf_name,
                 event_index_cf_name,
                 garbage_collector_table_cf_name,
@@ -253,6 +255,30 @@ pub enum DbToolCommands {
         /// Column families to drop.
         #[arg(num_args = 1..)]
         column_family_names: Vec<String>,
+    },
+
+    /// Wipe a stopped node's state except its blob data, so that it starts as a brand-new node
+    /// that loads the latest certified blob info snapshot while keeping its metadata and slivers.
+    ///
+    /// Moves the event processor's database (`events/`), the event blob writer's state
+    /// (`event_blob_writer/`), and the local snapshot files (`blob_info_snapshots/`) into
+    /// `<storage_path>/wiped-<timestamp>/` (inside the storage path, so that the move stays on
+    /// one filesystem when the storage path is a mount point; the node ignores the directory),
+    /// then drops every column family except `metadata`, the per-shard ones (`shard-*`), the
+    /// snapshot publication record, and `aggregate_blob_info`, which is reduced to the entries
+    /// of the blobs with stored metadata: the node's record of the blobs it holds data for, from
+    /// which the snapshot load keeps them known to garbage collection. Delete the `wiped-*`
+    /// directory once the node is back in service. This can only be called when the storage
+    /// node is stopped.
+    WipeNodeState {
+        /// Path to the node's storage directory (`storage_path` in its configuration).
+        #[arg(long)]
+        db_path: PathBuf,
+        /// Keep the event processor's database (`events/`). The node still starts as a brand-new
+        /// node and loads the snapshot, but does not download event blobs or tail the checkpoints
+        /// since the latest certified event blob again, so it is back in service much sooner.
+        #[arg(long)]
+        keep_event_store: bool,
     },
 
     /// Replace column families in a Walrus RocksDB database by copying them from another RocksDB
@@ -503,6 +529,10 @@ impl DbToolCommands {
                 db_path,
                 column_family_names,
             } => drop_column_families(db_path, column_family_names),
+            Self::WipeNodeState {
+                db_path,
+                keep_event_store,
+            } => wipe_node_state(db_path, keep_event_store),
             Self::RestoreColumnFamilies {
                 db_path,
                 input_db_path,
@@ -976,6 +1006,11 @@ fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> R
     let mut db_opts = RocksdbOptions::default();
     db_opts.set_max_open_files(512_000);
 
+    println!(
+        "Opening the database; replaying its write-ahead log flushes every column family and can \
+        take minutes on a node with many shards (progress in {}/LOG)",
+        db_path.display()
+    );
     let db = DB::open_cf_with_opts(
         &db_opts,
         &db_path,
@@ -997,6 +1032,113 @@ fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> R
     }
 
     Ok(())
+}
+
+/// Whether [`wipe_node_state`] keeps a column family: the blob data, in the metadata table and
+/// the per-shard tables (which `ShardStorage` names `shard-<index>/...`), and the node's records
+/// of it, in the aggregate blob info table (reduced to the entries of the blobs with stored
+/// metadata) and the snapshot publication record.
+fn kept_by_wipe(column_family_name: &str) -> bool {
+    column_family_name == metadata_cf_name()
+        || column_family_name.starts_with("shard-")
+        || column_family_name == aggregate_blob_info_cf_name()
+        || column_family_name == blob_info_snapshot_publication_cf_name()
+}
+
+/// Entries per write while [`wipe_node_state`] reduces the aggregate blob info table.
+const WIPE_WRITE_BATCH_SIZE: usize = 10_000;
+
+/// Wipes a stopped node's state except its blob data and its records of it; see the command's
+/// documentation.
+fn wipe_node_state(db_path: PathBuf, keep_event_store: bool) -> Result<()> {
+    let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)
+        .context("failed to list the column families; is this the node's storage path?")?;
+    let (kept, dropped): (Vec<_>, Vec<_>) = column_families
+        .into_iter()
+        .filter(|name| name != "default")
+        .partition(|name| kept_by_wipe(name));
+
+    // The aside directory lives inside the storage path: a rename never crosses a filesystem
+    // boundary when the storage path is a mount point, and RocksDB ignores the extra directory.
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("system time is before the Unix epoch")?
+        .as_secs();
+    let aside_dir = db_path.join(format!("wiped-{timestamp}"));
+
+    // Move the directories before dropping the column families, so that a failed move leaves
+    // the node untouched.
+    // The event processor's database (`EventProcessorRuntime`), the event blob writer's state
+    // (`EventBlobWriterFactory`), and the local snapshot files.
+    let mut subdirectories = vec![
+        db_path.join("event_blob_writer"),
+        snapshot_base_dir(&db_path),
+    ];
+    if keep_event_store {
+        println!(
+            "Keeping the event processor's database: {}",
+            db_path.join("events").display()
+        );
+    } else {
+        subdirectories.push(db_path.join("events"));
+    }
+    for directory in subdirectories.iter().filter(|directory| directory.exists()) {
+        std::fs::create_dir_all(&aside_dir)?;
+        let target = aside_dir.join(
+            directory
+                .file_name()
+                .context("the subdirectory has no final component")?,
+        );
+        std::fs::rename(directory, &target).with_context(|| {
+            format!(
+                "failed to move {} to {}",
+                directory.display(),
+                target.display()
+            )
+        })?;
+        println!("Moved {} to {}", directory.display(), target.display());
+    }
+
+    println!("Keeping column families: {kept:?}");
+    drop_column_families(db_path.clone(), dropped)?;
+
+    // The aggregate blob info table stays as the node's record of the blobs it holds data for,
+    // reduced to that record so that whatever rebuilds the blob info next can start from it:
+    // the snapshot load keeps those blobs known to garbage collection, and an event replay from
+    // the first event merges onto them. Opening the storage recreates the dropped column
+    // families empty, as the node's own start would.
+    let (kept_entries, deleted_entries) = reduce_aggregate_blob_info(&db_path)?;
+    println!(
+        "Reduced the aggregate blob info table to the {kept_entries} entries of the blobs with \
+        stored metadata ({deleted_entries} other entries deleted)"
+    );
+
+    println!(
+        "Done. On its next start the node loads the latest certified blob info snapshot, replays \
+        events from the snapshot's epoch boundary, and recovers any blob data it does not hold; \
+        garbage collection deletes the data of the blobs the snapshot does not list. Delete {} \
+        once the node is back in service.",
+        aside_dir.display()
+    );
+    Ok(())
+}
+
+/// Reduces the aggregate blob info table of the database at `db_path` to the entries of the
+/// blobs with stored metadata; see `Storage::reduce_aggregate_blob_info_to_stored_metadata`.
+fn reduce_aggregate_blob_info(db_path: &Path) -> Result<(usize, usize)> {
+    // Opening the storage starts database metrics tasks, which need a runtime.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _runtime_guard = runtime.enter();
+    let storage = Storage::open(
+        db_path,
+        DatabaseConfig::default(),
+        MetricConf::default(),
+        Registry::default(),
+    )
+    .with_context(|| format!("failed to open the database at {}", db_path.display()))?;
+    Ok(storage.reduce_aggregate_blob_info_to_stored_metadata(WIPE_WRITE_BATCH_SIZE)?)
 }
 
 const RESTORE_CF_WRITE_BATCH_SIZE: usize = 10_000;
@@ -2124,6 +2266,78 @@ mod tests {
     struct DbToolArgs {
         #[command(subcommand)]
         command: DbToolCommands,
+    }
+
+    /// The wipe keeps the metadata, the slivers, and the aggregate table reduced to the entries
+    /// of the blobs with stored metadata, as untracked blobs; the other entries and the event
+    /// cursor are gone.
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn wipe_node_state_keeps_the_stored_blobs_recorded() -> Result<()> {
+        use tokio::runtime::Runtime;
+        use walrus_core::{
+            SliverType,
+            metadata::VerifiedBlobMetadataWithId,
+            test_utils::{blob_id_from_u64, verified_blob_metadata},
+        };
+        use walrus_sui::{test_utils::EventForTesting, types::BlobRegistered};
+
+        use crate::node::storage::{
+            blob_info::BlobInfoApi,
+            tests::{SHARD_INDEX, WhichSlivers, populated_storage},
+        };
+
+        let (stored, unstored) = (blob_id_from_u64(1), blob_id_from_u64(2));
+        // Its own runtime, so that the tasks typed_store spawns are dropped with it and free the
+        // storage lock.
+        let directory = Runtime::new()?.block_on(async {
+            let storage = populated_storage(&[(SHARD_INDEX, vec![(stored, WhichSlivers::Both)])])
+                .await
+                .map_err(|error| anyhow::anyhow!(error))?;
+            for (index, blob_id) in [stored, unstored].into_iter().enumerate() {
+                storage.inner.update_blob_info(
+                    u64::try_from(index)?,
+                    &BlobRegistered::for_testing(blob_id).into(),
+                )?;
+            }
+            storage
+                .inner
+                .put_verified_metadata(&VerifiedBlobMetadataWithId::new_verified_unchecked(
+                    stored,
+                    verified_blob_metadata().metadata().clone(),
+                ))
+                .await?;
+            Result::<_, anyhow::Error>::Ok(storage.temp_dir)
+        })?;
+
+        wipe_node_state(directory.path().to_path_buf(), false)?;
+
+        Runtime::new()?.block_on(async {
+            let storage = Storage::open(
+                directory.path(),
+                DatabaseConfig::default(),
+                MetricConf::default(),
+                Registry::default(),
+            )?;
+            let entry = storage
+                .get_blob_info(&stored)?
+                .expect("the blob with stored metadata keeps an entry");
+            assert!(entry.is_metadata_stored());
+            assert!(
+                entry.can_blob_info_be_deleted(1),
+                "the entry has no objects"
+            );
+            assert!(storage.get_blob_info(&unstored)?.is_none());
+            assert!(storage.get_metadata(&stored)?.is_some());
+            assert!(storage.get_event_cursor_and_next_index()?.is_none());
+            let shard = storage
+                .shard_storage(SHARD_INDEX)
+                .await
+                .expect("the shard is kept");
+            assert!(shard.get_sliver(&stored, SliverType::Primary)?.is_some());
+            Result::<(), anyhow::Error>::Ok(())
+        })?;
+        Ok(())
     }
 
     #[test]
