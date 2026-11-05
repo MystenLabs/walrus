@@ -53,6 +53,7 @@ use crate::{
     },
     node::{
         DatabaseConfig,
+        blob_info_snapshot_writer::snapshot_base_dir,
         event_blob_writer::{
             AttestedEventBlobMetadata,
             CertifiedEventBlobMetadata,
@@ -80,6 +81,7 @@ use crate::{
             blob_info_snapshot,
             constants::{
                 aggregate_blob_info_cf_name,
+                blob_info_snapshot_publication_cf_name,
                 event_cursor_cf_name,
                 event_index_cf_name,
                 garbage_collector_table_cf_name,
@@ -253,6 +255,42 @@ pub enum DbToolCommands {
         /// Column families to drop.
         #[arg(num_args = 1..)]
         column_family_names: Vec<String>,
+    },
+
+    /// Wipe a stopped node's state except its blob data, so that it starts as a brand-new node
+    /// that loads the latest certified blob info snapshot while keeping its metadata and slivers.
+    ///
+    /// Opens the node's database first, which fails while the node runs, then moves the event
+    /// blob writer's state (`event_blob_writer/`) and the local snapshot files
+    /// (`blob_info_snapshots/`) into `<storage_path>/wiped-<timestamp>/` (inside the storage
+    /// path, so that the move stays on one filesystem when the storage path is a mount point;
+    /// the node ignores the directory), drops every column family except `metadata`, the
+    /// per-shard ones (`shard-*`), the snapshot publication record, and `aggregate_blob_info`,
+    /// and reduces the latter to the entries of the blobs with stored metadata: the node's
+    /// record of the blobs it holds data for, from which the snapshot load keeps them known to
+    /// garbage collection.
+    ///
+    /// The event processor's database (`events/`) is kept, so that the node neither downloads
+    /// event blobs nor tails the checkpoints since the latest certified event blob again. A
+    /// store that starts after the first event, as on a node that joined through event blobs,
+    /// makes the next start load the snapshot; one that reaches the first event, as on a node
+    /// that ran since genesis, makes it replay every event instead, which takes hours but keeps
+    /// the full history. The command prints which of the two the node will do.
+    ///
+    /// `<storage_path>/wipe-in-progress` exists from the first change to the last, and the node
+    /// refuses to start while it does: if a run is interrupted, run the command again, which
+    /// repeats what is left and removes the file. Delete the `wiped-*` directory once the node
+    /// is back in service.
+    WipeNodeState {
+        /// Path to the node's storage directory (`storage_path` in its configuration).
+        #[arg(long)]
+        db_path: PathBuf,
+        /// Move the event processor's database (`events/`) aside as well. The node then
+        /// downloads the event blobs since the oldest unexpired one before it loads the
+        /// snapshot. For a store that is suspect, or that reaches the first event on a network
+        /// whose early event blobs expired, where the snapshot route is faster than a replay.
+        #[arg(long)]
+        wipe_event_store: bool,
     },
 
     /// Replace column families in a Walrus RocksDB database by copying them from another RocksDB
@@ -503,6 +541,10 @@ impl DbToolCommands {
                 db_path,
                 column_family_names,
             } => drop_column_families(db_path, column_family_names),
+            Self::WipeNodeState {
+                db_path,
+                wipe_event_store,
+            } => wipe_node_state(db_path, wipe_event_store),
             Self::RestoreColumnFamilies {
                 db_path,
                 input_db_path,
@@ -970,33 +1012,384 @@ fn count_certified_blobs(db_path: PathBuf, epoch: Epoch) -> Result<()> {
 /// Drop a column family from the RocksDB database.
 fn drop_column_families(db_path: PathBuf, column_family_names: Vec<String>) -> Result<()> {
     let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)?;
-    let db_kind = detect_probe_db_kind(&column_families);
+    let db = open_database_with_column_families(&db_path, &column_families)?;
+    drop_column_families_of(&db, column_family_names)
+}
+
+/// Opens the database at `db_path` with the given column families, to change its column
+/// families. Opening takes the database's lock, which a running node holds, so this fails while
+/// the node runs.
+fn open_database_with_column_families(db_path: &Path, column_families: &[String]) -> Result<DB> {
+    let db_kind = detect_probe_db_kind(column_families);
     let db_table_opts_factory = db_table_options_factory_for_kind(db_kind);
 
     let mut db_opts = RocksdbOptions::default();
     db_opts.set_max_open_files(512_000);
 
+    println!(
+        "Opening the database; replaying its write-ahead log flushes every column family and can \
+        take minutes on a node with many shards (progress in {}/LOG)",
+        db_path.display()
+    );
     let db = DB::open_cf_with_opts(
         &db_opts,
-        &db_path,
-        cf_options(&column_families, db_kind, &db_table_opts_factory),
+        db_path,
+        cf_options(column_families, db_kind, &db_table_opts_factory),
     )
     .inspect_err(|_| {
         println!(
             "failed to open database; \
-            make sure to stop the storage node before attempting to drop column families"
+            make sure to stop the storage node before changing its column families"
         )
     })?;
+    Ok(db)
+}
 
+/// Drops the given column families of an open database, every one of them before failing on
+/// those that could not be dropped.
+fn drop_column_families_of(db: &DB, column_family_names: Vec<String>) -> Result<()> {
+    let mut failed = Vec::new();
     for column_family_name in column_family_names {
         println!("Dropping column family: {column_family_name}");
         match db.drop_cf(column_family_name.as_str()) {
             Ok(()) => println!("Success."),
-            Err(e) => println!("Failed to drop column family: {e:?}"),
+            Err(error) => {
+                println!("Failed to drop column family: {error:?}");
+                failed.push(column_family_name);
+            }
         }
     }
-
+    anyhow::ensure!(
+        failed.is_empty(),
+        "failed to drop the column families {failed:?}"
+    );
     Ok(())
+}
+
+/// Whether [`wipe_node_state`] keeps a column family: the blob data, in the metadata table and
+/// the per-shard tables (which `ShardStorage` names `shard-<index>/...`), and the node's records
+/// of it, in the aggregate blob info table (reduced to the entries of the blobs with stored
+/// metadata) and the snapshot publication record.
+fn kept_by_wipe(column_family_name: &str) -> bool {
+    column_family_name == metadata_cf_name()
+        || column_family_name.starts_with("shard-")
+        || column_family_name == aggregate_blob_info_cf_name()
+        || column_family_name == blob_info_snapshot_publication_cf_name()
+}
+
+/// Entries per write while [`wipe_node_state`] reduces the aggregate blob info table.
+const WIPE_WRITE_BATCH_SIZE: usize = 10_000;
+
+/// The file `wipe-node-state` keeps in the storage path from its first change to its last,
+/// naming the command and its `wiped-<timestamp>` directory. A node refuses to start while it
+/// exists (see [`ensure_no_interrupted_wipe`]), so an interrupted run is finished by running the
+/// command again rather than by starting the node on a half-wiped state, in which an event
+/// replay would count the kept blob info entries again.
+pub const WIPE_IN_PROGRESS_FILE_NAME: &str = "wipe-in-progress";
+
+/// The command name an in-progress marker records.
+const WIPE_COMMAND: &str = "wipe-node-state";
+
+/// What an in-progress marker records: the command that wrote it and the `wiped-<timestamp>`
+/// directory it works with, so that a run that finishes an interrupted one uses the same.
+#[derive(Debug, PartialEq, Eq)]
+struct InProgressMarker {
+    command: String,
+    wiped_dir: PathBuf,
+}
+
+/// Writes the in-progress marker of `command` working with `wiped_dir` and makes it durable, so
+/// that it outlives a power loss as the changes after it do.
+fn write_in_progress_marker(
+    storage_path: &Path,
+    command: &str,
+    wiped_dir: &Path,
+    timestamp: u64,
+) -> Result<PathBuf> {
+    use std::io::Write as _;
+
+    let marker = storage_path.join(WIPE_IN_PROGRESS_FILE_NAME);
+    let mut file = std::fs::File::create(&marker)
+        .with_context(|| format!("failed to write {}", marker.display()))?;
+    file.write_all(
+        format!(
+            "command: {command}\ndirectory: {}\nstarted at {timestamp} (seconds since the Unix \
+            epoch) and not finished; run `db-tool {command}` again to finish it, which removes \
+            this file\n",
+            wiped_dir.display()
+        )
+        .as_bytes(),
+    )?;
+    file.sync_all()?;
+    sync_directory(storage_path)?;
+    println!(
+        "Wrote {}; the node refuses to start while it exists",
+        marker.display()
+    );
+    Ok(marker)
+}
+
+/// Reads the in-progress marker in `storage_path`, if any; fails on a file that is not one.
+fn read_in_progress_marker(storage_path: &Path) -> Result<Option<InProgressMarker>> {
+    let marker = storage_path.join(WIPE_IN_PROGRESS_FILE_NAME);
+    let content = match std::fs::read_to_string(&marker) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", marker.display()));
+        }
+    };
+    let mut lines = content.lines();
+    let mut parse = || {
+        let command = lines.next()?.strip_prefix("command: ")?;
+        let directory = lines.next()?.strip_prefix("directory: ")?;
+        Some(InProgressMarker {
+            command: command.to_string(),
+            wiped_dir: PathBuf::from(directory),
+        })
+    };
+    parse().map(Some).with_context(|| {
+        format!(
+            "{} is not a marker db-tool wrote; remove it if no db-tool run on the storage path \
+            is in progress",
+            marker.display()
+        )
+    })
+}
+
+/// Makes the entries of the directory at `path` durable: a rename or a file creation is not
+/// until the directory is synced.
+fn sync_directory(path: &Path) -> Result<()> {
+    std::fs::File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .with_context(|| format!("failed to sync the directory {}", path.display()))
+}
+
+/// Fails if a `wipe-node-state` run on the storage at `storage_path` was interrupted, so that
+/// the node does not start on a half-wiped state; see [`WIPE_IN_PROGRESS_FILE_NAME`]. The node
+/// calls this while holding the database lock, which a wipe holds whenever it writes the file,
+/// so the check cannot pass just before a wipe starts.
+pub fn ensure_no_interrupted_wipe(storage_path: &Path) -> Result<()> {
+    let marker = storage_path.join(WIPE_IN_PROGRESS_FILE_NAME);
+    if !marker.exists() {
+        return Ok(());
+    }
+    let command = read_in_progress_marker(storage_path)
+        .ok()
+        .flatten()
+        .map_or_else(
+            || WIPE_COMMAND.to_string(),
+            |interrupted| interrupted.command,
+        );
+    anyhow::bail!(
+        "a db-tool {command} run on {} was interrupted ({} exists); run the command again to \
+        finish it before starting the node",
+        storage_path.display(),
+        marker.display()
+    )
+}
+
+/// The start of the event store at `events_path`: the index of its first event and whether an
+/// init state is recorded at it, which is what makes a brand-new node's start load a snapshot
+/// instead of replaying every event (see `blob_info_snapshot_bootstrap`); `None` for an empty
+/// store.
+fn kept_event_store_start(events_path: &Path) -> Result<Option<(u64, bool)>> {
+    let table_options = DatabaseTableOptionsFactory::new(DatabaseConfig::default(), false);
+    let db = DB::open_cf_with_opts_for_read_only(
+        &RocksdbOptions::default(),
+        events_path,
+        [
+            (
+                event_processor_constants::EVENT_STORE,
+                table_options.event_store(),
+            ),
+            (
+                event_processor_constants::INIT_STATE,
+                table_options.init_state(),
+            ),
+        ],
+        false,
+    )?;
+    let event_store = db
+        .cf_handle(event_processor_constants::EVENT_STORE)
+        .context("the event store column family should exist")?;
+    let Some(first) = db
+        .iterator_cf(&event_store, rocksdb::IteratorMode::Start)
+        .next()
+    else {
+        return Ok(None);
+    };
+    let (key, _) = first?;
+    let init_state = db
+        .cf_handle(event_processor_constants::INIT_STATE)
+        .context("the init state column family should exist")?;
+    let has_init_state = db.get_cf(&init_state, &key)?.is_some();
+    let first_index: u64 = bincode::DefaultOptions::new()
+        .with_big_endian()
+        .with_fixint_encoding()
+        .deserialize(&key)?;
+    Ok(Some((first_index, has_init_state)))
+}
+
+/// Wipes a stopped node's state except its blob data and its records of it; see the command's
+/// documentation. Every step is safe to repeat, so a run finishes what an interrupted one left.
+fn wipe_node_state(db_path: PathBuf, wipe_event_store: bool) -> Result<()> {
+    let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)
+        .context("failed to list the column families; is this the node's storage path?")?;
+    let (kept, dropped): (Vec<_>, Vec<_>) = column_families
+        .iter()
+        .filter(|name| *name != "default")
+        .cloned()
+        .partition(|name| kept_by_wipe(name));
+
+    // Opening the database takes its lock, which a running node holds, so nothing below touches
+    // the state of a running node.
+    let db = open_database_with_column_families(&db_path, &column_families)?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("system time is before the Unix epoch")?
+        .as_secs();
+    let marker = db_path.join(WIPE_IN_PROGRESS_FILE_NAME);
+
+    // A run that finishes an interrupted one works with the directory the marker records, so
+    // that everything a wipe moved aside is in one place.
+    let aside_dir = match read_in_progress_marker(&db_path)? {
+        Some(interrupted) if interrupted.command == WIPE_COMMAND => {
+            println!(
+                "Finishing the interrupted run recorded in {}, which works with {}",
+                marker.display(),
+                interrupted.wiped_dir.display()
+            );
+            interrupted.wiped_dir
+        }
+        Some(interrupted) => anyhow::bail!(
+            "a db-tool {} run on {} was interrupted ({} exists); run that command again to \
+            finish it before wiping",
+            interrupted.command,
+            db_path.display(),
+            marker.display()
+        ),
+        None => {
+            // The aside directory lives inside the storage path: a rename never crosses a
+            // filesystem boundary when the storage path is a mount point, and RocksDB ignores
+            // the extra directory.
+            let aside_dir = db_path.join(format!("wiped-{timestamp}"));
+            // The marker keeps the node from starting until the last step is done.
+            write_in_progress_marker(&db_path, WIPE_COMMAND, &aside_dir, timestamp)?;
+            aside_dir
+        }
+    };
+
+    // Move the directories before dropping the column families, so that a failed move leaves
+    // the node's database untouched.
+    // The event processor's database (`EventProcessorRuntime`), the event blob writer's state
+    // (`EventBlobWriterFactory`), and the local snapshot files.
+    let mut subdirectories = vec![
+        db_path.join("event_blob_writer"),
+        snapshot_base_dir(&db_path),
+    ];
+    let events = db_path.join("events");
+    if wipe_event_store {
+        subdirectories.push(events.clone());
+    } else {
+        println!(
+            "Keeping the event processor's database: {}",
+            events.display()
+        );
+    }
+    for directory in subdirectories.iter().filter(|directory| directory.exists()) {
+        std::fs::create_dir_all(&aside_dir)?;
+        let target = aside_dir.join(
+            directory
+                .file_name()
+                .context("the subdirectory has no final component")?,
+        );
+        std::fs::rename(directory, &target).with_context(|| {
+            format!(
+                "failed to move {} to {}",
+                directory.display(),
+                target.display()
+            )
+        })?;
+        println!("Moved {} to {}", directory.display(), target.display());
+    }
+
+    println!("Keeping column families: {kept:?}");
+    drop_column_families_of(&db, dropped)?;
+    // The storage below opens the database itself.
+    drop(db);
+
+    // The aggregate blob info table stays as the node's record of the blobs it holds data for,
+    // reduced to that record so that whatever rebuilds the blob info next can start from it:
+    // the snapshot load keeps those blobs known to garbage collection, and an event replay from
+    // the first event merges onto them. Opening the storage recreates the dropped column
+    // families empty, as the node's own start would.
+    let (kept_entries, deleted_entries) = reduce_aggregate_blob_info(&db_path)?;
+    println!(
+        "Reduced the aggregate blob info table to the {kept_entries} entries of the blobs with \
+        stored metadata ({deleted_entries} other entries deleted)"
+    );
+
+    std::fs::remove_file(&marker)
+        .with_context(|| format!("failed to remove {}", marker.display()))?;
+    sync_directory(&db_path)?;
+    let next_start = if wipe_event_store || !events.exists() {
+        "On its next start the node downloads the event blobs, loads the latest certified blob \
+        info snapshot, and replays the events since its boundary."
+            .to_string()
+    } else {
+        match kept_event_store_start(&events) {
+            Ok(Some((first_index, true))) if first_index > 0 => format!(
+                "On its next start the node loads the latest certified blob info snapshot and \
+                replays the events since its boundary; its event store starts at event \
+                {first_index}."
+            ),
+            Ok(Some((first_index, _))) => format!(
+                "On its next start the node replays every event from the first one instead of \
+                loading a snapshot, as its event store starts at event {first_index} without an \
+                init state."
+            ),
+            Ok(None) => "On its next start the node downloads the event blobs, loads the latest \
+                certified blob info snapshot, and replays the events since its boundary; its \
+                event store is empty."
+                .to_string(),
+            Err(error) => format!(
+                "Could not inspect the event store ({error:#}). On its next start the node loads \
+                the latest certified blob info snapshot if the store starts after the first \
+                event, or replays every event if it reaches it."
+            ),
+        }
+    };
+    println!(
+        "Done. {next_start} The node then recovers any blob data it does not hold, and garbage \
+        collection deletes the data of the blobs it does not list."
+    );
+    if aside_dir.exists() {
+        println!(
+            "Delete {} once the node is back in service.",
+            aside_dir.display()
+        );
+    }
+    Ok(())
+}
+
+/// Reduces the aggregate blob info table of the database at `db_path` to the entries of the
+/// blobs with stored metadata; see `Storage::reduce_aggregate_blob_info_to_stored_metadata`.
+fn reduce_aggregate_blob_info(db_path: &Path) -> Result<(usize, usize)> {
+    // Opening the storage starts database metrics tasks, which need a runtime.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _runtime_guard = runtime.enter();
+    let storage = Storage::open(
+        db_path,
+        DatabaseConfig::default(),
+        MetricConf::default(),
+        Registry::default(),
+    )
+    .with_context(|| format!("failed to open the database at {}", db_path.display()))?;
+    Ok(storage.reduce_aggregate_blob_info_to_stored_metadata(WIPE_WRITE_BATCH_SIZE)?)
 }
 
 const RESTORE_CF_WRITE_BATCH_SIZE: usize = 10_000;
@@ -2124,6 +2517,200 @@ mod tests {
     struct DbToolArgs {
         #[command(subcommand)]
         command: DbToolCommands,
+    }
+
+    /// The wipe keeps the metadata, the slivers, and the aggregate table reduced to the entries
+    /// of the blobs with stored metadata, as untracked blobs; the other entries and the event
+    /// cursor are gone.
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn wipe_node_state_keeps_the_stored_blobs_recorded() -> Result<()> {
+        use tokio::runtime::Runtime;
+        use walrus_core::{
+            SliverType,
+            metadata::VerifiedBlobMetadataWithId,
+            test_utils::{blob_id_from_u64, verified_blob_metadata},
+        };
+        use walrus_sui::{test_utils::EventForTesting, types::BlobRegistered};
+
+        use crate::node::storage::{
+            blob_info::BlobInfoApi,
+            tests::{SHARD_INDEX, WhichSlivers, populated_storage},
+        };
+
+        let (stored, unstored) = (blob_id_from_u64(1), blob_id_from_u64(2));
+        // Its own runtime, so that the tasks typed_store spawns are dropped with it and free the
+        // storage lock.
+        let directory = Runtime::new()?.block_on(async {
+            let storage = populated_storage(&[(SHARD_INDEX, vec![(stored, WhichSlivers::Both)])])
+                .await
+                .map_err(|error| anyhow::anyhow!(error))?;
+            for (index, blob_id) in [stored, unstored].into_iter().enumerate() {
+                storage.inner.update_blob_info(
+                    u64::try_from(index)?,
+                    &BlobRegistered::for_testing(blob_id).into(),
+                )?;
+            }
+            storage
+                .inner
+                .put_verified_metadata(&VerifiedBlobMetadataWithId::new_verified_unchecked(
+                    stored,
+                    verified_blob_metadata().metadata().clone(),
+                ))
+                .await?;
+            Result::<_, anyhow::Error>::Ok(storage.temp_dir)
+        })?;
+        let events = directory.path().join("events");
+        std::fs::create_dir(&events)?;
+        std::fs::write(events.join("CURRENT"), "")?;
+
+        wipe_node_state(directory.path().to_path_buf(), false)?;
+        ensure_no_interrupted_wipe(directory.path())?;
+        // A second run, as after an interruption, finds nothing left to do and leaves the same
+        // state.
+        wipe_node_state(directory.path().to_path_buf(), false)?;
+        ensure_no_interrupted_wipe(directory.path())?;
+        assert!(
+            events.join("CURRENT").exists(),
+            "the event store is kept unless asked otherwise"
+        );
+
+        Runtime::new()?.block_on(async {
+            let storage = Storage::open(
+                directory.path(),
+                DatabaseConfig::default(),
+                MetricConf::default(),
+                Registry::default(),
+            )?;
+            let entry = storage
+                .get_blob_info(&stored)?
+                .expect("the blob with stored metadata keeps an entry");
+            assert!(entry.is_metadata_stored());
+            assert!(
+                entry.can_blob_info_be_deleted(1),
+                "the entry has no objects"
+            );
+            assert!(storage.get_blob_info(&unstored)?.is_none());
+            assert!(storage.get_metadata(&stored)?.is_some());
+            assert!(storage.get_event_cursor_and_next_index()?.is_none());
+            let shard = storage
+                .shard_storage(SHARD_INDEX)
+                .await
+                .expect("the shard is kept");
+            assert!(shard.get_sliver(&stored, SliverType::Primary)?.is_some());
+            Result::<(), anyhow::Error>::Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// The wipe opens the database before it touches anything, so against a running node it
+    /// fails without moving a directory or leaving the marker that keeps the node from starting.
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn wipe_node_state_refuses_a_running_node_before_touching_anything() -> Result<()> {
+        use tokio::runtime::Runtime;
+
+        use crate::node::storage::tests::{SHARD_INDEX, populated_storage};
+
+        // The runtime and the storage are dropped explicitly: together they hold the database
+        // lock, as a running node does.
+        let runtime = Runtime::new()?;
+        let storage = runtime
+            .block_on(populated_storage(&[(SHARD_INDEX, vec![])]))
+            .map_err(|error| anyhow::anyhow!(error))?;
+        let (storage, directory) = (storage.inner, storage.temp_dir);
+        let events = directory.path().join("events");
+        std::fs::create_dir(&events)?;
+        std::fs::write(events.join("CURRENT"), "")?;
+        let marker = directory.path().join(WIPE_IN_PROGRESS_FILE_NAME);
+        let aside_dirs = || -> Result<Vec<String>> {
+            Ok(std::fs::read_dir(directory.path())?
+                .filter_map(|entry| Some(entry.ok()?.file_name().to_string_lossy().into_owned()))
+                .filter(|name| name.starts_with("wiped-"))
+                .collect())
+        };
+
+        assert!(wipe_node_state(directory.path().to_path_buf(), true).is_err());
+        assert!(events.join("CURRENT").exists());
+        assert!(!marker.exists());
+        assert!(aside_dirs()?.is_empty());
+        ensure_no_interrupted_wipe(directory.path())?;
+
+        drop(storage);
+        drop(runtime);
+        wipe_node_state(directory.path().to_path_buf(), true)?;
+        assert!(!events.exists());
+        assert!(!marker.exists());
+        assert_eq!(aside_dirs()?.len(), 1);
+        Ok(())
+    }
+
+    /// A node does not start on the state an interrupted wipe left, nor on a marker it cannot
+    /// read.
+    #[test]
+    fn interrupted_wipe_keeps_the_node_from_starting() -> Result<()> {
+        let directory = tempdir()?;
+        ensure_no_interrupted_wipe(directory.path())?;
+        let wiped_dir = directory.path().join("wiped-1");
+        let marker = write_in_progress_marker(directory.path(), WIPE_COMMAND, &wiped_dir, 1)?;
+        assert_eq!(
+            read_in_progress_marker(directory.path())?,
+            Some(InProgressMarker {
+                command: WIPE_COMMAND.to_string(),
+                wiped_dir,
+            })
+        );
+        let error = ensure_no_interrupted_wipe(directory.path())
+            .expect_err("the marker keeps the node from starting");
+        assert!(error.to_string().contains("wipe-node-state"), "{error:#}");
+
+        std::fs::write(&marker, "")?;
+        assert!(read_in_progress_marker(directory.path()).is_err());
+        let error = ensure_no_interrupted_wipe(directory.path())
+            .expect_err("an unreadable marker keeps the node from starting too");
+        assert!(error.to_string().contains("wipe-node-state"), "{error:#}");
+        Ok(())
+    }
+
+    /// A run that finishes an interrupted wipe moves into the directory the marker records.
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn wipe_node_state_resumes_into_the_recorded_directory() -> Result<()> {
+        use tokio::runtime::Runtime;
+
+        use crate::node::storage::tests::{SHARD_INDEX, populated_storage};
+
+        let directory = Runtime::new()?.block_on(async {
+            let storage = populated_storage(&[(SHARD_INDEX, vec![])])
+                .await
+                .map_err(|error| anyhow::anyhow!(error))?;
+            Result::<_, anyhow::Error>::Ok(storage.temp_dir)
+        })?;
+        let events = directory.path().join("events");
+        std::fs::create_dir(&events)?;
+        std::fs::write(events.join("CURRENT"), "")?;
+        // The interrupted run moved the writer's state aside and died before the rest.
+        let wiped_dir = directory.path().join("wiped-1");
+        std::fs::create_dir_all(wiped_dir.join("event_blob_writer"))?;
+        write_in_progress_marker(directory.path(), WIPE_COMMAND, &wiped_dir, 1)?;
+
+        wipe_node_state(directory.path().to_path_buf(), true)?;
+        ensure_no_interrupted_wipe(directory.path())?;
+        assert!(wiped_dir.join("events").join("CURRENT").exists());
+        assert_eq!(
+            subdirectories_starting_with(directory.path(), "wiped-")?,
+            vec![wiped_dir]
+        );
+        Ok(())
+    }
+
+    /// The subdirectories of `directory` whose names start with `prefix`.
+    fn subdirectories_starting_with(directory: &Path, prefix: &str) -> Result<Vec<PathBuf>> {
+        Ok(std::fs::read_dir(directory)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(prefix))
+            .map(|entry| entry.path())
+            .collect())
     }
 
     #[test]

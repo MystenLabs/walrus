@@ -790,12 +790,16 @@ impl StorageNode {
         let storage = if let Some(storage) = node_params.pre_created_storage {
             storage
         } else {
-            Storage::open(
+            let storage = Storage::open(
                 config.storage_path.as_path(),
                 config.db_config.clone(),
                 MetricConf::new("storage"),
                 registry.clone(),
-            )?
+            )?;
+            // Checked while holding the database lock, which a wipe holds whenever it writes the
+            // marker, so that the check cannot pass just before a wipe starts.
+            dbtool::ensure_no_interrupted_wipe(config.storage_path.as_path())?;
+            storage
         };
         tracing::info!("successfully opened the node database");
 

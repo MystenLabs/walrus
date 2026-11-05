@@ -624,6 +624,46 @@ impl BlobInfoTable {
             .collect()
     }
 
+    /// Reduces the aggregate table to this node's record of the blobs it holds data for: every
+    /// entry whose metadata is stored becomes the entry of an untracked blob with metadata
+    /// stored, and every other entry is deleted, in writes of `batch_size` entries.
+    ///
+    /// The result is a valid table for whatever rebuilds the blob info next. A snapshot load
+    /// takes the entries as its record of the stored blobs, and an event replay from the first
+    /// event merges registrations onto them, as it does onto the entry that storing metadata
+    /// creates for an unknown blob. Either way, garbage collection deletes the data and the entry
+    /// of a blob that ends up without objects.
+    ///
+    /// Returns the number of entries kept and deleted.
+    pub fn reduce_to_stored_metadata(
+        &self,
+        batch_size: usize,
+    ) -> Result<(usize, usize), TypedStoreError> {
+        let (mut kept, mut deleted, mut batched) = (0, 0, 0);
+        let mut batch = self.aggregate_blob_info.batch();
+        for entry in self.aggregate_blob_info.safe_iter()? {
+            let (blob_id, blob_info) = entry?;
+            if blob_info.is_metadata_stored() {
+                batch.insert_batch(
+                    &self.aggregate_blob_info,
+                    [(&blob_id, &untracked_blob_info_with_metadata())],
+                )?;
+                kept += 1;
+            } else {
+                batch.delete_batch(&self.aggregate_blob_info, [&blob_id])?;
+                deleted += 1;
+            }
+            batched += 1;
+            if batched >= batch_size {
+                batch.write()?;
+                batch = self.aggregate_blob_info.batch();
+                batched = 0;
+            }
+        }
+        batch.write()?;
+        Ok((kept, deleted))
+    }
+
     /// Returns an iterator over all entries in the aggregate blob info table within the given
     /// range.
     pub fn aggregate_blob_info_range_iter(
