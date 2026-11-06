@@ -2683,6 +2683,14 @@ impl StorageNodeInner {
                 .await
             {
                 Ok(_) => continue,
+                Err(StoreSliverError::ShardNotAssigned(shard_err)) => {
+                    // Shard reassigned away during epoch boundary; benign during flush (#3742).
+                    tracing::debug!(
+                        ?shard_err,
+                        "Skipping sliver for unassigned shard during pending cache flush"
+                    );
+                    continue;
+                }
                 Err(error) => {
                     pending.push(cached);
                     self.pending_sliver_cache
@@ -4231,8 +4239,10 @@ fn map_flush_error_to_confirmation(error: PendingCacheError) -> ComputeStorageCo
             StoreSliverError::MissingMetadata => {
                 ComputeStorageConfirmationError::NotCurrentlyRegistered
             }
-            StoreSliverError::ShardNotAssigned(inner) => {
-                ComputeStorageConfirmationError::Internal(inner.into())
+            StoreSliverError::ShardNotAssigned(_) => {
+                // Shard was reassigned during an epoch change (#3742).
+                // Do not fail with Internal; downstream check verifies remaining owned shards.
+                ComputeStorageConfirmationError::NotFullyStored
             }
             other => ComputeStorageConfirmationError::Internal(other.into()),
         },
