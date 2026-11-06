@@ -13,11 +13,14 @@ use walrus_core::{BlobId, Epoch, encoding::ConsistencyCheckType};
 use walrus_sdk::{error::ClientResult, node_client::WalrusNodeClient};
 use walrus_sui::{
     client::{ReadClient, SuiReadClient},
-    types::move_structs::EventBlob,
+    types::{BlobEvent, ContractEvent, move_structs::EventBlob},
 };
 
 use super::event_processor::metrics::EventCatchupManagerMetrics;
-use crate::event::{event_blob::EventBlob as LocalEventBlob, events::EventStreamCursor};
+use crate::event::{
+    event_blob::EventBlob as LocalEventBlob,
+    events::{EventStreamCursor, EventStreamElement},
+};
 
 const READING_FIRST_EVENT_BLOB_TIMEOUT: Duration = Duration::from_secs(30);
 const READING_FIRST_EVENT_BLOB_RETRY_INTERVAL: Duration = Duration::from_secs(1);
@@ -119,7 +122,7 @@ impl EventBlobDownloader {
         path: &Path,
         metrics: &EventCatchupManagerMetrics,
     ) -> Result<Vec<BlobId>> {
-        let mut blobs = Vec::new();
+        let mut blobs: Vec<BlobId> = Vec::new();
         let mut event_blob_id = match from_blob {
             Some(blob) => blob,
             None => match self.sui_read_client.last_certified_event_blob().await? {
@@ -160,6 +163,24 @@ impl EventBlobDownloader {
                     Ok(blob) => (blob, "network"),
                     Err(err) if err.is_blob_not_available_to_read_error() => {
                         anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
+                        // Taking this blob as expired could leave a gap after the local event
+                        // store, which catch-up reports as the node being too far behind to
+                        // catch up. So if the node already has local history, the blob must be
+                        // shown to have expired; otherwise, fail so that catch-up retries.
+                        if starting_checkpoint_to_process.is_some() {
+                            let current_epoch = self.sui_read_client.current_epoch().await?;
+                            if !is_known_to_have_expired(
+                                path,
+                                &blobs,
+                                event_blob_id,
+                                current_epoch,
+                            )? {
+                                anyhow::bail!(
+                                    "event blob {event_blob_id} cannot be read, and it is not \
+                                    known to have expired: {err}"
+                                );
+                            }
+                        }
                         tracing::info!(
                             "stopping downloading event blobs with expired blob {}",
                             event_blob_id
@@ -286,5 +307,113 @@ impl EventBlobDownloader {
         };
 
         Ok(blob)
+    }
+}
+
+/// Returns whether the event blob `blob_id` has expired in `current_epoch`, according to its
+/// certification event in one of `newer_blobs`.
+///
+/// `newer_blobs` are the event blobs that follow `blob_id`, from the newest to the oldest, and are
+/// stored in `path`. The certification event records the epoch in which the blob's storage ends.
+/// The contract emits it after the blob's last checkpoint, so it is in a newer blob: normally the
+/// next one, but a later one if more blobs were cut before this one was certified. So the search
+/// starts at the next blob. Returns false if none of the newer blobs holds the event.
+///
+/// The epoch in which the next blob starts is not enough: a blob can be certified in a later epoch
+/// than the one in which it ended, and its storage starts when it is certified.
+fn is_known_to_have_expired(
+    path: &Path,
+    newer_blobs: &[BlobId],
+    blob_id: BlobId,
+    current_epoch: Epoch,
+) -> Result<bool> {
+    for newer_blob_id in newer_blobs.iter().rev() {
+        let newer_blob = std::fs::read(path.join(newer_blob_id.to_string()))?;
+        let end_epoch =
+            LocalEventBlob::new(&newer_blob)?.find_map(|event| match event.element.element {
+                EventStreamElement::ContractEvent(ContractEvent::BlobEvent(
+                    BlobEvent::Certified(certified),
+                )) if certified.blob_id == blob_id => Some(certified.end_epoch),
+                _ => None,
+            });
+        if let Some(end_epoch) = end_epoch {
+            return Ok(current_epoch >= end_epoch);
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use walrus_sui::{test_utils::EventForTesting, types::BlobCertified};
+
+    use super::*;
+    use crate::event::events::{
+        CheckpointEventPosition,
+        IndexedStreamEvent,
+        PositionedStreamEvent,
+    };
+
+    /// A blob cut in epoch 10 but certified in epoch 11, with storage for 3 epochs, is available
+    /// until the start of epoch 14, although the blob that follows it starts in epoch 10. Its
+    /// certification event is in the second blob that follows it, as happens when another blob is
+    /// cut before it is certified.
+    #[test]
+    fn event_blob_is_known_to_have_expired_only_once_its_storage_has_ended() -> Result<()> {
+        let blob_id = BlobId([1; 32]);
+        let next_blob_id = BlobId([2; 32]);
+        let second_next_blob_id = BlobId([3; 32]);
+        let certification = BlobCertified {
+            epoch: 11,
+            end_epoch: 14,
+            ..BlobCertified::for_testing(blob_id)
+        };
+        let next_blob = LocalEventBlob::from_events(
+            10,
+            blob_id,
+            None,
+            100,
+            100,
+            &[IndexedStreamEvent::new(
+                PositionedStreamEvent::new_checkpoint_boundary(100, 0),
+                1000,
+            )],
+        )?;
+        let second_next_blob = LocalEventBlob::from_events(
+            11,
+            next_blob_id,
+            None,
+            101,
+            101,
+            &[
+                IndexedStreamEvent::new(
+                    PositionedStreamEvent::new(
+                        ContractEvent::BlobEvent(BlobEvent::Certified(certification)),
+                        CheckpointEventPosition::new(101, 0),
+                    ),
+                    1001,
+                ),
+                IndexedStreamEvent::new(
+                    PositionedStreamEvent::new_checkpoint_boundary(101, 1),
+                    1002,
+                ),
+            ],
+        )?;
+        let dir = tempfile::tempdir()?;
+        std::fs::write(dir.path().join(next_blob_id.to_string()), next_blob)?;
+        std::fs::write(
+            dir.path().join(second_next_blob_id.to_string()),
+            second_next_blob,
+        )?;
+        // From the newest to the oldest, as the walk back collects them.
+        let newer_blobs = [second_next_blob_id, next_blob_id];
+        let is_expired =
+            |blob_id, epoch| is_known_to_have_expired(dir.path(), &newer_blobs, blob_id, epoch);
+
+        assert!(!is_expired(blob_id, 13)?);
+        assert!(is_expired(blob_id, 14)?);
+        // Without its certification event, a blob is never known to have expired.
+        assert!(!is_expired(BlobId([4; 32]), 100)?);
+        Ok(())
     }
 }

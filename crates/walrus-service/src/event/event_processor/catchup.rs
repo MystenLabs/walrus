@@ -80,6 +80,21 @@ pub enum CatchupError {
     NonRecoverable(anyhow::Error),
 }
 
+/// The oldest event blob that is still available starts after the next event the local event store
+/// needs, so the events in between have expired and the local event store can never be continued.
+#[derive(thiserror::Error, Debug)]
+#[error(
+    "the node is too far behind to catch up: its local event store needs event {next_event_index} \
+    next, but the oldest event blob still available starts at event {first_available_event_index}; \
+    please wipe the DB and restart the node"
+)]
+pub struct TooFarBehindError {
+    /// The index of the next event the local event store needs.
+    pub next_event_index: u64,
+    /// The index of the first event in the oldest event blob that is still available.
+    pub first_available_event_index: u64,
+}
+
 /// Manages the catchup process for events in the event processor using event blobs.
 ///
 /// This manager handles the process of catching up the local event store with the network state.
@@ -343,19 +358,19 @@ impl EventBlobCatchupManager {
         )
         .await;
 
-        let mut recoverable_error: Option<anyhow::Error> = None;
+        let mut processing_error: Option<CatchupError> = None;
         match processing_result {
             Ok(Ok(num_events_recovered)) => {
                 tracing::info!("successfully processed {} events", num_events_recovered);
             }
             Ok(Err(error)) => {
                 tracing::error!(error = ?error, "failed to process event blobs");
-                recoverable_error = Some(error);
+                processing_error = Some(error);
             }
             Err(_) => {
                 let timeout_error = anyhow::anyhow!("processing event blobs timed out");
                 tracing::error!(error = ?timeout_error, "processing event blobs timed out");
-                recoverable_error = Some(timeout_error);
+                processing_error = Some(CatchupError::Recoverable(timeout_error));
             }
         }
 
@@ -364,8 +379,8 @@ impl EventBlobCatchupManager {
             Err(CatchupError::NonRecoverable(anyhow::anyhow!(
                 "failed to send restart message to checkpoint tailing"
             )))
-        } else if let Some(error) = recoverable_error {
-            Err(CatchupError::Recoverable(error))
+        } else if let Some(error) = processing_error {
+            Err(error)
         } else {
             Ok(())
         }
@@ -456,11 +471,13 @@ impl EventBlobCatchupManager {
     /// 2. Processes each blob:
     ///    - Collects relevant events that maintain a continuous sequence with the local store.
     ///    - Stores the events in the event store.
+    ///
+    /// Fails with a [`TooFarBehindError`] if the oldest blob starts after `next_event_index`.
     pub async fn process_event_blobs(
         &self,
         blobs: Vec<BlobId>,
         next_event_index: Option<u64>,
-    ) -> anyhow::Result<usize> {
+    ) -> Result<usize, CatchupError> {
         tracing::info!("starting to process event blobs");
 
         let mut num_events_recovered = 0;
@@ -489,6 +506,23 @@ impl EventBlobCatchupManager {
                 // And we find a blob with events [200,201,202], it will return empty events
                 // All future blobs will have indices > 200, making gaps even larger
                 // So we can safely break the loop
+                //
+                // The walk back through the blobs stops before the end of the local store only at a
+                // blob it could not read and found to have expired (see
+                // `EventBlobDownloader::download`). So the events in such a gap have expired: the
+                // local store can never be continued, and the node must not wait for them.
+                if let Some(next_event_index) = next_event_index
+                    && let Some(first_event) = &downloaded_blob.first_event
+                    && first_event.index > next_event_index
+                {
+                    return Err(CatchupError::NonRecoverable(
+                        TooFarBehindError {
+                            next_event_index,
+                            first_available_event_index: first_event.index,
+                        }
+                        .into(),
+                    ));
+                }
                 tracing::info!(
                     event_blob_id = %blob_id,
                     next_event_index = ?next_event_index,
@@ -703,6 +737,100 @@ impl EventBlobCatchupManager {
     fn cleanup_blob_file(&self, blob_id: BlobId) -> anyhow::Result<()> {
         let blob_path = self.recovery_path.join(blob_id.to_string());
         fs::remove_file(blob_path)?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sui_types::base_types::ObjectID;
+
+    use super::*;
+    use crate::{
+        event::{event_processor::client::ClientManager, events::PositionedStreamEvent},
+        node::DatabaseConfig,
+    };
+
+    /// Returns one checkpoint marker per index, as if no checkpoint held a Walrus event.
+    fn checkpoint_markers(indices: std::ops::Range<u64>) -> Vec<IndexedStreamEvent> {
+        indices
+            .map(|index| {
+                IndexedStreamEvent::new(
+                    PositionedStreamEvent::new_checkpoint_boundary(index, 0),
+                    index,
+                )
+            })
+            .collect()
+    }
+
+    /// A node whose local event store ends before the oldest event blob that is still available
+    /// can never continue that store from event blobs. Catch-up must report this, instead of
+    /// succeeding without storing anything and leaving the node to wait for events that never
+    /// come (WAL-1402).
+    #[tokio::test]
+    async fn catchup_fails_when_available_event_blobs_start_after_local_event_store()
+    -> anyhow::Result<()> {
+        let temp_dir = tempfile::tempdir()?;
+        let stores =
+            EventProcessorStores::new(&DatabaseConfig::default(), &temp_dir.path().join("db"))?;
+        // The local event store holds events 0 to 199, so the next event it needs is 200.
+        for event in checkpoint_markers(0..200) {
+            stores.event_store.insert(&event.index, &event.element)?;
+        }
+
+        // The event blobs with events 200 to 799 have expired. The oldest one that is still
+        // available holds events 800 to 899.
+        let recovery_path = temp_dir.path().join("recovery");
+        fs::create_dir_all(&recovery_path)?;
+        let oldest_available_blob_id = BlobId([1; 32]);
+        fs::write(
+            recovery_path.join(oldest_available_blob_id.to_string()),
+            EventBlob::from_events(
+                10,
+                BlobId([2; 32]),
+                None,
+                800,
+                899,
+                &checkpoint_markers(800..900),
+            )?,
+        )?;
+
+        let registry = Registry::default();
+        // Catch-up finds the gap before it contacts the network, so the clients are never used.
+        let clients = ClientManager::new(
+            &["http://127.0.0.1:1".to_owned()],
+            Duration::from_secs(1),
+            None,
+            &registry,
+            Duration::from_secs(60),
+        )?
+        .into_client_set();
+        let (coordination_state, _coordination_rx) = CatchupCoordinationState::new();
+        let catchup_manager = EventBlobCatchupManager::new(
+            stores,
+            clients,
+            SystemConfig::new(ObjectID::ZERO, ObjectID::ZERO, ObjectID::ZERO),
+            recovery_path,
+            &registry,
+            CatchupRuntimeConfig {
+                coordination_state: Arc::new(coordination_state),
+                coordination_timeout: Duration::from_secs(1),
+                processing_timeout: Duration::from_secs(1),
+            },
+        );
+
+        let result = catchup_manager
+            .process_event_blobs(vec![oldest_available_blob_id], Some(200))
+            .await;
+
+        let error = result.expect_err(
+            "catch-up must fail when no available event blob continues the local event store",
+        );
+        assert!(
+            error.to_string().contains("too far behind"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(catchup_manager.get_next_event_index()?, Some(200));
         Ok(())
     }
 }
