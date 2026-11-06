@@ -257,9 +257,11 @@ pub enum DbToolCommands {
     /// Wipe a stopped node's state except its blob data, so that it starts as a brand-new node
     /// that loads the latest certified blob info snapshot while keeping its metadata and slivers.
     ///
-    /// Opens the node's database first, which fails while the node runs, then moves the event
-    /// blob writer's state (`event_blob_writer/`) and the local snapshot files
-    /// (`blob_info_snapshots/`) into `<storage_path>/wiped-<timestamp>/` (inside the storage
+    /// Opens the node's database first, which fails while the node runs, takes a checkpoint of
+    /// it in `<storage_path>/wiped-<timestamp>/db-checkpoint/` (hard links to the database's
+    /// files, so it takes little space until the node rewrites them), then moves the event blob
+    /// writer's state (`event_blob_writer/`) and the local snapshot files
+    /// (`blob_info_snapshots/`) into the same `wiped-<timestamp>/` directory (inside the storage
     /// path, so that the move stays on one filesystem when the storage path is a mount point;
     /// the node ignores the directory), drops every column family except `metadata`, the
     /// per-shard ones (`shard-*`), the snapshot publication record, and `aggregate_blob_info`,
@@ -276,8 +278,9 @@ pub enum DbToolCommands {
     ///
     /// `<storage_path>/wipe-in-progress` exists from the first change to the last, and the node
     /// refuses to start while it does: if a run is interrupted, run the command again, which
-    /// repeats what is left and removes the file. Delete the `wiped-*` directory once the node
-    /// is back in service.
+    /// repeats what is left and removes the file. `restore-node-state` reverts the wipe from the
+    /// `wiped-<timestamp>` directory; delete the directory once the node is back in service,
+    /// which also frees the space of the files only the checkpoint still links.
     WipeNodeState {
         /// Path to the node's storage directory (`storage_path` in its configuration).
         #[arg(long)]
@@ -288,6 +291,28 @@ pub enum DbToolCommands {
         /// whose early event blobs expired, where the snapshot route is faster than a replay.
         #[arg(long)]
         wipe_event_store: bool,
+        /// Do not take the checkpoint of the database; `restore-node-state` then cannot revert
+        /// the wipe.
+        #[arg(long)]
+        skip_checkpoint: bool,
+    },
+
+    /// Revert a `wipe-node-state` run on a stopped node from its `wiped-<timestamp>` directory.
+    ///
+    /// Moves the directories the wipe moved aside back into the storage path (one the node
+    /// created since goes to `<wiped_dir>/replaced-<timestamp>/`) and copies every column family
+    /// the wipe dropped or reduced back from the checkpoint the wipe took; fails if the wipe ran
+    /// with `--skip-checkpoint`. The metadata and per-shard tables are not restored: the wipe
+    /// left them as they were, and a node that ran since the wipe deleted from them only the
+    /// data of blobs that garbage collection deletes on every node. The node refuses to start
+    /// while the restore runs, as during a wipe; if a run is interrupted, run the command again.
+    RestoreNodeState {
+        /// Path to the node's storage directory (`storage_path` in its configuration).
+        #[arg(long)]
+        db_path: PathBuf,
+        /// The `wiped-<timestamp>` directory of the wipe to revert.
+        #[arg(long)]
+        wiped_dir: PathBuf,
     },
 
     /// Replace column families in a Walrus RocksDB database by copying them from another RocksDB
@@ -542,7 +567,9 @@ impl DbToolCommands {
             Self::WipeNodeState {
                 db_path,
                 wipe_event_store,
-            } => wipe_node_state(db_path, wipe_event_store),
+                skip_checkpoint,
+            } => wipe_node_state(db_path, wipe_event_store, skip_checkpoint),
+            Self::RestoreNodeState { db_path, wiped_dir } => restore_node_state(db_path, wiped_dir),
             Self::RestoreColumnFamilies {
                 db_path,
                 input_db_path,
@@ -1078,15 +1105,33 @@ fn kept_by_wipe(column_family_name: &str) -> bool {
 /// Entries per write while [`wipe_node_state`] reduces the aggregate blob info table.
 const WIPE_WRITE_BATCH_SIZE: usize = 10_000;
 
-/// The file `wipe-node-state` keeps in the storage path from its first change to its last,
-/// naming the command and its `wiped-<timestamp>` directory. A node refuses to start while it
-/// exists (see [`ensure_no_interrupted_wipe`]), so an interrupted run is finished by running the
-/// command again rather than by starting the node on a half-wiped state, in which an event
-/// replay would count the kept blob info entries again.
+/// `<directory>/<prefix>-<timestamp>`, or the first of `<directory>/<prefix>-<timestamp>-2`,
+/// `-3`, ... that does not exist, when a run in the same second created it already.
+fn unused_directory(directory: &Path, prefix: &str, timestamp: u64) -> PathBuf {
+    let path = directory.join(format!("{prefix}-{timestamp}"));
+    if !path.exists() {
+        return path;
+    }
+    let mut suffix = 2;
+    loop {
+        let path = directory.join(format!("{prefix}-{timestamp}-{suffix}"));
+        if !path.exists() {
+            return path;
+        }
+        suffix += 1;
+    }
+}
+
+/// The file `wipe-node-state` and `restore-node-state` keep in the storage path from their first
+/// change to their last, naming the command and its `wiped-<timestamp>` directory. A node
+/// refuses to start while it exists (see [`ensure_no_interrupted_wipe`]), so an interrupted run
+/// is finished by running the command again rather than by starting the node on a half-wiped
+/// state, in which an event replay would count the kept blob info entries again.
 pub const WIPE_IN_PROGRESS_FILE_NAME: &str = "wipe-in-progress";
 
-/// The command name an in-progress marker records.
+/// The command names an in-progress marker records.
 const WIPE_COMMAND: &str = "wipe-node-state";
+const RESTORE_COMMAND: &str = "restore-node-state";
 
 /// What an in-progress marker records: the command that wrote it and the `wiped-<timestamp>`
 /// directory it works with, so that a run that finishes an interrupted one uses the same.
@@ -1163,10 +1208,20 @@ fn sync_directory(path: &Path) -> Result<()> {
         .with_context(|| format!("failed to sync the directory {}", path.display()))
 }
 
-/// Fails if a `wipe-node-state` run on the storage at `storage_path` was interrupted, so that
-/// the node does not start on a half-wiped state; see [`WIPE_IN_PROGRESS_FILE_NAME`]. The node
-/// calls this while holding the database lock, which a wipe holds whenever it writes the file,
-/// so the check cannot pass just before a wipe starts.
+/// Whether `a` and `b` name the same directory, as given or once resolved.
+fn same_directory(a: &Path, b: &Path) -> bool {
+    a == b
+        || matches!(
+            (std::fs::canonicalize(a), std::fs::canonicalize(b)),
+            (Ok(a), Ok(b)) if a == b
+        )
+}
+
+/// Fails if a `wipe-node-state` or `restore-node-state` run on the storage at `storage_path` was
+/// interrupted, so that the node does not start on a half-wiped state; see
+/// [`WIPE_IN_PROGRESS_FILE_NAME`]. The node calls this while holding the database lock, which
+/// both commands hold whenever they write the file, so the check cannot pass just before a run
+/// starts.
 pub fn ensure_no_interrupted_wipe(storage_path: &Path) -> Result<()> {
     let marker = storage_path.join(WIPE_IN_PROGRESS_FILE_NAME);
     if !marker.exists() {
@@ -1176,7 +1231,7 @@ pub fn ensure_no_interrupted_wipe(storage_path: &Path) -> Result<()> {
         .ok()
         .flatten()
         .map_or_else(
-            || WIPE_COMMAND.to_string(),
+            || format!("{WIPE_COMMAND} or {RESTORE_COMMAND}"),
             |interrupted| interrupted.command,
         );
     anyhow::bail!(
@@ -1231,7 +1286,7 @@ fn kept_event_store_start(events_path: &Path) -> Result<Option<(u64, bool)>> {
 
 /// Wipes a stopped node's state except its blob data and its records of it; see the command's
 /// documentation. Every step is safe to repeat, so a run finishes what an interrupted one left.
-fn wipe_node_state(db_path: PathBuf, wipe_event_store: bool) -> Result<()> {
+fn wipe_node_state(db_path: PathBuf, wipe_event_store: bool, skip_checkpoint: bool) -> Result<()> {
     let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)
         .context("failed to list the column families; is this the node's storage path?")?;
     let (kept, dropped): (Vec<_>, Vec<_>) = column_families
@@ -1250,8 +1305,9 @@ fn wipe_node_state(db_path: PathBuf, wipe_event_store: bool) -> Result<()> {
         .as_secs();
     let marker = db_path.join(WIPE_IN_PROGRESS_FILE_NAME);
 
-    // A run that finishes an interrupted one works with the directory the marker records, so
-    // that everything a wipe moved aside is in one place.
+    // A run that finishes an interrupted one works with the directory the marker records, where
+    // the checkpoint taken before the first change already is, and takes none of the half-wiped
+    // state. The checkpoint is the before-image `restore-node-state` reverts the wipe from.
     let aside_dir = match read_in_progress_marker(&db_path)? {
         Some(interrupted) if interrupted.command == WIPE_COMMAND => {
             println!(
@@ -1272,7 +1328,28 @@ fn wipe_node_state(db_path: PathBuf, wipe_event_store: bool) -> Result<()> {
             // The aside directory lives inside the storage path: a rename never crosses a
             // filesystem boundary when the storage path is a mount point, and RocksDB ignores
             // the extra directory.
-            let aside_dir = db_path.join(format!("wiped-{timestamp}"));
+            let aside_dir = unused_directory(&db_path, "wiped", timestamp);
+            if skip_checkpoint {
+                println!("Skipping the checkpoint of the database; the wipe cannot be reverted");
+            } else {
+                let checkpoint_dir = aside_dir.join(WIPE_CHECKPOINT_DIR_NAME);
+                std::fs::create_dir_all(&aside_dir)?;
+                println!(
+                    "Taking a checkpoint of the database in {}",
+                    checkpoint_dir.display()
+                );
+                rocksdb::checkpoint::Checkpoint::new(&db)?
+                    .create_checkpoint(&checkpoint_dir)
+                    .with_context(|| {
+                        format!(
+                            "failed to take a checkpoint of the database in {}",
+                            checkpoint_dir.display()
+                        )
+                    })?;
+                // The checkpoint is renamed into place last; the rename is durable once its
+                // directory is synced.
+                sync_directory(&aside_dir)?;
+            }
             // The marker keeps the node from starting until the last step is done.
             write_in_progress_marker(&db_path, WIPE_COMMAND, &aside_dir, timestamp)?;
             aside_dir
@@ -1363,12 +1440,129 @@ fn wipe_node_state(db_path: PathBuf, wipe_event_store: bool) -> Result<()> {
         "Done. {next_start} The node then recovers any blob data it does not hold, and garbage \
         collection deletes the data of the blobs it does not list."
     );
+    if aside_dir.join(WIPE_CHECKPOINT_DIR_NAME).is_dir() {
+        println!(
+            "`restore-node-state --db-path {} --wiped-dir {}` reverts the wipe.",
+            db_path.display(),
+            aside_dir.display()
+        );
+    }
     if aside_dir.exists() {
         println!(
             "Delete {} once the node is back in service.",
             aside_dir.display()
         );
     }
+    Ok(())
+}
+
+/// The checkpoint of the database that [`wipe_node_state`] takes in its `wiped-<timestamp>`
+/// directory before its first change, from which [`restore_node_state`] reverts the wipe.
+pub const WIPE_CHECKPOINT_DIR_NAME: &str = "db-checkpoint";
+
+/// Reverts a wipe on a stopped node from its `wiped-<timestamp>` directory; see the command's
+/// documentation. Every step is safe to repeat, so a run finishes what an interrupted one left.
+fn restore_node_state(db_path: PathBuf, wiped_dir: PathBuf) -> Result<()> {
+    let checkpoint_dir = wiped_dir.join(WIPE_CHECKPOINT_DIR_NAME);
+    anyhow::ensure!(
+        checkpoint_dir.is_dir(),
+        "{} holds no checkpoint of the database ({} does not exist): the wipe ran with \
+        --skip-checkpoint, so its tables cannot be restored",
+        wiped_dir.display(),
+        checkpoint_dir.display()
+    );
+    let checkpoint_column_families = DB::list_cf(&RocksdbOptions::default(), &checkpoint_dir)
+        .with_context(|| {
+            format!(
+                "failed to list the column families of the checkpoint {}",
+                checkpoint_dir.display()
+            )
+        })?;
+    let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)
+        .context("failed to list the column families; is this the node's storage path?")?;
+
+    // Opening the database takes its lock, which a running node holds, so nothing below touches
+    // the state of a running node. The handle is released before the copy, which opens the
+    // database itself; the marker keeps a node from starting in between.
+    let db = open_database_with_column_families(&db_path, &column_families)?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("system time is before the Unix epoch")?
+        .as_secs();
+    // An interrupted wipe is reverted, and an interrupted restore finished, with its own
+    // directory; another one would leave what that run moved aside where it is.
+    if let Some(interrupted) = read_in_progress_marker(&db_path)?
+        && !same_directory(&interrupted.wiped_dir, &wiped_dir)
+    {
+        anyhow::bail!(
+            "a db-tool {} run on {} working with {} was interrupted; restore from that directory \
+            first",
+            interrupted.command,
+            db_path.display(),
+            interrupted.wiped_dir.display()
+        );
+    }
+    let marker = write_in_progress_marker(&db_path, RESTORE_COMMAND, &wiped_dir, timestamp)?;
+
+    // The directories the wipe moved aside go back; one the node created since goes aside.
+    let replaced_dir = unused_directory(&wiped_dir, "replaced", timestamp);
+    for target in [
+        db_path.join("event_blob_writer"),
+        snapshot_base_dir(&db_path),
+        db_path.join("events"),
+    ] {
+        let name = target
+            .file_name()
+            .context("the subdirectory has no final component")?;
+        let source = wiped_dir.join(name);
+        if !source.exists() {
+            continue;
+        }
+        if target.exists() {
+            std::fs::create_dir_all(&replaced_dir)?;
+            let replaced = replaced_dir.join(name);
+            std::fs::rename(&target, &replaced).with_context(|| {
+                format!(
+                    "failed to move {} to {}",
+                    target.display(),
+                    replaced.display()
+                )
+            })?;
+            println!("Moved {} to {}", target.display(), replaced.display());
+        }
+        std::fs::rename(&source, &target).with_context(|| {
+            format!(
+                "failed to move {} back to {}",
+                source.display(),
+                target.display()
+            )
+        })?;
+        println!("Moved {} back to {}", source.display(), target.display());
+    }
+    // The copy below opens the database itself.
+    drop(db);
+
+    // The tables the wipe dropped or reduced; the rest it left as they were.
+    let cf_mappings = checkpoint_column_families
+        .iter()
+        .filter(|name| {
+            *name != "default" && (!kept_by_wipe(name) || *name == aggregate_blob_info_cf_name())
+        })
+        .map(|name| ColumnFamilyMapping {
+            input: name.clone(),
+            output: name.clone(),
+        })
+        .collect();
+    restore_column_families(db_path.clone(), checkpoint_dir, cf_mappings)?;
+
+    std::fs::remove_file(&marker)
+        .with_context(|| format!("failed to remove {}", marker.display()))?;
+    sync_directory(&db_path)?;
+    println!(
+        "Done. The node starts where the wipe found it. Delete {} once it is back in service.",
+        wiped_dir.display()
+    );
     Ok(())
 }
 
@@ -2583,11 +2777,11 @@ mod tests {
         std::fs::create_dir(&events)?;
         std::fs::write(events.join("CURRENT"), "")?;
 
-        wipe_node_state(directory.path().to_path_buf(), false)?;
+        wipe_node_state(directory.path().to_path_buf(), false, false)?;
         ensure_no_interrupted_wipe(directory.path())?;
         // A second run, as after an interruption, finds nothing left to do and leaves the same
         // state.
-        wipe_node_state(directory.path().to_path_buf(), false)?;
+        wipe_node_state(directory.path().to_path_buf(), false, false)?;
         ensure_no_interrupted_wipe(directory.path())?;
         assert!(
             events.join("CURRENT").exists(),
@@ -2649,7 +2843,7 @@ mod tests {
                 .collect())
         };
 
-        assert!(wipe_node_state(directory.path().to_path_buf(), true).is_err());
+        assert!(wipe_node_state(directory.path().to_path_buf(), true, false).is_err());
         assert!(events.join("CURRENT").exists());
         assert!(!marker.exists());
         assert!(aside_dirs()?.is_empty());
@@ -2657,7 +2851,7 @@ mod tests {
 
         drop(storage);
         drop(runtime);
-        wipe_node_state(directory.path().to_path_buf(), true)?;
+        wipe_node_state(directory.path().to_path_buf(), true, false)?;
         assert!(!events.exists());
         assert!(!marker.exists());
         assert_eq!(aside_dirs()?.len(), 1);
@@ -2691,7 +2885,8 @@ mod tests {
         Ok(())
     }
 
-    /// A run that finishes an interrupted wipe moves into the directory the marker records.
+    /// A run that finishes an interrupted wipe moves into the directory the marker records,
+    /// where the checkpoint is, and takes no checkpoint of the half-wiped state.
     #[test]
     #[cfg_attr(msim, ignore)]
     fn wipe_node_state_resumes_into_the_recorded_directory() -> Result<()> {
@@ -2713,14 +2908,56 @@ mod tests {
         std::fs::create_dir_all(wiped_dir.join("event_blob_writer"))?;
         write_in_progress_marker(directory.path(), WIPE_COMMAND, &wiped_dir, 1)?;
 
-        wipe_node_state(directory.path().to_path_buf(), true)?;
+        wipe_node_state(directory.path().to_path_buf(), true, false)?;
         ensure_no_interrupted_wipe(directory.path())?;
         assert!(wiped_dir.join("events").join("CURRENT").exists());
+        assert!(!wiped_dir.join(WIPE_CHECKPOINT_DIR_NAME).exists());
         assert_eq!(
             subdirectories_starting_with(directory.path(), "wiped-")?,
             vec![wiped_dir]
         );
         Ok(())
+    }
+
+    /// An interrupted restore is finished with its own directory before anything else runs.
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn interrupted_restore_blocks_other_runs() -> Result<()> {
+        use tokio::runtime::Runtime;
+
+        use crate::node::storage::tests::{SHARD_INDEX, populated_storage};
+
+        let directory = Runtime::new()?.block_on(async {
+            let storage = populated_storage(&[(SHARD_INDEX, vec![])])
+                .await
+                .map_err(|error| anyhow::anyhow!(error))?;
+            Result::<_, anyhow::Error>::Ok(storage.temp_dir)
+        })?;
+        wipe_node_state(directory.path().to_path_buf(), true, false)?;
+        let wiped_dirs = subdirectories_starting_with(directory.path(), "wiped-")?;
+        assert_eq!(wiped_dirs.len(), 1);
+        let other_dir = directory.path().join("wiped-other");
+        let marker = write_in_progress_marker(directory.path(), RESTORE_COMMAND, &other_dir, 1)?;
+
+        let error = wipe_node_state(directory.path().to_path_buf(), true, false)
+            .expect_err("a wipe does not run over an interrupted restore");
+        assert!(
+            error.to_string().contains("restore-node-state"),
+            "{error:#}"
+        );
+        let error = ensure_no_interrupted_wipe(directory.path())
+            .expect_err("the marker keeps the node from starting");
+        assert!(
+            error.to_string().contains("restore-node-state"),
+            "{error:#}"
+        );
+        let error = restore_node_state(directory.path().to_path_buf(), wiped_dirs[0].clone())
+            .expect_err("a restore from another directory does not run either");
+        assert!(error.to_string().contains("wiped-other"), "{error:#}");
+
+        std::fs::remove_file(marker)?;
+        restore_node_state(directory.path().to_path_buf(), wiped_dirs[0].clone())?;
+        ensure_no_interrupted_wipe(directory.path())
     }
 
     /// The subdirectories of `directory` whose names start with `prefix`.
@@ -2730,6 +2967,100 @@ mod tests {
             .filter(|entry| entry.file_name().to_string_lossy().starts_with(prefix))
             .map(|entry| entry.path())
             .collect())
+    }
+
+    /// `restore-node-state` puts the node back where the wipe found it, from the checkpoint and
+    /// the moved directories, and moves aside what the node created since.
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn restore_node_state_reverts_a_wipe() -> Result<()> {
+        use tokio::runtime::Runtime;
+        use walrus_core::test_utils::blob_id_from_u64;
+        use walrus_sui::{test_utils::EventForTesting, types::BlobRegistered};
+
+        use crate::node::storage::tests::{SHARD_INDEX, populated_storage};
+
+        let blob_id = blob_id_from_u64(1);
+        let (directory, before) = Runtime::new()?.block_on(async {
+            let storage = populated_storage(&[(SHARD_INDEX, vec![])])
+                .await
+                .map_err(|error| anyhow::anyhow!(error))?;
+            storage
+                .inner
+                .update_blob_info(0, &BlobRegistered::for_testing(blob_id).into())?;
+            let before = storage.inner.get_blob_info(&blob_id)?;
+            Result::<_, anyhow::Error>::Ok((storage.temp_dir, before))
+        })?;
+        assert!(before.is_some());
+        let events = directory.path().join("events");
+        std::fs::create_dir(&events)?;
+        std::fs::write(events.join("CURRENT"), "")?;
+
+        wipe_node_state(directory.path().to_path_buf(), true, false)?;
+        let wiped_dirs = subdirectories_starting_with(directory.path(), "wiped-")?;
+        assert_eq!(wiped_dirs.len(), 1);
+        let wiped_dir = wiped_dirs[0].clone();
+        assert!(wiped_dir.join(WIPE_CHECKPOINT_DIR_NAME).is_dir());
+        // The node ran since and created a fresh event store.
+        std::fs::create_dir(&events)?;
+        std::fs::write(events.join("NEW"), "")?;
+        // The wipe itself may have been interrupted: its marker names the same directory.
+        write_in_progress_marker(directory.path(), WIPE_COMMAND, &wiped_dir, 1)?;
+
+        restore_node_state(directory.path().to_path_buf(), wiped_dir.clone())?;
+        ensure_no_interrupted_wipe(directory.path())?;
+        // A second run, as after an interruption, finds nothing left to move and leaves the
+        // same state.
+        restore_node_state(directory.path().to_path_buf(), wiped_dir.clone())?;
+        ensure_no_interrupted_wipe(directory.path())?;
+
+        assert!(events.join("CURRENT").exists());
+        assert!(!events.join("NEW").exists());
+        let replaced_dirs = subdirectories_starting_with(&wiped_dir, "replaced-")?;
+        assert_eq!(replaced_dirs.len(), 1);
+        assert!(replaced_dirs[0].join("events").join("NEW").exists());
+
+        Runtime::new()?.block_on(async {
+            let storage = Storage::open(
+                directory.path(),
+                DatabaseConfig::default(),
+                MetricConf::default(),
+                Registry::default(),
+            )?;
+            assert_eq!(storage.get_blob_info(&blob_id)?, before);
+            Result::<(), anyhow::Error>::Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// A wipe that skipped the checkpoint cannot be reverted.
+    #[test]
+    #[cfg_attr(msim, ignore)]
+    fn restore_node_state_needs_the_checkpoint() -> Result<()> {
+        use tokio::runtime::Runtime;
+
+        use crate::node::storage::tests::{SHARD_INDEX, populated_storage};
+
+        let directory = Runtime::new()?.block_on(async {
+            let storage = populated_storage(&[(SHARD_INDEX, vec![])])
+                .await
+                .map_err(|error| anyhow::anyhow!(error))?;
+            Result::<_, anyhow::Error>::Ok(storage.temp_dir)
+        })?;
+        let events = directory.path().join("events");
+        std::fs::create_dir(&events)?;
+        std::fs::write(events.join("CURRENT"), "")?;
+
+        wipe_node_state(directory.path().to_path_buf(), true, true)?;
+        let wiped_dirs = subdirectories_starting_with(directory.path(), "wiped-")?;
+        assert_eq!(wiped_dirs.len(), 1);
+        assert!(!wiped_dirs[0].join(WIPE_CHECKPOINT_DIR_NAME).exists());
+
+        let error = restore_node_state(directory.path().to_path_buf(), wiped_dirs[0].clone())
+            .expect_err("the restore needs the checkpoint");
+        assert!(error.to_string().contains("skip-checkpoint"), "{error:#}");
+        assert!(wiped_dirs[0].join("events").join("CURRENT").exists());
+        Ok(())
     }
 
     #[test]
