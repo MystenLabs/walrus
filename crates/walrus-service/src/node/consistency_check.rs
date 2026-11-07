@@ -660,13 +660,27 @@ fn compose_certified_pooled_object_blob_list_digest(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::HashSet, sync::Arc};
+
     use prometheus::{IntCounterVec, Opts};
     use sui_types::base_types::ObjectID;
     use typed_store::TypedStoreError;
     use walrus_core::Epoch;
+    use walrus_sui::{
+        test_utils::EventForTesting,
+        types::{BlobCertified, BlobRegistered},
+    };
+    use walrus_test_utils::Result as TestResult;
 
-    use super::compose_blob_object_list_digest;
-    use crate::node::storage::blob_info::PerObjectPooledBlobInfo;
+    use super::{
+        BlobConsistencyCheckResult,
+        compose_blob_list_digest_and_check_sliver_data_existence,
+        compose_blob_object_list_digest,
+    };
+    use crate::{
+        node::{NodeStatus, StorageNodeInner, storage::blob_info::PerObjectPooledBlobInfo},
+        test_utils::{StorageNodeHandle, empty_storage_with_shards},
+    };
 
     fn test_scan_counter() -> IntCounterVec {
         IntCounterVec::new(
@@ -716,5 +730,61 @@ mod tests {
             pooled_digest(entry(ObjectID::new([1; 32])), epoch),
             "digest must match for identical object key and storage pool ID"
         );
+    }
+
+    /// Runs the certified blob scan with the sliver data existence check on a blocking thread,
+    /// as the background consistency check does.
+    async fn scan_certified_blobs(
+        node: Arc<StorageNodeInner>,
+        epoch: Epoch,
+    ) -> TestResult<Option<BlobConsistencyCheckResult>> {
+        Ok(tokio::task::spawn_blocking(move || {
+            let blob_info_iter = node.storage.certified_blob_info_iter_before_epoch(epoch);
+            compose_blob_list_digest_and_check_sliver_data_existence(
+                &node,
+                blob_info_iter,
+                epoch,
+                NodeStatus::Active,
+                &HashSet::new(),
+                &test_scan_counter(),
+                #[cfg(msim)]
+                &[],
+            )
+        })
+        .await??)
+    }
+
+    /// The scan runs on a blocking thread that the runtime waits for when it shuts down, so it must
+    /// stop as soon as the node is shutting down, without reporting a result.
+    #[tokio::test]
+    async fn certified_blob_scan_stops_when_the_node_is_shutting_down() -> TestResult {
+        let blob_id = walrus_core::test_utils::blob_id_from_u64(1);
+        let storage = empty_storage_with_shards(&[]).await;
+        // The testing events register and certify the blob in epoch 1, so it is part of the scan
+        // for epoch 2.
+        storage
+            .as_ref()
+            .update_blob_info(0, &BlobRegistered::for_testing(blob_id).into())?;
+        storage
+            .as_ref()
+            .update_blob_info(1, &BlobCertified::for_testing(blob_id).into())?;
+        let node = StorageNodeHandle::builder()
+            .with_storage(storage)
+            .build()
+            .await?;
+        let inner = node.storage_node.inner().clone();
+
+        let result = scan_certified_blobs(inner.clone(), 2)
+            .await?
+            .expect("the scan should complete while the node is running");
+        assert_eq!(result.total_synced_scanned, 1);
+
+        inner.shut_down();
+
+        assert!(
+            scan_certified_blobs(inner, 2).await?.is_none(),
+            "the scan should stop without a result once the node is shutting down"
+        );
+        Ok(())
     }
 }
