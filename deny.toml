@@ -83,6 +83,11 @@ ignore = [
   # - Fix: fastcrypto and Sui move to the `p256` 0.14 line, then we upgrade `p256`, whose keys we
   #   convert from `fastcrypto`'s.
   "RUSTSEC-2026-0387",
+  # - Issue: `pin-utils` is unmaintained; no known vulnerability and no fixed release.
+  # - Walrus: through `aws-smithy-http`, `aws-smithy-runtime`, and `aws-smithy-types`, used only by
+  #   `walrus-orchestrator` through its AWS dependencies.
+  # - Fix: the AWS SDK removes its `pin-utils` dependency.
+  "RUSTSEC-2026-0441",
 ]
 
 
