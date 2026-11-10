@@ -1022,7 +1022,32 @@ impl StorageNode {
     }
 
     /// Run the walrus-node logic until cancelled using the provided cancellation token.
+    ///
+    /// The node is shut down before this function returns, whether it was cancelled or stopped
+    /// with an error.
     pub async fn run(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
+        let run_result = self.run_until_stopped(cancel_token).await;
+        let shut_down_result = self.shut_down().await;
+
+        match run_result {
+            Ok(()) => shut_down_result,
+            // The error that stopped the node takes precedence, as the caller inspects it to
+            // decide whether to restart the node.
+            Err(run_error) => {
+                if let Err(error) = shut_down_result {
+                    tracing::warn!(
+                        ?error,
+                        "failed to shut down the node after it stopped with an error"
+                    );
+                }
+                Err(run_error)
+            }
+        }
+    }
+
+    /// Runs the node until it is cancelled, which returns `Ok`, or until one of its services
+    /// stops with an error.
+    async fn run_until_stopped(&self, cancel_token: CancellationToken) -> anyhow::Result<()> {
         if let Err(error) = self
             .epoch_change_driver
             .schedule_relevant_calls_for_current_epoch()
@@ -1052,21 +1077,7 @@ impl StorageNode {
                     return Err(err);
                 }
             },
-            _ = cancel_token.cancelled() => {
-                if let Some(checkpoint_manager) = self.checkpoint_manager() {
-                    checkpoint_manager.shutdown();
-                }
-                self.inner.shut_down();
-                // Shut down the recovery and shard-sync services before cancelling the blob
-                // syncs, so that neither service starts new sync work afterwards.
-                self.node_recovery_handler.shut_down().await;
-                self.shard_sync_handler.shut_down().await;
-                self.blob_sync_handler
-                    .shut_down_pending_recovery_executor()
-                    .await;
-                self.blob_sync_handler.cancel_all().await?;
-                self.garbage_collector.abort().await;
-            },
+            _ = cancel_token.cancelled() => {},
             blob_sync_result = BlobSyncHandler::spawn_task_monitor(
                 self.blob_sync_handler.clone()
             ) => {
@@ -1096,6 +1107,29 @@ impl StorageNode {
             }
         }
 
+        Ok(())
+    }
+
+    /// Stops the background work of the node.
+    ///
+    /// Called on every return from [`Self::run_until_stopped`], so that the node stops the same
+    /// way whether it was cancelled or stopped with an error. In particular, this makes the
+    /// background consistency check stop: it runs on a blocking thread, and the runtime waits for
+    /// blocking threads when it shuts down.
+    async fn shut_down(&self) -> anyhow::Result<()> {
+        if let Some(checkpoint_manager) = self.checkpoint_manager() {
+            checkpoint_manager.shutdown();
+        }
+        self.inner.shut_down();
+        // Shut down the recovery and shard-sync services before cancelling the blob
+        // syncs, so that neither service starts new sync work afterwards.
+        self.node_recovery_handler.shut_down().await;
+        self.shard_sync_handler.shut_down().await;
+        self.blob_sync_handler
+            .shut_down_pending_recovery_executor()
+            .await;
+        self.blob_sync_handler.cancel_all().await?;
+        self.garbage_collector.abort().await;
         Ok(())
     }
 
