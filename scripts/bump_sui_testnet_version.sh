@@ -130,6 +130,22 @@ else
   echo "Warning: ${SIMTEST_SCRIPT} not found; skipping msim rev sync" >&2
 fi
 
+# Mirror Sui's exact tokio pin.
+#
+# Sui pins tokio with `=X.Y.Z`. Walrus pins it exactly too, so when Sui moves its pin the two exact
+# requirements can never both be met and resolution fails (testnet-v1.84.0 moved 1.52.1 -> 1.54.1).
+SUI_TOKIO=$(printf '%s\n' "$SUI_MANIFEST" \
+  | grep -E '^tokio[[:space:]]*=' \
+  | grep -oE '"=[0-9]+\.[0-9]+\.[0-9]+"' \
+  | head -n 1 \
+  | tr -d '"=') || true
+if [[ -n "$SUI_TOKIO" ]]; then
+  echo "Sui ${NEW_TAG} pins tokio=${SUI_TOKIO}"
+  sed -i -E "/^tokio[[:space:]]*=/s|\"=[0-9]+\.[0-9]+\.[0-9]+\"|\"=${SUI_TOKIO}\"|" Cargo.toml
+else
+  echo "Sui ${NEW_TAG} has no exact tokio pin; leaving walrus's tokio requirement as is"
+fi
+
 # Regenerate Cargo.lock.
 #
 # Cargo treats a version already written in Cargo.lock as a hard pin: if a newly required range
@@ -244,7 +260,8 @@ BODY="This PR updates the Sui testnet version to ${NEW_TAG}
 
 Revs synced from Sui's manifest at \`${NEW_TAG}\`:
 - \`sui-rpc\` / \`sui-sdk-types\`: \`${SDK_REV}\`
-- \`mysten-sim\` (tokio / futures-timer patches in \`scripts/simtest/cargo-simtest\`): \`${MSIM_REV}\`"
+- \`mysten-sim\` (tokio / futures-timer patches in \`scripts/simtest/cargo-simtest\`): \`${MSIM_REV}\`
+- \`tokio\` exact pin: \`${SUI_TOKIO:-unchanged}\`"
 
 # Create PR using AUTOMERGE_TOKEN so the `pull_request: opened` event is attributed to the
 # walrus-automerge app instead of github-actions[bot]. Events created with GITHUB_TOKEN do not
