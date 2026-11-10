@@ -11,6 +11,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use move_binary_format::CompiledModule;
 use move_core_types::language_storage::StructTag;
 use move_package::{
     RootPackage,
@@ -38,6 +39,7 @@ use sui_sdk::types::{
 use sui_types::{
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
+    SUI_DISPLAY_REGISTRY_OBJECT_ID,
     effects::TransactionEffectsAPI,
     execution_status::ExecutionStatus,
     transaction::{ObjectArg, SharedObjectMutability, TransactionKind},
@@ -756,6 +758,30 @@ pub struct InitSystemParams {
     pub with_walrus_subsidies: bool,
 }
 
+/// Returns whether the published Walrus package defines `init::initialize_walrus_v2`.
+async fn has_initialize_walrus_v2(
+    retry_client: &RetriableSuiClient,
+    contract_pkg_id: ObjectID,
+) -> Result<bool> {
+    let initialize_function = contracts::init::initialize_walrus_v2;
+    let package_object = retry_client.get_object(contract_pkg_id).await?;
+    let package = package_object
+        .data
+        .try_as_package()
+        .context("the Walrus package ID does not refer to a package")?;
+    let module_bytes = package
+        .serialized_module_map()
+        .get(initialize_function.module)
+        .context("the Walrus package has no `init` module")?;
+    let module = CompiledModule::deserialize_with_defaults(module_bytes)?;
+    Ok(module.function_defs().iter().any(|definition| {
+        module
+            .identifier_at(module.function_handle_at(definition.function).name)
+            .as_str()
+            == initialize_function.name
+    }))
+}
+
 /// Initialize the system and staking objects on chain.
 ///
 /// Returns the IDs of the system, staking, and upgrade manager objects.
@@ -793,27 +819,50 @@ pub async fn create_system_and_staking_objects(
     let epoch_duration_arg = pt_builder.pure(epoch_duration_millis)?;
     let n_shards_arg = pt_builder.pure(system_params.n_shards.get())?;
     let max_epochs_ahead_arg = pt_builder.pure(system_params.max_epochs_ahead)?;
-    let clock_arg = pt_builder.obj(ObjectArg::SharedObject {
+    let retry_client = RetriableSuiClient::new(
+        vec![LazySuiClientBuilder::new(wallet.get_rpc_url())],
+        Default::default(),
+    )?;
+
+    let mut arguments = vec![
+        init_cap_arg,
+        upgrade_cap_arg,
+        epoch_zero_duration_arg,
+        epoch_duration_arg,
+        n_shards_arg,
+        max_epochs_ahead_arg,
+    ];
+    // Older contract versions (for example `testnet-contracts`, which the contract upgrade tests
+    // deploy fresh) only have `initialize_walrus`, which takes no display registry.
+    let initialize_function = if has_initialize_walrus_v2(&retry_client, contract_pkg_id).await? {
+        // The display registry is created by an end-of-epoch transaction, so its initial shared
+        // version is not a constant and has to be looked up.
+        let display_registry_initial_version = retry_client
+            .get_shared_object_initial_version(SUI_DISPLAY_REGISTRY_OBJECT_ID)
+            .await
+            .context("failed to look up the Sui display registry object")?;
+        arguments.push(pt_builder.obj(ObjectArg::SharedObject {
+            id: SUI_DISPLAY_REGISTRY_OBJECT_ID,
+            initial_shared_version: display_registry_initial_version,
+            mutability: SharedObjectMutability::Mutable,
+        })?);
+        contracts::init::initialize_walrus_v2
+    } else {
+        contracts::init::initialize_walrus
+    };
+    arguments.push(pt_builder.obj(ObjectArg::SharedObject {
         id: SUI_CLOCK_OBJECT_ID,
         initial_shared_version: SUI_CLOCK_OBJECT_SHARED_VERSION,
         mutability: SharedObjectMutability::Immutable,
-    })?;
+    })?);
 
     // Create the system and staking objects
     let result = pt_builder.programmable_move_call(
         contract_pkg_id,
-        Identifier::from_str(contracts::init::initialize_walrus.module)?,
-        Identifier::from_str(contracts::init::initialize_walrus.name)?,
+        Identifier::from_str(initialize_function.module)?,
+        Identifier::from_str(initialize_function.name)?,
         vec![],
-        vec![
-            init_cap_arg,
-            upgrade_cap_arg,
-            epoch_zero_duration_arg,
-            epoch_duration_arg,
-            n_shards_arg,
-            max_epochs_ahead_arg,
-            clock_arg,
-        ],
+        arguments,
     );
 
     pt_builder.transfer_arg(wallet.active_address(), result);
@@ -821,11 +870,6 @@ pub async fn create_system_and_staking_objects(
     // finalize transaction
     let ptb = pt_builder.finish();
     let address = wallet.active_address();
-
-    let retry_client = RetriableSuiClient::new(
-        vec![LazySuiClientBuilder::new(wallet.get_rpc_url())],
-        Default::default(),
-    )?;
 
     let GasBudgetAndPrice {
         gas_budget,

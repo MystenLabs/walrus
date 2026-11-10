@@ -254,6 +254,7 @@ pub mod staking_inner {
 pub mod init {
 
     contract_ident!(fn init::initialize_walrus);
+    contract_ident!(fn init::initialize_walrus_v2);
     contract_ident!(fn init::migrate);
     contract_ident!(fn init::migrate_v2);
 }

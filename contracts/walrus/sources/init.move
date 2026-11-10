@@ -4,7 +4,7 @@
 module walrus::init;
 
 use std::type_name;
-use sui::{clock::Clock, package::{Self, Publisher, UpgradeCap}};
+use sui::{clock::Clock, display_registry::DisplayRegistry, package::{Self, Publisher, UpgradeCap}};
 use walrus::{display, events, staking::{Self, Staking}, system::{Self, System}, upgrade};
 
 // Error codes
@@ -36,16 +36,34 @@ fun init(otw: INIT, ctx: &mut TxContext) {
     transfer::transfer(init_cap, ctx.sender());
 }
 
-/// Initializes Walrus and shares the system and staking objects.
+/// Deprecated initialization function, replaced by `initialize_walrus_v2`.
+///
+/// It created Display V1 objects, which Sui no longer allows creating.
+public fun initialize_walrus(
+    _init_cap: InitCap,
+    _upgrade_cap: UpgradeCap,
+    _epoch_zero_duration: u64,
+    _epoch_duration: u64,
+    _n_shards: u16,
+    _max_epochs_ahead: u32,
+    _clock: &Clock,
+    _ctx: &mut TxContext,
+): upgrade::EmergencyUpgradeCap {
+    abort EDeprecatedFunction
+}
+
+/// Initializes Walrus, shares the system and staking objects, and creates the object displays in
+/// the Sui display registry.
 ///
 /// This can only be called once, after which the `InitCap` is destroyed.
-public fun initialize_walrus(
+public fun initialize_walrus_v2(
     init_cap: InitCap,
     upgrade_cap: UpgradeCap,
     epoch_zero_duration: u64,
     epoch_duration: u64,
     n_shards: u16,
     max_epochs_ahead: u32,
+    display_registry: &mut DisplayRegistry,
     clock: &Clock,
     ctx: &mut TxContext,
 ): upgrade::EmergencyUpgradeCap {
@@ -59,7 +77,7 @@ public fun initialize_walrus(
     );
     system::create_empty(max_epochs_ahead, package_id, ctx);
     staking::create(epoch_zero_duration, epoch_duration, n_shards, package_id, clock, ctx);
-    display::create(publisher, ctx);
+    display::create(publisher, display_registry, ctx);
     let emergency_upgrade_cap = upgrade::new(upgrade_cap, ctx);
     emergency_upgrade_cap
 }
@@ -109,7 +127,7 @@ public fun init_for_testing(ctx: &mut TxContext) {
 }
 
 #[test_only]
-/// Does the same as `initialize_walrus` but does not check the package id of the upgrade cap.
+/// Does the same as `initialize_walrus_v2` but does not check the package id of the upgrade cap.
 ///
 /// This is needed for testing, since the package ID of all types will be zero, which cannot be used
 /// as the package ID for an upgrade cap.
@@ -120,6 +138,7 @@ public fun initialize_for_testing(
     epoch_duration: u64,
     n_shards: u16,
     max_epochs_ahead: u32,
+    display_registry: &mut DisplayRegistry,
     clock: &Clock,
     ctx: &mut TxContext,
 ): upgrade::EmergencyUpgradeCap {
@@ -129,7 +148,7 @@ public fun initialize_for_testing(
     system::create_empty(max_epochs_ahead, package_id, ctx);
     staking::create(epoch_zero_duration, epoch_duration, n_shards, package_id, clock, ctx);
     wal::wal::init_for_testing(ctx);
-    display::create(publisher, ctx);
+    display::create(publisher, display_registry, ctx);
     let emergency_upgrade_cap = upgrade::new(upgrade_cap, ctx);
     emergency_upgrade_cap
 }

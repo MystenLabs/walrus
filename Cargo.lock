@@ -13521,6 +13521,7 @@ dependencies = [
  "home",
  "indoc",
  "inflections",
+ "move-binary-format",
  "move-core-types",
  "move-package",
  "move-package-compilation",

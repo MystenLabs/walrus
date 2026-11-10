@@ -3,7 +3,7 @@
 
 module walrus::e2e_runner;
 
-use sui::{clock::{Self, Clock}, test_scenario::{Self, Scenario}};
+use sui::{clock::{Self, Clock}, display_registry::DisplayRegistry, test_scenario::{Self, Scenario}};
 use wal::wal::ProtectedTreasury;
 use walrus::{
     init,
@@ -87,6 +87,8 @@ public fun build(self: InitBuilder): TestRunner {
     let n_shards = n_shards.destroy_or!(DEFAULT_N_SHARDS);
 
     let mut scenario = test_scenario::begin(admin);
+    // Creates the display registry, among other system objects.
+    scenario.create_system_objects();
     let clock = clock::create_for_testing(scenario.ctx());
     let ctx = scenario.ctx();
 
@@ -97,6 +99,7 @@ public fun build(self: InitBuilder): TestRunner {
 
     scenario.next_tx(admin);
     let cap = scenario.take_from_sender<init::InitCap>();
+    let mut display_registry = scenario.take_shared<DisplayRegistry>();
     let ctx = scenario.ctx();
     let emergency_upgrade_cap = init::initialize_for_testing(
         cap,
@@ -105,9 +108,11 @@ public fun build(self: InitBuilder): TestRunner {
         epoch_duration,
         n_shards,
         MAX_EPOCHS_AHEAD,
+        &mut display_registry,
         &clock,
         ctx,
     );
+    test_scenario::return_shared(display_registry);
 
     transfer::public_transfer(emergency_upgrade_cap, admin);
     slashing::new(ctx);
