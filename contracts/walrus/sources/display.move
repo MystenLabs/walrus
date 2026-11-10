@@ -63,8 +63,10 @@ fun init_blob_display(
     d.set(
         &cap,
         b"description".to_string(),
+        // `certified_epoch` is `None` until the blob is certified. Display V2 renders the whole
+        // field as null when an interpolated value is missing, so fall back to an empty string.
         // editorconfig-checker-disable-next-line
-        b"Registered: {registered_epoch}; certified: {certified_epoch}; deletable: {deletable}".to_string(),
+        b"Registered: {registered_epoch}; certified: {certified_epoch | ''}; deletable: {deletable}".to_string(),
     );
     d.set(&cap, b"image_url".to_string(), b"https://www.walrus.xyz/walrus-blob".to_string());
     d.set(&cap, b"project_url".to_string(), b"https://walrus.xyz/".to_string());
