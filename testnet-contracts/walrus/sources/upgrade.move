@@ -77,7 +77,7 @@ public struct EmergencyUpgradeCap has key, store {
 
 /// Create a new upgrade manager.
 ///
-/// This is called from the `init::initialize_walrus` function and will
+/// This is called from the `init::initialize_walrus_v2` function and will
 /// create a unique `UpgradeManager` and `EmergencyUpgradeCap` object.
 public(package) fun new(cap: UpgradeCap, ctx: &mut TxContext): EmergencyUpgradeCap {
     let upgrade_manager = UpgradeManager {
