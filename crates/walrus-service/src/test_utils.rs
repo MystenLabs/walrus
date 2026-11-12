@@ -3400,6 +3400,7 @@ pub fn storage_node_config() -> WithTempDir<StorageNodeConfig> {
             .expect("should be able to find an unused socket address"),
             storage_path: temp_dir.path().to_path_buf(),
             db_config: DatabaseConfig::default_for_test(),
+            sliver_store_backend: Default::default(),
             rest_server: Default::default(),
             blocklist_path: None,
             sui: None,
