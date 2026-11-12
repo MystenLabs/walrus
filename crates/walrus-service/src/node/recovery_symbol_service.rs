@@ -7,7 +7,6 @@ use std::{
     task::{self, Context, Poll},
 };
 
-use fastcrypto::hash::Blake2b256;
 use futures::{FutureExt as _, future::BoxFuture};
 use moka::sync::Cache;
 use prometheus::IntCounter;
@@ -36,6 +35,7 @@ use walrus_core::{
         SliverData,
         Symbols,
     },
+    hash::Blake2b256,
     merkle::MerkleTree,
 };
 use walrus_utils::metrics::Registry;

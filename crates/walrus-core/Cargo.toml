@@ -27,6 +27,9 @@ tracing.workspace = true
 utoipa = { workspace = true, optional = true }
 walrus-test-utils = { workspace = true, optional = true }
 
+[target.'cfg(any(target_arch = "x86", target_arch = "x86_64"))'.dependencies]
+blake2b_simd.workspace = true
+
 [dev-dependencies]
 anyhow.workspace = true
 criterion.workspace = true
@@ -48,4 +51,8 @@ harness = false
 
 [[bench]]
 name = "blob_encoding"
+harness = false
+
+[[bench]]
+name = "merkle_hashing"
 harness = false
