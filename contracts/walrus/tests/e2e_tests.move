@@ -338,7 +338,10 @@ fun first_epoch_too_soon_fail() {
 
     // === advance clock, end voting and initialize epoch change ===
 
-    runner.clock().increment_for_testing(EPOCH_ZERO_DURATION - 1);
+    // Set the runner's clock to 1ms before the first epoch starts. `increment_for_testing` adds to
+    // the global test clock, which every transaction moves forward, so it would overshoot.
+    let now = runner.clock().timestamp_ms();
+    runner.clock().set_for_testing(now + EPOCH_ZERO_DURATION - 1);
     runner.tx_with_wal_treasury!(admin, |staking, system, protected_treasury, clock, ctx| {
         staking.voting_end(clock);
         staking.initiate_epoch_change_v2(system, protected_treasury, clock, ctx);
