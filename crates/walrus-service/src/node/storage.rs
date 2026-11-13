@@ -45,7 +45,7 @@ use self::{
         PerObjectPooledBlobInfo,
         PerObjectPooledBlobInfoIterator,
     },
-    blob_info_snapshot::{SnapshotError, SnapshotHeader, SnapshotStats},
+    blob_info_snapshot::{SnapshotError, SnapshotFormat, SnapshotHeader, SnapshotStats},
     constants::{
         garbage_collector_last_completed_epoch_key,
         garbage_collector_last_started_epoch_key,
@@ -663,15 +663,16 @@ impl Storage {
         self.blob_info.clear()
     }
 
-    /// Serializes the three snapshotted blob info column families into `writer`, returning
+    /// Serializes the snapshotted blob info column families in `format` into `writer`, returning
     /// statistics. Must be called at the post-GC-phase-1 epoch boundary while event processing is
     /// blocked.
     pub(crate) fn write_blob_info_snapshot<W: std::io::Write + std::io::Seek>(
         &self,
         header: &SnapshotHeader,
+        format: SnapshotFormat,
         writer: W,
     ) -> Result<SnapshotStats, SnapshotError> {
-        self.blob_info.write_snapshot(header, writer)
+        self.blob_info.write_snapshot(header, format, writer)
     }
 
     /// Returns lock write access to the shards map, and returns the underlying shard map.
@@ -1774,7 +1775,14 @@ pub(crate) mod tests {
     };
     use walrus_sui::{
         test_utils::{EventForTesting, event_id_for_testing},
-        types::{BlobCertified, BlobRegistered, PooledBlobCertified, PooledBlobRegistered},
+        types::{
+            BlobCertified,
+            BlobEvent,
+            BlobRegistered,
+            InvalidBlobId,
+            PooledBlobCertified,
+            PooledBlobRegistered,
+        },
     };
     use walrus_test_utils::{Result as TestResult, WithTempDir, async_param_test};
 
@@ -1871,6 +1879,61 @@ pub(crate) mod tests {
 
         assert_eq!(retrieved, Some(expected));
 
+        Ok(())
+    }
+
+    /// An invalidation, which only the aggregate table records, is written to a format-2 snapshot
+    /// with the epoch and event of its `InvalidBlobID` event, and left out of a format-1 one; a
+    /// blob that is not invalid adds no entry.
+    #[tokio::test]
+    async fn blob_info_snapshot_records_invalidated_blob_ids() -> TestResult {
+        let storage = empty_storage().await;
+        let storage = storage.as_ref();
+        let valid_blob_id = BlobId([8; 32]);
+        let (invalid_object_id, valid_object_id) = (ObjectID::random(), ObjectID::random());
+        let invalidation = InvalidBlobId::for_testing(BLOB_ID);
+        let events: [BlobEvent; 5] = [
+            BlobRegistered::for_testing_with_object_id(BLOB_ID, invalid_object_id).into(),
+            BlobCertified::for_testing_with_object_id(BLOB_ID, invalid_object_id).into(),
+            BlobRegistered::for_testing_with_object_id(valid_blob_id, valid_object_id).into(),
+            BlobCertified::for_testing_with_object_id(valid_blob_id, valid_object_id).into(),
+            invalidation.clone().into(),
+        ];
+        for (event_index, event) in (0..).zip(&events) {
+            storage.update_blob_info(event_index, event)?;
+        }
+
+        let snapshot = |format| -> TestResult<(SnapshotStats, Vec<u8>)> {
+            let mut buffer = std::io::Cursor::new(Vec::new());
+            let stats = storage.write_blob_info_snapshot(
+                &SnapshotHeader::new(2, event_id_for_testing(), 5),
+                format,
+                &mut buffer,
+            )?;
+            Ok((stats, buffer.into_inner()))
+        };
+
+        let (stats, bytes) = snapshot(SnapshotFormat::V2)?;
+        assert_eq!(stats.per_object_count, 2);
+        assert_eq!(stats.invalid_blob_count, Some(1));
+        // The invalid-blob section is the last one, so the file ends with its only entry.
+        let key = bcs::to_bytes(&BLOB_ID)?;
+        let value = bcs::to_bytes(&blob_info_snapshot::InvalidBlobInfo::V1(
+            blob_info_snapshot::InvalidBlobInfoV1 {
+                epoch: invalidation.epoch,
+                event: invalidation.event_id,
+            },
+        ))?;
+        let mut expected_entry = vec![u8::try_from(key.len())?];
+        expected_entry.extend_from_slice(&key);
+        expected_entry.push(u8::try_from(value.len())?);
+        expected_entry.extend_from_slice(&value);
+        assert!(bytes.ends_with(&expected_entry));
+
+        let (stats, bytes) = snapshot(SnapshotFormat::V1)?;
+        assert_eq!(stats.per_object_count, 2);
+        assert_eq!(stats.invalid_blob_count, None);
+        assert!(!bytes.ends_with(&expected_entry));
         Ok(())
     }
 

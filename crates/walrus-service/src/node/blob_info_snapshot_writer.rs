@@ -47,7 +47,7 @@ use super::{
     storage::{
         SnapshotPublication,
         blob_info::CertifiedBlobInfoApi as _,
-        blob_info_snapshot::{SnapshotHeader, SnapshotStats},
+        blob_info_snapshot::{SnapshotFormat, SnapshotHeader, SnapshotStats},
     },
 };
 use crate::event::events::EventStreamCursor;
@@ -75,6 +75,15 @@ pub struct BlobInfoSnapshotWriterConfig {
     /// snapshot blob through the system contract from a background task. Has no effect if
     /// `enabled` is false.
     pub certify: bool,
+    /// The first boundary epoch at which the snapshot carries the invalidated blob IDs (snapshot
+    /// format version 2). Before it, and when unset, the snapshot is written in format version 1,
+    /// without them.
+    ///
+    /// Every node of a network has to switch at the same boundary, because the snapshot bytes
+    /// are compared across nodes. The network defaults set it when a network activates the
+    /// section, so set it explicitly only to override those.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_invalid_blobs_from_epoch: Option<Epoch>,
 }
 
 impl Default for BlobInfoSnapshotWriterConfig {
@@ -82,6 +91,19 @@ impl Default for BlobInfoSnapshotWriterConfig {
         Self {
             enabled: true,
             certify: false,
+            include_invalid_blobs_from_epoch: None,
+        }
+    }
+}
+
+impl BlobInfoSnapshotWriterConfig {
+    /// Returns the format of the snapshot written at the boundary of `epoch`: version 2, with the
+    /// invalidated blob IDs, from `include_invalid_blobs_from_epoch` on, and version 1 before it
+    /// or when that epoch is unset.
+    pub(crate) fn format_for_epoch(&self, epoch: Epoch) -> SnapshotFormat {
+        match self.include_invalid_blobs_from_epoch {
+            Some(activation_epoch) if epoch >= activation_epoch => SnapshotFormat::V2,
+            _ => SnapshotFormat::V1,
         }
     }
 }
@@ -208,6 +230,9 @@ pub(super) async fn publish_snapshot_after_epoch_change(
 
 /// Serializes the snapshot to `final_path` durably (write, fsync, rename, fsync dir), removes
 /// older snapshot files, and reports the duration, size, and digest.
+///
+/// The duration is reported for a failed attempt too, and the error names the stage that failed,
+/// so that a scan that fails slowly can be told from one that never ran.
 async fn write_snapshot_file(
     node: &Arc<StorageNodeInner>,
     epoch: Epoch,
@@ -215,53 +240,26 @@ async fn write_snapshot_file(
     base_dir: &Path,
     final_path: &Path,
 ) -> Result<()> {
-    let tmp_path = base_dir.join(format!("snapshot_epoch_{epoch}.bin.tmp"));
-    if tmp_path.exists() {
-        fs::remove_file(&tmp_path)?;
-    }
-
+    let format = node.blob_info_snapshot_config.format_for_epoch(epoch);
     let start = Instant::now();
-    let storage_node = node.clone();
-    let serialize_tmp_path = tmp_path.clone();
-    let (stats, digest, size_bytes) =
-        tokio::task::spawn_blocking(move || -> Result<(SnapshotStats, u64, u64)> {
-            // A snapshot is taken right after processing the `EpochChangeStart` event, which always
-            // has an event id, so the cursor's event id is never the genesis `None`.
-            let event_id = event_cursor.event_id.expect(
-                "snapshot is taken after the EpochChangeStart event, which has an event id",
-            );
-            let header = SnapshotHeader::new(epoch, event_id, event_cursor.element_index);
-            let file = fs::File::create(&serialize_tmp_path)?;
-            let mut buf_writer = BufWriter::with_capacity(1 << 20, file);
-            let stats = storage_node
-                .storage
-                .write_blob_info_snapshot(&header, &mut buf_writer)?;
-            buf_writer.flush()?;
-            buf_writer
-                .into_inner()
-                .context("failed to flush the snapshot file")?
-                .sync_all()?;
-            // Compute the digest as a separate pass over the finished file, decoupled from writing.
-            let digest = hash_file(&serialize_tmp_path)?;
-            let size_bytes = fs::metadata(&serialize_tmp_path)?.len();
-            Ok((stats, digest, size_bytes))
-        })
-        .await
-        .context("snapshot serialization task panicked")??;
-    fs::rename(&tmp_path, final_path)?;
-    // Fsync the directory so the rename is durable: the `sync_all` above flushes the file
-    // contents, but not the parent directory entry that the rename created.
-    sync_dir(base_dir)?;
+    let result =
+        serialize_snapshot_durably(node, epoch, format, event_cursor, base_dir, final_path).await;
+    let elapsed = start.elapsed();
+    node.metrics
+        .blob_info_snapshot_serialize_duration_seconds
+        .set(elapsed.as_secs_f64());
+    let (stats, digest, size_bytes) = result.with_context(|| {
+        format!(
+            "blob info snapshot of epoch {epoch} in format version {} failed after {elapsed:?}",
+            format.version()
+        )
+    })?;
     // Only now that the new snapshot is durably in place, remove older epochs' snapshots so that
     // at most one remains. Deleting them after the rename (rather than before writing) means a
     // write or rename failure leaves the previous snapshot intact instead of dropping it
     // prematurely.
     remove_snapshot_files_matching(base_dir, |snapshot_epoch| snapshot_epoch != epoch);
-    let elapsed = start.elapsed();
 
-    node.metrics
-        .blob_info_snapshot_serialize_duration_seconds
-        .set(elapsed.as_secs_f64());
     node.metrics
         .blob_info_snapshot_size_bytes
         .set(saturating_i64(size_bytes));
@@ -277,10 +275,12 @@ async fn write_snapshot_file(
     tracing::info!(
         walrus.epoch = epoch,
         ?elapsed,
+        format_version = format.version(),
         size_bytes,
         per_object = stats.per_object_count,
         per_object_pooled = stats.per_object_pooled_count,
         storage_pool = stats.storage_pool_count,
+        invalid_blob = ?stats.invalid_blob_count,
         digest = %digest_hex,
         path = %final_path.display(),
         "serialized blob info snapshot in-process"
@@ -299,6 +299,64 @@ async fn write_snapshot_file(
         }
     );
     Ok(())
+}
+
+/// Writes the snapshot of `epoch` in `format` to a temporary file next to `final_path`, fsyncs
+/// it, renames it into place, and fsyncs the directory. Returns the statistics, the digest, and
+/// the size of the written file.
+async fn serialize_snapshot_durably(
+    node: &Arc<StorageNodeInner>,
+    epoch: Epoch,
+    format: SnapshotFormat,
+    event_cursor: EventStreamCursor,
+    base_dir: &Path,
+    final_path: &Path,
+) -> Result<(SnapshotStats, u64, u64)> {
+    let tmp_path = base_dir.join(format!("snapshot_epoch_{epoch}.bin.tmp"));
+    if tmp_path.exists() {
+        fs::remove_file(&tmp_path).context("failed to remove a stale temporary snapshot file")?;
+    }
+
+    let storage_node = node.clone();
+    let serialize_tmp_path = tmp_path.clone();
+    let (stats, digest, size_bytes) =
+        tokio::task::spawn_blocking(move || -> Result<(SnapshotStats, u64, u64)> {
+            // A snapshot is taken right after processing the `EpochChangeStart` event, which always
+            // has an event id, so the cursor's event id is never the genesis `None`.
+            let event_id = event_cursor.event_id.expect(
+                "snapshot is taken after the EpochChangeStart event, which has an event id",
+            );
+            let header = SnapshotHeader::new(epoch, event_id, event_cursor.element_index);
+            let file = fs::File::create(&serialize_tmp_path)
+                .context("failed to create the temporary snapshot file")?;
+            let mut buf_writer = BufWriter::with_capacity(1 << 20, file);
+            let stats =
+                storage_node
+                    .storage
+                    .write_blob_info_snapshot(&header, format, &mut buf_writer)?;
+            buf_writer
+                .flush()
+                .context("failed to flush the snapshot file")?;
+            buf_writer
+                .into_inner()
+                .context("failed to flush the snapshot file")?
+                .sync_all()
+                .context("failed to fsync the snapshot file")?;
+            // Compute the digest as a separate pass over the finished file, decoupled from writing.
+            let digest =
+                hash_file(&serialize_tmp_path).context("failed to hash the snapshot file")?;
+            let size_bytes = fs::metadata(&serialize_tmp_path)
+                .context("failed to read the snapshot file size")?
+                .len();
+            Ok((stats, digest, size_bytes))
+        })
+        .await
+        .context("snapshot serialization task panicked")??;
+    fs::rename(&tmp_path, final_path).context("failed to rename the snapshot file into place")?;
+    // Fsync the directory so the rename is durable: the `sync_all` above flushes the file
+    // contents, but not the parent directory entry that the rename created.
+    sync_dir(base_dir).context("failed to fsync the snapshot directory")?;
+    Ok((stats, digest, size_bytes))
 }
 
 /// Minimum delay before the first retry of a `certify_snapshot_blob` transaction.
@@ -788,11 +846,29 @@ mod tests {
             serde_yaml::from_str("{}\n").expect("config should deserialize");
         assert!(empty.enabled);
         assert!(!empty.certify);
+        assert_eq!(empty.include_invalid_blobs_from_epoch, None);
         // An explicit `enabled: false` still disables it.
         let disabled: BlobInfoSnapshotWriterConfig =
             serde_yaml::from_str("enabled: false\n").expect("config should deserialize");
         assert!(!disabled.enabled);
         assert!(!disabled.certify);
+    }
+
+    /// The invalidated-blob section is written from the activation epoch on, and never without
+    /// one.
+    #[test]
+    fn snapshot_format_follows_the_activation_epoch() {
+        let never = BlobInfoSnapshotWriterConfig::default();
+        assert_eq!(never.format_for_epoch(0), SnapshotFormat::V1);
+        assert_eq!(never.format_for_epoch(Epoch::MAX), SnapshotFormat::V1);
+
+        let from_ten: BlobInfoSnapshotWriterConfig =
+            serde_yaml::from_str("include_invalid_blobs_from_epoch: 10\n")
+                .expect("config should deserialize");
+        assert_eq!(from_ten.include_invalid_blobs_from_epoch, Some(10));
+        assert_eq!(from_ten.format_for_epoch(9), SnapshotFormat::V1);
+        assert_eq!(from_ten.format_for_epoch(10), SnapshotFormat::V2);
+        assert_eq!(from_ten.format_for_epoch(11), SnapshotFormat::V2);
     }
 
     #[test]
