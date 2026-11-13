@@ -1,16 +1,14 @@
 name: Set up sccache
-description: Configure GCP credentials and sccache for Rust builds (skipped for dependabot)
-
-inputs:
-  gcp_credentials_json:
-    description: GCP service account credentials JSON
-    required: true
+description: >-
+  Configure GCP credentials (Workload Identity) and sccache for Rust builds.
+  Skipped for dependabot and fork PRs, which cannot get a GitHub OIDC token.
+  The calling job needs `permissions: id-token: write`.
 
 runs:
   using: "composite"
   steps:
     - name: Configure sccache environment
-      if: ${{ github.actor != 'dependabot[bot]' }}
+      if: ${{ github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.fork != true }}
       shell: bash
       run: |
         echo "CARGO_INCREMENTAL=0" >> $GITHUB_ENV
@@ -19,10 +17,11 @@ runs:
         echo "SCCACHE_GCS_RW_MODE=READ_ONLY" >> $GITHUB_ENV
         echo "RUSTC_WRAPPER=sccache" >> $GITHUB_ENV
     - name: Configure GCP credentials
-      if: ${{ github.actor != 'dependabot[bot]' }}
+      if: ${{ github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.fork != true }}
       uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
       with:
-        credentials_json: ${{ inputs.gcp_credentials_json }}
+        workload_identity_provider: projects/984139309829/locations/global/workloadIdentityPools/github-actions/providers/github
+        service_account: gha-walrus-repo@cryptic-bolt-398315.iam.gserviceaccount.com
     - name: Set up sccache
-      if: ${{ github.actor != 'dependabot[bot]' }}
+      if: ${{ github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.fork != true }}
       uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad # pin@v0.0.9
