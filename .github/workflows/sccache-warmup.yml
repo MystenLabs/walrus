@@ -49,7 +49,7 @@ jobs:
         run: |
           sudo apt update && sudo apt install -y libpq-dev
 
-      - uses: mozilla-actions/sccache-action@9e7fa8a12102821edf02ca5dbea1acd0f89a2696 # pin@v0.0.10
+      - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # pin@v0.0.11
 
       - name: Build workspace (debug)
         shell: bash
