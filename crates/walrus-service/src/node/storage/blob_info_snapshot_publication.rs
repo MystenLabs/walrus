@@ -113,11 +113,15 @@ impl SnapshotPublicationTable {
 
     /// Sets the current publication record, replacing any previous one.
     pub fn set(&self, record: &SnapshotPublication) -> Result<(), TypedStoreError> {
-        self.inner.insert(&(), record)
+        let mut batch = self.inner.batch();
+        batch.insert_batch(&self.inner, [((), record)])?;
+        batch.write_with_sync(true)
     }
 
     /// Removes the current publication record.
     pub fn clear(&self) -> Result<(), TypedStoreError> {
-        self.inner.remove(&())
+        let mut batch = self.inner.batch();
+        batch.delete_batch(&self.inner, [()])?;
+        batch.write_with_sync(true)
     }
 }

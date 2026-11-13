@@ -7,7 +7,7 @@ use std::{
     fmt::Debug,
     ops::Bound::{self, Excluded, Included},
     path::Path,
-    sync::Arc,
+    sync::{Arc, atomic::Ordering},
     time::Instant,
 };
 
@@ -60,6 +60,7 @@ use self::{
     },
     event_cursor_table::{EventCursorTable, EventIdWithProgress},
     metrics::{CommonDatabaseMetrics, Labels, OperationType},
+    strata_lifecycle::ReconciliationProgress,
 };
 use super::{
     errors::{ShardNotAssigned, SyncShardServiceError},
@@ -91,6 +92,9 @@ mod shard;
 mod sliver_store;
 mod strata_database;
 
+// Lifecycle queue integration for the Strata sliver backend.
+#[allow(dead_code)]
+pub(crate) mod strata_lifecycle;
 pub(crate) use shard::{ShardStatus, ShardStorage};
 use sliver_store::SliverStore;
 pub(crate) use sliver_store::{PrimarySliverData, SecondarySliverData};
@@ -526,6 +530,7 @@ impl Storage {
                 ),
             ])
             .chain(blob_info_column_families)
+            .chain(strata_lifecycle::options(&db_table_opts_factory))
             .chain(
                 strata_column_families
                     .iter_mut()
@@ -568,6 +573,14 @@ impl Storage {
             Some(_) => {}
         }
 
+        let strata_database = strata_database::database(&database);
+        let blob_info = BlobInfoTable::reopen(
+            &database,
+            sliver_backend == SliverStoreBackendKind::Strata,
+            db_config.global.blob_update_lock_count,
+            &metrics_registry,
+        )?;
+        let snapshot_publication = SnapshotPublicationTable::reopen(&database)?;
         let sliver_store = match sliver_backend {
             SliverStoreBackendKind::RocksDb => {
                 SliverStore::new_rocksdb(Arc::clone(&database), db_table_opts_factory.clone())
@@ -575,7 +588,13 @@ impl Storage {
             SliverStoreBackendKind::Strata => SliverStore::new_strata(
                 path,
                 &metrics_registry,
-                strata_database::database(&database),
+                strata_database,
+                blob_info
+                    .strata_lifecycle
+                    .clone()
+                    .expect("Strata lifecycle tables are open"),
+                blob_info.clone(),
+                snapshot_publication.clone(),
             )?,
         };
         // Strata's shard registry is the authority for which control-table shards are active.
@@ -659,12 +678,6 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
-        let snapshot_publication = SnapshotPublicationTable::reopen(&database)?;
-        let blob_info = BlobInfoTable::reopen(
-            &database,
-            db_config.global.blob_update_lock_count,
-            &metrics_registry,
-        )?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -712,6 +725,138 @@ impl Storage {
     /// Returns a reference to the database.
     pub(crate) fn get_db(&self) -> Arc<RocksDB> {
         self.database.clone()
+    }
+
+    /// Whether slivers are stored in Strata.
+    pub(crate) fn is_strata(&self) -> bool {
+        self.sliver_store.is_strata()
+    }
+
+    /// Durably request reconciliation after the current epoch's metadata boundary. The worker
+    /// owns the scan and clock advance; the event handler waits only for this small commit.
+    pub(crate) async fn request_strata_reconciliation(
+        &self,
+        epoch: Epoch,
+        current_epoch: Epoch,
+    ) -> anyhow::Result<()> {
+        let Some(lifecycle) = self.blob_info.strata_lifecycle.clone() else {
+            return Ok(());
+        };
+        if epoch != current_epoch {
+            return Ok(());
+        }
+        utils::unwrap_or_resume_unwind(
+            tokio::task::spawn_blocking(move || {
+                let _request = lifecycle
+                    .epoch_request
+                    .lock()
+                    .expect("epoch request mutex poisoned");
+                lifecycle.check_running()?;
+                let mut completion = strata_lifecycle::HaltOnIncompleteWrite::new(
+                    lifecycle.clone(),
+                    "request_epoch",
+                );
+                let requested = lifecycle
+                    .requested_epoch
+                    .get(&())
+                    .inspect_err(|error| completion.record_error(error))?
+                    .unwrap_or_default();
+                if epoch > requested {
+                    let mut batch = lifecycle.requested_epoch.batch();
+                    batch
+                        .insert_batch(&lifecycle.requested_epoch, [((), epoch)])
+                        .inspect_err(|error| completion.record_error(error))?;
+                    let _sync = lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["rocksdb", "epoch_request"])
+                        .start_timer();
+                    batch
+                        .write_with_sync(true)
+                        .inspect_err(|error| completion.record_error(error))?;
+                    lifecycle
+                        .metrics
+                        .reconciliation_requested_epoch
+                        .set(i64::from(epoch));
+                }
+                completion.complete();
+                // Notify inside the task: cancellation of the caller must not lose the wakeup.
+                lifecycle.wake.notify_one();
+                Ok::<_, anyhow::Error>(())
+            })
+            .await,
+        )
+    }
+
+    /// One worker finishes an interrupted pass first, then coalesces requests to the latest
+    /// durable target. Keeping the target separate means completion cannot erase newer work.
+    pub(crate) async fn run_strata_reconciliation(&self, delete_data: bool) -> anyhow::Result<()> {
+        let Some(lifecycle) = &self.blob_info.strata_lifecycle else {
+            return std::future::pending().await;
+        };
+        // Claim the worker before doing any work. It awaits every pass, so passes cannot
+        // overlap. Keep the claim even if this future is cancelled: its last pass may still run.
+        anyhow::ensure!(
+            !lifecycle.worker_started.swap(true, Ordering::Relaxed),
+            "Strata reconciliation worker already started; reopen the store to restart it"
+        );
+        loop {
+            let reader = lifecycle.clone();
+            let read_next_epoch =
+                tokio::task::spawn_blocking(move || -> anyhow::Result<Option<Epoch>> {
+                    // A requested epoch is visible in RocksDB before its fsync returns. Wait for
+                    // the requesting task to finish (or halt admission) before consuming it.
+                    let _request = reader
+                        .epoch_request
+                        .lock()
+                        .expect("epoch request mutex poisoned");
+                    reader.check_running()?;
+                    let requested = reader.requested_epoch.get(&())?.unwrap_or_default();
+                    let progress = reader.progress.get(&())?;
+                    reader
+                        .metrics
+                        .reconciliation_requested_epoch
+                        .set(i64::from(requested));
+                    if let Some(ReconciliationProgress::Complete(completed)) = progress {
+                        reader
+                            .metrics
+                            .reconciliation_completed_epoch
+                            .set(i64::from(completed));
+                    }
+
+                    // Select which epoch to process; reconcile_epoch uses the same checkpoint
+                    // to decide which phase to resume. Finish an interrupted pass first, even
+                    // if requested_epoch has moved ahead (e.g. resume 100 before starting 102).
+                    if let Some(
+                        ReconciliationProgress::Applying(epoch)
+                        | ReconciliationProgress::Advancing(epoch),
+                    ) = progress
+                    {
+                        return Ok(Some(epoch));
+                    }
+
+                    if requested == GENESIS_EPOCH {
+                        return Ok(None);
+                    }
+                    if let Some(ReconciliationProgress::Complete(completed)) = progress
+                        && completed >= requested
+                    {
+                        return Ok(None);
+                    }
+
+                    Ok(Some(requested))
+                });
+            let next_epoch = utils::unwrap_or_resume_unwind(read_next_epoch.await)?;
+            if let Some(epoch) = next_epoch {
+                tracing::info!(walrus.epoch = epoch, "starting Strata reconciliation");
+                self.sliver_store
+                    .reconcile_epoch(epoch, delete_data)
+                    .await?;
+                tracing::info!(walrus.epoch = epoch, "completed Strata reconciliation");
+            } else {
+                lifecycle.wake.notified().await;
+            }
+        }
     }
 
     pub(crate) fn node_status(&self) -> Result<NodeStatus, TypedStoreError> {
@@ -873,7 +1018,11 @@ impl Storage {
                 shard_map_lock.shards_guard.remove(shard_index)
             };
             if let Some(shard_storage) = shard_storage {
-                shard_storage.delete_shard_storage()?;
+                // Strata may wait for foreground blob guards before retiring the generation.
+                // Keep that wait off the async executor so those writes can finish.
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || shard_storage.delete_shard_storage()).await,
+                )?;
             }
             tracing::info!(
                 walrus.shard_index = %shard_index,
@@ -1036,6 +1185,41 @@ impl Storage {
         self.blob_info.update_storage_pool_info(event_index, event)
     }
 
+    /// Pool events only mark their ID. Membership is scanned once at the epoch boundary.
+    pub(crate) async fn update_storage_pool_info_coordinated(
+        &self,
+        event_index: u64,
+        event: &StoragePoolEvent,
+    ) -> Result<(), TypedStoreError> {
+        if !self.sliver_store.is_strata() {
+            return self.update_storage_pool_info(event_index, event);
+        }
+        let storage = self.clone();
+        let event = event.clone();
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                let lifecycle = storage
+                    .blob_info
+                    .strata_lifecycle
+                    .clone()
+                    .expect("Strata tables are open");
+                let _guard = lifecycle.lock_pools(&[event.storage_pool_id()]).await?;
+                let mut completion =
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone(), "update_pool");
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        storage.update_storage_pool_info(event_index, &event)
+                    })
+                    .await,
+                )
+                .inspect_err(|error| completion.record_error(error))?;
+                completion.complete();
+                Ok(())
+            })
+            .await,
+        )
+    }
+
     /// Returns the current event cursor and the next event index.
     #[tracing::instrument(skip_all)]
     pub fn get_event_cursor_and_next_index(
@@ -1067,6 +1251,44 @@ impl Storage {
         } else {
             self.blob_info.update_blob_info(event_index, event)
         }
+    }
+
+    /// Serialize reference changes with Strata's final put check and epoch reconciliation. Event
+    /// producers call this entry point; the synchronous helper is also used by RocksDB fixtures.
+    pub(crate) async fn update_blob_info_coordinated(
+        &self,
+        event_index: u64,
+        event: &BlobEvent,
+    ) -> Result<(), TypedStoreError> {
+        if !self.sliver_store.is_strata() {
+            return self.update_blob_info(event_index, event);
+        }
+        let storage = self.clone();
+        let event = event.clone();
+        // Complete a started metadata commit even if its awaiting task is cancelled.
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                let blob_id = event.blob_id();
+                let lifecycle = storage
+                    .blob_info
+                    .strata_lifecycle
+                    .clone()
+                    .expect("Strata tables are open");
+                let _guard = lifecycle.lock_blobs(&[&blob_id.0]).await?;
+                let mut completion =
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle.clone(), "update_blob");
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        storage.update_blob_info(event_index, &event)
+                    })
+                    .await,
+                )
+                .inspect_err(|error| completion.record_error(error))?;
+                completion.complete();
+                Ok(())
+            })
+            .await,
+        )
     }
 
     /// Removes expired storage pool info entries.
@@ -1505,8 +1727,12 @@ impl Storage {
             &self.metadata.cf().expect("metadata CF must always exist"),
             blob_id,
         )?;
-        for shard in shards {
-            shard.delete_sliver_pair_in_transaction(transaction, blob_id)?;
+        // Strata handles slivers at the epoch boundary. This transaction can still reclaim
+        // Walrus metadata; the independently persisted dirty ID survives this cleanup.
+        if !self.sliver_store.is_strata() {
+            for shard in shards {
+                shard.delete_sliver_pair_in_transaction(transaction, blob_id)?;
+            }
         }
         Ok(())
     }
@@ -1785,16 +2011,55 @@ impl Storage {
     }
 
     /// Sets the current blob info snapshot publication record.
-    pub(crate) fn set_snapshot_publication(
+    pub(crate) async fn set_snapshot_publication(
         &self,
         record: &SnapshotPublication,
     ) -> Result<(), TypedStoreError> {
-        self.snapshot_publication.set(record)
+        self.update_snapshot_publication(Some(record.clone())).await
     }
 
     /// Removes the current blob info snapshot publication record.
-    pub(crate) fn clear_snapshot_publication(&self) -> Result<(), TypedStoreError> {
-        self.snapshot_publication.clear()
+    pub(crate) async fn clear_snapshot_publication(&self) -> Result<(), TypedStoreError> {
+        self.update_snapshot_publication(None).await
+    }
+
+    /// Publication ownership changes exclude Strata puts, reconciliation and epoch advancement.
+    /// Keep the guard until the record is durable, even if the caller is cancelled.
+    async fn update_snapshot_publication(
+        &self,
+        record: Option<SnapshotPublication>,
+    ) -> Result<(), TypedStoreError> {
+        let storage = self.clone();
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                let lifecycle = storage.blob_info.strata_lifecycle.clone();
+                let _guard = if let Some(lifecycle) = &lifecycle {
+                    Some(lifecycle.lock_lifecycle().await?)
+                } else {
+                    None
+                };
+                let mut completion = lifecycle.map(|lifecycle| {
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle, "snapshot_publication")
+                });
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || match record {
+                        Some(record) => storage.snapshot_publication.set(&record),
+                        None => storage.snapshot_publication.clear(),
+                    })
+                    .await,
+                )
+                .inspect_err(|error| {
+                    if let Some(completion) = &completion {
+                        completion.record_error(error);
+                    }
+                })?;
+                if let Some(completion) = &mut completion {
+                    completion.complete();
+                }
+                Ok(())
+            })
+            .await,
+        )
     }
 
     /// Returns the number of pending-recovery records.
@@ -2023,7 +2288,10 @@ pub(crate) mod tests {
         let primary = get_sliver(SliverType::Primary, 2);
         let secondary = get_sliver(SliverType::Secondary, 3);
         let slivers = shard.sliver_store();
-        let mut sync_batch = slivers.sync_batch(storage.metadata.batch());
+        storage
+            .update_blob_info_coordinated(0, &BlobRegistered::for_testing(BLOB_ID).into())
+            .await?;
+        let mut sync_batch = slivers.sync_batch(storage.metadata.batch(), 0);
         slivers.insert_in_batch(&mut sync_batch, &BLOB_ID, &primary)?;
         sync_batch.write().await?;
         shard.put_sliver(BLOB_ID, secondary.clone()).await?;
@@ -2310,7 +2578,9 @@ pub(crate) mod tests {
         shard_storage
             .put_sliver(blob_id, get_sliver(SliverType::Primary, 1))
             .await?;
-        storage.set_snapshot_publication(&SnapshotPublication::new(expired_epoch, blob_id))?;
+        storage
+            .set_snapshot_publication(&SnapshotPublication::new(expired_epoch, blob_id))
+            .await?;
 
         storage
             .delete_expired_blob_data(expired_epoch, &node_metrics, 100)
@@ -2319,7 +2589,7 @@ pub(crate) mod tests {
         assert!(shard_storage.is_sliver_stored::<walrus_core::encoding::Primary>(&blob_id)?);
         assert!(storage.get_blob_info(&blob_id)?.is_some());
 
-        storage.clear_snapshot_publication()?;
+        storage.clear_snapshot_publication().await?;
         storage
             .delete_expired_blob_data(expired_epoch, &node_metrics, 100)
             .await?;

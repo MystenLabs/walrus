@@ -7,20 +7,40 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 use strata::{BlobKey, ShardState, StrataLsn, StrataStore, StrataStoreConfig, StrataStoreMetrics};
 use strata_index::{StrataIndex, port::IndexDb};
-use typed_store::TypedStoreError;
-use walrus_core::{BlobId, ShardIndex, Sliver, SliverType};
-use walrus_utils::metrics::Registry;
+use typed_store::{Map, TypedStoreError, rocks::DBBatch};
+use walrus_core::{BlobId, Epoch, ShardIndex, Sliver, SliverType};
+use walrus_utils::metrics::{OwnedGaugeGuard, Registry};
 
-use super::{PrimarySliverData, SecondarySliverData};
+use super::{
+    super::{
+        blob_info::{BlobInfoApi, BlobInfoTable},
+        blob_info_snapshot_publication::SnapshotPublicationTable,
+        strata_lifecycle::{
+            HaltOnIncompleteWrite,
+            ReconcileBlob,
+            ReconciliationProgress,
+            StrataLifecycle,
+            TypedBatchExt,
+            error,
+        },
+    },
+    PrimarySliverData,
+    SecondarySliverData,
+};
 use crate::utils;
 
 // Time in seconds to wait for data to be fsynced when writing slivers into Strata.
 const SYNC_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+const BLOB_CHUNK_SIZE: usize = 256;
+const POOL_CHUNK_SIZE: usize = 256;
 
 /// Strata store for slivers. Walrus control tables remain in RocksDB.
 #[derive(Debug, Clone)]
 pub(super) struct StrataSliverStore {
-    store: Arc<StrataStore>,
+    pub(super) store: Arc<StrataStore>,
+    lifecycle: Arc<StrataLifecycle>,
+    blob_info: Arc<BlobInfoTable>,
+    snapshot_publication: Arc<SnapshotPublicationTable>,
 }
 
 /// One Walrus shard within the Strata store, holding both primary and secondary slivers.
@@ -28,6 +48,7 @@ pub(super) struct StrataSliverStore {
 pub(super) struct StrataShardSliverStore {
     node: StrataSliverStore,
     shard: ShardIndex,
+    generation: u64,
 }
 
 impl StrataSliverStore {
@@ -35,6 +56,9 @@ impl StrataSliverStore {
         path: &Path,
         metrics_registry: &Registry,
         database: Arc<dyn IndexDb>,
+        lifecycle: Arc<StrataLifecycle>,
+        blob_info: BlobInfoTable,
+        snapshot_publication: SnapshotPublicationTable,
     ) -> anyhow::Result<Self> {
         let config = StrataStoreConfig::new(path, "slivers");
         let store_label = format!("slivers:{}", path.display());
@@ -47,19 +71,458 @@ impl StrataSliverStore {
                 StrataIndex::from_db(database, config.index_cf_prefix())?,
                 metrics,
             )?),
+            lifecycle,
+            blob_info: Arc::new(blob_info),
+            snapshot_publication: Arc::new(snapshot_publication),
         })
+    }
+
+    /// The background worker finishes one epoch reconciliation before starting the next.
+    /// Walrus event processing and puts can continue while it scans RocksDB for blobs to reconcile.
+    /// Each batch locks its blobs until the Strata changes are synced and completion is
+    /// recorded in RocksDB. For example, updating blob X blocks concurrent puts to X,
+    /// but puts to unrelated blobs can continue.
+    /// Shard creation and removal and Strata epoch advancement take the lifecycle lock exclusively.
+    /// The scan works off of a snapshot of the db, so it does not block all puts.
+    pub(super) async fn reconcile_epoch(
+        &self,
+        epoch: Epoch,
+        delete_data: bool,
+    ) -> anyhow::Result<()> {
+        let this = self.clone();
+        // Cancellation of the worker must not abandon a submitted write and its locks.
+        let task = tokio::spawn(async move {
+            this.lifecycle.check_running()?;
+            let progress = this.lifecycle.progress.get(&())?;
+            match progress {
+                Some(
+                    ReconciliationProgress::Applying(pending)
+                    | ReconciliationProgress::Advancing(pending),
+                ) => {
+                    // The worker finishes interrupted work before starting a newer request.
+                    anyhow::ensure!(
+                        pending == epoch,
+                        "cannot reconcile epoch {epoch} while epoch {pending} is unfinished"
+                    );
+                }
+                Some(ReconciliationProgress::Complete(done)) if done >= epoch => return Ok(()),
+                _ => {}
+            }
+            let _duration = this
+                .lifecycle
+                .metrics
+                .reconciliation_duration_seconds
+                .start_timer();
+            let _active =
+                OwnedGaugeGuard::acquire(this.lifecycle.metrics.reconciliation_active.clone());
+            let mut completion =
+                HaltOnIncompleteWrite::new(this.lifecycle.clone(), "reconcile_epoch");
+            // Advancing means this pass's blob updates are already durable. After a crash,
+            // resume the clock transition and cleanup below without repeating the scan.
+            if progress != Some(ReconciliationProgress::Advancing(epoch)) {
+                let scan_duration = this
+                    .lifecycle
+                    .metrics
+                    .reconciliation_phase_duration_seconds
+                    .with_label_values(&["snapshot"])
+                    .start_timer();
+                let reader = this.clone();
+                let scan = tokio::task::spawn_blocking(move || {
+                    let mut batch = reader.lifecycle.progress.batch();
+                    batch.insert_batch(
+                        &reader.lifecycle.progress,
+                        [((), ReconciliationProgress::Applying(epoch))],
+                    )?;
+                    {
+                        let _sync = reader
+                            .lifecycle
+                            .metrics
+                            .sync_duration_seconds
+                            .with_label_values(&["rocksdb", "reconcile_checkpoint"])
+                            .start_timer();
+                        batch.write_with_sync(true)?;
+                    }
+                    reader.blob_info.reconciliation_candidates()
+                });
+                let snapshot = utils::unwrap_or_resume_unwind(scan.await)
+                    .inspect_err(|error| completion.record_error(error))?;
+                drop(scan_duration);
+                this.lifecycle
+                    .metrics
+                    .reconciliation_candidates
+                    .with_label_values(&["blobs"])
+                    .set(i64::try_from(snapshot.blobs.len()).unwrap_or(i64::MAX));
+                this.lifecycle
+                    .metrics
+                    .reconciliation_candidates
+                    .with_label_values(&["pools"])
+                    .set(i64::try_from(snapshot.pools.len()).unwrap_or(i64::MAX));
+                let blob_duration = this
+                    .lifecycle
+                    .metrics
+                    .reconciliation_phase_duration_seconds
+                    .with_label_values(&["blobs"])
+                    .start_timer();
+                for group in snapshot.blobs.chunks(BLOB_CHUNK_SIZE) {
+                    this.reconcile_blobs(epoch, group, delete_data)
+                        .await
+                        .inspect_err(|error| completion.record_error(error))?;
+                }
+                drop(blob_duration);
+                let pool_duration = this
+                    .lifecycle
+                    .metrics
+                    .reconciliation_phase_duration_seconds
+                    .with_label_values(&["pools"])
+                    .start_timer();
+                // Extension event 100 marked P dirty. Clear it only if no event 101 has
+                // replaced that marker. Hold P's lock from the check through the synced delete;
+                // otherwise event 101 could arrive between them and lose its pending work.
+                for group in snapshot.pools.chunks(POOL_CHUNK_SIZE) {
+                    let pools: Vec<_> = group.iter().map(|(pool, _)| *pool).collect();
+                    let _guard = this
+                        .lifecycle
+                        .lock_pools(&pools)
+                        .await
+                        .inspect_err(|error| completion.record_error(error))?;
+                    let mut cleanup =
+                        HaltOnIncompleteWrite::new(this.lifecycle.clone(), "reconcile_pools");
+                    let writer = this.clone();
+                    let group = group.to_vec();
+                    utils::unwrap_or_resume_unwind(
+                        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                            let mut batch = writer.lifecycle.dirty_pools.batch();
+                            for (pool, event_index) in group {
+                                if writer.lifecycle.dirty_pools.get(&pool)? == Some(event_index) {
+                                    batch.delete_batch(&writer.lifecycle.dirty_pools, [pool])?;
+                                }
+                            }
+                            {
+                                let _sync = writer
+                                    .lifecycle
+                                    .metrics
+                                    .sync_duration_seconds
+                                    .with_label_values(&["rocksdb", "pool_ack"])
+                                    .start_timer();
+                                batch.write_with_sync(true)?;
+                            }
+                            Ok(())
+                        })
+                        .await,
+                    )
+                    .inspect_err(|error| cleanup.record_error(error))?;
+                    cleanup.complete();
+                }
+                drop(pool_duration);
+                let writer = this.clone();
+                let finish = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                    let mut batch = writer.lifecycle.progress.batch();
+                    batch.insert_batch(
+                        &writer.lifecycle.progress,
+                        [((), ReconciliationProgress::Advancing(epoch))],
+                    )?;
+                    {
+                        let _sync = writer
+                            .lifecycle
+                            .metrics
+                            .sync_duration_seconds
+                            .with_label_values(&["rocksdb", "reconcile_checkpoint"])
+                            .start_timer();
+                        batch.write_with_sync(true)?;
+                    }
+                    Ok(())
+                });
+                utils::unwrap_or_resume_unwind(finish.await)
+                    .inspect_err(|error| completion.record_error(error))?;
+            }
+            // This short clock transition, unlike the scan, excludes in-flight puts so a
+            // put's lifetime check and submission cannot straddle the epoch advance.
+            let _advance = this
+                .lifecycle
+                .metrics
+                .reconciliation_phase_duration_seconds
+                .with_label_values(&["advance"])
+                .start_timer();
+            let _guard = this
+                .lifecycle
+                .lock_lifecycle()
+                .await
+                .inspect_err(|error| completion.record_error(error))?;
+            let mut epoch_completion =
+                HaltOnIncompleteWrite::new(this.lifecycle.clone(), "advance_epoch");
+            let writer = this.clone();
+            let advance = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                if delete_data {
+                    let mut batch = writer.store.batch();
+                    // The publication can share an expired ordinary blob's lifetime. Refresh
+                    // its protection under the lifecycle lock, including when resuming an
+                    // Advancing checkpoint, before the clock can expire either sliver type.
+                    if let Some(record) = writer.snapshot_publication.get()? {
+                        let id = record.blob_id();
+                        let end = u64::from(epoch).max(writer.store.current_epoch()?) + 1;
+                        let end = end.max(u64::from(
+                            writer
+                                .lifecycle
+                                .blob_lifetimes
+                                .get(&id)?
+                                .unwrap_or_default()
+                                .max(writer.blob_info.strata_pool_end_epoch(id)?),
+                        ));
+                        for axis in [SliverType::Primary, SliverType::Secondary] {
+                            batch.set_blob_lifetime(sliver_key(&id, axis), end);
+                        }
+                    }
+                    batch.advance_epoch_to(u64::from(epoch));
+                    let _operation = writer
+                        .lifecycle
+                        .metrics
+                        .operation_duration_seconds
+                        .with_label_values(&["advance_epoch"])
+                        .start_timer();
+                    batch.write()?;
+                }
+                {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["strata", "advance_epoch"])
+                        .start_timer();
+                    writer.store.sync()?;
+                }
+                let prefix = [b"walrus-epoch/".as_slice(), &epoch.to_be_bytes()].concat();
+                let bindings = writer.store.index().submitted_batch_lsns();
+                let mut ack = writer.lifecycle.db.write_batch();
+                for row in bindings.safe_iter()? {
+                    let (key, _) = row?;
+                    if key.starts_with(&prefix) {
+                        ack.delete_strata(bindings, &key)?;
+                    }
+                }
+                ack.insert_walrus(
+                    &writer.lifecycle.progress,
+                    &(),
+                    &ReconciliationProgress::Complete(epoch),
+                )?;
+                {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["rocksdb", "reconcile_complete"])
+                        .start_timer();
+                    ack.write(true)?;
+                }
+                Ok(())
+            });
+            utils::unwrap_or_resume_unwind(advance.await)
+                .inspect_err(|error| epoch_completion.record_error(error))?;
+            epoch_completion.complete();
+            completion.complete();
+            this.lifecycle.metrics.reconciliation_completed_total.inc();
+            this.lifecycle
+                .metrics
+                .reconciliation_completed_epoch
+                .set(i64::from(epoch));
+            Ok::<_, anyhow::Error>(())
+        });
+        utils::unwrap_or_resume_unwind(task.await)
+    }
+
+    /// Revalidate a snapshot batch under live blob locks. Keeping this separate also makes
+    /// the snapshot/put race testable without timing assumptions.
+    async fn reconcile_blobs(
+        &self,
+        epoch: Epoch,
+        group: &[ReconcileBlob],
+        delete_data: bool,
+    ) -> anyhow::Result<()> {
+        let keys: Vec<_> = group.iter().map(|blob| blob.id.0.as_slice()).collect();
+        let _guard = self.lifecycle.lock_blobs(&keys).await?;
+        let mut group_completion =
+            HaltOnIncompleteWrite::new(self.lifecycle.clone(), "reconcile_blobs");
+        let writer = self.clone();
+        let group = group.to_vec();
+        utils::unwrap_or_resume_unwind(
+            tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                // Read live metadata while holding the same locks as registrations
+                // and puts. The earlier snapshot supplies candidates, not permission
+                // to delete. Sync these live inputs before any destructive write.
+                let mut work = Vec::new();
+                let mut inputs = writer.lifecycle.blob_lifetimes.batch();
+                let publication = writer
+                    .snapshot_publication
+                    .get()?
+                    .map(|record| record.blob_id());
+                for ReconcileBlob {
+                    id,
+                    end_epoch: snapshot_end,
+                    dirty: expected,
+                } in group
+                {
+                    let live = writer.lifecycle.dirty_blobs.get(&id)?;
+                    let unchanged = live.map(|row| row.event_index)
+                        == expected.map(|row| row.event_index)
+                        && (delete_data || !live.is_some_and(|row| row.delete));
+                    let registered = writer
+                        .blob_info
+                        .get(&id)?
+                        .is_some_and(|info| info.is_registered(epoch));
+                    if publication == Some(id) && !registered {
+                        // Publication owns these bytes until boundary cleanup releases them.
+                        // Retain dirty deletes for afterwards. Registered blobs still update
+                        // their normal lifetimes, including extensions from dirty pools.
+                        continue;
+                    }
+                    let end = if unchanged {
+                        snapshot_end
+                    } else {
+                        snapshot_end.max(
+                            writer
+                                .lifecycle
+                                .blob_lifetimes
+                                .get(&id)?
+                                .unwrap_or_default(),
+                        )
+                    }
+                    .max(writer.blob_info.strata_pool_end_epoch(id)?);
+                    let delete = delete_data && !registered && live.is_some_and(|row| row.delete);
+                    if registered && end > epoch {
+                        // Persist the lifetime hint before Strata. Otherwise a put after a crash
+                        // could restore an old cached lifetime over a surviving extension, while
+                        // the tracked LSN incorrectly tells recovery that extension is complete.
+                        inputs.insert_batch(&writer.lifecycle.blob_lifetimes, [(id, end)])?;
+                    }
+                    work.push((
+                        id,
+                        end,
+                        unchanged,
+                        delete,
+                        registered,
+                        live.map(|row| row.event_index),
+                    ));
+                }
+                {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["rocksdb", "reconcile_inputs"])
+                        .start_timer();
+                    inputs.write_with_sync(true)?;
+                }
+                let mut ack = writer.lifecycle.dirty_blobs.batch();
+                let prefix = [b"walrus-epoch/".as_slice(), &epoch.to_be_bytes()].concat();
+                let shards = writer
+                    .store
+                    .index()
+                    .shards()
+                    .safe_iter()?
+                    .collect::<Result<Vec<_>, _>>()?;
+                let mut submitted = false;
+                for (id, end, unchanged, delete, registered, event_index) in &work {
+                    let mut batch = writer.store.batch();
+                    for axis in [SliverType::Primary, SliverType::Secondary] {
+                        let key = sliver_key(id, axis);
+                        if *delete {
+                            for (shard, info) in &shards {
+                                if info.is_active() {
+                                    batch.tombstone(*shard, key.clone());
+                                }
+                            }
+                        } else if *registered && u64::from(*end) > writer.store.current_epoch()? {
+                            batch.set_blob_lifetime(key, u64::from(*end));
+                        }
+                    }
+                    // Identity describes the actual operation, not its scan position.
+                    // Keep bindings until the epoch is complete: a pool scan may be
+                    // repeated after a crash even after individual dirty IDs were acked.
+                    // A later registration/delete can occur while this pass is running. It
+                    // must not reuse an earlier delete's binding after writing a new payload.
+                    let lsn_key = [
+                        prefix.as_slice(),
+                        &bcs::to_bytes(&(id, end, delete, event_index))?,
+                    ]
+                    .concat();
+                    if (*delete && shards.iter().any(|(_, info)| info.is_active()))
+                        || (*registered && u64::from(*end) > writer.store.current_epoch()?)
+                    {
+                        if writer
+                            .store
+                            .index()
+                            .submitted_batch_lsns()
+                            .get(&lsn_key)?
+                            .is_none()
+                        {
+                            let operation = if *delete { "delete" } else { "set_lifetime" };
+                            let _operation = writer
+                                .lifecycle
+                                .metrics
+                                .operation_duration_seconds
+                                .with_label_values(&[operation])
+                                .start_timer();
+                            batch.write_with_lsn(lsn_key)?;
+                        }
+                        submitted = true;
+                    }
+                    if *unchanged {
+                        ack.delete_batch(&writer.lifecycle.dirty_blobs, [id])?;
+                    }
+                    if *delete {
+                        ack.delete_batch(&writer.lifecycle.blob_lifetimes, [id])?;
+                    }
+                }
+                if submitted {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["strata", "reconcile_blobs"])
+                        .start_timer();
+                    writer.store.sync()?;
+                }
+                // No marker may reappear after a later put is admitted on these keys.
+                {
+                    let _sync = writer
+                        .lifecycle
+                        .metrics
+                        .sync_duration_seconds
+                        .with_label_values(&["rocksdb", "blob_ack"])
+                        .start_timer();
+                    ack.write_with_sync(true)?;
+                }
+                Ok(())
+            })
+            .await,
+        )
+        .inspect_err(|error| group_completion.record_error(error))?;
+        group_completion.complete();
+        Ok(())
     }
 
     pub(super) fn open_shard(
         &self,
         shard: ShardIndex,
     ) -> Result<StrataShardSliverStore, TypedStoreError> {
-        self.store
+        let _guard = futures::executor::block_on(self.lifecycle.lock_lifecycle())?;
+        let mut completion = HaltOnIncompleteWrite::new(self.lifecycle.clone(), "create_shard");
+        let _operation = self
+            .lifecycle
+            .metrics
+            .operation_duration_seconds
+            .with_label_values(&["create_shard"])
+            .start_timer();
+        let generation = self
+            .store
             .add_shard(u32::from(shard.0))
-            .map_err(store_error)?;
+            .map_err(store_error)
+            .inspect_err(|error| completion.record_error(error))?
+            .generation;
+        completion.complete();
         Ok(StrataShardSliverStore {
             node: self.clone(),
             shard,
+            generation,
         })
     }
 
@@ -104,21 +567,46 @@ impl StrataSliverStore {
             return Ok(());
         }
         let this = self.clone();
-        let lsn = utils::unwrap_or_resume_unwind(
-            tokio::task::spawn_blocking(move || {
-                let mut batch = this.store.batch();
-                for shard in shards {
-                    for sliver_type in [SliverType::Primary, SliverType::Secondary] {
-                        batch
-                            .tombstone(u32::from(shard.shard.0), sliver_key(&blob_id, sliver_type));
-                    }
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                let _guard = this.lifecycle.lock_blobs(&[&blob_id.0]).await?;
+                for shard in &shards {
+                    shard.check_generation()?;
                 }
-                let result = batch.write().map_err(store_error)?;
-                Ok::<_, TypedStoreError>(result.op_lsns().last().copied().unwrap_or(0))
+                let mut completion =
+                    HaltOnIncompleteWrite::new(this.lifecycle.clone(), "delete_all_sliver_pairs");
+                let writer = this.clone();
+                let lsn = utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        let mut batch = writer.store.batch();
+                        for shard in shards {
+                            for sliver_type in [SliverType::Primary, SliverType::Secondary] {
+                                batch.tombstone(
+                                    u32::from(shard.shard.0),
+                                    sliver_key(&blob_id, sliver_type),
+                                );
+                            }
+                        }
+                        let _operation = writer
+                            .lifecycle
+                            .metrics
+                            .operation_duration_seconds
+                            .with_label_values(&["delete"])
+                            .start_timer();
+                        let result = batch.write().map_err(store_error)?;
+                        Ok::<_, TypedStoreError>(result.op_lsns().last().copied().unwrap_or(0))
+                    })
+                    .await,
+                )
+                .inspect_err(|error| completion.record_error(error))?;
+                this.wait_durable_lsn(lsn)
+                    .await
+                    .inspect_err(|error| completion.record_error(error))?;
+                completion.complete();
+                Ok(())
             })
             .await,
-        )?;
-        self.wait_durable_lsn(lsn).await
+        )
     }
 
     /// Waits until the Strata checkpoint makes `lsn` crash safe, not merely visible to reads.
@@ -126,6 +614,11 @@ impl StrataSliverStore {
         if lsn == 0 {
             return Ok(());
         }
+        let _wait = self
+            .lifecycle
+            .metrics
+            .durability_wait_duration_seconds
+            .start_timer();
         let mut receiver = self.store.subscribe_durability_progress();
         tokio::time::timeout(SYNC_WAIT_TIMEOUT, async move {
             loop {
@@ -144,64 +637,285 @@ impl StrataSliverStore {
             }
         })
         .await
-        .map_err(|_| {
-            TypedStoreError::TaskError(format!(
+        .unwrap_or_else(|_| {
+            Err(TypedStoreError::TaskError(format!(
                 "timed out waiting for Strata sliver LSN {lsn} to become durable"
-            ))
-        })?
+            )))
+        })
+        .inspect_err(|error| {
+            let progress = self.store.subscribe_durability_progress().borrow().clone();
+            tracing::error!(lsn, ?progress, %error, "Strata durability wait failed");
+        })
     }
 }
 
 impl StrataShardSliverStore {
-    pub(super) fn drop_shard(&self) -> Result<(), TypedStoreError> {
-        self.node
+    /// Called while holding a blob or lifecycle guard, so retirement cannot race this check.
+    fn check_generation(&self) -> Result<(), TypedStoreError> {
+        let info = self
+            .node
             .store
-            .drop_shard(u32::from(self.shard.0))
+            .shard_info(u32::from(self.shard.0))
             .map_err(store_error)?;
+        if !info.is_some_and(|info| info.is_active() && info.current_generation == self.generation)
+        {
+            return Err(TypedStoreError::TaskError(
+                "Strata shard generation was retired".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub(super) fn drop_shard(&self) -> Result<(), TypedStoreError> {
+        let _guard = futures::executor::block_on(self.node.lifecycle.lock_lifecycle())?;
+        self.check_generation()?;
+        let mut completion = HaltOnIncompleteWrite::new(self.node.lifecycle.clone(), "drop_shard");
+        {
+            let _operation = self
+                .node
+                .lifecycle
+                .metrics
+                .operation_duration_seconds
+                .with_label_values(&["drop_shard"])
+                .start_timer();
+            self.node
+                .store
+                .drop_shard(u32::from(self.shard.0))
+                .map_err(store_error)
+                .inspect_err(|error| completion.record_error(error))?;
+        }
         // Strata drop returns when the generation fence is visible, not yet crash safe. It
         // does not return an LSN to wait on, so sync before removing RocksDB control tables.
-        self.node.store.sync().map_err(store_error)
+        {
+            let _sync = self
+                .node
+                .lifecycle
+                .metrics
+                .sync_duration_seconds
+                .with_label_values(&["strata", "drop_shard"])
+                .start_timer();
+            self.node
+                .store
+                .sync()
+                .map_err(store_error)
+                .inspect_err(|error| completion.record_error(error))?;
+        }
+        completion.complete();
+        Ok(())
     }
 
-    pub(super) async fn put(&self, blob_id: BlobId, sliver: Sliver) -> Result<(), TypedStoreError> {
-        let this = self.clone();
-        let lsn = utils::unwrap_or_resume_unwind(
-            tokio::task::spawn_blocking(move || this.put_visible(blob_id, &sliver)).await,
-        )?;
-        self.node.wait_durable_lsn(lsn).await
-    }
-
-    fn put_visible(&self, blob_id: BlobId, sliver: &Sliver) -> Result<StrataLsn, TypedStoreError> {
-        let key = sliver_key(&blob_id, sliver.r#type());
-        let payload = serialize_sliver(sliver)?;
-        self.node
-            .store
-            .put(u32::from(self.shard.0), &key, &payload)
-            .map_err(store_error)
+    pub(super) async fn put(
+        &self,
+        blob_id: BlobId,
+        sliver: Sliver,
+        epoch: Option<Epoch>,
+    ) -> Result<bool, TypedStoreError> {
+        self.write(vec![(blob_id, sliver)], epoch, None)
+            .await
+            .map(|count| count != 0)
     }
 
     pub(super) async fn put_many(
         &self,
         slivers: Vec<(BlobId, Sliver)>,
+        epoch: Epoch,
+        control_batch: DBBatch,
     ) -> Result<(), TypedStoreError> {
-        if slivers.is_empty() {
-            return Ok(());
-        }
+        self.write(slivers, Some(epoch), Some(control_batch))
+            .await
+            .map(|_| ())
+    }
+
+    async fn write(
+        &self,
+        slivers: Vec<(BlobId, Sliver)>,
+        epoch: Option<Epoch>,
+        control_batch: Option<DBBatch>,
+    ) -> Result<usize, TypedStoreError> {
         let this = self.clone();
-        let lsn = utils::unwrap_or_resume_unwind(
-            tokio::task::spawn_blocking(move || {
-                let mut batch = this.node.store.batch();
-                for (blob_id, sliver) in slivers {
-                    let key = sliver_key(&blob_id, sliver.r#type());
-                    let payload = serialize_sliver(&sliver)?;
-                    batch.put(u32::from(this.shard.0), key, Arc::<[u8]>::from(payload));
+        // Detaching the awaiting request must not release guards around an in-flight write.
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                let _duration = this
+                    .node
+                    .lifecycle
+                    .metrics
+                    .put_duration_seconds
+                    .start_timer();
+                let ids: Vec<_> = slivers.iter().map(|(id, _)| *id).collect();
+                let guard = this
+                    .node
+                    .lifecycle
+                    .lock_blobs_shared(&ids.iter().map(|id| id.0.as_slice()).collect::<Vec<_>>())
+                    .await?;
+                let admission = guard.lock_put_admission_shared().await;
+                this.node.lifecycle.check_running()?;
+                // Declare before completion so a panic halts admission before either lock drops.
+                let mut exclusive_admission = None;
+                let mut completion =
+                    HaltOnIncompleteWrite::new(this.node.lifecycle.clone(), "put_slivers");
+                let prepare = this.clone();
+                let (payloads, pending_deletes) = utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        prepare.check_generation()?;
+                        let mut payloads = Vec::new();
+                        let mut pending_deletes = Vec::new();
+                        let publication = prepare
+                            .node
+                            .snapshot_publication
+                            .get()?
+                            .map(|record| record.blob_id());
+                        for (blob_id, sliver) in slivers {
+                            let mut lifetime = None;
+                            if let Some(epoch) = epoch {
+                                // Persisted metadata is not evidence of a current reference.
+                                // Re-read under the registration/delete lock at the final write.
+                                if !prepare
+                                    .node
+                                    .blob_info
+                                    .get(&blob_id)?
+                                    .is_some_and(|info| info.is_registered(epoch))
+                                {
+                                    continue;
+                                }
+                                // Reconciliation refreshes pool lifetimes before advancing
+                                // Strata's epoch. Until then, the cached expiry remains valid.
+                                let end_epoch = prepare
+                                    .node
+                                    .lifecycle
+                                    .blob_lifetimes
+                                    .get(&blob_id)?
+                                    .ok_or_else(|| {
+                                        error(format!("registered blob {blob_id} has no lifetime"))
+                                    })?;
+                                lifetime = Some(u64::from(end_epoch));
+                                if u64::from(end_epoch)
+                                    <= prepare.node.store.current_epoch().map_err(store_error)?
+                                {
+                                    continue;
+                                }
+                                if prepare
+                                    .node
+                                    .lifecycle
+                                    .dirty_blobs
+                                    .get(&blob_id)?
+                                    .is_some_and(|dirty| dirty.delete)
+                                {
+                                    pending_deletes.push(blob_id);
+                                }
+                            }
+                            if publication == Some(blob_id) {
+                                // Unregistered publication writes may reuse an expired key.
+                                // Preserve ordinary references too, so releasing publication
+                                // ownership cannot shorten a still-registered blob's lifetime.
+                                let end = prepare
+                                    .node
+                                    .lifecycle
+                                    .blob_lifetimes
+                                    .get(&blob_id)?
+                                    .unwrap_or_default()
+                                    .max(prepare.node.blob_info.strata_pool_end_epoch(blob_id)?);
+                                lifetime =
+                                    Some(lifetime.unwrap_or_default().max(u64::from(end)).max(
+                                        prepare.node.store.current_epoch().map_err(store_error)?
+                                            + 1,
+                                    ));
+                            }
+                            payloads.push((
+                                sliver_key(&blob_id, sliver.r#type()),
+                                serialize_sliver(&sliver)?,
+                                lifetime,
+                            ));
+                        }
+                        Ok::<_, TypedStoreError>((payloads, pending_deletes))
+                    })
+                    .await,
+                )
+                .inspect_err(|error| completion.record_error(error))?;
+                // Never wait for exclusive admission while holding shared admission: two
+                // puts finding the same delete would deadlock. Keep the outer shared blob
+                // guards so metadata changes and reconciliation cannot add a new delete.
+                drop(admission);
+                if !pending_deletes.is_empty() {
+                    exclusive_admission = Some(guard.lock_put_admission().await);
+                    this.node.lifecycle.check_running()?;
+                    let lifecycle = this.node.lifecycle.clone();
+                    utils::unwrap_or_resume_unwind(
+                        tokio::task::spawn_blocking(move || {
+                            let mut batch = lifecycle.dirty_blobs.batch();
+                            let mut changed = false;
+                            for id in pending_deletes {
+                                // Another put may already have cleared and synced this marker.
+                                if let Some(mut dirty) = lifecycle.dirty_blobs.get(&id)?
+                                    && dirty.delete
+                                {
+                                    // Cancel deletion, keeping the lifetime reconciliation work.
+                                    dirty.delete = false;
+                                    batch.insert_batch(&lifecycle.dirty_blobs, [(id, dirty)])?;
+                                    changed = true;
+                                }
+                            }
+                            if changed {
+                                let _sync = lifecycle
+                                    .metrics
+                                    .sync_duration_seconds
+                                    .with_label_values(&["rocksdb", "put_admission"])
+                                    .start_timer();
+                                batch.write_with_sync(true)?;
+                            }
+                            Ok::<_, TypedStoreError>(())
+                        })
+                        .await,
+                    )
+                    .inspect_err(|error| completion.record_error(error))?;
                 }
-                let result = batch.write().map_err(store_error)?;
-                Ok::<_, TypedStoreError>(result.op_lsns().last().copied().unwrap_or(0))
+                // A cleared marker is safe for other puts to use only after this sync.
+                // On failure, halt admission before releasing the exclusive guard.
+                drop(exclusive_admission);
+                let count = payloads.len();
+                let writer = this.clone();
+                let lsn = utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || {
+                        if payloads.is_empty() {
+                            return Ok(0);
+                        }
+                        let mut batch = writer.node.store.batch();
+                        for (key, payload, end_epoch) in payloads {
+                            if let Some(end_epoch) = end_epoch {
+                                // Initialize the admitted registration in the same write as its
+                                // payload, also protecting puts while Strata's epoch lags Walrus.
+                                batch.set_blob_lifetime(key.clone(), end_epoch);
+                            }
+                            batch.put(u32::from(writer.shard.0), key, Arc::<[u8]>::from(payload));
+                        }
+                        let _operation = writer
+                            .node
+                            .lifecycle
+                            .metrics
+                            .operation_duration_seconds
+                            .with_label_values(&["put"])
+                            .start_timer();
+                        let result = batch.write().map_err(store_error)?;
+                        Ok::<_, TypedStoreError>(result.last_lsn().unwrap_or(0))
+                    })
+                    .await,
+                )
+                .inspect_err(|error| completion.record_error(error))?;
+                this.node
+                    .wait_durable_lsn(lsn)
+                    .await
+                    .inspect_err(|error| completion.record_error(error))?;
+                if let Some(batch) = control_batch {
+                    utils::unwrap_or_resume_unwind(
+                        tokio::task::spawn_blocking(move || batch.write()).await,
+                    )
+                    .inspect_err(|error| completion.record_error(error))?;
+                }
+                completion.complete();
+                Ok(count)
             })
             .await,
-        )?;
-        self.node.wait_durable_lsn(lsn).await
+        )
     }
 
     pub(super) fn get(
@@ -262,3 +976,6 @@ fn deserialize_sliver(sliver_type: SliverType, payload: &[u8]) -> Result<Sliver,
 fn store_error(error: strata::Error) -> TypedStoreError {
     TypedStoreError::TaskError(format!("Strata sliver store: {error}"))
 }
+
+#[cfg(test)]
+mod tests;

@@ -355,6 +355,7 @@ async fn try_certify_snapshot(
     let record = SnapshotPublication::new(epoch, blob_id);
     node.storage()
         .set_snapshot_publication(&record)
+        .await
         .context("failed to record the snapshot publication")?;
 
     let store_start = Instant::now();
@@ -581,6 +582,7 @@ pub(super) async fn reconcile_previous_publication(
     }
     node.storage()
         .clear_snapshot_publication()
+        .await
         .context("failed to clear the snapshot publication record")?;
     // No-op outside of simtest.
     sui_macros::fail_point_arg!(
@@ -626,7 +628,10 @@ async fn store_slivers_of_type(
         let sliver = sliver_of_pair(sliver_pair);
         let index: SliverPairIndex = sliver_pair.index();
         async move {
-            match node.store_sliver_unchecked(metadata, index, sliver).await {
+            match node
+                .store_unregistered_sliver_unchecked(metadata, index, sliver)
+                .await
+            {
                 Err(StoreSliverError::ShardNotAssigned(_)) | Ok(_) => Ok(()),
                 Err(error) => Err(error),
             }
