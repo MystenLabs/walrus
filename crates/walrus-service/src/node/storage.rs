@@ -580,6 +580,7 @@ impl Storage {
             db_config.global.blob_update_lock_count,
             &metrics_registry,
         )?;
+        let snapshot_publication = SnapshotPublicationTable::reopen(&database)?;
         let sliver_store = match sliver_backend {
             SliverStoreBackendKind::RocksDb => {
                 SliverStore::new_rocksdb(Arc::clone(&database), db_table_opts_factory.clone())
@@ -593,6 +594,7 @@ impl Storage {
                     .clone()
                     .expect("Strata lifecycle tables are open"),
                 blob_info.clone(),
+                snapshot_publication.clone(),
             )?,
         };
         // Strata's shard registry is the authority for which control-table shards are active.
@@ -676,7 +678,6 @@ impl Storage {
 
         let event_cursor = EventCursorTable::reopen(&database)?;
         let pending_recover_blobs = PendingRecoverBlobsTable::reopen(&database)?;
-        let snapshot_publication = SnapshotPublicationTable::reopen(&database)?;
         let shards = Arc::new(RwLock::new(
             existing_shards_ids
                 .into_iter()
@@ -2010,16 +2011,55 @@ impl Storage {
     }
 
     /// Sets the current blob info snapshot publication record.
-    pub(crate) fn set_snapshot_publication(
+    pub(crate) async fn set_snapshot_publication(
         &self,
         record: &SnapshotPublication,
     ) -> Result<(), TypedStoreError> {
-        self.snapshot_publication.set(record)
+        self.update_snapshot_publication(Some(record.clone())).await
     }
 
     /// Removes the current blob info snapshot publication record.
-    pub(crate) fn clear_snapshot_publication(&self) -> Result<(), TypedStoreError> {
-        self.snapshot_publication.clear()
+    pub(crate) async fn clear_snapshot_publication(&self) -> Result<(), TypedStoreError> {
+        self.update_snapshot_publication(None).await
+    }
+
+    /// Publication ownership changes exclude Strata puts, reconciliation and epoch advancement.
+    /// Keep the guard until the record is durable, even if the caller is cancelled.
+    async fn update_snapshot_publication(
+        &self,
+        record: Option<SnapshotPublication>,
+    ) -> Result<(), TypedStoreError> {
+        let storage = self.clone();
+        utils::unwrap_or_resume_unwind(
+            tokio::spawn(async move {
+                let lifecycle = storage.blob_info.strata_lifecycle.clone();
+                let _guard = if let Some(lifecycle) = &lifecycle {
+                    Some(lifecycle.lock_lifecycle().await?)
+                } else {
+                    None
+                };
+                let mut completion = lifecycle.map(|lifecycle| {
+                    strata_lifecycle::HaltOnIncompleteWrite::new(lifecycle, "snapshot_publication")
+                });
+                utils::unwrap_or_resume_unwind(
+                    tokio::task::spawn_blocking(move || match record {
+                        Some(record) => storage.snapshot_publication.set(&record),
+                        None => storage.snapshot_publication.clear(),
+                    })
+                    .await,
+                )
+                .inspect_err(|error| {
+                    if let Some(completion) = &completion {
+                        completion.record_error(error);
+                    }
+                })?;
+                if let Some(completion) = &mut completion {
+                    completion.complete();
+                }
+                Ok(())
+            })
+            .await,
+        )
     }
 
     /// Returns the number of pending-recovery records.
@@ -2538,7 +2578,9 @@ pub(crate) mod tests {
         shard_storage
             .put_sliver(blob_id, get_sliver(SliverType::Primary, 1))
             .await?;
-        storage.set_snapshot_publication(&SnapshotPublication::new(expired_epoch, blob_id))?;
+        storage
+            .set_snapshot_publication(&SnapshotPublication::new(expired_epoch, blob_id))
+            .await?;
 
         storage
             .delete_expired_blob_data(expired_epoch, &node_metrics, 100)
@@ -2547,7 +2589,7 @@ pub(crate) mod tests {
         assert!(shard_storage.is_sliver_stored::<walrus_core::encoding::Primary>(&blob_id)?);
         assert!(storage.get_blob_info(&blob_id)?.is_some());
 
-        storage.clear_snapshot_publication()?;
+        storage.clear_snapshot_publication().await?;
         storage
             .delete_expired_blob_data(expired_epoch, &node_metrics, 100)
             .await?;

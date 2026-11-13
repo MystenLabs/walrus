@@ -2572,9 +2572,9 @@ impl StorageNodeInner {
         .await
     }
 
-    /// Event blobs have no registration. They still participate in Strata blob/lifecycle locks
-    /// and wait for durability; only their registration precondition is bypassed.
-    pub(crate) async fn store_event_sliver_unchecked(
+    /// Event blobs and snapshot publications have no registration. They still participate in
+    /// Strata blob/lifecycle locks and wait for durability; only registration is bypassed.
+    pub(crate) async fn store_unregistered_sliver_unchecked(
         &self,
         metadata: Arc<VerifiedBlobMetadataWithId>,
         sliver_pair_index: SliverPairIndex,
@@ -2610,7 +2610,7 @@ impl StorageNodeInner {
             shard_storage
                 .put_sliver(*metadata.blob_id(), verified_sliver)
                 .await
-                .context("unable to store event sliver")?;
+                .context("unable to store unregistered sliver")?;
         }
 
         walrus_utils::with_label!(self.metrics.slivers_stored_total, sliver_type).inc();

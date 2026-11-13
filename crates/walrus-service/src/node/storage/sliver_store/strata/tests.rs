@@ -12,7 +12,13 @@ use walrus_sui::{
 };
 
 use super::{super::SliverStoreBackend, *};
-use crate::node::storage::{DatabaseConfig, SliverStoreBackendKind, Storage, tests::get_sliver};
+use crate::node::storage::{
+    DatabaseConfig,
+    SliverStoreBackendKind,
+    SnapshotPublication,
+    Storage,
+    tests::get_sliver,
+};
 
 type TestResult = anyhow::Result<()>;
 const X: BlobId = BlobId([71; 32]);
@@ -115,6 +121,190 @@ fn stored(storage: &Storage, id: BlobId) -> anyhow::Result<bool> {
     strata(storage)
         .contains_sliver_pairs_in_all(id, &[SHARD])
         .map_err(Into::into)
+}
+
+#[tokio::test]
+async fn snapshot_publication_writes_without_registration() -> TestResult {
+    for optimistic in [false, true] {
+        let dir = TempDir::new()?;
+        let storage = open(dir.path(), optimistic)?;
+        storage
+            .create_storage_for_shards_for_testing(&[SHARD])
+            .await?;
+        reconcile(&storage, 3, 3, true).await?;
+        storage
+            .set_snapshot_publication(&SnapshotPublication::new(3, X))
+            .await?;
+        let shard = storage
+            .shard_storage(SHARD)
+            .await
+            .expect("test shard exists");
+        for axis in [SliverType::Primary, SliverType::Secondary] {
+            assert!(
+                !shard
+                    .put_registered_sliver(X, get_sliver(axis, 2), 3)
+                    .await?
+            );
+            shard.put_sliver(X, get_sliver(axis, 2)).await?;
+        }
+        assert!(storage.get_blob_info(&X)?.is_none());
+        assert!(stored(&storage, X)?);
+        reconcile(&storage, 4, 4, true).await?;
+        assert!(stored(&storage, X)?);
+        // Publication cleanup deletes an orphan before releasing its ownership record.
+        storage.delete_blob_data(&X).await?;
+        storage.clear_snapshot_publication().await?;
+        assert!(!stored(&storage, X)?);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn snapshot_publication_survives_deletion_expiry_and_restart() -> TestResult {
+    for optimistic in [false, true] {
+        for explicit_delete in [false, true] {
+            let dir = TempDir::new()?;
+            let storage = open(dir.path(), optimistic)?;
+            storage
+                .create_storage_for_shards_for_testing(&[SHARD])
+                .await?;
+            let registered = registration(X, if explicit_delete { 80 } else { 3 });
+            storage
+                .update_blob_info_coordinated(0, &registered.clone().into())
+                .await?;
+            put(&storage, X).await?;
+            reconcile(&storage, 2, 2, true).await?;
+            if explicit_delete {
+                storage
+                    .update_blob_info_coordinated(
+                        1,
+                        &registered
+                            .into_corresponding_deleted_event_for_testing(false)
+                            .into(),
+                    )
+                    .await?;
+            }
+            // The candidate snapshot predates publication. Live ownership must win.
+            let snapshot = storage.blob_info.reconciliation_candidates()?.blobs;
+            storage
+                .set_snapshot_publication(&SnapshotPublication::new(2, X))
+                .await?;
+            strata(&storage).reconcile_blobs(3, &snapshot, true).await?;
+            reconcile(&storage, 3, 3, true).await?;
+            assert!(stored(&storage, X)?);
+            if explicit_delete {
+                assert!(
+                    strata(&storage)
+                        .lifecycle
+                        .dirty_blobs
+                        .get(&X)?
+                        .unwrap()
+                        .delete
+                );
+            }
+
+            // Resume directly at advancement, without a fresh blob scan, after restart.
+            let mut progress = strata(&storage).lifecycle.progress.batch();
+            progress.insert_batch(
+                &strata(&storage).lifecycle.progress,
+                [((), ReconciliationProgress::Advancing(4))],
+            )?;
+            progress.write_with_sync(true)?;
+            close(storage).await?;
+            let storage = open(dir.path(), optimistic)?;
+            assert_eq!(
+                storage.snapshot_publication()?,
+                Some(SnapshotPublication::new(2, X))
+            );
+            reconcile(&storage, 4, 4, true).await?;
+            assert!(stored(&storage, X)?);
+
+            storage.clear_snapshot_publication().await?;
+            reconcile(&storage, 5, 5, true).await?;
+            assert!(!stored(&storage, X)?);
+            assert!(strata(&storage).lifecycle.dirty_blobs.get(&X)?.is_none());
+            close(storage).await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn snapshot_publication_preserves_pool_extensions_after_release() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), true)?;
+    storage
+        .create_storage_for_shards_for_testing(&[SHARD])
+        .await?;
+    storage
+        .update_storage_pool_info_coordinated(0, &StoragePoolEvent::created_for_testing(POOL, 1, 3))
+        .await?;
+    storage
+        .update_blob_info_coordinated(
+            1,
+            &walrus_sui::types::BlobEvent::PooledBlobRegistered(PooledBlobRegistered {
+                storage_pool_id: POOL,
+                ..PooledBlobRegistered::for_testing_with_random_object_id(X)
+            }),
+        )
+        .await?;
+    put(&storage, X).await?;
+    reconcile(&storage, 2, 2, true).await?;
+    storage
+        .set_snapshot_publication(&SnapshotPublication::new(2, X))
+        .await?;
+    storage
+        .update_storage_pool_info_coordinated(2, &StoragePoolEvent::extended_for_testing(POOL, 20))
+        .await?;
+    reconcile(&storage, 3, 3, true).await?;
+    assert_eq!(strata(&storage).lifecycle.blob_lifetimes.get(&X)?, Some(20));
+    let shard = storage
+        .shard_storage(SHARD)
+        .await
+        .expect("test shard exists");
+    for axis in [SliverType::Primary, SliverType::Secondary] {
+        shard.put_sliver(X, get_sliver(axis, 2)).await?;
+    }
+    storage.clear_snapshot_publication().await?;
+    reconcile(&storage, 10, 10, true).await?;
+    assert!(stored(&storage, X)?);
+    reconcile(&storage, 20, 20, true).await?;
+    assert!(!stored(&storage, X)?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn snapshot_publication_changes_wait_for_inflight_strata_work() -> TestResult {
+    let dir = TempDir::new()?;
+    let storage = open(dir.path(), true)?;
+    for publish in [true, false] {
+        let guard = strata(&storage)
+            .lifecycle
+            .lock_blobs_shared(&[&X.0])
+            .await?;
+        let mut change = tokio::spawn({
+            let storage = storage.clone();
+            async move {
+                if publish {
+                    storage
+                        .set_snapshot_publication(&SnapshotPublication::new(2, X))
+                        .await
+                } else {
+                    storage.clear_snapshot_publication().await
+                }
+            }
+        });
+        assert!(
+            tokio::time::timeout(Duration::from_millis(100), &mut change)
+                .await
+                .is_err()
+        );
+        assert_eq!(storage.snapshot_publication()?.is_some(), !publish);
+        drop(guard);
+        change.await??;
+        assert_eq!(storage.snapshot_publication()?.is_some(), publish);
+    }
+    Ok(())
 }
 
 #[tokio::test]

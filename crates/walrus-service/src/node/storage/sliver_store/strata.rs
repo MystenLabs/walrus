@@ -14,6 +14,7 @@ use walrus_utils::metrics::{OwnedGaugeGuard, Registry};
 use super::{
     super::{
         blob_info::{BlobInfoApi, BlobInfoTable},
+        blob_info_snapshot_publication::SnapshotPublicationTable,
         strata_lifecycle::{
             HaltOnIncompleteWrite,
             ReconcileBlob,
@@ -39,6 +40,7 @@ pub(super) struct StrataSliverStore {
     pub(super) store: Arc<StrataStore>,
     lifecycle: Arc<StrataLifecycle>,
     blob_info: Arc<BlobInfoTable>,
+    snapshot_publication: Arc<SnapshotPublicationTable>,
 }
 
 /// One Walrus shard within the Strata store, holding both primary and secondary slivers.
@@ -56,6 +58,7 @@ impl StrataSliverStore {
         database: Arc<dyn IndexDb>,
         lifecycle: Arc<StrataLifecycle>,
         blob_info: BlobInfoTable,
+        snapshot_publication: SnapshotPublicationTable,
     ) -> anyhow::Result<Self> {
         let config = StrataStoreConfig::new(path, "slivers");
         let store_label = format!("slivers:{}", path.display());
@@ -70,6 +73,7 @@ impl StrataSliverStore {
             )?),
             lifecycle,
             blob_info: Arc::new(blob_info),
+            snapshot_publication: Arc::new(snapshot_publication),
         })
     }
 
@@ -250,6 +254,24 @@ impl StrataSliverStore {
             let advance = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
                 if delete_data {
                     let mut batch = writer.store.batch();
+                    // The publication can share an expired ordinary blob's lifetime. Refresh
+                    // its protection under the lifecycle lock, including when resuming an
+                    // Advancing checkpoint, before the clock can expire either sliver type.
+                    if let Some(record) = writer.snapshot_publication.get()? {
+                        let id = record.blob_id();
+                        let end = u64::from(epoch).max(writer.store.current_epoch()?) + 1;
+                        let end = end.max(u64::from(
+                            writer
+                                .lifecycle
+                                .blob_lifetimes
+                                .get(&id)?
+                                .unwrap_or_default()
+                                .max(writer.blob_info.strata_pool_end_epoch(id)?),
+                        ));
+                        for axis in [SliverType::Primary, SliverType::Secondary] {
+                            batch.set_blob_lifetime(sliver_key(&id, axis), end);
+                        }
+                    }
                     batch.advance_epoch_to(u64::from(epoch));
                     let _operation = writer
                         .lifecycle
@@ -328,6 +350,10 @@ impl StrataSliverStore {
                 // to delete. Sync these live inputs before any destructive write.
                 let mut work = Vec::new();
                 let mut inputs = writer.lifecycle.blob_lifetimes.batch();
+                let publication = writer
+                    .snapshot_publication
+                    .get()?
+                    .map(|record| record.blob_id());
                 for ReconcileBlob {
                     id,
                     end_epoch: snapshot_end,
@@ -342,6 +368,12 @@ impl StrataSliverStore {
                         .blob_info
                         .get(&id)?
                         .is_some_and(|info| info.is_registered(epoch));
+                    if publication == Some(id) && !registered {
+                        // Publication owns these bytes until boundary cleanup releases them.
+                        // Retain dirty deletes for afterwards. Registered blobs still update
+                        // their normal lifetimes, including extensions from dirty pools.
+                        continue;
+                    }
                     let end = if unchanged {
                         snapshot_end
                     } else {
@@ -728,6 +760,11 @@ impl StrataShardSliverStore {
                         prepare.check_generation()?;
                         let mut payloads = Vec::new();
                         let mut pending_deletes = Vec::new();
+                        let publication = prepare
+                            .node
+                            .snapshot_publication
+                            .get()?
+                            .map(|record| record.blob_id());
                         for (blob_id, sliver) in slivers {
                             let mut lifetime = None;
                             if let Some(epoch) = epoch {
@@ -751,7 +788,7 @@ impl StrataShardSliverStore {
                                     .ok_or_else(|| {
                                         error(format!("registered blob {blob_id} has no lifetime"))
                                     })?;
-                                lifetime = Some(end_epoch);
+                                lifetime = Some(u64::from(end_epoch));
                                 if u64::from(end_epoch)
                                     <= prepare.node.store.current_epoch().map_err(store_error)?
                                 {
@@ -766,6 +803,23 @@ impl StrataShardSliverStore {
                                 {
                                     pending_deletes.push(blob_id);
                                 }
+                            }
+                            if publication == Some(blob_id) {
+                                // Unregistered publication writes may reuse an expired key.
+                                // Preserve ordinary references too, so releasing publication
+                                // ownership cannot shorten a still-registered blob's lifetime.
+                                let end = prepare
+                                    .node
+                                    .lifecycle
+                                    .blob_lifetimes
+                                    .get(&blob_id)?
+                                    .unwrap_or_default()
+                                    .max(prepare.node.blob_info.strata_pool_end_epoch(blob_id)?);
+                                lifetime =
+                                    Some(lifetime.unwrap_or_default().max(u64::from(end)).max(
+                                        prepare.node.store.current_epoch().map_err(store_error)?
+                                            + 1,
+                                    ));
                             }
                             payloads.push((
                                 sliver_key(&blob_id, sliver.r#type()),
@@ -830,7 +884,7 @@ impl StrataShardSliverStore {
                             if let Some(end_epoch) = end_epoch {
                                 // Initialize the admitted registration in the same write as its
                                 // payload, also protecting puts while Strata's epoch lags Walrus.
-                                batch.set_blob_lifetime(key.clone(), u64::from(end_epoch));
+                                batch.set_blob_lifetime(key.clone(), end_epoch);
                             }
                             batch.put(u32::from(writer.shard.0), key, Arc::<[u8]>::from(payload));
                         }

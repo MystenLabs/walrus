@@ -579,8 +579,7 @@ impl walrus_utils::config::Config for StorageNodeConfig {
         {
             anyhow::bail!("RocksDB-only checkpoints are not supported with Strata sliver storage");
         }
-        if self.sliver_store_backend == SliverStoreBackendKind::RocksDb
-            && !self.db_config.use_optimistic_transaction_db()
+        if !self.db_config.use_optimistic_transaction_db()
             && self.garbage_collection.enable_data_deletion
         {
             anyhow::bail!(
@@ -1972,14 +1971,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strata_backend_supports_deletion_but_rejects_rocksdb_checkpoints() {
+    fn strata_backend_rejects_rocksdb_checkpoints() {
         let mut config = StorageNodeConfig {
             sliver_store_backend: SliverStoreBackendKind::Strata,
+            db_config: DatabaseConfig::default_for_test(),
             ..Default::default()
         };
         assert!(config.validate().is_ok());
         config.checkpoint_config.periodic_db_checkpoints = true;
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn data_deletion_requires_transactions_for_both_backends() -> TestResult {
+        for backend in [
+            SliverStoreBackendKind::RocksDb,
+            SliverStoreBackendKind::Strata,
+        ] {
+            for transactions in [false, true] {
+                for deletion in [false, true] {
+                    let mut config = StorageNodeConfig {
+                        sliver_store_backend: backend,
+                        db_config: serde_yaml::from_str(&format!(
+                            "global:\n  use_optimistic_transaction_db: {transactions}\n"
+                        ))?,
+                        ..Default::default()
+                    };
+                    config.garbage_collection.enable_data_deletion = deletion;
+                    assert_eq!(config.validate().is_ok(), transactions || !deletion);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Serializes a default config to the example file when tests are run.

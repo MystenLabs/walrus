@@ -125,6 +125,7 @@ impl SliverStore {
         database: Arc<dyn strata_index::port::IndexDb>,
         lifecycle: Arc<super::strata_lifecycle::StrataLifecycle>,
         blob_info: super::blob_info::BlobInfoTable,
+        snapshot_publication: super::blob_info_snapshot_publication::SnapshotPublicationTable,
     ) -> anyhow::Result<Self> {
         Ok(Self {
             backend: Arc::new(SliverStoreBackend::Strata(StrataSliverStore::open(
@@ -133,6 +134,7 @@ impl SliverStore {
                 database,
                 lifecycle,
                 blob_info,
+                snapshot_publication,
             )?)),
         })
     }
