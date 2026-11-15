@@ -231,11 +231,18 @@ pub enum ClientErrorKind {
     /// The blob ID is blocked.
     #[error("the blob ID {0} is blocked")]
     BlobIdBlocked(BlobId),
-    /// No matching payment coin found for the transaction.
-    #[error("could not find WAL coins with sufficient balance")]
+    /// The WAL address balance does not cover the payment of the transaction.
+    #[error(
+        "the WAL address balance is insufficient for the transaction; WAL held in coin objects \
+        is not spent and has to be moved to the address balance first (`walrus deposit-coins`)"
+    )]
     NoCompatiblePaymentCoin,
-    /// No gas coins with sufficient balance found for the transaction.
-    #[error("could not find SUI coins with sufficient balance [requested_amount={0:?}]")]
+    /// The SUI address balance does not cover the gas and SUI payments of the transaction.
+    #[error(
+        "the SUI address balance is insufficient [requested_amount={0:?}]; SUI held in coin \
+        objects is not spent and has to be moved to the address balance first \
+        (`walrus deposit-coins`)"
+    )]
     NoCompatibleGasCoins(Option<u128>),
     /// The client was unable to open connections to any storage node.
     #[error("connecting to all storage nodes failed: {0}")]

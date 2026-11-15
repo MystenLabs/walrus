@@ -18,7 +18,7 @@ use anyhow::{Context, Result, anyhow};
 use contract_config::ContractConfig;
 use move_package::RootPackage;
 use move_package_compilation::build_config::BuildConfig as MoveBuildConfig;
-use retry_client::{RetriableSuiClient, retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS};
+use retry_client::RetriableSuiClient;
 use serde::{Deserialize, Serialize};
 use sui_move_build::CompiledPackage;
 use sui_package_alt::SuiFlavor;
@@ -46,7 +46,6 @@ use walrus_core::{
 use walrus_utils::backoff::ExponentialBackoffConfig;
 
 use crate::{
-    balance::BalanceRetrievalError,
     coin::{Coin, CoinType},
     contracts::{self, MoveConversionError},
     system_setup::{self, compile_package},
@@ -132,11 +131,18 @@ pub enum SuiClientError {
     /// Error in a transaction execution.
     #[error("transaction execution failed: {0}")]
     TransactionExecutionError(MoveExecutionError),
-    /// No matching WAL coin found for the transaction.
-    #[error("could not find WAL coins with sufficient balance")]
+    /// The WAL address balance does not cover the payment of the transaction.
+    #[error(
+        "the WAL address balance is insufficient for the transaction; WAL held in coin objects \
+        is not spent and has to be moved to the address balance first (`walrus deposit-coins`)"
+    )]
     NoCompatibleWalCoins,
-    /// No matching gas coin found for the transaction.
-    #[error("could not find SUI coins with sufficient balance [requested_amount={0:?}]")]
+    /// The SUI address balance does not cover the gas and SUI payments of the transaction.
+    #[error(
+        "the SUI address balance is insufficient [requested_amount={0:?}]; SUI held in coin \
+        objects is not spent and has to be moved to the address balance first \
+        (`walrus deposit-coins`)"
+    )]
     NoCompatibleGasCoins(Option<u128>),
     /// The Walrus system object does not exist.
     #[error(
@@ -195,30 +201,12 @@ pub enum SuiClientError {
         FROST for staking"
     )]
     StakeBelowThreshold(u64),
-    /// The required coin balance cannot be achieved with the maximum number of coins allowed.
-    #[error(
-        "there is enough balance to cover the requested amount of type {0}, but cannot be achieved \
-        with less than the maximum number of coins allowed ({MAX_GAS_PAYMENT_OBJECTS}); consider \
-        merging the coins in the wallet and retrying"
-    )]
-    InsufficientFundsWithMaxCoins(String),
-    /// The address does not have enough balance of the requested coin type.
-    #[error("address {address} has insufficient funds for the requested amount {amount}")]
-    InsufficientFunds {
-        /// The address whose coins were selected.
-        address: SuiAddress,
-        /// The requested amount.
-        amount: u128,
-    },
     /// Error returned when converting a Sui object or event to a rust struct.
     #[error(transparent)]
     MoveConversionError(#[from] MoveConversionError),
     /// A gRPC-related error has occurred.
     #[error("gRPC error: {0}")]
     GrpcError(#[from] tonic::Status),
-    /// A balance retrieval error has occurred.
-    #[error(transparent)]
-    BalanceRetrievalError(#[from] BalanceRetrievalError),
     /// The treasury object is not found.
     #[error("the treasury object is not set")]
     TreasuryObjectNotSet,
@@ -609,10 +597,10 @@ impl SuiContractClient {
         self.wallet_address
     }
 
-    /// Returns the balance of the owner for the given coin type.
-    pub async fn total_balance(&self, coin_type: CoinType) -> SuiClientResult<u64> {
+    /// Returns the address balance of the wallet for the given coin type.
+    pub async fn address_balance(&self, coin_type: CoinType) -> SuiClientResult<u64> {
         self.read_client
-            .total_balance(self.wallet_address, coin_type)
+            .address_balance(self.wallet_address, coin_type)
             .await
     }
 
@@ -1039,17 +1027,27 @@ impl SuiContractClient {
             .collect())
     }
 
-    /// Merges the WAL and SUI coins owned by the wallet of the contract client.
-    pub async fn merge_coins(&self) -> SuiClientResult<()> {
-        self.inner.lock().await.merge_coins().await
+    /// Moves all SUI and WAL coin objects owned by the wallet into its address balances, which
+    /// is where the client spends funds from.
+    ///
+    /// Returns the digests of the executed transactions, which are empty if the wallet does not
+    /// own any SUI or WAL coins.
+    pub async fn deposit_coins_to_address_balance(
+        &self,
+    ) -> SuiClientResult<Vec<TransactionDigest>> {
+        self.inner
+            .lock()
+            .await
+            .deposit_coins_to_address_balance()
+            .await
     }
 
-    /// Sends the `amount` gas to the provided `address`.
+    /// Sends `amount` MIST to the address balance of `address`.
     pub async fn send_sui(&self, amount: u64, address: SuiAddress) -> SuiClientResult<()> {
         self.inner.lock().await.send_sui(amount, address).await
     }
 
-    /// Sends the `amount` WAL to the provided `address`.
+    /// Sends `amount` FROST to the WAL address balance of `address`.
     pub async fn send_wal(&self, amount: u64, address: SuiAddress) -> SuiClientResult<()> {
         self.inner.lock().await.send_wal(amount, address).await
     }
@@ -1114,7 +1112,7 @@ impl SuiContractClient {
         &mut self.inner.get_mut().wallet
     }
 
-    /// Sends `n` WAL coins of `amount` to the specified `address`.
+    /// Sends `amount` FROST `n` times to the WAL address balance of `address`.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn multiple_pay_wal(
         &self,
@@ -1326,7 +1324,7 @@ impl SuiContractClientInner {
             if amount < MIN_STAKING_THRESHOLD {
                 return Err(SuiClientError::StakeBelowThreshold(amount));
             }
-            pt_builder.stake_with_pool(amount, node_id).await?;
+            pt_builder.stake_with_pool(amount, node_id)?;
         }
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
@@ -1663,7 +1661,7 @@ impl SuiContractClientInner {
     /// configured.
     pub async fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder();
-        pt_builder.fund_walrus_subsidies(amount).await?;
+        pt_builder.fund_walrus_subsidies(amount)?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "fund_walrus_subsidies")
             .await?;
@@ -1680,9 +1678,7 @@ impl SuiContractClientInner {
         tracing::info!("creating a new SUI/WAL exchange");
 
         let mut pt_builder = self.transaction_builder();
-        pt_builder
-            .create_and_fund_exchange(exchange_package, amount)
-            .await?;
+        pt_builder.create_and_fund_exchange(exchange_package, amount)?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
             .sign_and_send_transaction(transaction, "create_and_fund_exchange")
@@ -1713,14 +1709,12 @@ impl SuiContractClientInner {
         tracing::info!("creating a new credits object");
 
         let mut pt_builder = self.transaction_builder();
-        pt_builder
-            .create_and_fund_credits(
-                package_id,
-                initial_buyer_subsidy_rate,
-                initial_system_subsidy_rate,
-                amount,
-            )
-            .await?;
+        pt_builder.create_and_fund_credits(
+            package_id,
+            initial_buyer_subsidy_rate,
+            initial_system_subsidy_rate,
+            amount,
+        )?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         let res = self
             .sign_and_send_transaction(transaction, "create_and_fund_credits")
@@ -1794,51 +1788,24 @@ impl SuiContractClientInner {
         }
     }
 
-    /// Merges the WAL and SUI coins owned by the wallet of the contract client.
-    pub async fn merge_coins(&mut self) -> SuiClientResult<()> {
-        let mut tx_builder = self.transaction_builder();
-        let address = self.wallet.active_address();
-        let sui_balance = self
-            .retriable_sui_client()
-            .get_balance(address, Coin::SUI)
-            .await?;
-        let wal_balance = self
-            .retriable_sui_client()
-            .get_balance(address, self.read_client().wal_coin_type())
-            .await?;
-
-        let wal_coin_object_count = wal_balance.coin_object_count();
-        if wal_coin_object_count > 1 {
-            tx_builder
-                .fill_wal_balance_with_provided_coins(
-                    wal_balance.total_balance(),
-                    wal_balance.coins(),
-                )
-                .await?;
-        }
-
-        let sui_coin_object_count = sui_balance.coin_object_count();
-        if sui_coin_object_count > 1 || wal_coin_object_count > 1 {
-            self.sign_and_send_transaction(
-                tx_builder
-                    .transfer_outputs_and_build_transaction_data(
-                        self.gas_budget,
-                        sui_balance.total_balance(),
-                        sui_balance.coins(),
-                    )
-                    .await?,
-                "merge_coins",
-            )
-            .await?;
-        }
-
-        Ok(())
+    /// Moves all SUI and WAL coin objects owned by the wallet into its address balances.
+    pub async fn deposit_coins_to_address_balance(
+        &mut self,
+    ) -> SuiClientResult<Vec<TransactionDigest>> {
+        let wal_coin_type = self.read_client().wal_coin_type().to_owned();
+        crate::utils::deposit_coins_to_address_balance(
+            &self.wallet,
+            self.retriable_sui_client(),
+            &[Coin::SUI, wal_coin_type.as_str()],
+            self.gas_budget,
+        )
+        .await
     }
 
-    /// Sends the `amount` gas to the provided `recipient`.
+    /// Sends `amount` MIST to the address balance of `recipient`.
     pub async fn send_sui(&mut self, amount: u64, recipient: SuiAddress) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder();
-        pt_builder.pay_sui(recipient, amount).await?;
+        pt_builder.pay_sui(recipient, amount)?;
         self.sign_and_send_transaction(
             pt_builder.build_transaction_data(self.gas_budget).await?,
             "send_sui",
@@ -1847,12 +1814,12 @@ impl SuiContractClientInner {
         Ok(())
     }
 
-    /// Sends the `amount` WAL to the provided `address`.
+    /// Sends `amount` FROST to the WAL address balance of `address`.
     pub async fn send_wal(&mut self, amount: u64, address: SuiAddress) -> SuiClientResult<()> {
         tracing::debug!(%address, "sending WAL to address");
         let mut pt_builder = self.transaction_builder();
 
-        pt_builder.pay_wal(address, amount).await?;
+        pt_builder.pay_wal(address, amount)?;
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "send_wal")
             .await?;
@@ -1962,7 +1929,7 @@ impl SuiContractClientInner {
     ) -> SuiClientResult<()> {
         let mut pt_builder = self.transaction_builder();
         for _ in 0..n {
-            pt_builder.pay_wal(address, amount).await?;
+            pt_builder.pay_wal(address, amount)?;
         }
         let transaction = pt_builder.build_transaction_data(self.gas_budget).await?;
         self.sign_and_send_transaction(transaction, "multiple_pay_wal")

@@ -31,7 +31,7 @@ impl WalrusPtbBuilder {
         amount: u64,
     ) -> SuiClientResult<()> {
         let blob_arg = self.argument_from_arg_or_obj(blob_object).await?;
-        self.fill_wal_balance(amount).await?;
+        self.fill_wal_balance(amount)?;
         let split_main_coin_arg = self.wal_coin_arg()?;
         let split_amount_arg = self.pt_builder.pure(amount)?;
         let split_coin = self.pt_builder.command(Command::SplitCoins(
@@ -58,7 +58,7 @@ impl WalrusPtbBuilder {
                 .object_arg_for_shared_obj(shared_blob_object_id, SharedObjectMutability::Mutable)
                 .await?,
         )?;
-        self.fill_wal_balance(amount).await?;
+        self.fill_wal_balance(amount)?;
         let split_main_coin_arg = self.wal_coin_arg()?;
         let split_amount_arg = self.pt_builder.pure(amount)?;
         let split_coin = self.pt_builder.command(Command::SplitCoins(

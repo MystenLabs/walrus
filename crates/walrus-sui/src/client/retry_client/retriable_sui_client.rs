@@ -5,8 +5,7 @@
 //!
 //! Wraps the [`DualClient`] to introduce retries.
 use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashMap, VecDeque},
+    collections::{HashMap, VecDeque},
     pin::Pin,
     str::FromStr,
     sync::Arc,
@@ -28,6 +27,8 @@ use sui_types::transaction::TransactionDataAPI;
 use sui_types::{
     TypeTag,
     base_types::{ObjectID, ObjectRef, SequenceNumber, SuiAddress, TransactionDigest},
+    committee::EpochId,
+    digests::ChainIdentifier,
     dynamic_field::derive_dynamic_field_id,
     event::EventID,
     gas::GasCostSummary,
@@ -47,7 +48,6 @@ use super::{
     retry_rpc_errors,
 };
 use crate::{
-    balance::Balance,
     client::{
         SuiClientMetricSet,
         dual_client::{BcsDatapack, CoinBatch, DualClient},
@@ -294,38 +294,6 @@ impl RetriableSuiClient {
     }
     // Re-implementation of the `SuiClient` methods.
 
-    /// Returns a list of coins for the given address, or an error upon failure. This method always
-    /// filters on coin types. When `coin_type` is `None`, it will filter for SUI. Otherwise, it
-    /// will filter to the given coin type. It will attempt to gather coins to satisfy the given
-    /// `amount`. `exclude` is a list of coin object IDs to exclude from the result. `max_num_coins`
-    /// puts a hard cap on the number of coins returned.
-    #[tracing::instrument(skip(self, address, exclude), level = Level::DEBUG)]
-    pub async fn select_coins(
-        &self,
-        address: SuiAddress,
-        coin_type: &str,
-        amount: u128,
-        exclude: Vec<ObjectID>,
-        max_num_coins: usize,
-    ) -> SuiClientResult<Vec<Coin>> {
-        retry_rpc_errors(
-            self.get_strategy(),
-            || async {
-                self.select_coins_with_filter(
-                    address,
-                    coin_type,
-                    amount,
-                    exclude.clone(),
-                    max_num_coins,
-                )
-                .await
-            },
-            self.metrics.clone(),
-            "select_coins_with_filter",
-        )
-        .await
-    }
-
     /// Returns a list of all coins for the given address, with a filter on the coin type. Note
     /// that coin_type of None is implicitly filtering for SUI.
     pub async fn select_all_coins(
@@ -340,62 +308,6 @@ impl RetriableSuiClient {
             selected_coins.push(coin);
         }
         Ok(selected_coins)
-    }
-
-    async fn select_coins_with_filter(
-        &self,
-        address: SuiAddress,
-        coin_type: &str,
-        amount: u128,
-        exclude: Vec<ObjectID>,
-        max_num_coins: usize,
-    ) -> SuiClientResult<Vec<Coin>> {
-        let mut coins_stream = self.get_coins_stream_retry(address, coin_type);
-
-        let mut selected_coins: BinaryHeap<Reverse<OrderedCoin>> = BinaryHeap::new();
-
-        let mut total_selected = 0u128;
-        let mut total_available = 0u128;
-
-        while let Some(coin) = coins_stream.next().await {
-            if exclude.contains(&coin.coin_object_id) {
-                continue;
-            }
-            let coin_balance = u128::from(coin.balance);
-            total_available += coin_balance;
-            if selected_coins.len() >= max_num_coins {
-                let min_coin_balance = selected_coins
-                    .peek()
-                    .expect("heap is not empty")
-                    .0
-                    .balance();
-                if min_coin_balance < coin.balance {
-                    selected_coins.pop();
-                    total_selected -= u128::from(min_coin_balance);
-                } else {
-                    continue;
-                }
-            }
-            total_selected += coin_balance;
-            selected_coins.push(Reverse(OrderedCoin::from(coin)));
-
-            if total_selected >= amount {
-                return Ok(selected_coins
-                    .into_iter()
-                    .map(|rev_coin| rev_coin.0.0)
-                    .collect());
-            }
-        }
-
-        if total_available < amount {
-            // We don't have a sufficient balance in any case (given the excluded objects).
-            Err(SuiClientError::InsufficientFunds { address, amount })
-        } else {
-            // We ran out of coins and cannot get to `amount` with `max_num_coins`.
-            Err(SuiClientError::InsufficientFundsWithMaxCoins(
-                coin_type.to_owned(),
-            ))
-        }
     }
 
     /// Returns a vector of owned object.
@@ -538,27 +450,10 @@ impl RetriableSuiClient {
         ))
     }
 
-    /// Returns a [`Balance`] for the given coin type owned by address. This has a bit more
-    /// information than just the total balance. Not all callsites need this extra information.
-    pub async fn get_balance(
-        &self,
-        owner: SuiAddress,
-        coin_type: &str,
-    ) -> SuiClientResult<Balance> {
-        self.get_balance_with_grpc(owner, coin_type).await
-    }
-
-    /// Returns the total balance for the given coin type owned by address.
-    pub async fn get_total_balance(
-        &self,
-        owner: SuiAddress,
-        coin_type: &str,
-    ) -> SuiClientResult<u64> {
-        self.get_total_balance_with_grpc(owner, coin_type).await
-    }
-
+    /// Returns the address balance for the given coin type owned by address, i.e., the funds held
+    /// directly by the address rather than in coin objects.
     #[tracing::instrument(level = Level::TRACE, skip_all)]
-    async fn get_total_balance_with_grpc(
+    pub async fn get_address_balance(
         &self,
         owner: SuiAddress,
         coin_type: &str,
@@ -568,29 +463,39 @@ impl RetriableSuiClient {
                 async |client, method| {
                     retry_rpc_errors(
                         self.get_strategy(),
-                        || async { client.get_total_balance(owner, coin_type).await },
+                        || async { client.get_address_balance(owner, coin_type).await },
                         self.metrics.clone(),
                         method,
                     )
                     .await
                 },
                 None,
+                // Kept for the continuity of the metric; this is the gRPC `GetBalance` method.
                 "get_balance",
             )
             .await
     }
 
+    /// Returns the chain identifier and the current Sui epoch.
     #[tracing::instrument(level = Level::TRACE, skip_all)]
-    async fn get_balance_with_grpc(
+    pub async fn get_chain_identifier_and_epoch(
         &self,
-        owner: SuiAddress,
-        coin_type: &str,
-    ) -> SuiClientResult<Balance> {
-        let coins = self
-            .select_all_coins(owner, coin_type)
+    ) -> SuiClientResult<(ChainIdentifier, EpochId)> {
+        self.failover_sui_client
+            .with_failover(
+                async |client, method| {
+                    retry_rpc_errors(
+                        self.get_strategy(),
+                        || async { client.get_chain_identifier_and_epoch_grpc().await },
+                        self.metrics.clone(),
+                        method,
+                    )
+                    .await
+                },
+                None,
+                "get_chain_identifier_and_epoch",
+            )
             .await
-            .context("selecting all coins for balance")?;
-        Ok(Balance::try_from_coins(coins).context("get_balance_with_grpc")?)
     }
 
     /// Return a paginated response with the objects owned by the given address, optionally
@@ -1551,38 +1456,4 @@ fn maybe_return_injected_error_in_stake_pool_transaction(
     }
 
     Ok(())
-}
-
-/// A representation of Coin with an `Ord` implementation, allowing for sorting by balance.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct OrderedCoin(pub Coin);
-
-impl From<Coin> for OrderedCoin {
-    fn from(coin: Coin) -> Self {
-        OrderedCoin(coin)
-    }
-}
-
-impl From<OrderedCoin> for Coin {
-    fn from(val: OrderedCoin) -> Self {
-        val.0
-    }
-}
-
-impl PartialOrd for OrderedCoin {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for OrderedCoin {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.0.balance.cmp(&other.0.balance)
-    }
-}
-
-impl OrderedCoin {
-    fn balance(&self) -> u64 {
-        self.0.balance
-    }
 }

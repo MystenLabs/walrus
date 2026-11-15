@@ -886,6 +886,18 @@ pub struct WalletOutput {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+/// The output of the `walrus deposit-coins` command.
+pub struct DepositCoinsOutput {
+    /// The digests of the transactions that moved coins into the address balances.
+    pub transactions: Vec<TransactionDigest>,
+    /// The SUI address balance of the wallet (in MIST).
+    pub sui_address_balance: u64,
+    /// The WAL address balance of the wallet (in FROST).
+    pub wal_address_balance: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 /// The output of the `walrus get-wal` command.
 pub struct ExchangeOutput {
     /// The amount of SUI exchanged (in MIST).
