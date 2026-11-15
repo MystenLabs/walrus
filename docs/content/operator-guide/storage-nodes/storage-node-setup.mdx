@@ -438,6 +438,8 @@ Do not reuse any keys, wallets, or other secrets from Testnet or anywhere else. 
 
 Send SUI to the wallet address shown during setup. 1 SUI is sufficient for registration, but the node needs additional SUI for ongoing operation. A recommended initial balance is approximately 20 SUI.
 
+The storage node pays for gas from the SUI address balance of the wallet only. If the SUI arrives as coin objects, which is the case for transfers with `sui client` and for most wallets and exchanges, move it into the address balance with `walrus deposit-coins --wallet <WALLET_CONFIG_PATH>` (see [Move coins into the address balance](/docs/walrus-client/walrus-cli#deposit-coins)). Repeat this whenever you top up the wallet with coin objects.
+
 <div className="outlined-tabs">
 
 <Tabs>

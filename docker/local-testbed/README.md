@@ -34,6 +34,7 @@ Make sure you're under `walrus/docker/local-testbed`
 
    - Shell into a container and run:
      - `sui client faucet --url http://sui-localnet:9123/gas` to get more Sui tokens.
+     - `walrus deposit-coins` to move the received SUI coins to the address balance.
      - `walrus get-wal <amount_in_mist>` (e.g., `500000000000` for 500 WAL).
 
 4. To store data on the Walrus Network:

@@ -36,6 +36,9 @@ EOF
 sui client faucet --url http://sui-localnet:9123/gas
 sleep 3
 
+# move the SUI coins to the address balance, from which the client pays
+walrus deposit-coins
+
 # exchange for WAL tokens (500 WAL)
 walrus get-wal --amount 500000000000
 sui client balance

@@ -320,26 +320,20 @@ These errors mean the wallet lacks the tokens a transaction needs, either SUI fo
 **Error (variants):**
 
 ```
-Error: could not find SUI coins with sufficient balance [requested_amount=Some(1000000000)]
-Error: could not find WAL coins with sufficient balance
+Error: the SUI address balance is insufficient [requested_amount=Some(1000000000)]; SUI held in coin objects is not spent and has to be moved to the address balance first (`walrus deposit-coins`)
+Error: the WAL address balance is insufficient for the transaction; WAL held in coin objects is not spent and has to be moved to the address balance first (`walrus deposit-coins`)
 ClientError { kind: NoCompatiblePaymentCoin }
 ```
 
-**Cause:** Your wallet does not have enough SUI for gas fees or enough WAL for storage payments.
+**Cause:** The address balances of your wallet do not hold enough SUI for gas fees or enough WAL for storage payments. The Walrus client does not spend SUI or WAL held in coin objects.
 
-**Solution:** Check your wallet balance:
+**Solution:** Move the coin objects of the wallet into its address balances:
 
 ```
-$ sui client gas
+$ walrus deposit-coins
 ```
 
-Add SUI or WAL to your wallet as needed. Use `walrus info` to check current storage costs per epoch. If you are using a publisher daemon, verify that the daemon wallet has sufficient funds for both SUI gas and WAL storage payments.
-
-#### `there is enough balance to cover the requested amount but cannot be achieved with less than the maximum number of coins allowed`
-
-**Cause:** Your balance is sufficient but spread across too many coin objects.
-
-**Solution:** Merge your coins in the wallet and retry the operation.
+The command prints the resulting address balances. If they are still insufficient, add SUI or WAL to your wallet as needed. Use `walrus info` to check current storage costs per epoch. If you are using a publisher daemon, verify that the address balances of the daemon wallet hold sufficient funds for both SUI gas and WAL storage payments.
 
 ## Transaction errors
 
