@@ -307,6 +307,14 @@ impl ClientCommandRunner {
             config = Ok(derived_config);
         }
 
+        // Child processes for uploads only receive the configuration, so it must point to the
+        // wallet in use.
+        if wallet_override.is_some()
+            && let Ok(config) = config.as_mut()
+        {
+            config.wallet_config = wallet_config;
+        }
+
         Self {
             wallet,
             config,
@@ -2595,5 +2603,60 @@ async fn get_latest_checkpoint_sequence_number(
     } else {
         println!("Failed to create RPC client.");
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CONFIG_WALLET: &str = "/path/to/config_wallet.yaml";
+
+    fn write_client_config(directory: &Path) -> Result<PathBuf> {
+        let config_path = directory.join("client_config.yaml");
+        std::fs::write(
+            &config_path,
+            format!(
+                "system_object: 0xa2637d13d171b278eadfa8a3fbe8379b5e471e1f3739092e5243da17fc8090eb\n\
+                staking_object: 0xca7cf321e47a1fc9bfd032abc31b253f5063521fd5b4c431f2cdd3fee1b4ec00\n\
+                wallet_config: {CONFIG_WALLET}\n"
+            ),
+        )?;
+        Ok(config_path)
+    }
+
+    /// Child processes for uploads only receive the configuration, so the configuration must
+    /// carry the wallet override.
+    #[test]
+    fn wallet_override_is_stored_in_config() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let config_path = Some(write_client_config(directory.path())?);
+        let wallet_override = directory.path().join("override_wallet.yaml");
+
+        let runner = ClientCommandRunner::new(
+            &config_path,
+            None,
+            &Some(wallet_override.clone()),
+            None,
+            false,
+        );
+        assert_eq!(
+            runner.config?.wallet_config,
+            Some(WalletConfig::from_path(wallet_override))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn wallet_from_config_is_kept_without_override() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let config_path = Some(write_client_config(directory.path())?);
+
+        let runner = ClientCommandRunner::new(&config_path, None, &None, None, false);
+        assert_eq!(
+            runner.config?.wallet_config,
+            Some(WalletConfig::from_path(CONFIG_WALLET))
+        );
+        Ok(())
     }
 }
