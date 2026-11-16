@@ -71,11 +71,6 @@ ignore = [
   #   bulletproofs.
   # - Fix: fastcrypto drops or replaces `bulletproofs`.
   "RUSTSEC-2026-0283",
-  # - Issue: unsound `tokio::io::unix::AsyncFd` constructors, fixed in 1.51.6 and 1.53.3.
-  # - Walrus: none; no crate in our dependency tree calls them.
-  # - Fix: mysten-sim moves to `tokio` 1.53.3 or later, then we update our `=1.52.1` pin, which
-  #   matches the mysten-sim fork used by simtests.
-  "RUSTSEC-2026-0386",
   # - Issue: timing side channels in `crypto-bigint` < 0.7.6 in operations meant to be
   #   constant-time.
   # - Walrus: through `elliptic-curve` 0.13 (`p256` 0.13 and `fastcrypto`) and 0.12 (`k256` 0.11
