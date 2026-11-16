@@ -18,12 +18,6 @@ trim_trailing_whitespace = true
 indent_size = unset
 max_line_length = 150
 
-# Some markdown files are additionally checked using markdownlint.
-[docs/**/*.mdx]
-indent_size = unset
-max_line_length = unset
-trim_trailing_whitespace = unset
-
 [{*.css,*.html,*.json,*.sh,*.toml,*.yml,*.yaml,cargo-simtest,*.mjs,*.ts,*.tsx,*.js,*.jq}]
 indent_size = 2
 max_line_length = 150
@@ -38,7 +32,7 @@ max_line_length = 140
 indent_size = unset
 
 # Ignore paths
-[{.git/**/*,**/*.lock,docs/site/pnpm-lock.yaml,**/*.lock,**/Move.toml,LICENSE,docs/devnet-public/glossary.md,crates/walrus-orchestrator/assets/*,.editorconfig,venv/**/*,crates/walrus-service/*.html,crates/walrus-upload-relay/*.html,crates/walrus-upload-relay/*.yaml,crates/walrus-service/*.yaml,docs/theme/**/*,.github/workflows/issues-monitor.yaml,scripts/simtest/seed-search.py,docs/site/src/components/ImportContent/utils.js,docs/site/static/glossary.json,docs/site/static/llms.txt,docs/site/static/llms-full.txt,docs/site/static/walrus-memory/llms.txt,docs/site/static/walrus-memory/llms-full.txt,docs/site/static/diagrams/*.html,docs/site/src/data/changelog.json,docs/site/sidebarsOyster.js}]
+[{.git/**/*,**/*.lock,**/*.lock,**/Move.toml,LICENSE,crates/walrus-orchestrator/assets/*,.editorconfig,venv/**/*,crates/walrus-service/*.html,crates/walrus-upload-relay/*.html,crates/walrus-upload-relay/*.yaml,crates/walrus-service/*.yaml,.github/workflows/issues-monitor.yaml,scripts/simtest/seed-search.py}]
 charset = unset
 end_of_line = unset
 indent_size = unset

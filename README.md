@@ -14,7 +14,8 @@ There are some additional documentation resources:
 - The design of Walrus is described in our scientific paper, [Walrus: An Efficient Decentralized
   Storage Network](https://arxiv.org/abs/2505.05370), and in the [Walrus
   whitepaper](https://docs.wal.app/walrus.pdf), which also covers the WAL token economics.
-- Usage examples are available under [docs/examples](./docs/examples/).
+- Usage examples are available in the
+  [documentation repository](https://github.com/MystenLabs/walrus-documentation/tree/main/examples).
 - Our encoding system, which we call *Red Stuff*, is described in detail in [the
   documentation](https://docs.wal.app/docs/system-overview/red-stuff).
 - All our code is covered by Rust docs. You can build these and open them in your web browser by
