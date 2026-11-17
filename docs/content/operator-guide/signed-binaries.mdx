@@ -41,6 +41,12 @@ answer: >-
 
 Walrus release binaries and Docker images are signed using [Cosign](https://github.com/sigstore/cosign) with a GCP KMS key. Each binary has a corresponding `.sig` file containing its signature. Docker image signatures are stored in the registry.
 
+:::note
+
+Signed artifacts are published only for selected releases, not for every release. Currently they exist for Walrus `v1.42.0`: the binaries under the `main` ref (`gs://mysten-walrus-binaries/signed/main/`) and the Docker images tagged `v1.42.0-signed`.
+
+:::
+
 <div className="outlined-tabs">
 
 <Tabs>
@@ -76,7 +82,7 @@ The command takes 2 arguments:
 For example:
 
 ```bash
-./download_and_verify_binary.sh v1.0.0 walrus-ubuntu-x86_64
+./download_and_verify_binary.sh main walrus-ubuntu-x86_64
 ```
 
 This downloads the binary and signature, then verifies the signature using the public key.
@@ -115,11 +121,11 @@ Then verify them using the public key:
 
 ```bash
 # Download the public key
-curl -sSfL https://docs.walrus.site/walrus-signing.pub -o walrus-signing.pub
+curl -sSfL https://storage.googleapis.com/mysten-walrus-binaries/walrus-signing.pub -o walrus-signing.pub
 
 # Verify the binary
 cosign verify-blob \
-  --keys walrus-signing.pub \
+  --key walrus-signing.pub \
   --signature walrus.sig \
   --insecure-ignore-tlog \
   walrus
@@ -147,7 +153,7 @@ gcloud auth application-default login
 
 # Verify the binary
 cosign verify-blob \
-  --keys gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
+  --key gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
   --signature walrus.sig \
   --insecure-ignore-tlog \
   walrus
@@ -175,7 +181,7 @@ Each image is tagged in 2 ways:
 
 ```bash
 # Pull by version
-docker pull mysten/walrus-service:v1.0.0-signed
+docker pull mysten/walrus-service:v1.42.0-signed
 
 # Pull by commit SHA
 docker pull mysten/walrus-service:a5a6dc7b12345678-signed
@@ -185,18 +191,18 @@ docker pull mysten/walrus-service:a5a6dc7b12345678-signed
 
 ```bash
 # Download the public key
-curl -sSfL https://docs.walrus.site/walrus-signing.pub -o walrus-signing.pub
+curl -sSfL https://storage.googleapis.com/mysten-walrus-binaries/walrus-signing.pub -o walrus-signing.pub
 
 # Verify the image
-cosign verify --keys walrus-signing.pub mysten/walrus-service:v1.0.0-signed
+cosign verify --key walrus-signing.pub mysten/walrus-service:v1.42.0-signed
 ```
 
 If the output reports no matching signatures, see [No matching signatures error for Docker images](#no-matching-signatures-error-for-docker-images). You can also verify using the GCP KMS key directly:
 
 ```bash
 cosign verify \
-  --keys gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
-  mysten/walrus-service:v1.0.0-signed
+  --key gcpkms://projects/walrus-infra/locations/global/keyRings/walrus-signing/cryptoKeys/release-sign \
+  mysten/walrus-service:v1.42.0-signed
 ```
 
 ### Verify the image digest matches
@@ -205,7 +211,7 @@ To ensure the image you pulled matches what was signed:
 
 ```bash
 # Get the digest of your local image
-docker inspect --format='{{index .RepoDigests 0}}' mysten/walrus-service:v1.0.0-signed
+docker inspect --format='{{index .RepoDigests 0}}' mysten/walrus-service:v1.42.0-signed
 
 # Compare with the digest shown in the cosign verify output
 ```
