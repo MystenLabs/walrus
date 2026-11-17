@@ -41,7 +41,7 @@ fi
 
 ref=$1
 binary_name=$2
-pub_key_url=https://docs.walrus.site/walrus-signing.pub
+pub_key_url=https://storage.googleapis.com/mysten-walrus-binaries/walrus-signing.pub
 gcs_bucket=gs://mysten-walrus-binaries/signed
 
 echo "[+] Downloading binary '$binary_name' for $ref ..."
