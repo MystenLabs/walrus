@@ -19,6 +19,9 @@ env:
 
 jobs:
   coinmarketcap:
+    permissions:
+      contents: read
+      id-token: write
     name: Test CoinMarketCap live API
     runs-on: ubuntu-ghcloud
     timeout-minutes: 60
@@ -31,8 +34,6 @@ jobs:
         with:
           tool: cargo-nextest
       - uses: ./.github/actions/sccache
-        with:
-          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
       - name: Install dependencies
         run: |
           sudo apt-get update

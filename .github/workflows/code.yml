@@ -64,6 +64,9 @@ jobs:
         run: cargo deny check bans licenses sources
 
   lint:
+    permissions:
+      contents: read
+      id-token: write
     name: Lint Rust code
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' }}
@@ -71,8 +74,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - uses: ./.github/actions/sccache
-        with:
-          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - name: Check formatting with rustfmt
         run: >
@@ -86,6 +87,9 @@ jobs:
         run: cargo doc --workspace --no-deps --document-private-items
 
   build:
+    permissions:
+      contents: read
+      id-token: write
     name: Build Rust code
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' }}
@@ -96,8 +100,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - uses: ./.github/actions/sccache
-        with:
-          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -106,6 +108,9 @@ jobs:
         run: cargo build --workspace --features "walrus-service/backup" --verbose
 
   test:
+    permissions:
+      contents: read
+      id-token: write
     name: Test Rust code
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
@@ -120,8 +125,6 @@ jobs:
           tool: cargo-nextest
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - uses: ./.github/actions/sccache
-        with:
-          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -133,6 +136,9 @@ jobs:
         run: cargo test
 
   backup-test:
+    permissions:
+      contents: read
+      id-token: write
     name: Test backup module against Postgres
     needs: diff
     if: ${{ needs.diff.outputs.isRust == 'true' }}
@@ -164,8 +170,6 @@ jobs:
           tool: cargo-nextest
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - uses: ./.github/actions/sccache
-        with:
-          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -174,6 +178,9 @@ jobs:
         run: cargo nextest run -p walrus-service --features backup backup::tests --run-ignored all
 
   simtests:
+    permissions:
+      contents: read
+      id-token: write
     name: Run all simtests
     needs: diff
     if: ${{ needs.diff.outputs.isRelevantForRustTests == 'true' }}
@@ -190,8 +197,6 @@ jobs:
           tool: cargo-nextest
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
       - uses: ./.github/actions/sccache
-        with:
-          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
 
       - run: ./scripts/simtest/install.sh
       - name: Run tests (seed=1)

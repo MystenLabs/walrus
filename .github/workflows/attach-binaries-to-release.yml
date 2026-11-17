@@ -40,6 +40,9 @@ env:
 
 jobs:
   release-build:
+    permissions:
+      contents: write
+      id-token: write
     name: Build & Publish Binaries
     timeout-minutes: 120
     strategy:
@@ -104,7 +107,8 @@ jobs:
         id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # pin@v3.0.0
         with:
-          credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
+          workload_identity_provider: projects/984139309829/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: gha-walrus-repo@cryptic-bolt-398315.iam.gserviceaccount.com
 
       - name: Validate runner architecture
         shell: bash
