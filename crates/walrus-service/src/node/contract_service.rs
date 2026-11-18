@@ -393,7 +393,7 @@ async fn monitor_sui_balance(
         async {
             tracing::trace!("querying wallet SUI balance");
 
-            let balance_mist = match client.total_balance(CoinType::Sui).await {
+            let balance_mist = match client.address_balance(CoinType::Sui).await {
                 Ok(balance) => balance,
                 Err(error) => {
                     tracing::warn!(?error, "failed to get SUI balance, skipping interval");

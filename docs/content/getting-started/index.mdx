@@ -251,6 +251,12 @@ The Sui faucet is rate limited. If you encounter errors or have questions, you c
 
 :::
 
+The Walrus client spends funds from the wallet's address balances only. Move the SUI coins that you received from the faucet into the address balance with the following command:
+
+```sh
+$ walrus deposit-coins --context testnet
+```
+
 Convert some of those SUI tokens into WAL with the following command:
 
 ```sh

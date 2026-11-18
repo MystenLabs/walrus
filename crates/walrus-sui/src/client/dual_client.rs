@@ -3,7 +3,7 @@
 
 //! Client to access Sui via gRPC.
 
-use std::{future::Future, pin::Pin, time::Duration};
+use std::{future::Future, pin::Pin, str::FromStr as _, time::Duration};
 
 use anyhow::Context;
 use bytes::Bytes;
@@ -45,8 +45,9 @@ use sui_rpc::{
 use sui_types::{
     TypeTag,
     base_types::{ObjectDigest, ObjectID, ObjectRef, SequenceNumber, SuiAddress},
+    committee::EpochId,
     crypto::{AuthorityPublicKeyBytes, ToFromBytes},
-    digests::TransactionDigest,
+    digests::{ChainIdentifier, CheckpointDigest, TransactionDigest},
     effects::{TransactionEffects as NativeTransactionEffects, TransactionEffectsAPI},
     event::EventID,
     gas::GasCostSummary,
@@ -619,9 +620,9 @@ impl DualClient {
         }
     }
 
-    /// Get the total balance for a given owner and coin type. This routine avoids enumerating all
-    /// the coin objects on the client side by using the gRPC `GetBalance` method.
-    pub async fn get_total_balance(
+    /// Get the address balance (funds held without coin objects) for a given owner and coin type
+    /// via the gRPC `GetBalance` method.
+    pub async fn get_address_balance(
         &self,
         owner: SuiAddress,
         coin_type: &str,
@@ -630,15 +631,38 @@ impl DualClient {
             .with_owner(owner.to_string())
             .with_coin_type(coin_type.to_string());
         let mut grpc_client: GrpcClient = self.grpc_client.clone();
-        let mut state_client = grpc_client.state_client();
-        let coin_balance = state_client
+        let address_balance = grpc_client
+            .state_client()
             .get_balance(get_balance_request)
             .await
-            .context("failed to get total balance")?
+            .context("failed to get address balance")?
             .into_inner()
             .balance()
-            .coin_balance();
-        Ok(coin_balance)
+            .address_balance();
+        Ok(address_balance)
+    }
+
+    /// Get the chain identifier (the full genesis checkpoint digest) and the current Sui epoch
+    /// via gRPC.
+    pub async fn get_chain_identifier_and_epoch_grpc(
+        &self,
+    ) -> Result<(ChainIdentifier, EpochId), SuiClientError> {
+        let mut grpc_client = self.grpc_client.clone();
+        let response = grpc_client
+            .ledger_client()
+            .get_service_info(GetServiceInfoRequest::default())
+            .await?
+            .into_inner();
+        let chain_id = response
+            .chain_id
+            .context("no chain_id in get_service_info response")?;
+        let chain_identifier = ChainIdentifier::from(
+            CheckpointDigest::from_str(&chain_id).context("invalid chain_id")?,
+        );
+        let epoch = response
+            .epoch
+            .context("no epoch in get_service_info response")?;
+        Ok((chain_identifier, epoch))
     }
 
     /// List dynamic fields of an object via gRPC.

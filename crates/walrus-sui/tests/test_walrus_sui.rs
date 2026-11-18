@@ -6,9 +6,17 @@
 
 //! Contains integration tests for the Sui bindings.
 
-use std::{num::NonZeroU16, sync::Arc, time::Duration};
+use std::{num::NonZeroU16, str::FromStr as _, sync::Arc, time::Duration};
 
-use sui_types::base_types::SuiAddress;
+use sui_types::{
+    Identifier,
+    SUI_FRAMEWORK_PACKAGE_ID,
+    TypeTag,
+    base_types::SuiAddress,
+    gas_coin::GAS,
+    programmable_transaction_builder::ProgrammableTransactionBuilder,
+    transaction::{Argument, Command, FundsWithdrawalArg},
+};
 use walrus_core::{
     self,
     BlobId,
@@ -20,12 +28,20 @@ use walrus_core::{
     messages::BlobPersistenceType,
 };
 use walrus_sui::{
-    client::{BlobObjectMetadata, BlobPersistence, PostStoreAction, ReadClient, SuiContractClient},
-    coin::CoinType,
+    client::{
+        BlobObjectMetadata,
+        BlobPersistence,
+        PostStoreAction,
+        ReadClient,
+        SuiClientError,
+        SuiContractClient,
+        dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+        transaction_builder::build_transaction_data_with_address_balance_gas,
+    },
+    coin::{Coin, CoinType},
     test_utils::{
         TestClusterHandle,
         TestNodeKeys,
-        new_contract_client_on_sui_test_cluster,
         system_setup::{SystemContext, initialize_contract_and_wallet_for_testing},
     },
     types::{
@@ -34,7 +50,7 @@ use walrus_sui::{
     },
     utils,
 };
-use walrus_test_utils::{WithTempDir, async_param_test};
+use walrus_test_utils::WithTempDir;
 
 async fn initialize_contract_and_wallet_with_single_node() -> anyhow::Result<(
     Arc<tokio::sync::Mutex<TestClusterHandle>>,
@@ -76,7 +92,10 @@ async fn test_register_certify_blob_100_percent_buyer_credits() -> anyhow::Resul
 
     let size = 10_000;
     // Send all WAL coins from admin wallet to a random wallet to ensure that we have a zero coin
-    let admin_balance = walrus_client.as_ref().total_balance(CoinType::Wal).await?;
+    let admin_balance = walrus_client
+        .as_ref()
+        .address_balance(CoinType::Wal)
+        .await?;
     if admin_balance > 0 {
         let random_address = SuiAddress::random_for_testing_only();
 
@@ -87,7 +106,10 @@ async fn test_register_certify_blob_100_percent_buyer_credits() -> anyhow::Resul
             .await?;
 
         // Verify admin wallet now has zero balance
-        let new_admin_balance = walrus_client.as_ref().total_balance(CoinType::Wal).await?;
+        let new_admin_balance = walrus_client
+            .as_ref()
+            .address_balance(CoinType::Wal)
+            .await?;
         assert_eq!(new_admin_balance, 0);
     }
 
@@ -547,13 +569,19 @@ async fn test_exchange_sui_for_wal() -> anyhow::Result<()> {
         .await?;
 
     let exchange_val = 100_000;
-    let pre_balance = walrus_client.as_ref().total_balance(CoinType::Wal).await?;
+    let pre_balance = walrus_client
+        .as_ref()
+        .address_balance(CoinType::Wal)
+        .await?;
     walrus_client
         .as_ref()
         .exchange_sui_for_wal(exchange_id, exchange_val)
         .await?;
 
-    let post_balance = walrus_client.as_ref().total_balance(CoinType::Wal).await?;
+    let post_balance = walrus_client
+        .as_ref()
+        .address_balance(CoinType::Wal)
+        .await?;
     assert_eq!(post_balance, pre_balance + exchange_val);
 
     Ok(())
@@ -623,110 +651,263 @@ async fn test_collect_commission() -> anyhow::Result<()> {
     Ok(())
 }
 
-async_param_test! {
-    #[ignore = "ignore integration tests by default"]
-    test_automatic_wal_coin_squashing -> anyhow::Result<()> : [
-        #[tokio::test] send_one: (1, 1),
-        #[tokio::test] send_two_as_one: (2, 1),
-        #[tokio::test] send_three_as_two: (3, 2),
-        #[tokio::test] send_four_as_two: (4, 2),
-        #[tokio::test] send_four_as_three: (4, 3),
-    ]
+/// Returns a contract client whose wallet holds no funds.
+async fn new_unfunded_contract_client(
+    existing_client: &mut SuiContractClient,
+) -> anyhow::Result<WithTempDir<SuiContractClient>> {
+    let temp_dir = tempfile::tempdir()?;
+    let wallet = utils::create_wallet(
+        &temp_dir.path().join("wallet_config.yaml"),
+        existing_client.wallet_mut().get_active_env().to_owned(),
+        None,
+        None,
+    )
+    .await?;
+    let rpc_urls = &[wallet.get_rpc_url().to_string()];
+    let client = SuiContractClient::new(
+        wallet,
+        rpc_urls,
+        &existing_client.read_client().contract_config(),
+        Default::default(),
+        None,
+        DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
+    )
+    .await?;
+    Ok(WithTempDir {
+        inner: client,
+        temp_dir,
+    })
 }
-async fn test_automatic_wal_coin_squashing(
-    n_source_coins: u64,
-    n_target_coins: u64,
+
+/// Sends coin objects with the given `amounts` of `coin_type` from the address balance of `sender`
+/// to `recipient`.
+async fn send_coin_objects(
+    sender: &SuiContractClient,
+    recipient: SuiAddress,
+    coin_type: &str,
+    amounts: &[u64],
 ) -> anyhow::Result<()> {
-    walrus_test_utils::init_tracing();
-    // Use a source_amount that is cleanly divisible by `n_target_coins` to make sure that we send
-    // the full amount back in `n_target_coins` coins payments.
-    let source_amount = 10_000 * n_target_coins;
-    let target_amount = n_source_coins * source_amount / n_target_coins;
-
-    let (sui_cluster_handle, client_1, _, _): (
-        Arc<tokio::sync::Mutex<TestClusterHandle>>,
-        WithTempDir<SuiContractClient>,
-        SystemContext,
-        TestNodeKeys,
-    ) = initialize_contract_and_wallet_with_single_node().await?;
-
-    let original_balance = client_1.as_ref().total_balance(CoinType::Wal).await?;
-
-    let client_2: WithTempDir<SuiContractClient> =
-        new_contract_client_on_sui_test_cluster(sui_cluster_handle.clone(), client_1.as_ref())
-            .await?;
-
-    let client_1_address = client_1.as_ref().address();
-    let client_2_address = client_2.as_ref().address();
-
-    // Fund the wallet with two separate WAL coins.
-    client_1
-        .as_ref()
-        .multiple_pay_wal(client_2_address, source_amount, n_source_coins)
+    let coin_type = TypeTag::from_str(coin_type)?;
+    let total: u64 = amounts.iter().sum();
+    let mut ptb = ProgrammableTransactionBuilder::new();
+    let withdrawal = ptb.funds_withdrawal(FundsWithdrawalArg::balance_from_sender(
+        total,
+        coin_type.clone(),
+    ))?;
+    let coin = ptb.programmable_move_call(
+        SUI_FRAMEWORK_PACKAGE_ID,
+        Identifier::new("coin")?,
+        Identifier::new("redeem_funds")?,
+        vec![coin_type.clone()],
+        vec![withdrawal],
+    );
+    let amount_args = amounts
+        .iter()
+        .map(|amount| ptb.pure(*amount))
+        .collect::<Result<Vec<_>, _>>()?;
+    let Argument::Result(split_result) = ptb.command(Command::SplitCoins(coin, amount_args)) else {
+        unreachable!("commands return results");
+    };
+    let split_coins = (0..amounts.len())
+        .map(|index| Argument::NestedResult(split_result, u16::try_from(index).unwrap()))
+        .collect();
+    ptb.transfer_args(recipient, split_coins);
+    ptb.programmable_move_call(
+        SUI_FRAMEWORK_PACKAGE_ID,
+        Identifier::new("coin")?,
+        Identifier::new("destroy_zero")?,
+        vec![coin_type.clone()],
+        vec![coin],
+    );
+    let sui_withdrawn = if coin_type == GAS::type_tag() {
+        total
+    } else {
+        0
+    };
+    let transaction = build_transaction_data_with_address_balance_gas(
+        ptb.finish(),
+        sender.retriable_sui_client(),
+        sender.address(),
+        None,
+        sui_withdrawn,
+    )
+    .await?;
+    sender
+        .sign_and_send_transaction(transaction, "send_coin_objects")
         .await?;
+    Ok(())
+}
 
-    // Get the number of coins owned by the first wallet to check later that we received exactly
-    // `n_target_coins` coins.
-    let n_coins: usize = client_1
-        .as_ref()
+/// Returns the number of coin objects of `coin_type` owned by `address`.
+async fn coin_object_count(
+    client: &SuiContractClient,
+    address: SuiAddress,
+    coin_type: &str,
+) -> anyhow::Result<usize> {
+    Ok(client
         .retriable_sui_client()
-        .get_balance(
-            client_1_address,
-            client_2.as_ref().read_client().wal_coin_type(),
-        )
+        .select_all_coins(address, coin_type)
         .await?
-        .coin_object_count();
+        .len())
+}
 
-    // Check that we have the correct balance.
-    assert_eq!(
-        client_2.as_ref().total_balance(CoinType::Wal).await?,
-        n_source_coins * source_amount
-    );
-
-    // Check that we need to use `n_source_coins` coins to cover the full amount.
-    assert_eq!(
-        client_2
-            .as_ref()
-            .read_client()
-            .get_coins_with_total_balance(
-                client_2.as_ref().address(),
-                CoinType::Wal,
-                n_target_coins * target_amount,
-                vec![]
-            )
-            .await?
-            .len(),
-        usize::try_from(n_source_coins).unwrap()
-    );
-
-    // Now send the full amount back in `n_target_coins` coins payments, which should trigger the
-    // squashing.
-    client_2
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_pay_from_address_balance() -> anyhow::Result<()> {
+    const STORAGE_SIZE: u64 = 100 * 1024 * 1024;
+    walrus_test_utils::init_tracing();
+    let (_sui_cluster_handle, mut walrus_client, system_context, _) =
+        initialize_contract_and_wallet_with_single_node().await?;
+    let exchange_id = walrus_client
         .as_ref()
-        .multiple_pay_wal(client_1_address, target_amount, n_target_coins)
+        .create_and_fund_exchange(
+            system_context
+                .wal_exchange_pkg_id
+                .expect("wal_exchange should exist for tests"),
+            1_000_000_000,
+        )
         .await?;
 
-    // Check that the second wallet has no WAL coins left.
-    assert_eq!(client_2.as_ref().total_balance(CoinType::Wal).await?, 0);
+    let client = new_unfunded_contract_client(walrus_client.as_mut()).await?;
+    let address = client.as_ref().address();
+    let wal_coin_type = client.as_ref().read_client().wal_coin_type().to_owned();
 
-    // Check that the first wallet has the correct balance.
+    // Fund the address balances; no coin objects are created.
+    let sui_funding = 10_000_000_000;
+    let wal_funding = 1_000_000_000;
+    walrus_client
+        .as_ref()
+        .send_sui(sui_funding, address)
+        .await?;
+    walrus_client
+        .as_ref()
+        .send_wal(wal_funding, address)
+        .await?;
     assert_eq!(
-        client_1.as_ref().total_balance(CoinType::Wal).await?,
-        original_balance
+        client.as_ref().address_balance(CoinType::Sui).await?,
+        sui_funding
+    );
+    assert_eq!(
+        client.as_ref().address_balance(CoinType::Wal).await?,
+        wal_funding
     );
 
-    // Check that we have the correct number of coins.
+    // Pay for storage with WAL and gas from the address balances.
+    client.as_ref().reserve_space(STORAGE_SIZE, 2).await?;
+    let wal_after_reserve = client.as_ref().address_balance(CoinType::Wal).await?;
+    assert!(wal_after_reserve < wal_funding);
+    assert!(client.as_ref().address_balance(CoinType::Sui).await? < sui_funding);
+
+    // Send SUI and WAL, as when refilling sub-wallets, to the recipient's address balances.
+    let recipient = SuiAddress::random_for_testing_only();
+    client.as_ref().send_sui(1_000_000, recipient).await?;
+    client.as_ref().send_wal(1_000, recipient).await?;
+    let sui_client = client.as_ref().retriable_sui_client();
     assert_eq!(
-        client_1
+        sui_client.get_address_balance(recipient, Coin::SUI).await?,
+        1_000_000
+    );
+    assert_eq!(
+        sui_client
+            .get_address_balance(recipient, &wal_coin_type)
+            .await?,
+        1_000
+    );
+
+    // Exchange SUI for WAL; the WAL arrives in the address balance.
+    let exchange_amount = 500;
+    client
+        .as_ref()
+        .exchange_sui_for_wal(exchange_id, exchange_amount)
+        .await?;
+    assert_eq!(
+        client.as_ref().address_balance(CoinType::Wal).await?,
+        wal_after_reserve - 1_000 + exchange_amount
+    );
+
+    // Many payments in one PTB share a single withdrawal; the protocol allows at most 10.
+    client.as_ref().multiple_pay_wal(recipient, 10, 20).await?;
+    assert_eq!(
+        sui_client
+            .get_address_balance(recipient, &wal_coin_type)
+            .await?,
+        1_200
+    );
+
+    // Zero amounts do not need a withdrawal, which Sui rejects for an amount of zero.
+    client.as_ref().send_sui(0, recipient).await?;
+    client.as_ref().send_wal(0, recipient).await?;
+
+    // The client never created coin objects for itself or the recipient.
+    for owner in [address, recipient] {
+        assert_eq!(
+            coin_object_count(client.as_ref(), owner, Coin::SUI).await?,
+            0
+        );
+        assert_eq!(
+            coin_object_count(client.as_ref(), owner, &wal_coin_type).await?,
+            0
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "ignore integration tests by default"]
+async fn test_deposit_coins_to_address_balance() -> anyhow::Result<()> {
+    walrus_test_utils::init_tracing();
+    let (_sui_cluster_handle, mut walrus_client, _, _) =
+        initialize_contract_and_wallet_with_single_node().await?;
+    let client = new_unfunded_contract_client(walrus_client.as_mut()).await?;
+    let address = client.as_ref().address();
+    let wal_coin_type = client.as_ref().read_client().wal_coin_type().to_owned();
+
+    // The wallet only holds coin objects, so it cannot pay for gas from its address balance.
+    let sui_coins = [2_000_000_000, 1_000_000_000];
+    let wal_coins = [700, 300, 5];
+    send_coin_objects(walrus_client.as_ref(), address, Coin::SUI, &sui_coins).await?;
+    send_coin_objects(walrus_client.as_ref(), address, &wal_coin_type, &wal_coins).await?;
+    assert!(matches!(
+        client
             .as_ref()
-            .retriable_sui_client()
-            .get_balance(
-                client_1_address,
-                client_2.as_ref().read_client().wal_coin_type(),
-            )
-            .await?
-            .coin_object_count(),
-        n_coins + usize::try_from(n_target_coins).unwrap()
+            .send_wal(1, SuiAddress::random_for_testing_only())
+            .await,
+        Err(SuiClientError::NoCompatibleWalCoins)
+    ));
+
+    // The first transaction pays gas with the SUI coins, the second one moves the rest.
+    let digests = client.as_ref().deposit_coins_to_address_balance().await?;
+    assert_eq!(digests.len(), 2);
+    assert_eq!(
+        coin_object_count(client.as_ref(), address, Coin::SUI).await?,
+        0
     );
+    assert_eq!(
+        coin_object_count(client.as_ref(), address, &wal_coin_type).await?,
+        0
+    );
+    assert_eq!(
+        client.as_ref().address_balance(CoinType::Wal).await?,
+        wal_coins.iter().sum::<u64>()
+    );
+    // Only gas was paid; deleting the coins even yields storage rebates.
+    let sui_balance = client.as_ref().address_balance(CoinType::Sui).await?;
+    assert!(sui_balance > sui_coins.iter().sum::<u64>() - 100_000_000);
+
+    // Nothing is left to move.
+    assert!(
+        client
+            .as_ref()
+            .deposit_coins_to_address_balance()
+            .await?
+            .is_empty()
+    );
+
+    // The deposited funds can be spent.
+    client
+        .as_ref()
+        .send_wal(1_000, SuiAddress::random_for_testing_only())
+        .await?;
     Ok(())
 }

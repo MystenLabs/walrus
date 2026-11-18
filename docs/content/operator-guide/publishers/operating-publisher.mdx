@@ -130,7 +130,9 @@ This exchanges SUI for 5 WAL. Adjust the amount based on the number of sub-walle
 
 </div> 
 
-If the publisher wallet does not have sufficient WAL, the publisher fails to start with an error like `could not find WAL coins with sufficient balance`. Ensure you fund the wallet **before** starting the service.
+The publisher spends SUI and WAL from the address balances of the main wallet only. Funds that the wallet holds as coin objects, for example after a transfer with `sui client` or from a faucet, must be moved there with `walrus deposit-coins` (see [Move coins into the address balance](/docs/walrus-client/walrus-cli#deposit-coins)). The publisher moves coin objects held by its sub-wallets automatically at startup.
+
+If the address balances of the publisher wallet do not hold sufficient WAL, the publisher fails to start with an error like `the WAL address balance is insufficient for the transaction`. Ensure you fund the wallet **before** starting the service.
 
 ## Run a publisher manually for testing
 

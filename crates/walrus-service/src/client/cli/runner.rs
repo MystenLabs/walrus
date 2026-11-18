@@ -80,7 +80,7 @@ use walrus_sdk::{
     utils::styled_spinner,
 };
 use walrus_storage_node_client::api::BlobStatus;
-use walrus_sui::{client::rpc_client, wallet::Wallet};
+use walrus_sui::{client::rpc_client, coin::CoinType, wallet::Wallet};
 use walrus_utils::{is_internal_run, load_from_yaml_str, metrics::Registry, read_blob_from_file};
 
 use super::{
@@ -146,6 +146,7 @@ use crate::{
             BlobIdOutput,
             BlobStatusOutput,
             DeleteOutput,
+            DepositCoinsOutput,
             DryRunOutput,
             ExchangeOutput,
             ExtendBlobOutput,
@@ -492,6 +493,8 @@ impl ClientCommandRunner {
                 self.generate_sui_wallet(&wallet_path, sui_network, use_faucet, faucet_timeout)
                     .await
             }
+
+            CliCommands::DepositCoins => self.deposit_coins().await,
 
             CliCommands::GetWal {
                 exchange_id,
@@ -2148,6 +2151,20 @@ impl ClientCommandRunner {
         );
         client.exchange_sui_for_wal(exchange_id, amount).await?;
         ExchangeOutput { amount_sui: amount }.print_output(self.json)
+    }
+
+    pub(crate) async fn deposit_coins(self) -> Result<()> {
+        let client = self
+            .config?
+            .new_contract_client(self.wallet?, self.gas_budget)
+            .await?;
+        let transactions = client.deposit_coins_to_address_balance().await?;
+        DepositCoinsOutput {
+            transactions,
+            sui_address_balance: client.address_balance(CoinType::Sui).await?,
+            wal_address_balance: client.address_balance(CoinType::Wal).await?,
+        }
+        .print_output(self.json)
     }
 
     pub(crate) async fn burn_blobs(

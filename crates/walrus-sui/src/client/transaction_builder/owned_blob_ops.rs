@@ -29,7 +29,7 @@ impl WalrusPtbBuilder {
         let price = self
             .storage_price_for_encoded_length(encoded_size, epochs_ahead, false)
             .await?;
-        self.fill_wal_balance(price).await?;
+        self.fill_wal_balance(price)?;
 
         let reserve_arguments = vec![
             self.system_arg(SharedObjectMutability::Mutable)?,
@@ -53,7 +53,7 @@ impl WalrusPtbBuilder {
         let price = self
             .storage_price_for_encoded_length(encoded_size, epochs_ahead, true)
             .await?;
-        self.fill_wal_balance(price).await?;
+        self.fill_wal_balance(price)?;
 
         let reserve_arguments = vec![
             self.credits_arg(SharedObjectMutability::Mutable)?,
@@ -105,7 +105,7 @@ impl WalrusPtbBuilder {
         let price = self
             .write_price_for_encoded_length(blob_metadata.encoded_size, false)
             .await?;
-        self.fill_wal_balance(price).await?;
+        self.fill_wal_balance(price)?;
 
         let storage_resource_arg = self.argument_from_arg_or_obj(storage_resource).await?;
 
@@ -142,7 +142,7 @@ impl WalrusPtbBuilder {
         let price = self
             .write_price_for_encoded_length(blob_metadata.encoded_size, true)
             .await?;
-        self.fill_wal_balance(price).await?;
+        self.fill_wal_balance(price)?;
 
         let storage_resource_arg = self.argument_from_arg_or_obj(storage_resource).await?;
 
@@ -383,7 +383,7 @@ impl WalrusPtbBuilder {
             .storage_price_for_encoded_length(encoded_size, epochs_extended, false)
             .await?;
 
-        self.fill_wal_balance(price).await?;
+        self.fill_wal_balance(price)?;
 
         let args = vec![
             self.system_arg(SharedObjectMutability::Mutable)?,
@@ -410,7 +410,7 @@ impl WalrusPtbBuilder {
             .storage_price_for_encoded_length(encoded_size, epochs_ahead, true)
             .await?;
 
-        self.fill_wal_balance(price).await?;
+        self.fill_wal_balance(price)?;
 
         let args = vec![
             self.credits_arg(SharedObjectMutability::Mutable)?,

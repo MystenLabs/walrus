@@ -440,16 +440,16 @@ impl<'a> SubClientLoader<'a> {
         sub_wallet_idx: usize,
         refresh_handle: CommitteesRefresherHandle,
     ) -> anyhow::Result<WalrusNodeClient<SuiContractClient>> {
-        let mut wallet = self.create_or_load_sub_wallet(sub_wallet_idx).await?;
-        self.top_up_if_necessary(&mut wallet, self.min_balance)
-            .await?;
-
-        let sui_client = self
+        let wallet = self.create_or_load_sub_wallet(sub_wallet_idx).await?;
+        let mut sui_client = self
             .config
             .new_contract_client(wallet, self.gas_budget)
             .await?;
-        // Merge existing coins to avoid fragmentation.
-        sui_client.merge_coins().await?;
+        // Move coins that the sub-wallet may hold from earlier versions into its address balances,
+        // from which the client spends, before checking whether it needs a top-up.
+        sui_client.deposit_coins_to_address_balance().await?;
+        self.top_up_if_necessary(sui_client.wallet_mut(), self.min_balance)
+            .await?;
 
         let client =
             WalrusNodeClient::new_contract_client(self.config.clone(), refresh_handle, sui_client)?;
@@ -487,10 +487,10 @@ impl<'a> SubClientLoader<'a> {
         }
     }
 
-    /// Ensures the wallet has at least 1 coin of at least`min_balance` SUI and WAL.
+    /// Ensures the wallet has address balances of at least `min_balance` SUI and WAL.
     async fn top_up_if_necessary(
         &self,
-        wallet: &'a mut Wallet,
+        wallet: &Wallet,
         min_balance: u64,
     ) -> anyhow::Result<()> {
         let wal_coin_type = self.refiller.wal_coin_type();

@@ -22,9 +22,12 @@ use sui_types::{
     transaction::{Argument, Command, Transaction, TransactionData, TransactionKind},
 };
 use walrus_core::messages::BlobPersistenceType;
-use walrus_sui::client::{
-    SuiClientError,
-    transaction_builder::build_transaction_data_with_min_gas_balance,
+use walrus_sui::{
+    client::{
+        SuiClientError,
+        transaction_builder::build_transaction_data_with_address_balance_gas,
+    },
+    utils::pay_sui_from_address_balance,
 };
 use walrus_utils::backoff::{self, BackoffStrategy, ExponentialBackoff, ExponentialBackoffConfig};
 
@@ -201,21 +204,16 @@ impl UploadRelayClient {
         // The first input is the authentication package.
         pt_builder.pure(auth_package.to_hashed_nonce())?;
 
-        // Pay the tip.
-        let amount_arg = pt_builder.pure(tip_amount)?;
-        let split_coin =
-            pt_builder.command(Command::SplitCoins(Argument::GasCoin, vec![amount_arg]));
-        pt_builder.transfer_arg(relay_address, split_coin);
+        // Pay the tip from the user's address balance to the relay's address balance.
+        pay_sui_from_address_balance(&mut pt_builder, relay_address, tip_amount)?;
 
         // Sign and execute.
-        let transaction_data = build_transaction_data_with_min_gas_balance(
+        let transaction_data = build_transaction_data_with_address_balance_gas(
             pt_builder.finish(),
-            sui_client.read_client(),
+            sui_client.retriable_sui_client(),
             self.user_address,
             self.gas_budget,
-            0, // No additional gas budget.
             tip_amount,
-            None,
         )
         .await?;
 

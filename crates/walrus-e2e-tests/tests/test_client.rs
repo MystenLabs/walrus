@@ -12,7 +12,7 @@
 #[cfg(msim)]
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     net::SocketAddr,
     num::NonZeroU16,
     path::PathBuf,
@@ -30,7 +30,6 @@ use sui_types::{
     base_types::{FullObjectRef, ObjectID, SUI_ADDRESS_LENGTH, SuiAddress},
     effects::TransactionEffectsAPI,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::TransactionData,
 };
 use tokio::{sync::Mutex, time::Instant};
 use tokio_stream::StreamExt;
@@ -99,6 +98,7 @@ use walrus_sui::{
         SuiContractClient,
         dual_client::DEFAULT_CHECKPOINT_WAIT_TIMEOUT,
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
+        transaction_builder::build_transaction_data_with_address_balance_gas,
     },
     coin::Coin,
     config::WalletConfig,
@@ -2783,82 +2783,6 @@ async fn test_ptb_retriable_error() -> TestResult {
     Ok(())
 }
 
-/// Tests the select_coins function on the retriable sui client works as expected when dealing
-/// with a large number of coins.
-#[ignore = "ignore E2E tests by default"]
-#[walrus_simtest]
-pub async fn test_select_coins_max_objects() -> TestResult {
-    walrus_test_utils::init_tracing();
-    let (sui_cluster_handle, _, _, _, _) = test_cluster::E2eTestSetupBuilder::new().build().await?;
-
-    // Create a new wallet on the cluster.
-    let mut cluster_wallet = walrus_sui::config::load_wallet_context_from_path(
-        Some(
-            sui_cluster_handle
-                .lock()
-                .await
-                .wallet_path()
-                .await
-                .as_path(),
-        ),
-        None,
-    )?;
-    let env = cluster_wallet.get_active_env().to_owned();
-    let wallet = test_utils::temp_dir_wallet(None, env).await?;
-
-    let sui = |sui: u64| sui * 1_000_000_000;
-
-    // Add 4 coins with 1 SUI each to the wallet.
-    let address = wallet.as_ref().active_address();
-    walrus_sui::test_utils::fund_addresses(&mut cluster_wallet, vec![address; 4], Some(sui(1)))
-        .await?;
-
-    let rpc_urls = &[wallet.as_ref().get_rpc_url()];
-
-    // Create a new client with the funded wallet.
-    let retry_client = RetriableSuiClient::new(
-        rpc_urls.iter().map(LazySuiClientBuilder::new).collect(),
-        ExponentialBackoffConfig::default(),
-    )?;
-
-    let balance = retry_client.get_total_balance(address, Coin::SUI).await?;
-    assert_eq!(balance, sui(4));
-
-    // The maximum number of coins that can be selected to reach the amount.
-    let max_num_coins = 2;
-
-    let result = retry_client
-        .select_coins(address, Coin::SUI, sui(1).into(), vec![], max_num_coins)
-        .await;
-    assert!(result.is_ok(), "1 SUI can be constructed with <= 2 coins");
-
-    let result = retry_client
-        .select_coins(address, Coin::SUI, sui(3).into(), vec![], max_num_coins)
-        .await;
-    if let Err(error) = result {
-        assert!(
-            matches!(error, SuiClientError::InsufficientFundsWithMaxCoins(_)),
-            "expected InsufficientFundsWithMaxCoins error"
-        );
-    } else {
-        panic!("3 SUI cannot be achieved with 2 coins, but the wallet has 4 SUI");
-    }
-
-    let result = retry_client
-        .select_coins(address, Coin::SUI, sui(5).into(), vec![], max_num_coins)
-        .await;
-    if let Err(error) = result {
-        assert!(
-            matches!(error, SuiClientError::InsufficientFunds { .. }),
-            "expected InsufficientFunds error"
-        );
-    } else {
-        panic!("the wallet does not have 5 SUI");
-    }
-
-    Ok(())
-}
-
 #[ignore = "ignore E2E tests by default"]
 #[walrus_simtest]
 async fn test_store_with_upload_relay_no_tip() {
@@ -3090,7 +3014,7 @@ async fn test_store_with_upload_relay_with_tip() {
 
     // Get initial balance of relay wallet to verify tip payment
     let initial_relay_balance = retry_client
-        .get_total_balance(relay_address, Coin::SUI)
+        .get_address_balance(relay_address, Coin::SUI)
         .await
         .expect("get balance");
 
@@ -3112,7 +3036,7 @@ async fn test_store_with_upload_relay_with_tip() {
 
     // Verify that the relay wallet received a tip
     let final_relay_balance = retry_client
-        .get_total_balance(relay_address, Coin::SUI)
+        .get_address_balance(relay_address, Coin::SUI)
         .await
         .expect("get balance");
 
@@ -4490,7 +4414,7 @@ async fn store_and_read_with_grpc_only_sui_fullnode() -> TestResult {
             loop {
                 if matches!(
                     sui_client
-                        .get_total_balance(address, read_client.wal_coin_type())
+                        .get_address_balance(address, read_client.wal_coin_type())
                         .await,
                     Ok(balance) if balance > 0
                 ) {
@@ -4646,26 +4570,21 @@ async fn storage_node_cap_transfer_to_new_wallet() -> TestResult {
     // Transfer the capability to wallet B with a plain object transfer, as an operator would
     // do with `sui client transfer`.
     {
+        let sui_client = contract_client_a.as_ref().retriable_sui_client().clone();
         let wallet = contract_client_a.inner.wallet_mut();
         #[allow(deprecated)]
         let cap_ref = wallet.get_object_ref(cap.id).await?;
-        #[allow(deprecated)]
-        let gas = wallet
-            .gas_for_owner_budget(address_a, GAS_BUDGET, BTreeSet::new())
-            .await?
-            .1
-            .compute_object_reference();
         let mut ptb = ProgrammableTransactionBuilder::new();
         ptb.transfer_object(address_b, FullObjectRef::from_fastpath_ref(cap_ref))?;
-        #[allow(deprecated)]
-        let gas_price = wallet.get_reference_gas_price().await?;
-        let transaction = TransactionData::new_programmable(
-            address_a,
-            vec![gas],
+        // The wallet only holds an address balance, from which it pays for gas.
+        let transaction = build_transaction_data_with_address_balance_gas(
             ptb.finish(),
-            GAS_BUDGET,
-            gas_price,
-        );
+            &sui_client,
+            address_a,
+            Some(GAS_BUDGET),
+            0,
+        )
+        .await?;
         #[allow(deprecated)]
         let response = wallet
             .execute_transaction_may_fail(wallet.sign_transaction(&transaction).await)

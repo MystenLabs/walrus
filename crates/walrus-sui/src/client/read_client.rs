@@ -18,7 +18,7 @@ use futures::FutureExt as _;
 use sui_sdk::types::base_types::ObjectID;
 use sui_types::{
     TypeTag,
-    base_types::{ObjectRef, SequenceNumber, SuiAddress},
+    base_types::{SequenceNumber, SuiAddress},
     event::EventID,
     transaction::{ObjectArg, SharedObjectMutability},
 };
@@ -33,8 +33,7 @@ use super::{
     retry_client::RetriableSuiClient,
 };
 use crate::{
-    client::retry_client::retriable_sui_client::MAX_GAS_PAYMENT_OBJECTS,
-    coin::{Coin, CoinType},
+    coin::CoinType,
     contracts::{self, AssociatedContractStruct, AssociatedContractStructWithPkgId, TypeOriginMap},
     types::{
         BlobEvent,
@@ -676,58 +675,18 @@ impl SuiReadClient {
             .expect("mutex should not be poisoned")
     }
 
-    /// Returns the balance of the owner for the given coin type.
-    pub(crate) async fn total_balance(
+    /// Returns the address balance of `owner_address` for the given coin type.
+    ///
+    /// All SUI and WAL the client spends is drawn from address balances; coin objects owned by the
+    /// address are not included.
+    pub async fn address_balance(
         &self,
         owner_address: SuiAddress,
         coin_type: CoinType,
     ) -> SuiClientResult<u64> {
         self.sui_client
-            .get_total_balance(owner_address, coin_type.as_str(self.wal_coin_type()))
+            .get_address_balance(owner_address, coin_type.as_str(self.wal_coin_type()))
             .await
-    }
-
-    /// Returns a vector of coins of provided `coin_type` whose total balance is at least `balance`.
-    ///
-    /// Returns a [`SuiClientError::NoCompatibleGasCoins`] or
-    /// [`SuiClientError::NoCompatibleWalCoins`] error if no coins of sufficient total balance are
-    /// found.
-    pub async fn get_coins_with_total_balance(
-        &self,
-        owner_address: SuiAddress,
-        coin_type: CoinType,
-        min_balance: u64,
-        exclude: Vec<ObjectID>,
-    ) -> SuiClientResult<Vec<Coin>> {
-        self.sui_client
-            .select_coins(
-                owner_address,
-                coin_type.as_str(self.wal_coin_type()),
-                min_balance.into(),
-                exclude,
-                MAX_GAS_PAYMENT_OBJECTS,
-            )
-            .await
-            .map_err(|err| match err {
-                SuiClientError::InsufficientFunds { amount, .. } => match coin_type {
-                    CoinType::Wal => SuiClientError::NoCompatibleWalCoins,
-                    CoinType::Sui => SuiClientError::NoCompatibleGasCoins(Some(amount)),
-                },
-                err => err,
-            })
-    }
-
-    pub(crate) async fn get_compatible_gas_coins(
-        &self,
-        sender_address: SuiAddress,
-        min_balance: u64,
-    ) -> SuiClientResult<Vec<ObjectRef>> {
-        Ok(self
-            .get_coins_with_total_balance(sender_address, CoinType::Sui, min_balance, vec![])
-            .await?
-            .iter()
-            .map(Coin::object_ref)
-            .collect())
     }
 
     /// Get the [`StorageNodeCap`] object associated with the address.

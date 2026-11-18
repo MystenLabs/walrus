@@ -558,6 +558,13 @@ pub enum CliCommands {
         #[serde(default = "default::faucet_timeout")]
         faucet_timeout: Duration,
     },
+    /// Move all SUI and WAL coin objects of the wallet into its address balances.
+    ///
+    /// The client pays for gas, storage, and transfers from the wallet's address balances only, so
+    /// funds held as coin objects (for example, received from a faucet or from an earlier version
+    /// of the client) have to be moved there first. If the SUI address balance cannot cover the
+    /// gas, the SUI coins pay for the first transaction.
+    DepositCoins,
     /// Exchange SUI for WAL through the configured exchange. This command is only available on
     /// Testnet.
     GetWal {
@@ -737,6 +744,7 @@ impl CliCommands {
             CliCommands::WithdrawStake { .. } => "withdraw-stake",
             CliCommands::ListStakedWal { .. } => "list-staked-wal",
             CliCommands::GenerateSuiWallet { .. } => "generate-sui-wallet",
+            CliCommands::DepositCoins => "deposit-coins",
             CliCommands::GetWal { .. } => "get-wal",
             CliCommands::BurnBlobs { .. } => "burn-blobs",
             CliCommands::FundSharedBlob { .. } => "fund-shared-blob",
