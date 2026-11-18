@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::{
-    any::Any,
+    any::{Any, TypeId},
     collections::HashMap,
     sync::{Arc, Mutex},
 };
 
 use prometheus::{IntGauge, core::Collector, proto::MetricFamily};
+
+type RegistryExtensions = HashMap<(TypeId, String), Box<dyn Any + Send>>;
 
 #[cfg(all(feature = "tokio-metrics", feature = "metrics"))]
 mod tokio;
@@ -52,15 +54,51 @@ pub enum RegistrationError {
 pub struct Registry {
     inner: prometheus::Registry,
     collectors_by_id: Arc<Mutex<HashMap<u64, Box<dyn Any + Send>>>>,
+    extensions_by_key: Arc<Mutex<RegistryExtensions>>,
 }
 
 impl Registry {
+    /// Returns the underlying Prometheus registry for libraries that register their own metrics.
+    pub fn prometheus_registry(&self) -> &prometheus::Registry {
+        &self.inner
+    }
+
     /// Returns a new instance of the registry wrapping the provided [`prometheus::Registry`]
     pub fn new(inner: prometheus::Registry) -> Self {
         Self {
             inner,
             collectors_by_id: Default::default(),
+            extensions_by_key: Default::default(),
         }
+    }
+
+    /// Gets a previously cached extension, or creates and caches it.
+    ///
+    /// Extensions are scoped to this registry and identified by their type and `key`. Clones of
+    /// the registry share the same extensions.
+    pub fn get_or_try_insert_extension<T, E>(
+        &self,
+        key: impl Into<String>,
+        create: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E>
+    where
+        T: Any + Clone + Send,
+    {
+        let key = (TypeId::of::<T>(), key.into());
+        let mut extensions = self
+            .extensions_by_key
+            .lock()
+            .expect("critical section shouldnt panic");
+        if let Some(extension) = extensions.get(&key) {
+            return Ok(extension
+                .downcast_ref::<T>()
+                .expect("extension type is part of its cache key")
+                .clone());
+        }
+
+        let extension = create()?;
+        extensions.insert(key, Box::new(extension.clone()));
+        Ok(extension)
     }
 
     /// Gets a previously registered collector that matches the provided collector,
@@ -362,6 +400,25 @@ mod tests {
         let _ = registry
             .get_or_register(Counter::new(name, help).unwrap())
             .expect("must repeatedly register successfully");
+    }
+
+    #[test]
+    fn shares_extensions_across_registry_clones() {
+        let registry = Registry::default();
+        let first = registry
+            .get_or_try_insert_extension("store", || Ok::<_, ()>(1_u64))
+            .unwrap();
+        let second = registry
+            .clone()
+            .get_or_try_insert_extension("store", || Ok::<_, ()>(2_u64))
+            .unwrap();
+        let other = registry
+            .get_or_try_insert_extension("other-store", || Ok::<_, ()>(3_u64))
+            .unwrap();
+
+        assert_eq!(first, 1);
+        assert_eq!(second, first);
+        assert_eq!(other, 3);
     }
 
     #[test]
