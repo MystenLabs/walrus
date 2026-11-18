@@ -103,7 +103,19 @@ impl LocalDBPackageStore {
                 .fallback_client
                 .get_object(ObjectID::from(id))
                 .await
-                .map_err(|_| PackageResolverError::PackageNotFound(id))?;
+                // Only a `NotFound` answer means the package does not exist; any other failure
+                // (rate limiting, timeouts, failover exhausted) is a store error, so that an
+                // unavailable full node is not mistaken for a missing package.
+                .map_err(|error| {
+                    if error.is_not_found() {
+                        PackageResolverError::PackageNotFound(id)
+                    } else {
+                        PackageResolverError::Store {
+                            store: "full node",
+                            error: error.to_string(),
+                        }
+                    }
+                })?;
             self.update(&object)
                 .map_err(|store_error| PackageResolverError::Store {
                     store: "RocksDB",
