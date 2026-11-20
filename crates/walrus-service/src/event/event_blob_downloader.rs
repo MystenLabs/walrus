@@ -79,18 +79,16 @@ impl EventBlobDownloader {
     }
 
     /// Returns the metadata of the last certified event blob.
+    ///
+    /// A blob that was certified moments ago may not be readable yet, because the storage nodes
+    /// serve it only once they have processed its certification. So the read is retried for a
+    /// while, as it is for the first blob of a catch-up download.
     pub async fn get_last_certified_event_blob(&self) -> Result<Option<EventBlobWithMetadata>> {
         let Some(blob) = self.sui_read_client.last_certified_event_blob().await? else {
             return Ok(None);
         };
         let blob_id = blob.blob_id;
-        let result = self
-            .walrus_client
-            .read_blob_with_consistency_check_type::<walrus_core::encoding::Primary>(
-                &blob_id,
-                ConsistencyCheckType::Strict,
-            )
-            .await?;
+        let result = self.read_event_blob(blob_id, true).await?;
         let blob = LocalEventBlob::new(&result)?;
         let blob_epoch = blob.ending_epoch()?;
         let blob_ending_checkpoint_sequence_number = blob.end_checkpoint_sequence_number();

@@ -1091,11 +1091,16 @@ impl EventBlobWriter {
     }
 
     /// Update the event blob writer with the initial state.
+    ///
+    /// Also starts a new blob file: the current one was created with the epoch the writer had
+    /// before, and a blob with another epoch in its header has a different blob ID than the one
+    /// the other nodes built from the same events.
     pub fn update(&mut self, init_state: InitState) -> Result<()> {
         self.event_cursor = init_state.event_cursor;
         self.current_epoch = init_state.epoch;
         self.prev_certified_blob_id = init_state.prev_blob_id;
         self.prev_certified_event_id = init_state.event_cursor.event_id;
+        self.reset()?;
         let certified_metadata = CertifiedEventBlobMetadata::new(
             self.prev_certified_blob_id,
             self.event_cursor,
@@ -1832,7 +1837,7 @@ mod tests {
     use crate::{
         event::{
             event_blob::EventBlob,
-            events::{CheckpointEventPosition, PositionedStreamEvent},
+            events::{CheckpointEventPosition, InitState, PositionedStreamEvent},
         },
         node::{
             DatabaseConfig,
@@ -1891,6 +1896,49 @@ mod tests {
             }
             certify_attested_blob(&mut blob_writer, attested_blob_id, num_checkpoints).await?;
         }
+        Ok(())
+    }
+
+    /// A writer without a starting position is created at epoch 0 and then moved to the start of
+    /// the local event store. The first blob it builds there must carry the epoch of that position
+    /// in its header, as the blob that the other nodes built from the same events does. Otherwise
+    /// its blob ID differs from theirs and it is never certified.
+    #[tokio::test]
+    async fn test_blob_writer_update_starts_the_first_blob_at_the_new_epoch() -> Result<()> {
+        const NEW_EPOCH: u32 = 3;
+
+        let dir: PathBuf = tempfile::tempdir()?.keep();
+        let registry = Registry::default();
+        let stub_contract_service = std::sync::Arc::new(StubContractService::default());
+        let node = create_test_node_with_contract_service(stub_contract_service).await?;
+        let blob_writer_factory = EventBlobWriterFactory::new(
+            &dir,
+            &DatabaseConfig::default(),
+            node.storage_node.inner().clone(),
+            &registry,
+            Some(10),
+            None,
+            None,
+        )?;
+        let mut blob_writer = blob_writer_factory.create().await?;
+        let prev_blob_id = BlobId([1; 32]);
+        blob_writer.update(InitState::new(prev_blob_id, None, 0, NEW_EPOCH))?;
+
+        let num_checkpoints = u64::from(blob_writer.num_checkpoints_per_blob());
+        generate_and_write_events(&mut blob_writer, num_checkpoints, 1).await?;
+
+        let attested_blob = blob_writer
+            .attested
+            .get(&())?
+            .expect("the first blob should be attested");
+        let buf = std::fs::read(
+            dir.join("event_blob_writer")
+                .join("blobs")
+                .join(attested_blob.event_cursor.element_index.to_string()),
+        )?;
+        let blob = EventBlob::new(&buf)?;
+        assert_eq!(blob.epoch(), NEW_EPOCH);
+        assert_eq!(blob.prev_blob_id(), prev_blob_id);
         Ok(())
     }
 
