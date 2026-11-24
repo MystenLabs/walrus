@@ -78,7 +78,11 @@ fn collect_error_definitions(contracts_dir: &Path) -> Vec<ModuleErrorDefs> {
         .expect("should be able to compile regex");
     let mut module_error_defs = Vec::new();
 
+    // Sort by file name: without it, the walk order (and therefore the order of the
+    // generated `MoveExecutionError` variants and the resulting binary) depends on
+    // the filesystem, which prevents reproducible builds.
     for entry in WalkDir::new(contracts_dir)
+        .sort_by_file_name()
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
