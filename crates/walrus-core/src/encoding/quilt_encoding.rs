@@ -1836,6 +1836,14 @@ impl<'a> QuiltDecoderV1<'a> {
         column_size: &mut Option<usize>,
         sliver_data_len: usize,
     ) -> Result<(), QuiltError> {
+        // A zero-length sliver would set `column_size` to 0, which later causes a
+        // divide-by-zero in `range_read_from_columns` (`div_ceil(column_size)`). Reject it
+        // here so that malformed slivers produce an error instead of panicking.
+        if sliver_data_len == 0 {
+            return Err(QuiltError::InvalidQuiltData(
+                "sliver data is empty (zero-length column)".to_string(),
+            ));
+        }
         match column_size {
             None => {
                 *column_size = Some(sliver_data_len);
@@ -2084,6 +2092,23 @@ mod tests {
         encoding::{ReedSolomonEncodingConfig, common::ConsistencyCheckType},
         test_utils::QuiltTestData,
     };
+
+    // A zero-length sliver must be rejected rather than setting `column_size` to 0, which would
+    // later cause a divide-by-zero panic in `range_read_from_columns` (`div_ceil(column_size)`).
+    #[test]
+    fn empty_sliver_is_rejected() {
+        let symbol_size = NonZeroU16::new(1).unwrap();
+        let empty_sliver =
+            SliverData::<Secondary>::new(Vec::<u8>::new(), symbol_size, SliverIndex::new(0));
+
+        let mut decoder =
+            QuiltConfigV1::get_decoder(core::iter::empty()).expect("create empty decoder");
+        let res = decoder.add_slivers(vec![&empty_sliver]);
+        assert!(
+            matches!(res, Err(QuiltError::InvalidQuiltData(_))),
+            "a zero-length sliver must be rejected, got {res:?}"
+        );
+    }
 
     /// Get the minimum required columns.
     fn min_required_columns(blobs: &[usize], length: usize) -> usize {
