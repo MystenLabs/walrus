@@ -405,9 +405,9 @@ impl BlobInfoApi for BlobInfoV2 {
         }
     }
 
-    fn invalidation_event(&self) -> Option<EventID> {
-        if let Self::Invalid { event, .. } = self {
-            Some(*event)
+    fn invalidation(&self) -> Option<(Epoch, EventID)> {
+        if let Self::Invalid { epoch, event } = self {
+            Some((*epoch, *event))
         } else {
             None
         }
