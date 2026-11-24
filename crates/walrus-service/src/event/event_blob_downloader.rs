@@ -139,6 +139,8 @@ impl EventBlobDownloader {
         // Track if we are reading the first certified event blob. First event blob has special
         // handling in `read_event_blob()`. See the comment there for more details.
         let mut reading_first_event_blob = true;
+        // The epoch in which the last blob read started, that is, when the blob before it ended.
+        let mut newer_blob_epoch: Option<Epoch> = None;
 
         loop {
             if event_blob_id == BlobId::ZERO {
@@ -158,6 +160,26 @@ impl EventBlobDownloader {
                     Ok(blob) => (blob, "network"),
                     Err(err) if err.is_blob_not_available_to_read_error() => {
                         anyhow::ensure!(!blobs.is_empty(), "no available event blobs found");
+                        // A node without local history that stops here starts at the newer blob,
+                        // and startup accepts that only if the newer blob's epoch is older than
+                        // the first complete epoch (current epoch + 1 - `max_epochs_ahead`).
+                        // Apply the same rule to a node with local history: if the newer blob's
+                        // epoch is not older, this blob is still stored and the read failure is
+                        // temporary. Fail so that catch-up retries, instead of leaving a gap
+                        // that catch-up reports as the node being too far behind.
+                        if starting_checkpoint_to_process.is_some()
+                            && let Some(newer_blob_epoch) = newer_blob_epoch
+                        {
+                            let system_object = self.sui_read_client.get_system_object().await?;
+                            if system_object.epoch()
+                                < newer_blob_epoch.saturating_add(system_object.max_epochs_ahead())
+                            {
+                                anyhow::bail!(
+                                    "event blob {event_blob_id} cannot be read, but it cannot \
+                                    have expired yet: {err}"
+                                );
+                            }
+                        }
                         tracing::info!(
                             "stopping downloading event blobs with expired blob {}",
                             event_blob_id
@@ -182,6 +204,7 @@ impl EventBlobDownloader {
             tracing::info!(blob_id = %event_blob_id, "finished reading event blob");
 
             let mut event_blob = LocalEventBlob::new(&blob)?;
+            newer_blob_epoch = Some(event_blob.epoch());
 
             let should_store = match starting_checkpoint_to_process {
                 Some(starting_checkpoint_to_process) => {

@@ -275,6 +275,10 @@ impl EventProcessor {
             .catchup(self.config.event_stream_catchup_min_checkpoint_lag)
             .await
         {
+            // Stop instead of waiting for events that will never be stored.
+            if e.is::<catchup::TooFarBehindError>() {
+                return Err(e);
+            }
             tracing::error!("failed to catchup using event blobs: {e}");
         }
 
