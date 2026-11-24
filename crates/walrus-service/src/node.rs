@@ -946,6 +946,13 @@ impl StorageNode {
             last_certified_event_blob = downloader
                 .get_last_certified_event_blob()
                 .await
+                .inspect_err(|error| {
+                    tracing::warn!(
+                        ?error,
+                        "failed to read the latest certified event blob; the event blob writer \
+                        cannot start right after it"
+                    )
+                })
                 .ok()
                 .flatten()
                 .map(LastCertifiedEventBlob::EventBlobWithMetadata);
