@@ -242,6 +242,12 @@ pub async fn create_and_init_system(
     )
     .await?;
 
+    // The WAL supply is minted as a coin object; move it to the address balance, from which the
+    // client spends.
+    admin_contract_client
+        .deposit_coins_to_address_balance()
+        .await?;
+
     // Create credits object if enabled.
     let credits_object = if let Some(pkg_id) = credits_pkg_id {
         let credits_object_id = admin_contract_client

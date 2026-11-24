@@ -33,24 +33,22 @@ use sui_sdk::types::{
     Identifier,
     base_types::ObjectID,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::TransactionData,
 };
 use sui_types::{
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
     effects::TransactionEffectsAPI,
     execution_status::ExecutionStatus,
-    transaction::{ObjectArg, SharedObjectMutability, TransactionKind},
+    transaction::{ObjectArg, SharedObjectMutability},
 };
 use walkdir::WalkDir;
 use walrus_core::{EpochCount, ensure};
 
 use crate::{
-    client::retry_client::{
-        RetriableSuiClient,
-        retriable_sui_client::{GasBudgetAndPrice, LazySuiClientBuilder, MAX_GAS_PAYMENT_OBJECTS},
+    client::{
+        retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
+        transaction_builder::build_transaction_data_with_address_balance_gas,
     },
-    coin::Coin,
     contracts,
     wallet::Wallet,
 };
@@ -471,7 +469,7 @@ pub(crate) async fn publish_package(
         compile_package(package_path, build_config, chain_id.clone(), wallet).await?;
 
     let compiled_modules = compiled_package.get_package_bytes(false);
-    let transaction_kind = {
+    let programmable_transaction = {
         let mut pt_builder = ProgrammableTransactionBuilder::new();
         let upgrade_cap = pt_builder.publish_upgradeable(
             compiled_modules,
@@ -483,37 +481,16 @@ pub(crate) async fn publish_package(
                 .collect(),
         );
         pt_builder.transfer_arg(sender, upgrade_cap);
-        TransactionKind::programmable(pt_builder.finish())
+        pt_builder.finish()
     };
-
-    let GasBudgetAndPrice {
-        gas_budget,
-        gas_price,
-    } = retry_client
-        .gas_budget_and_price(gas_budget, sender, transaction_kind.clone())
-        .await?;
-
-    let gas_coins = retry_client
-        .select_coins(
-            sender,
-            Coin::SUI,
-            u128::from(gas_budget),
-            vec![],
-            MAX_GAS_PAYMENT_OBJECTS,
-        )
-        .await?
-        .into_iter()
-        .map(|coin| coin.object_ref())
-        .collect::<Vec<_>>();
-
-    let tx_data = TransactionData::new_with_gas_coins_allow_sponsor(
-        transaction_kind,
+    let tx_data = build_transaction_data_with_address_balance_gas(
+        programmable_transaction,
+        &retry_client,
         sender,
-        gas_coins,
         gas_budget,
-        gas_price,
-        sender,
-    );
+        0,
+    )
+    .await?;
 
     #[allow(deprecated)]
     let response = wallet
@@ -827,32 +804,9 @@ pub async fn create_system_and_staking_objects(
         Default::default(),
     )?;
 
-    let GasBudgetAndPrice {
-        gas_budget,
-        gas_price,
-    } = retry_client
-        .gas_budget_and_price(
-            gas_budget,
-            address,
-            TransactionKind::ProgrammableTransaction(ptb.clone()),
-        )
-        .await?;
-
-    let gas_coins = retry_client
-        .select_coins(
-            address,
-            Coin::SUI,
-            u128::from(gas_budget),
-            vec![],
-            MAX_GAS_PAYMENT_OBJECTS,
-        )
-        .await?
-        .into_iter()
-        .map(|coin| coin.object_ref())
-        .collect::<Vec<_>>();
-
     let transaction =
-        TransactionData::new_programmable(address, gas_coins, ptb, gas_budget, gas_price);
+        build_transaction_data_with_address_balance_gas(ptb, &retry_client, address, gas_budget, 0)
+            .await?;
 
     // sign and send transaction
     let signed_transaction = wallet.sign_transaction(&transaction).await;

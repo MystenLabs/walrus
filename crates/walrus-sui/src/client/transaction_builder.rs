@@ -3,13 +3,7 @@
 
 //! A transaction builder for programmable transactions containing Walrus-related calls.
 
-use std::{
-    collections::{BTreeSet, HashSet},
-    fmt::Debug,
-    iter::once,
-    str::FromStr,
-    sync::Arc,
-};
+use std::{collections::HashSet, fmt::Debug, str::FromStr, sync::Arc};
 
 use fastcrypto::traits::ToFromBytes;
 use sui_move_build::CompiledPackage;
@@ -17,12 +11,16 @@ use sui_types::{
     Identifier,
     SUI_CLOCK_OBJECT_ID,
     SUI_CLOCK_OBJECT_SHARED_VERSION,
+    SUI_FRAMEWORK_PACKAGE_ID,
     TypeTag,
     base_types::{ObjectID, ObjectRef, SuiAddress},
+    gas_coin::GAS,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
     transaction::{
         Argument,
+        CallArg,
         Command,
+        FundsWithdrawalArg,
         ObjectArg,
         ProgrammableTransaction,
         SharedObjectMutability,
@@ -51,7 +49,7 @@ use super::{
     UpgradeType,
 };
 use crate::{
-    client::retry_client::retriable_sui_client::GasBudgetAndPrice,
+    client::retry_client::{RetriableSuiClient, retriable_sui_client::GasBudgetAndPrice},
     coin::Coin,
     contracts::{self, FunctionTag},
     types::{
@@ -128,15 +126,42 @@ impl From<&ObjectID> for ArgumentOrOwnedObject {
 }
 
 /// A PTB builder for Walrus transactions.
+///
+/// All SUI and WAL the PTB spends is withdrawn from the sender's address balances, using at most
+/// one withdrawal per coin type, and gas is paid from the sender's SUI address balance. Remaining
+/// WAL, and WAL received in the PTB, is returned to the sender's address balance.
 pub struct WalrusPtbBuilder {
     pt_builder: ProgrammableTransactionBuilder,
     read_client: Arc<SuiReadClient>,
     tx_wal_balance: u64,
-    tx_sui_cost: u64,
-    used_wal_coins: BTreeSet<ObjectID>,
     wal_coin_arg: Option<Argument>,
+    wal_withdrawal: Option<PendingWithdrawal>,
+    sui_withdrawal: Option<PendingWithdrawal>,
     sender_address: SuiAddress,
     args_to_consume: HashSet<Argument>,
+}
+
+/// A withdrawal from the sender's address balance, redeemed as a coin at the point of creation.
+///
+/// The amount of the withdrawal input is only set when the PTB is finished, so that a PTB needs at
+/// most one withdrawal per coin type, no matter how many payments it contains.
+#[derive(Debug, Clone, Copy)]
+struct PendingWithdrawal {
+    /// The `FundsWithdrawal` input of the PTB.
+    input: Argument,
+    /// The coin redeemed from the withdrawal.
+    coin: Argument,
+    /// The total amount to withdraw.
+    amount: u64,
+}
+
+/// The amounts that a finished PTB withdraws from the sender's address balances.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct AddressBalanceWithdrawals {
+    /// The amount of MIST withdrawn, in addition to the gas budget.
+    sui: u64,
+    /// The amount of FROST withdrawn.
+    wal: u64,
 }
 
 impl Debug for WalrusPtbBuilder {
@@ -144,9 +169,9 @@ impl Debug for WalrusPtbBuilder {
         f.debug_struct("WalrusPtbBuilder")
             .field("read_client", &self.read_client)
             .field("tx_wal_balance", &self.tx_wal_balance)
-            .field("tx_sui_cost", &self.tx_sui_cost)
-            .field("used_wal_coins", &self.used_wal_coins)
             .field("wal_coin_arg", &self.wal_coin_arg)
+            .field("wal_withdrawal", &self.wal_withdrawal)
+            .field("sui_withdrawal", &self.sui_withdrawal)
             .field("sender_address", &self.sender_address)
             .field("args_to_consume", &self.args_to_consume)
             .finish()
@@ -160,89 +185,156 @@ impl WalrusPtbBuilder {
             pt_builder: ProgrammableTransactionBuilder::new(),
             read_client,
             tx_wal_balance: 0,
-            tx_sui_cost: 0,
-            used_wal_coins: BTreeSet::new(),
             wal_coin_arg: None,
+            wal_withdrawal: None,
+            sui_withdrawal: None,
             sender_address,
             args_to_consume: HashSet::new(),
         }
     }
 
-    /// Calls `fill_wal_balance_with_provided_coins` with no provided coins.
-    pub fn fill_wal_balance(
-        &mut self,
-        min_balance: u64,
-    ) -> impl Future<Output = SuiClientResult<()>> {
-        self.fill_wal_balance_with_provided_coins(min_balance, None)
-    }
-
     /// Fills up the WAL coin argument of the PTB to at least `min_balance`.
     ///
-    /// This function merges additional coins if necessary and is a no-op if the current available
-    /// balance (that has already been added to the PTB and hasn't been consumed yet) is larger than
-    /// `min_balance`.
-    ///
-    /// When passed a list of `coins`, those coins are used to fill the balance. Otherwise, coins
-    /// are fetched from the network.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`SuiClientError::NoCompatibleWalCoins`] if no WAL coins with sufficient balance
-    /// can be found.
-    pub async fn fill_wal_balance_with_provided_coins(
-        &mut self,
-        min_balance: u64,
-        coins: Option<Vec<Coin>>,
-    ) -> SuiClientResult<()> {
-        // If we already have a wal_coin_arg and sufficient balance, we're done
+    /// The missing amount is withdrawn from the sender's WAL address balance. This is a no-op if
+    /// the current available balance (that has already been added to the PTB and hasn't been
+    /// consumed yet) is at least `min_balance`.
+    pub fn fill_wal_balance(&mut self, min_balance: u64) -> SuiClientResult<()> {
         if min_balance <= self.tx_wal_balance && self.wal_coin_arg.is_some() {
             return Ok(());
         }
-
         let additional_balance = min_balance - self.tx_wal_balance;
-        let mut coins = if let Some(coins) = coins {
-            coins
+        if let Some(withdrawal) = self.wal_withdrawal.as_mut() {
+            withdrawal.amount += additional_balance;
+        } else if additional_balance == 0 {
+            let wal_type_tag = self.wal_type_tag()?;
+            let zero_coin = self.move_call(
+                SUI_FRAMEWORK_PACKAGE_ID,
+                contracts::coin::zero.with_type_params(&[wal_type_tag]),
+                vec![],
+            )?;
+            self.wal_coin_arg = Some(zero_coin);
         } else {
-            self.read_client
-                .get_coins_with_total_balance(
-                    self.sender_address,
-                    CoinType::Wal,
-                    additional_balance,
-                    self.used_wal_coins.iter().cloned().collect(),
-                )
-                .await?
-        };
-
-        let mut added_balance = 0;
-        let main_coin = if let Some(coin_arg) = self.wal_coin_arg {
-            coin_arg
-        } else {
-            let coin = coins
-                .pop()
-                .ok_or_else(|| SuiClientError::NoCompatibleWalCoins)?;
-            // Make sure that we don't select the same coin later again.
-            self.used_wal_coins.insert(coin.coin_object_id);
-            added_balance += coin.balance;
-            let coin_arg = self.pt_builder.input(coin.object_ref().into())?;
-            self.wal_coin_arg = Some(coin_arg);
-            coin_arg
-        };
-        if !coins.is_empty() {
-            let mut coin_args = Vec::new();
-            for coin in coins {
-                if self.tx_wal_balance + added_balance >= min_balance {
-                    break;
+            let wal_type_tag = self.wal_type_tag()?;
+            let withdrawal =
+                self.withdraw_from_address_balance(wal_type_tag, additional_balance)?;
+            self.wal_withdrawal = Some(withdrawal);
+            match self.wal_coin_arg {
+                Some(wal_coin_arg) => {
+                    self.pt_builder
+                        .command(Command::MergeCoins(wal_coin_arg, vec![withdrawal.coin]));
                 }
-                // Make sure that we don't select the same coin later again.
-                self.used_wal_coins.insert(coin.coin_object_id);
-                added_balance += coin.balance;
-                coin_args.push(self.pt_builder.input(coin.object_ref().into())?);
+                None => self.wal_coin_arg = Some(withdrawal.coin),
             }
-            self.pt_builder
-                .command(Command::MergeCoins(main_coin, coin_args));
         }
-        self.tx_wal_balance += added_balance;
+        self.tx_wal_balance += additional_balance;
         Ok(())
+    }
+
+    /// Returns a coin with `amount` MIST withdrawn from the sender's SUI address balance.
+    fn sui_coin(&mut self, amount: u64) -> SuiClientResult<Argument> {
+        if amount == 0 && self.sui_withdrawal.is_none() {
+            // Withdrawals of zero are rejected by Sui.
+            return self.move_call(
+                SUI_FRAMEWORK_PACKAGE_ID,
+                contracts::coin::zero.with_type_params(&[GAS::type_tag()]),
+                vec![],
+            );
+        }
+        let source_coin = if let Some(withdrawal) = self.sui_withdrawal.as_mut() {
+            withdrawal.amount += amount;
+            withdrawal.coin
+        } else {
+            let withdrawal = self.withdraw_from_address_balance(GAS::type_tag(), amount)?;
+            self.sui_withdrawal = Some(withdrawal);
+            withdrawal.coin
+        };
+        let amount_arg = self.pt_builder.pure(amount)?;
+        Ok(self
+            .pt_builder
+            .command(Command::SplitCoins(source_coin, vec![amount_arg])))
+    }
+
+    /// Adds a withdrawal of `amount` of `coin_type` from the sender's address balance and redeems
+    /// it as a coin. The amount can be increased until the PTB is finished.
+    fn withdraw_from_address_balance(
+        &mut self,
+        coin_type: TypeTag,
+        amount: u64,
+    ) -> SuiClientResult<PendingWithdrawal> {
+        let input = self
+            .pt_builder
+            .funds_withdrawal(FundsWithdrawalArg::balance_from_sender(
+                amount,
+                coin_type.clone(),
+            ))?;
+        let coin = self.move_call(
+            SUI_FRAMEWORK_PACKAGE_ID,
+            contracts::coin::redeem_funds.with_type_params(&[coin_type]),
+            vec![input],
+        )?;
+        Ok(PendingWithdrawal {
+            input,
+            coin,
+            amount,
+        })
+    }
+
+    /// Sends `coin` to the address balance of `recipient`.
+    fn send_funds(
+        &mut self,
+        coin_type: TypeTag,
+        coin: Argument,
+        recipient: SuiAddress,
+    ) -> SuiClientResult<()> {
+        let recipient_arg = self.pt_builder.pure(recipient)?;
+        self.move_call(
+            SUI_FRAMEWORK_PACKAGE_ID,
+            contracts::coin::send_funds.with_type_params(&[coin_type]),
+            vec![coin, recipient_arg],
+        )?;
+        self.mark_arg_as_consumed(&coin);
+        Ok(())
+    }
+
+    fn wal_type_tag(&self) -> SuiClientResult<TypeTag> {
+        Ok(TypeTag::from_str(self.read_client.wal_coin_type())?)
+    }
+
+    /// Returns the remaining WAL to the sender's address balance, closes the SUI withdrawal, and
+    /// returns the finished PTB together with the amounts it withdraws from the address balances.
+    async fn finish_with_withdrawals(
+        mut self,
+    ) -> SuiClientResult<(ProgrammableTransaction, AddressBalanceWithdrawals)> {
+        if let Some(wal_coin_arg) = self.wal_coin_arg.take() {
+            let wal_type_tag = self.wal_type_tag()?;
+            self.send_funds(wal_type_tag, wal_coin_arg, self.sender_address)?;
+            self.tx_wal_balance = 0;
+        }
+        if let Some(withdrawal) = self.sui_withdrawal {
+            // Every withdrawn MIST has been split off, so the redeemed coin is empty.
+            self.move_call(
+                SUI_FRAMEWORK_PACKAGE_ID,
+                contracts::coin::destroy_zero.with_type_params(&[GAS::type_tag()]),
+                vec![withdrawal.coin],
+            )?;
+        }
+        self.transfer_remaining_outputs(None).await?;
+
+        let mut programmable_transaction = self.pt_builder.finish();
+        let mut withdrawals = AddressBalanceWithdrawals::default();
+        if let Some(withdrawal) = self.wal_withdrawal {
+            set_withdrawal_amount(
+                &mut programmable_transaction,
+                withdrawal,
+                TypeTag::from_str(self.read_client.wal_coin_type())?,
+            )?;
+            withdrawals.wal = withdrawal.amount;
+        }
+        if let Some(withdrawal) = self.sui_withdrawal {
+            set_withdrawal_amount(&mut programmable_transaction, withdrawal, GAS::type_tag())?;
+            withdrawals.sui = withdrawal.amount;
+        }
+        Ok((programmable_transaction, withdrawals))
     }
 
     fn reduce_wal_balance(&mut self, amount: u64) -> SuiClientResult<()> {
@@ -322,8 +414,8 @@ impl WalrusPtbBuilder {
         self.transfer(recipient, args).await
     }
 
-    /// Splits off `amount` from the gas coin, adds a call to `exchange_all_for_wal` to the PTB
-    /// and merges the WAL coins into the payment coin of the PTB.
+    /// Withdraws `amount` MIST from the sender's address balance, adds a call to
+    /// `exchange_all_for_wal` to the PTB and merges the WAL coins into the payment coin of the PTB.
     pub async fn exchange_sui_for_wal(
         &mut self,
         exchange_id: ObjectID,
@@ -346,17 +438,11 @@ impl WalrusPtbBuilder {
                 .object_arg_for_shared_obj(exchange_id, SharedObjectMutability::Mutable)
                 .await?,
         )?;
-        self.tx_sui_cost += amount;
-        let amount_arg = self.pt_builder.pure(amount)?;
-
-        let split_coin = self
-            .pt_builder
-            .command(Command::SplitCoins(Argument::GasCoin, vec![amount_arg]));
-
+        let sui_coin = self.sui_coin(amount)?;
         let result_arg = self.move_call(
             exchange_package,
             contracts::wal_exchange::exchange_all_for_wal,
-            vec![exchange_arg, split_coin],
+            vec![exchange_arg, sui_coin],
         )?;
         let wal_amount = exchange.exchange_rate.sui_to_wal(amount);
         self.add_wal_coin_result_arg(result_arg, wal_amount);
@@ -364,12 +450,12 @@ impl WalrusPtbBuilder {
     }
 
     /// Adds a call to create a new exchange, funded with `amount` WAL, to the PTB.
-    pub async fn create_and_fund_exchange(
+    pub fn create_and_fund_exchange(
         &mut self,
         exchange_package: ObjectID,
         amount: u64,
     ) -> SuiClientResult<Argument> {
-        self.fill_wal_balance(amount).await?;
+        self.fill_wal_balance(amount)?;
         let args = vec![self.wal_coin_arg()?, self.pt_builder.pure(amount)?];
         let result_arg =
             self.move_call(exchange_package, contracts::wal_exchange::new_funded, args)?;
@@ -380,14 +466,14 @@ impl WalrusPtbBuilder {
 
     /// Adds a call to create a new credits object (`subsidies::Subsidies` in Move), funded with
     /// `amount` WAL, to the PTB.
-    pub async fn create_and_fund_credits(
+    pub fn create_and_fund_credits(
         &mut self,
         package_id: ObjectID,
         initial_buyer_subsidy_rate: u16,
         initial_system_subsidy_rate: u16,
         amount: u64,
     ) -> SuiClientResult<Argument> {
-        self.fill_wal_balance(amount).await?;
+        self.fill_wal_balance(amount)?;
         let split_main_coin_arg = self.wal_coin_arg()?;
         let split_amount_arg = self.pt_builder.pure(amount)?;
         let split_coin = self.pt_builder.command(Command::SplitCoins(
@@ -434,11 +520,11 @@ impl WalrusPtbBuilder {
     /// Adds a call to fund the walrus subsidies object
     /// ([`contracts::walrus_subsidies::WalrusSubsidies`]) to the PTB, if a walrus subsidies object
     /// is configured.
-    pub async fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
+    pub fn fund_walrus_subsidies(&mut self, amount: u64) -> SuiClientResult<()> {
         let Some(walrus_subsidies_pkg_id) = self.read_client.walrus_subsidies_package_id() else {
             return Err(SuiClientError::WalrusSubsidiesNotConfigured);
         };
-        self.fill_wal_balance(amount).await?;
+        self.fill_wal_balance(amount)?;
         let split_main_coin_arg = self.wal_coin_arg()?;
         let split_amount_arg = self.pt_builder.pure(amount)?;
         let split_coin = self.pt_builder.command(Command::SplitCoins(
@@ -572,17 +658,14 @@ impl WalrusPtbBuilder {
                 .await?,
         ];
         let wal = self.walrus_move_call(contracts::staking::withdraw_stake, withdraw_stake_args)?;
-        self.add_result_to_be_consumed(wal);
+        // The withdrawn amount is not known in advance, so it does not count as available.
+        self.add_wal_coin_result_arg(wal, 0);
         Ok(())
     }
 
     /// Adds a call to `stake_with_pool` to the PTB.
-    pub async fn stake_with_pool(
-        &mut self,
-        amount: u64,
-        node_id: ObjectID,
-    ) -> SuiClientResult<Argument> {
-        self.fill_wal_balance(amount).await?;
+    pub fn stake_with_pool(&mut self, amount: u64, node_id: ObjectID) -> SuiClientResult<Argument> {
+        self.fill_wal_balance(amount)?;
 
         // Split the amount to stake from the main WAL coin.
         let split_main_coin_arg = self.wal_coin_arg()?;
@@ -667,30 +750,26 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Sends `amount` WAL to `recipient`.
-    pub async fn pay_wal(&mut self, recipient: SuiAddress, amount: u64) -> SuiClientResult<()> {
-        self.fill_wal_balance(amount).await?;
+    /// Sends `amount` WAL from the sender's address balance to the address balance of
+    /// `recipient`.
+    pub fn pay_wal(&mut self, recipient: SuiAddress, amount: u64) -> SuiClientResult<()> {
+        self.fill_wal_balance(amount)?;
         let amount_arg = self.pt_builder.pure(amount)?;
         let wal_coin_arg = self.wal_coin_arg()?;
         let split_coin = self
             .pt_builder
             .command(Command::SplitCoins(wal_coin_arg, vec![amount_arg]));
-        self.transfer(Some(recipient), once(split_coin.into()))
-            .await?;
+        let wal_type_tag = self.wal_type_tag()?;
+        self.send_funds(wal_type_tag, split_coin, recipient)?;
         self.reduce_wal_balance(amount)?;
         Ok(())
     }
 
-    /// Sends `amount` of SUI to `recipient, splitting the amount off of the gas coin.
-    pub async fn pay_sui(&mut self, recipient: SuiAddress, amount: u64) -> SuiClientResult<()> {
-        let amount_arg = self.pt_builder.pure(amount)?;
-        let split_coin = self
-            .pt_builder
-            .command(Command::SplitCoins(Argument::GasCoin, vec![amount_arg]));
-        self.transfer(Some(recipient), once(split_coin.into()))
-            .await?;
-        self.tx_sui_cost += amount;
-        Ok(())
+    /// Sends `amount` MIST from the sender's address balance to the address balance of
+    /// `recipient`.
+    pub fn pay_sui(&mut self, recipient: SuiAddress, amount: u64) -> SuiClientResult<()> {
+        let sui_coin = self.sui_coin(amount)?;
+        self.send_funds(GAS::type_tag(), sui_coin, recipient)
     }
 
     /// Authenticates the sender address. Returns an `Authenticated` Move type as result argument.
@@ -1158,47 +1237,35 @@ impl WalrusPtbBuilder {
         Ok(())
     }
 
-    /// Transfers all remaining outputs and returns the PTB and the SUI balance needed in addition
-    /// to the gas cost that needs to be covered by the gas coin.
-    #[deprecated = "use [`Self::build_transaction_data`] instead"]
-    pub async fn finish(mut self) -> SuiClientResult<(ProgrammableTransaction, u64)> {
-        self.transfer_remaining_outputs(None).await?;
-        let sui_cost = self.tx_sui_cost;
-        Ok((self.pt_builder.finish(), sui_cost))
-    }
-
-    /// Transfers all remaining outputs and returns the [`TransactionData`] containing
-    /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
+    /// Finishes the PTB and returns the [`TransactionData`] containing the unsigned transaction,
+    /// which pays for gas from the sender's SUI address balance.
+    ///
+    /// Remaining WAL is returned to the sender's address balance and all other remaining outputs
+    /// are transferred to the sender. If no `gas_budget` is provided, the budget will be
+    /// estimated.
     #[tracing::instrument(skip_all, level = Level::DEBUG)]
     pub async fn build_transaction_data(
         self,
         gas_budget: Option<u64>,
     ) -> SuiClientResult<TransactionData> {
-        self.transfer_outputs_and_build_transaction_data(gas_budget, 0, None)
-            .await
-    }
-
-    /// Transfers all remaining outputs and returns the [`TransactionData`] containing
-    /// the unsigned transaction. If no `gas_budget` is provided, the budget will be estimated.
-    /// The used gas coins will cover a balance of at least `minimum_gas_coin_balance`. This
-    /// is useful, e.g.,  to make sure that all gas coins get merged.
-    pub(crate) async fn transfer_outputs_and_build_transaction_data(
-        mut self,
-        gas_budget: Option<u64>,
-        minimum_gas_coin_balance: u64,
-        gas_coins: Option<Vec<Coin>>,
-    ) -> SuiClientResult<TransactionData> {
-        self.transfer_remaining_outputs(None).await?;
-        let programmable_transaction = self.pt_builder.finish();
-
-        build_transaction_data_with_min_gas_balance(
+        let read_client = self.read_client.clone();
+        let sender_address = self.sender_address;
+        let (programmable_transaction, withdrawals) = self.finish_with_withdrawals().await?;
+        if withdrawals.wal > 0 {
+            let wal_balance = read_client
+                .address_balance(sender_address, CoinType::Wal)
+                .await?;
+            ensure!(
+                wal_balance >= withdrawals.wal,
+                SuiClientError::NoCompatibleWalCoins
+            );
+        }
+        build_transaction_data_with_address_balance_gas(
             programmable_transaction,
-            self.read_client.as_ref(),
-            self.sender_address,
+            read_client.retriable_sui_client(),
+            sender_address,
             gas_budget,
-            minimum_gas_coin_balance,
-            self.tx_sui_cost,
-            gas_coins,
+            withdrawals.sui,
         )
         .await
     }
@@ -1369,67 +1436,132 @@ impl WalrusPtbBuilder {
                 self.pt_builder
                     .command(Command::MergeCoins(wal_coin_arg, vec![arg]));
             }
-            None => {
-                // This coin needs to be consumed by another function or transferred at the end.
-                self.add_result_to_be_consumed(arg);
-                self.wal_coin_arg = Some(arg);
-            }
+            // This coin is returned to the sender's address balance when the PTB is finished.
+            None => self.wal_coin_arg = Some(arg),
         }
     }
 }
 
-// Returns the [`TransactionData`] containing the unsigned transaction.
+/// Returns the [`TransactionData`] for `programmable_transaction`, paying for gas from the SUI
+/// address balance of `sender_address`.
 ///
-/// If no `gas_budget` is provided, the budget will be estimated. The used gas coins will cover a
-/// balance of at least `minimum_gas_coin_balance`. This is useful, e.g.,  to make sure that all gas
-/// coins get merged.
-pub async fn build_transaction_data_with_min_gas_balance(
+/// `sui_withdrawn` is the amount of MIST the PTB itself withdraws from the sender's address
+/// balance; the address balance must cover it in addition to the gas budget. If no `gas_budget` is
+/// provided, the budget will be estimated.
+///
+/// # Errors
+///
+/// Returns a [`SuiClientError::NoCompatibleGasCoins`] error if the sender's SUI address balance
+/// does not cover the gas budget and `sui_withdrawn`.
+pub async fn build_transaction_data_with_address_balance_gas(
     programmable_transaction: ProgrammableTransaction,
-    read_client: &SuiReadClient,
+    sui_client: &RetriableSuiClient,
     sender_address: SuiAddress,
     gas_budget: Option<u64>,
-    minimum_gas_coin_balance: u64,
-    tx_sui_cost: u64,
-    gas_coins: Option<Vec<Coin>>,
+    sui_withdrawn: u64,
 ) -> SuiClientResult<TransactionData> {
-    // Estimate the gas budget unless explicitly set.
+    let sui_balance = sui_client
+        .get_address_balance(sender_address, Coin::SUI)
+        .await?;
+    // Check the PTB's own withdrawal before the gas estimation, which fails if it is not covered.
+    ensure!(
+        sui_balance >= sui_withdrawn,
+        SuiClientError::NoCompatibleGasCoins(Some(sui_withdrawn.into()))
+    );
     let GasBudgetAndPrice {
         gas_budget,
         gas_price,
-    } = read_client
-        .retriable_sui_client()
+    } = sui_client
         .gas_budget_and_price(
             gas_budget,
             sender_address,
             TransactionKind::ProgrammableTransaction(programmable_transaction.clone()),
         )
         .await?;
-
-    let minimum_gas_coin_balance = minimum_gas_coin_balance.max(gas_budget + tx_sui_cost);
-
-    let gas_payment = {
-        if let Some(gas_coins) = gas_coins {
-            gas_coins
-                .into_iter()
-                .scan(0, |total, coin| {
-                    let was_under = *total < minimum_gas_coin_balance;
-                    *total += coin.balance;
-                    was_under.then_some(coin.object_ref())
-                })
-                .collect()
-        } else {
-            read_client
-                .get_compatible_gas_coins(sender_address, minimum_gas_coin_balance)
-                .await?
-        }
-    };
-
-    // Construct the transaction with gas coins that meet the minimum balance requirement
-    Ok(TransactionData::new_programmable(
+    let required_balance = u128::from(gas_budget) + u128::from(sui_withdrawn);
+    ensure!(
+        u128::from(sui_balance) >= required_balance,
+        SuiClientError::NoCompatibleGasCoins(Some(required_balance))
+    );
+    let (chain_identifier, epoch) = sui_client.get_chain_identifier_and_epoch().await?;
+    // Without gas payment objects, the transaction may not contain any owned object that protects
+    // it against replays. It is therefore only valid in the current and the following epoch on
+    // this chain, and the nonce distinguishes otherwise identical transactions.
+    Ok(TransactionData::new_programmable_with_address_balance_gas(
         sender_address,
-        gas_payment,
         programmable_transaction,
         gas_budget,
         gas_price,
+        chain_identifier,
+        epoch,
+        rand::random(),
     ))
+}
+
+/// Sets the amount of the `FundsWithdrawal` input of `withdrawal` in `programmable_transaction`.
+fn set_withdrawal_amount(
+    programmable_transaction: &mut ProgrammableTransaction,
+    withdrawal: PendingWithdrawal,
+    coin_type: TypeTag,
+) -> SuiClientResult<()> {
+    let Argument::Input(index) = withdrawal.input else {
+        return Err(SuiClientError::Internal(anyhow::anyhow!(
+            "a withdrawal must be a PTB input"
+        )));
+    };
+    let input = programmable_transaction
+        .inputs
+        .get_mut(usize::from(index))
+        .ok_or_else(|| SuiClientError::Internal(anyhow::anyhow!("missing withdrawal input")))?;
+    ensure!(
+        matches!(input, CallArg::FundsWithdrawal(_)),
+        SuiClientError::Internal(anyhow::anyhow!("the input is not a withdrawal"))
+    );
+    *input = CallArg::FundsWithdrawal(FundsWithdrawalArg::balance_from_sender(
+        withdrawal.amount,
+        coin_type,
+    ));
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_withdrawal_amount_replaces_the_withdrawal_input() -> SuiClientResult<()> {
+        let mut pt_builder = ProgrammableTransactionBuilder::new();
+        let pure = pt_builder.pure(1u64)?;
+        let input = pt_builder
+            .funds_withdrawal(FundsWithdrawalArg::balance_from_sender(1, GAS::type_tag()))?;
+        let mut programmable_transaction = pt_builder.finish();
+
+        let withdrawal = PendingWithdrawal {
+            input,
+            coin: Argument::Result(0),
+            amount: 1_234,
+        };
+        set_withdrawal_amount(&mut programmable_transaction, withdrawal, GAS::type_tag())?;
+        assert_eq!(
+            programmable_transaction.inputs[1],
+            CallArg::FundsWithdrawal(FundsWithdrawalArg::balance_from_sender(
+                1_234,
+                GAS::type_tag()
+            ))
+        );
+
+        let not_a_withdrawal = PendingWithdrawal {
+            input: pure,
+            ..withdrawal
+        };
+        assert!(
+            set_withdrawal_amount(
+                &mut programmable_transaction,
+                not_a_withdrawal,
+                GAS::type_tag()
+            )
+            .is_err()
+        );
+        Ok(())
+    }
 }

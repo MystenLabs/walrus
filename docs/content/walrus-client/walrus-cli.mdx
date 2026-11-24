@@ -94,6 +94,16 @@ You can access Testnet and Mainnet through the following configuration. This exa
 
 Storing data costs WAL, and every transaction costs SUI for gas. The `walrus` CLI exchanges SUI for WAL on Testnet. To move WAL between addresses, use `sui client`, because Sui handles the transfer rather than Walrus.
 
+### Move coins into the address balance {#deposit-coins}
+
+The Walrus client pays for gas, storage, and transfers from the wallet's SUI and WAL address balances only. It does not spend SUI or WAL held in coin objects, which is how faucets, many wallets, and `sui client` transfers deliver funds. Run `walrus deposit-coins` to move all SUI and WAL coin objects of the wallet into its address balances:
+
+```sh
+$ walrus deposit-coins
+```
+
+If the SUI address balance cannot cover the gas, the SUI coins pay for the first transaction. Run the command again whenever the wallet receives funds as coin objects. A wallet that has insufficient funds in its address balances fails with an error such as `the SUI address balance is insufficient`, even if it holds coin objects.
+
 ### Exchange SUI for WAL on Testnet
 
 Run `walrus get-wal` to exchange Testnet SUI for Testnet WAL at a 1:1 rate:
@@ -146,7 +156,7 @@ If an address holds many small WAL coins, merge them first so that a single coin
 $ sui client merge-coin --primary-coin LARGEST_WAL_COIN_ID --coin-to-merge OTHER_WAL_COIN_ID
 ```
 
-The recipient needs SUI for gas as well. WAL alone does not pay for transactions.
+The recipient needs SUI for gas as well. WAL alone does not pay for transactions. If the recipient uses the Walrus client, it must run [`walrus deposit-coins`](#deposit-coins) before it can spend the received coin objects.
 
 ## Logging and metrics
 

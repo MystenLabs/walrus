@@ -32,6 +32,7 @@ use walrus_sui::{
         retry_client::{RetriableSuiClient, retriable_sui_client::LazySuiClientBuilder},
         rpc_config::RpcFallbackConfig,
     },
+    coin::Coin,
     config::{WalletConfig, load_wallet_context_from_path},
     system_setup::InitSystemParams,
     test_utils::system_setup::{
@@ -41,7 +42,13 @@ use walrus_sui::{
         register_committee_and_stake,
     },
     types::{NetworkAddress, NodeRegistrationParams, move_structs::NodeMetadata},
-    utils::{SuiNetwork, create_wallet, get_sui_from_wallet_or_faucet, request_sui_from_faucet},
+    utils::{
+        SuiNetwork,
+        create_wallet,
+        deposit_coins_to_address_balance,
+        get_sui_from_wallet_or_faucet,
+        request_sui_from_faucet,
+    },
     wallet::Wallet,
 };
 use walrus_utils::backoff::ExponentialBackoffConfig;
@@ -380,6 +387,8 @@ pub async fn deploy_walrus_contract(
         let sui_client =
             RetriableSuiClient::new(vec![LazySuiClientBuilder::new(rpc_url)], Default::default())?;
         request_sui_from_faucet(admin_wallet.active_address(), &sui_network, &sui_client).await?;
+        // The faucet may send coin objects; the client pays from the address balance.
+        deposit_coins_to_address_balance(&admin_wallet, &sui_client, &[Coin::SUI], None).await?;
         admin_wallet
     };
 
@@ -490,12 +499,20 @@ pub async fn create_client_config(
 
     let client_address = sui_client_wallet_context.active_address();
 
-    // Get Sui coins from faucet or the admin wallet.
+    // Get SUI from the faucet or the admin wallet.
     get_sui_from_wallet_or_faucet(
         client_address,
         admin_contract_client.wallet_mut(),
         &sui_network,
         sui_amount,
+    )
+    .await?;
+    // Funds from the faucet may arrive as coin objects; the client pays from the address balance.
+    deposit_coins_to_address_balance(
+        &sui_client_wallet_context,
+        admin_contract_client.retriable_sui_client(),
+        &[Coin::SUI],
+        None,
     )
     .await?;
     // Fund the client wallet with WAL.
@@ -895,6 +912,12 @@ async fn create_storage_node_wallets(
             sui_amount,
         )
         .await?;
+        // Funds from the faucet may arrive as coin objects; nodes pay from the address balance.
+        let sui_client = RetriableSuiClient::new(
+            vec![LazySuiClientBuilder::new(wallet.get_rpc_url())],
+            Default::default(),
+        )?;
+        deposit_coins_to_address_balance(wallet, &sui_client, &[Coin::SUI], None).await?;
     }
     Ok(storage_node_wallets)
 }

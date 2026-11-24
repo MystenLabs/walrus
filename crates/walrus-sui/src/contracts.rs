@@ -435,3 +435,12 @@ pub mod package {
 
     contract_ident!(struct package::UpgradeCap);
 }
+
+/// Module for tags corresponding to the Move module `coin` from the `sui` package.
+pub mod coin {
+
+    contract_ident!(fn coin::destroy_zero);
+    contract_ident!(fn coin::redeem_funds);
+    contract_ident!(fn coin::send_funds);
+    contract_ident!(fn coin::zero);
+}

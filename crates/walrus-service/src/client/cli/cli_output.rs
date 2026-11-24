@@ -47,6 +47,7 @@ use crate::client::{
         BlobStatusOutput,
         CommitteeCommissionReceivers,
         DeleteOutput,
+        DepositCoinsOutput,
         DryRunOutput,
         EncodingDependentPriceInfo,
         EpochTimeOrMessage,
@@ -1251,6 +1252,34 @@ impl CliOutput for WalletOutput {
             "{} Generated a new Sui wallet with address {}",
             success(),
             self.wallet_address
+        );
+    }
+}
+
+impl CliOutput for DepositCoinsOutput {
+    fn print_cli_output(&self) {
+        if self.transactions.is_empty() {
+            println!(
+                "{} The wallet does not own any SUI or WAL coins.",
+                success()
+            );
+        } else {
+            println!(
+                "{} Moved the wallet's SUI and WAL coins into its address balances in {} \
+                transaction(s): {}",
+                success(),
+                self.transactions.len(),
+                self.transactions
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
+        println!(
+            "Address balances: {}, {}",
+            HumanReadableMist::from(self.sui_address_balance),
+            HumanReadableFrost::from(self.wal_address_balance),
         );
     }
 }

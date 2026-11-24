@@ -42,6 +42,13 @@ while ! sui client faucet --url http://10.0.0.20:9123/gas; do
 done
 sleep 3
 
+echo "Move the SUI coins to the address balance"
+# the client pays from the address balance only
+while ! walrus deposit-coins; do
+    echo "Failed to deposit the SUI coins, retrying in 5 seconds..."
+    sleep 5
+done
+
 echo "Exchange for WAL tokens (500 WAL)"
 # exchange for WAL tokens (500 WAL) with retry
 while ! walrus get-wal --amount 500000000000; do

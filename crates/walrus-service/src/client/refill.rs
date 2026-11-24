@@ -86,7 +86,7 @@ impl Refiller {
                 let metrics = metrics.clone();
                 async move {
                     refiller.send_sui(amount, address).await?;
-                    tracing::info!("clients gas coins refilled");
+                    tracing::info!("client SUI address balances refilled");
                     metrics.observe_gas_refill();
                     Ok(())
                 }
@@ -112,7 +112,7 @@ impl Refiller {
                 let metrics = metrics.clone();
                 async move {
                     refiller.send_wal(amount, address).await?;
-                    tracing::info!("clients WAL coins refilled");
+                    tracing::info!("client WAL address balances refilled");
                     metrics.observe_wal_refill();
                     Ok(())
                 }
@@ -211,8 +211,8 @@ pub struct RefillHandles {
 
 /// Checks if the wallet should be refilled.
 ///
-/// The wallet should be refilled if it has less than `MIN_BALANCE` in balance. _However_, if the
-/// RPC returns an error, we assume that the wallet has enough coins and we do not try to refill
+/// The wallet should be refilled if its address balance is less than `min_balance`. _However_, if
+/// the RPC returns an error, we assume that the wallet has enough funds and we do not try to refill
 /// it, therefore returning `false`.
 pub async fn should_refill(
     sui_client: &RetriableSuiClient,
@@ -221,7 +221,7 @@ pub async fn should_refill(
     min_balance: u64,
 ) -> bool {
     sui_client
-        .get_total_balance(address, coin_type)
+        .get_address_balance(address, coin_type)
         .await
         .map(|balance| balance < min_balance)
         .inspect_err(|error| {
@@ -232,6 +232,6 @@ pub async fn should_refill(
             );
         })
         // If the returned value is an error, we assume that the RPC failed, the
-        // address has enough coins, and we do not try to refill.
+        // address has enough funds, and we do not try to refill.
         .unwrap_or(false)
 }

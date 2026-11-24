@@ -513,7 +513,23 @@ pub async fn generate_sui_wallet(
                     "an error occurred when trying to get SUI from the faucet"
                 )
             }
-            Ok(Ok(_)) => tracing::info!("successfully obtained SUI from the faucet"),
+            Ok(Ok(_)) => {
+                tracing::info!("successfully obtained SUI from the faucet");
+                // The faucet may send coin objects; the client pays from the address balance.
+                if let Err(error) = walrus_sui::utils::deposit_coins_to_address_balance(
+                    &wallet,
+                    &client,
+                    &[walrus_sui::coin::Coin::SUI],
+                    None,
+                )
+                .await
+                {
+                    tracing::warn!(
+                        ?error,
+                        "failed to move the SUI from the faucet to the address balance"
+                    );
+                }
+            }
         }
     }
 

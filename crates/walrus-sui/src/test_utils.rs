@@ -28,9 +28,11 @@ use sui_simulator::runtime::NodeHandle;
 use sui_types::{
     base_types::{ObjectID, SuiAddress},
     digests::TransactionDigest,
+    effects::TransactionEffectsAPI as _,
     event::EventID,
+    gas_coin::GAS,
     programmable_transaction_builder::ProgrammableTransactionBuilder,
-    transaction::TransactionData,
+    transaction::{Argument, Command, TransactionData},
 };
 use test_cluster::{FullNodeHandle, TestCluster, TestClusterBuilder};
 #[cfg(not(msim))]
@@ -73,7 +75,7 @@ use crate::{
         StoragePoolEvent,
         StoragePoolExtendedEvent,
     },
-    utils::create_wallet,
+    utils::{create_wallet, send_funds},
     wallet::Wallet,
 };
 
@@ -575,8 +577,8 @@ pub async fn sui_test_cluster() -> TestCluster {
         .await
 }
 
-/// Creates a wallet for testing in the same network as `funding_wallet`, funded by
-/// `funding_wallet` by transferring at least two gas objects.
+/// Creates a wallet for testing in the same network as `funding_wallet`, whose address balance is
+/// funded by `funding_wallet` if `funded` is set.
 pub async fn wallet_for_testing(
     funding_wallet: &mut Wallet,
     funded: bool,
@@ -601,8 +603,10 @@ pub async fn wallet_for_testing(
     })
 }
 
-/// Funds the `recipients` with gas objects with `amount` or with [`DEFAULT_FUNDING_PER_COIN`]
-/// SUI each if no amount is provided.
+/// Funds the address balances of the `recipients` with `amount` or with
+/// [`DEFAULT_FUNDING_PER_COIN`] SUI each if no amount is provided.
+///
+/// The funding wallet pays with its SUI coins, as the wallets of Sui test clusters only hold coins.
 pub async fn fund_addresses(
     funding_wallet: &mut Wallet,
     recipients: Vec<SuiAddress>,
@@ -618,10 +622,12 @@ pub async fn fund_addresses(
         .compute_object_reference();
 
     let mut ptb = ProgrammableTransactionBuilder::new();
-
     let amount = amount.unwrap_or(DEFAULT_FUNDING_PER_COIN);
-    let amounts = vec![amount; recipients.len()];
-    ptb.pay_sui(recipients, amounts)?;
+    for recipient in recipients {
+        let amount_arg = ptb.pure(amount)?;
+        let coin = ptb.command(Command::SplitCoins(Argument::GasCoin, vec![amount_arg]));
+        send_funds(&mut ptb, GAS::type_tag(), coin, recipient)?;
+    }
 
     #[allow(deprecated)]
     let reference_gas_price = funding_wallet.get_reference_gas_price().await?;
@@ -634,9 +640,14 @@ pub async fn fund_addresses(
         reference_gas_price,
     );
     #[allow(deprecated)]
-    funding_wallet
+    let response = funding_wallet
         .execute_transaction_may_fail(funding_wallet.sign_transaction(&transaction).await)
         .await?;
+    anyhow::ensure!(
+        response.effects.status().is_ok(),
+        "funding the address balances failed: {:?}",
+        response.effects.status()
+    );
 
     Ok(())
 }

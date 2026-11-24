@@ -182,8 +182,8 @@ async fn run_stress(
     .context("Failed to load wallet context")?;
     let contract_client = client_config.new_contract_client(wallet, None).await?;
 
-    let wal_balance = contract_client.total_balance(CoinType::Wal).await?;
-    let sui_balance = contract_client.total_balance(CoinType::Sui).await?;
+    let wal_balance = contract_client.address_balance(CoinType::Wal).await?;
+    let sui_balance = contract_client.address_balance(CoinType::Sui).await?;
     tracing::info!(wal_balance, sui_balance, "initial balances");
 
     let refiller = Refiller::new(
@@ -244,8 +244,8 @@ async fn run_staking(config: ClientConfig, _metrics: Arc<ClientMetrics>) -> anyh
         let iteration_result: anyhow::Result<()> = async {
             let mut committee = contract_client.read_client().current_committee().await?;
             let current_epoch = committee.epoch;
-            let wal_balance = contract_client.total_balance(CoinType::Wal).await?;
-            let sui_balance = contract_client.total_balance(CoinType::Sui).await?;
+            let wal_balance = contract_client.address_balance(CoinType::Wal).await?;
+            let sui_balance = contract_client.address_balance(CoinType::Sui).await?;
             tracing::info!(current_epoch, ?mode, wal_balance, sui_balance, "woke up");
 
             match mode {

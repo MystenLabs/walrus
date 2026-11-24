@@ -16,7 +16,7 @@ impl WalrusPtbBuilder {
         let price = self
             .storage_price_for_encoded_length(reserved_encoded_capacity_bytes, epochs_ahead, false)
             .await?;
-        self.fill_wal_balance(price).await?;
+        self.fill_wal_balance(price)?;
 
         let args = vec![
             self.system_arg(SharedObjectMutability::Mutable)?,
@@ -47,7 +47,7 @@ impl WalrusPtbBuilder {
                 .write_price_for_encoded_length(blob_metadata.encoded_size, false)
                 .await?;
         }
-        self.fill_wal_balance(total_price).await?;
+        self.fill_wal_balance(total_price)?;
 
         let storage_pool_arg = self
             .argument_from_arg_or_obj(storage_pool_object_id.into())
@@ -130,7 +130,7 @@ impl WalrusPtbBuilder {
                 false,
             )
             .await?;
-        self.fill_wal_balance(price).await?;
+        self.fill_wal_balance(price)?;
 
         let storage_pool_arg = self
             .argument_from_arg_or_obj(storage_pool_object_id.into())
@@ -160,7 +160,7 @@ impl WalrusPtbBuilder {
                 false,
             )
             .await?;
-        self.fill_wal_balance(price).await?;
+        self.fill_wal_balance(price)?;
 
         let storage_pool_arg = self
             .argument_from_arg_or_obj(storage_pool_object_id.into())
