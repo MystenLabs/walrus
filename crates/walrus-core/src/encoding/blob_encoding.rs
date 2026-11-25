@@ -4,7 +4,6 @@
 use alloc::{collections::BTreeSet, vec, vec::Vec};
 use core::{cmp, marker::PhantomData, num::NonZeroU16, ops::Range, slice::Chunks};
 
-use fastcrypto::hash::Blake2b256;
 use tracing::{Level, Span};
 
 use super::{
@@ -27,6 +26,7 @@ use crate::{
     SliverPairIndex,
     encoding::{ReedSolomonEncoder, config::EncodingFactory as _},
     ensure,
+    hash::Blake2b256,
     merkle::{MerkleTree, Node, leaf_hash},
     metadata::{SliverPairMetadata, VerifiedBlobMetadataWithId},
 };

@@ -1,0 +1,46 @@
+name: Merkle hashing benchmarks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - crates/walrus-core/src/hash.rs
+      - crates/walrus-core/src/merkle.rs
+      - crates/walrus-core/benches/merkle_hashing.rs
+      - .github/workflows/merkle-hashing-bench.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: merkle-hashing-bench-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-ghcloud
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # pin@v7.0.1
+      - uses: ./.github/actions/sccache
+        with:
+          gcp_credentials_json: ${{ secrets.GCP_WALRUS_RELEASE_BUCKET_SVCUSER_CREDENTIALS }}
+      - name: Record benchmark environment
+        run: |
+          git rev-parse HEAD
+          rustc -Vv
+          lscpu
+      - name: Check hash and commitment compatibility
+        run: |
+          cargo test --locked -p walrus-core hash::tests
+          cargo test --locked -p walrus-core roots_and_serialized_proofs_match_reference_backend
+      - name: Compare hashers in the same process
+        run: cargo bench --locked -p walrus-core --bench merkle_hashing -- --noplot 2>&1 | tee merkle-hashing-bench.log
+      - name: Save measurements
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@v7.0.1
+        with:
+          name: merkle-hashing-bench
+          path: |
+            merkle-hashing-bench.log
+            target/criterion

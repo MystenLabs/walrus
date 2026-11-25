@@ -11,7 +11,7 @@ use alloc::{
 use core::{fmt::Debug, num::NonZeroU16};
 
 use enum_dispatch::enum_dispatch;
-use fastcrypto::hash::{Blake2b256, HashFunction};
+use fastcrypto::hash::HashFunction;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -37,6 +37,7 @@ use crate::{
         },
         source_symbols_for_n_shards,
     },
+    hash::Blake2b256,
     merkle::{DIGEST_LEN, MerkleTree, Node as MerkleNode},
 };
 
