@@ -27,5 +27,16 @@ export default function MDXContent({ children }) {
         CodeWalkthrough,
         Step
     };
-    return <MDXProvider components={suiComponents}>{children}</MDXProvider>;
+    return (
+        <MDXProvider components={suiComponents}>
+            <p className="sr-only">
+                For the complete documentation index, see{" "}
+                <a href="https://docs.wal.app/llms.txt">
+                    https://docs.wal.app/llms.txt
+                </a>
+                .
+            </p>
+            {children}
+        </MDXProvider>
+    );
 }
