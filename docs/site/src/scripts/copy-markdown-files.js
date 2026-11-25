@@ -14,8 +14,9 @@ const glossaryPath = path.join(staticDir, 'glossary.json');
 // else belongs to the main docs plugin and is served under `/docs`.
 const EXTERNAL_DOC_SETS = ['blog', 'oyster', 'walrus-memory'];
 
-// NOTE: The llms.txt directive is not injected here so that
-// generate-llmstxt.mjs reads clean content without self-referential links.
+// NOTE: The llms.txt directive is not injected here. inject-markdown-directive.js
+// adds it after generate-llmstxt.mjs runs, so the index reads clean content
+// without self-referential links.
 
 /**
  * Checks if a markdown file should be skipped (draft or redirect)
