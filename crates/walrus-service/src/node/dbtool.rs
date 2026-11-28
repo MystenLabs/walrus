@@ -5,6 +5,8 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
+    io::Cursor,
+    num::NonZeroU16,
     path::{Path, PathBuf},
     thread::sleep,
     time::Duration,
@@ -29,13 +31,19 @@ use rocksdb::{
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use sui_types::base_types::ObjectID;
-use typed_store::rocks::be_fix_int_ser;
+use typed_store::{
+    TypedStoreError,
+    rocks::{MetricConf, be_fix_int_ser},
+};
 use walrus_core::{
     BlobId,
+    DEFAULT_ENCODING,
     Epoch,
     ShardIndex,
+    encoding::{EncodingConfig, EncodingFactory as _},
     metadata::{BlobMetadata, BlobMetadataApi},
 };
+use walrus_utils::metrics::Registry;
 
 use super::DatabaseTableOptionsFactory;
 use crate::{
@@ -59,6 +67,7 @@ use crate::{
             PendingRecoverBlob,
             PrimarySliverData,
             SecondarySliverData,
+            Storage,
             blob_info::{
                 BlobInfo,
                 CertifiedBlobInfoApi,
@@ -68,6 +77,7 @@ use crate::{
                 per_object_pooled_blob_info_cf_options,
                 storage_pool_info_cf_options,
             },
+            blob_info_snapshot,
             constants::{
                 aggregate_blob_info_cf_name,
                 event_cursor_cf_name,
@@ -369,6 +379,52 @@ pub enum DbToolCommands {
         #[command(subcommand)]
         command: EventProcessorCommands,
     },
+
+    /// Decode a blob info snapshot file, print its header and per-section entry counts, and
+    /// re-encode it with the node's writer, asserting a byte-identical round-trip.
+    DecodeBlobInfoSnapshot {
+        /// Path to the snapshot file, as written by the node or read back as a blob.
+        #[arg(long)]
+        input: PathBuf,
+    },
+
+    /// Check that a blob info snapshot file has the given blob ID.
+    ///
+    /// Encodes the file the way a node does when it publishes its snapshot (default encoding, the
+    /// network's shard count) and compares the resulting blob ID with `--blob-id`, for example a
+    /// certified snapshot's blob ID from the System object. Fails on a mismatch. Run it before
+    /// loading a file that did not come from the read path, which already verifies the blob ID.
+    VerifyBlobInfoSnapshot {
+        /// Path to the snapshot file.
+        #[arg(long)]
+        input: PathBuf,
+        /// The expected blob ID, in URL-safe base64 format (no padding).
+        #[arg(long)]
+        #[serde_as(as = "DisplayFromStr")]
+        blob_id: BlobId,
+        /// The number of shards of the network the snapshot was published on.
+        #[arg(long)]
+        n_shards: NonZeroU16,
+    },
+
+    /// Replace a stopped node's blob info tables with the contents of a blob info snapshot.
+    ///
+    /// Clears and refills `per_object_blob_info`, `per_object_pooled_blob_info`, and
+    /// `storage_pool_info`, rebuilds `aggregate_blob_info` from them, moves the event cursor to the
+    /// snapshot's boundary event, sets the garbage-collection progress to the snapshot's epoch,
+    /// and sets the node status to `RecoveryCatchUp`, all in one atomic write. On its next start,
+    /// the node replays events from the snapshot's epoch boundary and then recovers any missing
+    /// data through the regular recovery path. Metadata, slivers, and the remaining tables are
+    /// not touched; the command refuses to run on a database with a column family it does not
+    /// know. The node must be stopped; back up the database first.
+    LoadBlobInfoSnapshot {
+        /// Path to the node's storage database directory; the database must already exist.
+        #[arg(long)]
+        db_path: PathBuf,
+        /// Path to the snapshot file, as written by the node or read back as a blob.
+        #[arg(long)]
+        input: PathBuf,
+    },
 }
 
 /// Commands for reading event blob writer metadata.
@@ -493,6 +549,15 @@ impl DbToolCommands {
             Self::EventProcessor { db_path, command } => match command {
                 EventProcessorCommands::ReadInitState => read_event_processor_init_state(db_path),
             },
+            Self::DecodeBlobInfoSnapshot { input } => decode_blob_info_snapshot(input),
+            Self::VerifyBlobInfoSnapshot {
+                input,
+                blob_id,
+                n_shards,
+            } => verify_blob_info_snapshot(input, blob_id, n_shards),
+            Self::LoadBlobInfoSnapshot { db_path, input } => {
+                load_blob_info_snapshot(db_path, input)
+            }
         }
     }
 }
@@ -1929,6 +1994,132 @@ fn read_failed_to_attest_event_blobs(db_path: PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// Decodes a snapshot file, prints its header and entry counts, re-encodes it with the writer, and
+/// asserts a byte-identical round-trip.
+fn decode_blob_info_snapshot(input: PathBuf) -> Result<()> {
+    let bytes = std::fs::read(&input)
+        .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
+    let (header, per_object, pooled, pools) = blob_info_snapshot::read_snapshot(&bytes)?;
+    let (per_object_count, pooled_count, pools_count) =
+        (per_object.len(), pooled.len(), pools.len());
+
+    let mut cursor = Cursor::new(Vec::with_capacity(bytes.len()));
+    blob_info_snapshot::write_snapshot(
+        &mut cursor,
+        &header,
+        per_object.into_iter().map(Ok::<_, TypedStoreError>),
+        pooled.into_iter().map(Ok::<_, TypedStoreError>),
+        pools.into_iter().map(Ok::<_, TypedStoreError>),
+    )?;
+    let reencoded = cursor.into_inner();
+
+    let event_id = header.event_cursor.event_id();
+    println!("Blob info snapshot ({})", input.display());
+    println!("  epoch in header:  {}", header.epoch);
+    println!(
+        "  event cursor:     tx {} seq {}, next event index {}",
+        event_id.tx_digest,
+        event_id.event_seq,
+        header.event_cursor.next_event_index()
+    );
+    println!(
+        "  decoded entries:  per_object {per_object_count}, pooled {pooled_count}, \
+        pool {pools_count}"
+    );
+    println!("  input size:       {} bytes", bytes.len());
+    println!("  re-encoded size:  {} bytes", reencoded.len());
+    if reencoded == bytes {
+        println!("  ROUND-TRIP OK: decode -> re-encode is byte-identical");
+        Ok(())
+    } else {
+        bail!(
+            "round-trip mismatch: re-encoded {} bytes differ from input {} bytes",
+            reencoded.len(),
+            bytes.len()
+        )
+    }
+}
+
+/// Encodes a snapshot file as a node does when publishing it and compares the blob ID.
+fn verify_blob_info_snapshot(input: PathBuf, blob_id: BlobId, n_shards: NonZeroU16) -> Result<()> {
+    // With fewer than four shards no shard may be faulty, the encoding has no recovery symbols,
+    // and encoding panics.
+    if n_shards.get() < 4 {
+        bail!("the number of shards must be at least 4, got {n_shards}");
+    }
+    let bytes = std::fs::read(&input)
+        .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
+    let metadata = EncodingConfig::new(n_shards)
+        .get_for_type(DEFAULT_ENCODING)
+        .compute_metadata(&bytes)
+        .context("failed to encode the snapshot file")?;
+    let computed = *metadata.blob_id();
+
+    println!("Blob info snapshot ({})", input.display());
+    println!("  size:              {} bytes", bytes.len());
+    println!("  expected blob ID:  {blob_id}");
+    println!("  computed blob ID:  {computed} ({n_shards} shards)");
+    if computed != blob_id {
+        bail!(
+            "blob ID mismatch: the file does not have the expected blob ID (a wrong --n-shards \
+            also changes the computed blob ID)"
+        );
+    }
+    println!("  VERIFIED: the file has the expected blob ID");
+    Ok(())
+}
+
+/// Loads a blob info snapshot file into the database of a stopped node.
+fn load_blob_info_snapshot(db_path: PathBuf, input: PathBuf) -> Result<()> {
+    // `Storage::open` creates a missing database, so check first that the path holds a node's
+    // storage database; otherwise a wrong path would get a new database with the snapshot loaded.
+    let column_families = DB::list_cf(&RocksdbOptions::default(), &db_path)
+        .with_context(|| format!("no database found at {}", db_path.display()))?;
+    if !column_families
+        .iter()
+        .any(|name| name == metadata_cf_name())
+    {
+        bail!(
+            "the database at {} is not a storage node database",
+            db_path.display()
+        );
+    }
+    let bytes = std::fs::read(&input)
+        .with_context(|| format!("failed to read snapshot file {}", input.display()))?;
+    let (header, per_object, pooled, pools) = blob_info_snapshot::read_snapshot(&bytes)?;
+
+    // Opening the storage starts database metrics tasks, which need a runtime.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    let _runtime_guard = runtime.enter();
+    let storage = Storage::open(
+        &db_path,
+        DatabaseConfig::default(),
+        MetricConf::default(),
+        Registry::default(),
+    )
+    .with_context(|| format!("failed to open the database at {}", db_path.display()))?;
+    let aggregate_count = storage.load_blob_info_snapshot(&header, &per_object, &pooled, &pools)?;
+
+    println!("Loaded blob info snapshot ({})", input.display());
+    println!("  epoch in header:     {}", header.epoch);
+    println!(
+        "  loaded entries:      per_object {}, pooled {}, pool {}",
+        per_object.len(),
+        pooled.len(),
+        pools.len()
+    );
+    println!("  rebuilt aggregate:   {aggregate_count} entries");
+    println!(
+        "  event cursor:        next event index {} (the boundary event)",
+        header.event_cursor.next_event_index().saturating_sub(1)
+    );
+    println!("  gc progress:         epoch {}", header.epoch);
+    println!("  node status:         RecoveryCatchUp");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use clap::{CommandFactory, Parser};
@@ -2207,5 +2398,27 @@ mod tests {
             DbToolArgs::try_parse_from(["db-tool", "recover-db", "--db-path", "/tmp/testdb"])
                 .expect("hidden recover-db command should still parse");
         assert!(matches!(recover.command, DbToolCommands::RecoverDb { .. }));
+    }
+
+    #[test]
+    fn load_blob_info_snapshot_refuses_a_directory_without_a_database() -> Result<()> {
+        let snapshot_directory = tempdir()?;
+        let snapshot = snapshot_directory.path().join("snapshot");
+        blob_info_snapshot::write_snapshot(
+            std::fs::File::create(&snapshot)?,
+            &blob_info_snapshot::SnapshotHeader::new(
+                1,
+                walrus_sui::test_utils::fixed_event_id_for_testing(0),
+                1,
+            ),
+            std::iter::empty(),
+            std::iter::empty(),
+            std::iter::empty(),
+        )?;
+        let directory = tempdir()?;
+
+        assert!(load_blob_info_snapshot(directory.path().to_path_buf(), snapshot).is_err());
+        assert_eq!(std::fs::read_dir(directory.path())?.count(), 0);
+        Ok(())
     }
 }

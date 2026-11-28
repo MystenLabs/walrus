@@ -14,7 +14,7 @@ use tracing::Level;
 use typed_store::{
     Map,
     TypedStoreError,
-    rocks::{DBMap, ReadWriteOptions, RocksDB},
+    rocks::{DBBatch, DBMap, ReadWriteOptions, RocksDB},
 };
 
 use super::{
@@ -142,6 +142,27 @@ impl EventCursorTable {
             .lock()
             .expect("mutex should not be poisoned") = EventSequencer::continue_from(next_index);
 
+        Ok(())
+    }
+
+    /// Adds to `batch` a write that repositions the event cursor.
+    ///
+    /// Unlike [`Self::reposition_event_cursor`], this does not update the in-memory event
+    /// sequencer, so it must only be used while no events are processed; the new position takes
+    /// effect when the table is next reopened.
+    pub fn schedule_reposition_event_cursor(
+        &self,
+        batch: &mut DBBatch,
+        cursor: EventID,
+        next_index: u64,
+    ) -> Result<(), TypedStoreError> {
+        batch.insert_batch(
+            &self.inner,
+            [(
+                event_cursor_key(),
+                &EventIdWithProgress::new(cursor, next_index),
+            )],
+        )?;
         Ok(())
     }
 
